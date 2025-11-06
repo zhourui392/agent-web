@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>本机 Agent 控制台</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 0; display: flex; height: 100vh; }
+    #sidebar { width: 320px; border-right: 1px solid #ddd; padding: 12px; box-sizing: border-box; overflow: auto; }
+    #main { flex: 1; display: flex; flex-direction: column; }
+    #folderList div { padding: 6px; cursor: pointer; }
+    #folderList div:hover { background: #f0f0f0; }
+    #chat { flex: 1; padding: 12px; overflow: auto; background: #fafafa; }
+    #inputBar { display: flex; gap: 8px; padding: 8px; border-top: 1px solid #ddd; }
+    #inputBar textarea { flex: 1; height: 70px; }
+    pre { background: #fff; padding: 8px; border: 1px solid #eee; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+<div id="sidebar">
+  <h3>选择工作目录</h3>
+  <div>
+    <label>根路径：</label>
+    <select id="rootSelect"></select>
+    <button onclick="loadList()">进入</button>
+  </div>
+  <div id="currentPath" style="margin-top:8px;color:#555"></div>
+  <div id="folderList" style="margin-top:8px;"></div>
+  <hr>
+  <div>
+    <label>Agent：</label>
+    <select id="agentType">
+      <option value="CODEX">CODEX</option>
+      <option value="CLAUDE">CLAUDE</option>
+    </select>
+    <button onclick="startSession()">启动会话</button>
+  </div>
+  <div id="sessionInfo" style="margin-top:8px;color:#090"></div>
+</div>
+<div id="main">
+  <div id="chat"></div>
+  <div id="inputBar">
+    <textarea id="msg" placeholder="输入你的指令，例如：在当前目录初始化一个 Spring Boot 项目"></textarea>
+    <button onclick="sendMsgStream()">流式发送</button>
+    <button onclick="sendMsg()">完整发送</button>
+  </div>
+</div>
+<script>
+let currentPath = null;
+let sessionId = null;
+
+async function init() {
+  const roots = await fetch('/api/fs/roots').then(r=>r.json());
+  const sel = document.getElementById('rootSelect');
+  roots.forEach(r => { const o = document.createElement('option'); o.value = r; o.textContent = r; sel.appendChild(o); });
+  currentPath = roots[0] || '/';
+  document.getElementById('currentPath').textContent = currentPath;
+  await loadList();
+}
+
+async function loadList(path) {
+  if (path) currentPath = path;
+  const data = await fetch('/api/fs/list?path=' + encodeURIComponent(currentPath)).then(r=>{
+    if (!r.ok) { return r.text().then(t=>{ throw new Error(t); }); }
+    return r.json();
+  });
+  document.getElementById('currentPath').textContent = currentPath;
+  const box = document.getElementById('folderList'); box.innerHTML = '';
+  data.forEach(item => {
+    const d = document.createElement('div');
+    d.textContent = (item.name || item.path);
+    d.onclick = () => { loadList(item.path); };
+    box.appendChild(d);
+  });
+}
+
+async function startSession() {
+  const agentType = document.getElementById('agentType').value;
+  const req = { agentType, workingDir: currentPath };
+  const res = await fetch('/api/chat/session', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(req) });
+  if (!res.ok) { const t = await res.text(); alert('启动失败: ' + t); return; }
+  const data = await res.json();
+  sessionId = data.sessionId;
+  document.getElementById('sessionInfo').textContent = 'Session: ' + sessionId + ' ('+ data.agentType +')';
+  appendChat('system', '会话已创建，工作目录：' + data.workingDir);
+}
+
+function appendChat(role, text) {
+  const c = document.getElementById('chat');
+  const pre = document.createElement('pre');
+  pre.textContent = (role === 'user' ? '你: ' : role + ': ') + text;
+  c.appendChild(pre); c.scrollTop = c.scrollHeight;
+}
+
+async function sendMsg() {
+  if (!sessionId) { alert('请先启动会话'); return; }
+  const message = document.getElementById('msg').value.trim();
+  if (!message) return;
+  appendChat('user', message);
+  document.getElementById('msg').value = '';
+  const res = await fetch('/api/chat/session/' + encodeURIComponent(sessionId) + '/message', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({message}) });
+  if (!res.ok) { const t = await res.text(); appendChat('error', '调用失败: ' + t); return; }
+  const data = await res.json();
+  appendChat('agent', data.output);
+}
+
+function sendMsgStream() {
+  if (!sessionId) { alert('请先启动会话'); return; }
+  const message = document.getElementById('msg').value.trim();
+  if (!message) return;
+  appendChat('user', message);
+  document.getElementById('msg').value = '';
+  // 使用 SSE 进行流式输出
+  const url = '/api/chat/session/' + encodeURIComponent(sessionId) + '/message/stream?message=' + encodeURIComponent(message);
+  const es = new EventSource(url);
+  let buffer = '';
+  es.addEventListener('chunk', (e) => {
+    buffer += e.data;
+    appendChat('agent', e.data);
+  });
+  es.addEventListener('exit', (e) => {
+    appendChat('system', '进程退出码: ' + e.data);
+    es.close();
+  });
+  es.addEventListener('error', (e) => {
+    appendChat('error', e.data || 'SSE 连接错误');
+    es.close();
+  });
+  es.onerror = () => { /* 网络错误时关闭 */ es.close(); };
+}
+
+init();
+</script>
+</body>
+</html>

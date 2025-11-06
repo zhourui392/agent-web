@@ -1,0 +1,27 @@
+server:
+  port: 8080
+
+# Allowed roots for browsing on the host running this web service.
+# IMPORTANT: narrow this to specific workspace folders in production.
+agent:
+  fs:
+    roots:
+      - "/home"
+      - "/tmp"
+  cli:
+    codex:
+      exec: ${CODEX_CMD:codex}
+      args: []
+      stdin: true
+      timeout-seconds: 180
+    claude:
+      exec: ${CLAUDE_CLI_CMD:claude}
+      args: []
+      stdin: true
+      timeout-seconds: 180
+spring:
+  mvc:
+    throw-exception-if-no-handler-found: true
+  web:
+    resources:
+      add-mappings: true
