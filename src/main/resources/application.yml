@@ -14,6 +14,7 @@ agent:
       args:
         - exec
         - --skip-git-repo-check
+        - --full-auto
       stdin: true
       timeout-seconds: 180
     claude:
@@ -24,6 +25,7 @@ agent:
         - stream-json
         - --verbose
         - --include-partial-messages
+        - --dangerously-skip-permissions
       stdin: true
       timeout-seconds: 180
 spring:
