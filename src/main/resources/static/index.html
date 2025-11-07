@@ -110,13 +110,22 @@ function sendMsgStream() {
   if (!message) return;
   appendChat('user', message);
   document.getElementById('msg').value = '';
+
+  // 创建一个 pre 元素用于累积流式输出
+  const c = document.getElementById('chat');
+  const pre = document.createElement('pre');
+  pre.textContent = 'agent: ';
+  c.appendChild(pre);
+  c.scrollTop = c.scrollHeight;
+
   // 使用 SSE 进行流式输出
   const url = '/api/chat/session/' + encodeURIComponent(sessionId) + '/message/stream?message=' + encodeURIComponent(message);
   const es = new EventSource(url);
   let buffer = '';
   es.addEventListener('chunk', (e) => {
     buffer += e.data;
-    appendChat('agent', e.data);
+    pre.textContent = 'agent: ' + buffer;
+    c.scrollTop = c.scrollHeight;
   });
   es.addEventListener('exit', (e) => {
     appendChat('system', '进程退出码: ' + e.data);
