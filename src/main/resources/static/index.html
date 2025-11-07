@@ -147,30 +147,27 @@
             </template>
 
             <el-form label-position="top" size="default">
-              <el-form-item label="选择 Agent">
-                <el-select v-model="agentType" placeholder="选择 Agent 类型" style="width: 100%;">
-                  <el-option label="CODEX" value="CODEX">
-                    <span style="float: left">CODEX</span>
-                    <span style="float: right; color: #8492a6; font-size: 12px;">GPT-5</span>
-                  </el-option>
-                  <el-option label="CLAUDE" value="CLAUDE">
-                    <span style="float: left">CLAUDE</span>
-                    <span style="float: right; color: #8492a6; font-size: 12px;">Sonnet 4.5</span>
-                  </el-option>
-                </el-select>
+              <el-form-item label="Agent 类型">
+                <el-input value="CLAUDE (Sonnet 4.5)" readonly></el-input>
               </el-form-item>
 
-              <el-button type="primary" style="width: 100%;" @click="startSession" :loading="starting" :disabled="!currentPath">
+              <el-button type="primary" style="width: 100%; margin-bottom: 12px;" @click="startSession" :loading="starting" :disabled="!currentPath">
                 <el-icon><Connection /></el-icon>
                 <span>启动会话</span>
+              </el-button>
+
+              <el-button style="width: 100%;" @click="clearContext" :disabled="!sessionId">
+                <el-icon><Delete /></el-icon>
+                <span>清除上下文</span>
               </el-button>
             </el-form>
 
             <!-- 会话信息 -->
             <div v-if="sessionId" class="session-info">
               <div><strong>会话 ID：</strong>{{ sessionId.substring(0, 8) }}...</div>
-              <div><strong>Agent：</strong>{{ agentType }}</div>
+              <div><strong>Agent：</strong>CLAUDE</div>
               <div><strong>目录：</strong>{{ workingDir }}</div>
+              <div v-if="resumeId"><strong>Resume ID：</strong>{{ resumeId.substring(0, 16) }}...</div>
             </div>
           </el-card>
         </div>
@@ -206,22 +203,19 @@
               type="textarea"
               :rows="3"
               placeholder="输入你的指令，例如：在当前目录初始化一个 Spring Boot 项目"
-              @keydown.ctrl.enter="sendMessageStream"
+              @keydown.enter.exact.prevent="sendMessageStream"
+              @keydown.ctrl.enter.exact.prevent="insertNewline"
               :disabled="!sessionId"
             ></el-input>
             <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center;">
               <div style="color: #909399; font-size: 13px;">
-                <span v-if="sessionId">Ctrl+Enter 发送</span>
+                <span v-if="sessionId">Enter 发送 | Ctrl+Enter 换行</span>
                 <span v-else>请先启动会话</span>
               </div>
               <div>
-                <el-button @click="sendMessage" :disabled="!sessionId || !userInput.trim()">
-                  <el-icon><ChatDotRound /></el-icon>
-                  <span>完整发送</span>
-                </el-button>
                 <el-button type="primary" @click="sendMessageStream" :loading="sending" :disabled="!sessionId || !userInput.trim()">
                   <el-icon><Connection /></el-icon>
-                  <span>流式发送</span>
+                  <span>发送</span>
                 </el-button>
               </div>
             </div>
@@ -248,9 +242,10 @@
         const selectedRoot = ref('');
         const currentPath = ref('');
         const folderList = ref([]);
-        const agentType = ref('CODEX');
+        const agentType = ref('CLAUDE');
         const sessionId = ref('');
         const workingDir = ref('');
+        const resumeId = ref('');
         const messages = ref([]);
         const userInput = ref('');
         const starting = ref(false);
@@ -307,6 +302,7 @@
             const data = await res.json();
             sessionId.value = data.sessionId;
             workingDir.value = data.workingDir;
+            resumeId.value = ''; // 清除旧的 resume ID
             addMessage('system', '会话已创建，工作目录：' + data.workingDir);
             ElementPlus.ElMessage.success('会话启动成功');
           } catch (error) {
@@ -325,28 +321,23 @@
           });
         };
 
-        const sendMessage = async () => {
-          if (!sessionId.value || !userInput.value.trim()) return;
-
-          const message = userInput.value.trim();
-          addMessage('user', message);
-          userInput.value = '';
-
-          try {
-            const res = await fetch('/api/chat/session/' + encodeURIComponent(sessionId.value) + '/message', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ message })
+        const insertNewline = () => {
+          const textarea = document.querySelector('textarea');
+          if (textarea) {
+            const start = textarea.selectionStart;
+            const end = textarea.selectionEnd;
+            const value = userInput.value;
+            userInput.value = value.substring(0, start) + '\n' + value.substring(end);
+            nextTick(() => {
+              textarea.selectionStart = textarea.selectionEnd = start + 1;
             });
-            if (!res.ok) {
-              const text = await res.text();
-              throw new Error(text);
-            }
-            const data = await res.json();
-            addMessage('agent', data.output);
-          } catch (error) {
-            addMessage('error', '调用失败: ' + error.message);
           }
+        };
+
+        const clearContext = () => {
+          resumeId.value = '';
+          addMessage('system', '上下文已清除');
+          ElementPlus.ElMessage.success('上下文已清除');
         };
 
         const sendMessageStream = () => {
@@ -361,18 +352,50 @@
           const msgIndex = messages.value.length;
           addMessage('agent', '');
 
-          const url = '/api/chat/session/' + encodeURIComponent(sessionId.value) + '/message/stream?message=' + encodeURIComponent(message);
+          let url = '/api/chat/session/' + encodeURIComponent(sessionId.value) + '/message/stream?message=' + encodeURIComponent(message);
+          if (resumeId.value) {
+            url += '&resumeId=' + encodeURIComponent(resumeId.value);
+          }
+
           const es = new EventSource(url);
           let buffer = '';
 
           es.addEventListener('chunk', (e) => {
-            buffer += e.data;
-            messages.value[msgIndex].text = buffer;
-            nextTick(() => {
-              if (chatContainer.value) {
-                chatContainer.value.scrollTop = chatContainer.value.scrollHeight;
+            try {
+              const json = JSON.parse(e.data);
+
+              // 提取 resume ID (从 session_id 字段)
+              if (json.session_id && !resumeId.value) {
+                resumeId.value = json.session_id;
               }
-            });
+
+              // 提取文本内容
+              if (json.type === 'stream_event' && json.event) {
+                // content_block_delta 包含增量文本
+                if (json.event.type === 'content_block_delta' && json.event.delta && json.event.delta.text) {
+                  buffer += json.event.delta.text;
+                }
+              } else if (json.type === 'assistant' && json.message && json.message.content) {
+                // 最终完整消息（如果有的话，使用它替换累积的内容）
+                for (const block of json.message.content) {
+                  if (block.type === 'text' && block.text) {
+                    buffer = block.text;
+                  }
+                }
+              } else if (json.type === 'result' && json.result) {
+                // 使用 result 类型的完整结果文本
+                buffer = json.result;
+              }
+
+              messages.value[msgIndex].text = buffer;
+              nextTick(() => {
+                if (chatContainer.value) {
+                  chatContainer.value.scrollTop = chatContainer.value.scrollHeight;
+                }
+              });
+            } catch (err) {
+              console.error('Failed to parse JSON:', e.data, err);
+            }
           });
 
           es.addEventListener('exit', (e) => {
@@ -405,6 +428,7 @@
           agentType,
           sessionId,
           workingDir,
+          resumeId,
           messages,
           userInput,
           starting,
@@ -413,7 +437,8 @@
           handleRootChange,
           loadList,
           startSession,
-          sendMessage,
+          insertNewline,
+          clearContext,
           sendMessageStream
         };
       }

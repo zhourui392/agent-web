@@ -70,6 +70,7 @@ public class AgentCliGateway implements AgentGateway {
     public void runStream(AgentType type,
                           String workingDir,
                           String userMessage,
+                          String resumeId,
                           java.util.function.Consumer<String> onChunk,
                           java.util.function.IntConsumer onExit) throws IOException, InterruptedException {
         AgentCliProperties.Client cfg = resolve(type);
@@ -84,6 +85,12 @@ public class AgentCliGateway implements AgentGateway {
             } else {
                 cmd.add(a);
             }
+        }
+
+        // Add --resume flag for Claude if resumeId is provided
+        if (type == AgentType.CLAUDE && resumeId != null && !resumeId.trim().isEmpty()) {
+            cmd.add("--resume");
+            cmd.add(resumeId.trim());
         }
 
         ProcessBuilder pb = new ProcessBuilder(cmd);

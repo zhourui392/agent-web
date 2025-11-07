@@ -44,7 +44,9 @@ public class ChatController {
     }
 
     @GetMapping(value = "/session/{id}/message/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter stream(@PathVariable("id") String id, @RequestParam("message") String message) {
-        return appService.streamMessage(id, message);
+    public SseEmitter stream(@PathVariable("id") String id,
+                            @RequestParam("message") String message,
+                            @RequestParam(value = "resumeId", required = false) String resumeId) {
+        return appService.streamMessage(id, message, resumeId);
     }
 }

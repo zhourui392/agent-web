@@ -22,10 +22,12 @@ public interface AgentGateway {
      * Stream output chunks as the agent runs. Implementations should invoke onChunk for each
      * available stdout/stderr chunk and call onExit with the final exit code (or -1 on timeout).
      * This method should block until the process exits.
+     * @param resumeId Optional resume ID for continuing a conversation (used for Claude --resume)
      */
     void runStream(AgentType type,
                    String workingDir,
                    String userMessage,
+                   String resumeId,
                    java.util.function.Consumer<String> onChunk,
                    java.util.function.IntConsumer onExit) throws IOException, InterruptedException;
 }

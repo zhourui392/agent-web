@@ -55,7 +55,7 @@ public class ChatAppServiceImpl implements ChatAppService {
     }
 
     @Override
-    public SseEmitter streamMessage(String sessionId, String message) {
+    public SseEmitter streamMessage(String sessionId, String message, String resumeId) {
         final ChatSession s = getSession(sessionId);
         if (s == null) {
             throw new IllegalArgumentException("Session not found: " + sessionId);
@@ -68,7 +68,7 @@ public class ChatAppServiceImpl implements ChatAppService {
             @Override
             public void run() {
                 try {
-                    gateway.runStream(s.getAgentType(), s.getWorkingDir(), message,
+                    gateway.runStream(s.getAgentType(), s.getWorkingDir(), message, resumeId,
                             new java.util.function.Consumer<String>() {
                                 @Override
                                 public void accept(String chunk) {
