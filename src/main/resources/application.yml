@@ -13,6 +13,7 @@ agent:
       exec: ${CODEX_CMD:codex}
       args:
         - exec
+        - --skip-git-repo-check
       stdin: true
       timeout-seconds: 180
     claude:
