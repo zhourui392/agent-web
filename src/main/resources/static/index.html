@@ -3,142 +3,421 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>本机 Agent 控制台</title>
+  <title>Agent Web 控制台</title>
+  <!-- Element Plus CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+  <!-- Element Plus Icons -->
+  <link rel="stylesheet" href="https://unpkg.com/@element-plus/icons-vue/dist/index.css">
   <style>
-    body { font-family: Arial, sans-serif; margin: 0; padding: 0; display: flex; height: 100vh; }
-    #sidebar { width: 320px; border-right: 1px solid #ddd; padding: 12px; box-sizing: border-box; overflow: auto; }
-    #main { flex: 1; display: flex; flex-direction: column; }
-    #folderList div { padding: 6px; cursor: pointer; }
-    #folderList div:hover { background: #f0f0f0; }
-    #chat { flex: 1; padding: 12px; overflow: auto; background: #fafafa; }
-    #inputBar { display: flex; gap: 8px; padding: 8px; border-top: 1px solid #ddd; }
-    #inputBar textarea { flex: 1; height: 70px; }
-    pre { background: #fff; padding: 8px; border: 1px solid #eee; white-space: pre-wrap; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      overflow: hidden;
+    }
+    #app {
+      height: 100%;
+    }
+    .chat-container {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+    }
+    .chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      background: #f5f7fa;
+    }
+    .chat-message {
+      margin-bottom: 16px;
+    }
+    .message-user {
+      background: #409eff;
+      color: white;
+      padding: 12px 16px;
+      border-radius: 12px 12px 4px 12px;
+      max-width: 70%;
+      margin-left: auto;
+      word-wrap: break-word;
+    }
+    .message-agent {
+      background: white;
+      padding: 12px 16px;
+      border-radius: 12px 12px 12px 4px;
+      max-width: 85%;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      white-space: pre-wrap;
+      font-family: 'Consolas', 'Monaco', monospace;
+      font-size: 13px;
+    }
+    .message-system {
+      background: #e1f3d8;
+      color: #67c23a;
+      padding: 8px 12px;
+      border-radius: 8px;
+      text-align: center;
+      font-size: 13px;
+    }
+    .message-error {
+      background: #fef0f0;
+      color: #f56c6c;
+      padding: 8px 12px;
+      border-radius: 8px;
+      text-align: center;
+      font-size: 13px;
+    }
+    .chat-input-area {
+      padding: 16px;
+      background: white;
+      border-top: 1px solid #ebeef5;
+    }
+    .folder-item {
+      cursor: pointer;
+      padding: 8px 12px;
+      border-radius: 4px;
+      transition: background 0.2s;
+    }
+    .folder-item:hover {
+      background: #f5f7fa;
+    }
+    .session-info {
+      padding: 12px;
+      background: #f0f9ff;
+      border-radius: 8px;
+      margin-top: 12px;
+      font-size: 13px;
+      color: #409eff;
+    }
+    .el-aside {
+      background: #fafafa;
+      border-right: 1px solid #ebeef5;
+      overflow-y: auto;
+    }
   </style>
 </head>
 <body>
-<div id="sidebar">
-  <h3>选择工作目录</h3>
-  <div>
-    <label>根路径：</label>
-    <select id="rootSelect"></select>
-    <button onclick="loadList()">进入</button>
+  <div id="app">
+    <el-container style="height: 100%">
+      <!-- 侧边栏 -->
+      <el-aside width="320px">
+        <div style="padding: 20px;">
+          <!-- 工作目录选择 -->
+          <el-card shadow="hover" style="margin-bottom: 20px;">
+            <template #header>
+              <div style="display: flex; align-items: center;">
+                <el-icon><Folder /></el-icon>
+                <span style="margin-left: 8px; font-weight: 600;">工作目录</span>
+              </div>
+            </template>
+
+            <el-form label-position="top" size="default">
+              <el-form-item label="根路径">
+                <el-select v-model="selectedRoot" placeholder="选择根路径" style="width: 100%;" @change="handleRootChange">
+                  <el-option v-for="root in roots" :key="root" :label="root" :value="root"></el-option>
+                </el-select>
+              </el-form-item>
+
+              <el-form-item label="当前路径">
+                <el-input v-model="currentPath" readonly>
+                  <template #prefix>
+                    <el-icon><FolderOpened /></el-icon>
+                  </template>
+                </el-input>
+              </el-form-item>
+            </el-form>
+
+            <!-- 文件夹列表 -->
+            <el-scrollbar height="300px">
+              <div v-for="item in folderList" :key="item.path" class="folder-item" @click="loadList(item.path)">
+                <el-icon><Folder /></el-icon>
+                <span style="margin-left: 8px;">{{ item.name || item.path }}</span>
+              </div>
+              <el-empty v-if="folderList.length === 0" description="没有子目录" :image-size="60"></el-empty>
+            </el-scrollbar>
+          </el-card>
+
+          <!-- Agent 设置 -->
+          <el-card shadow="hover">
+            <template #header>
+              <div style="display: flex; align-items: center;">
+                <el-icon><Avatar /></el-icon>
+                <span style="margin-left: 8px; font-weight: 600;">Agent 设置</span>
+              </div>
+            </template>
+
+            <el-form label-position="top" size="default">
+              <el-form-item label="选择 Agent">
+                <el-select v-model="agentType" placeholder="选择 Agent 类型" style="width: 100%;">
+                  <el-option label="CODEX" value="CODEX">
+                    <span style="float: left">CODEX</span>
+                    <span style="float: right; color: #8492a6; font-size: 12px;">GPT-5</span>
+                  </el-option>
+                  <el-option label="CLAUDE" value="CLAUDE">
+                    <span style="float: left">CLAUDE</span>
+                    <span style="float: right; color: #8492a6; font-size: 12px;">Sonnet 4.5</span>
+                  </el-option>
+                </el-select>
+              </el-form-item>
+
+              <el-button type="primary" style="width: 100%;" @click="startSession" :loading="starting" :disabled="!currentPath">
+                <el-icon><Connection /></el-icon>
+                <span>启动会话</span>
+              </el-button>
+            </el-form>
+
+            <!-- 会话信息 -->
+            <div v-if="sessionId" class="session-info">
+              <div><strong>会话 ID：</strong>{{ sessionId.substring(0, 8) }}...</div>
+              <div><strong>Agent：</strong>{{ agentType }}</div>
+              <div><strong>目录：</strong>{{ workingDir }}</div>
+            </div>
+          </el-card>
+        </div>
+      </el-aside>
+
+      <!-- 主内容区 -->
+      <el-main style="padding: 0;">
+        <div class="chat-container">
+          <!-- 聊天消息区 -->
+          <div class="chat-messages" ref="chatContainer">
+            <div v-for="(msg, index) in messages" :key="index" class="chat-message">
+              <div v-if="msg.role === 'user'" style="display: flex; justify-content: flex-end;">
+                <div class="message-user">{{ msg.text }}</div>
+              </div>
+              <div v-else-if="msg.role === 'agent'">
+                <div class="message-agent">{{ msg.text }}</div>
+              </div>
+              <div v-else-if="msg.role === 'system'">
+                <div class="message-system">{{ msg.text }}</div>
+              </div>
+              <div v-else-if="msg.role === 'error'">
+                <div class="message-error">{{ msg.text }}</div>
+              </div>
+            </div>
+
+            <el-empty v-if="messages.length === 0" description="请选择工作目录并启动会话" :image-size="120"></el-empty>
+          </div>
+
+          <!-- 输入区 -->
+          <div class="chat-input-area">
+            <el-input
+              v-model="userInput"
+              type="textarea"
+              :rows="3"
+              placeholder="输入你的指令，例如：在当前目录初始化一个 Spring Boot 项目"
+              @keydown.ctrl.enter="sendMessageStream"
+              :disabled="!sessionId"
+            ></el-input>
+            <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center;">
+              <div style="color: #909399; font-size: 13px;">
+                <span v-if="sessionId">Ctrl+Enter 发送</span>
+                <span v-else>请先启动会话</span>
+              </div>
+              <div>
+                <el-button @click="sendMessage" :disabled="!sessionId || !userInput.trim()">
+                  <el-icon><ChatDotRound /></el-icon>
+                  <span>完整发送</span>
+                </el-button>
+                <el-button type="primary" @click="sendMessageStream" :loading="sending" :disabled="!sessionId || !userInput.trim()">
+                  <el-icon><Connection /></el-icon>
+                  <span>流式发送</span>
+                </el-button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </el-main>
+    </el-container>
   </div>
-  <div id="currentPath" style="margin-top:8px;color:#555"></div>
-  <div id="folderList" style="margin-top:8px;"></div>
-  <hr>
-  <div>
-    <label>Agent：</label>
-    <select id="agentType">
-      <option value="CODEX">CODEX</option>
-      <option value="CLAUDE">CLAUDE</option>
-    </select>
-    <button onclick="startSession()">启动会话</button>
-  </div>
-  <div id="sessionInfo" style="margin-top:8px;color:#090"></div>
-</div>
-<div id="main">
-  <div id="chat"></div>
-  <div id="inputBar">
-    <textarea id="msg" placeholder="输入你的指令，例如：在当前目录初始化一个 Spring Boot 项目"></textarea>
-    <button onclick="sendMsgStream()">流式发送</button>
-    <button onclick="sendMsg()">完整发送</button>
-  </div>
-</div>
-<script>
-let currentPath = null;
-let sessionId = null;
 
-async function init() {
-  const roots = await fetch('/api/fs/roots').then(r=>r.json());
-  const sel = document.getElementById('rootSelect');
-  roots.forEach(r => { const o = document.createElement('option'); o.value = r; o.textContent = r; sel.appendChild(o); });
-  currentPath = roots[0] || '/';
-  document.getElementById('currentPath').textContent = currentPath;
-  await loadList();
-}
+  <!-- Vue 3 -->
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <!-- Element Plus -->
+  <script src="https://unpkg.com/element-plus"></script>
+  <!-- Element Plus Icons -->
+  <script src="https://unpkg.com/@element-plus/icons-vue"></script>
 
-async function loadList(path) {
-  if (path) currentPath = path;
-  const data = await fetch('/api/fs/list?path=' + encodeURIComponent(currentPath)).then(r=>{
-    if (!r.ok) { return r.text().then(t=>{ throw new Error(t); }); }
-    return r.json();
-  });
-  document.getElementById('currentPath').textContent = currentPath;
-  const box = document.getElementById('folderList'); box.innerHTML = '';
-  data.forEach(item => {
-    const d = document.createElement('div');
-    d.textContent = (item.name || item.path);
-    d.onclick = () => { loadList(item.path); };
-    box.appendChild(d);
-  });
-}
+  <script>
+    const { createApp, ref, reactive, onMounted, nextTick } = Vue;
 
-async function startSession() {
-  const agentType = document.getElementById('agentType').value;
-  const req = { agentType, workingDir: currentPath };
-  const res = await fetch('/api/chat/session', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(req) });
-  if (!res.ok) { const t = await res.text(); alert('启动失败: ' + t); return; }
-  const data = await res.json();
-  sessionId = data.sessionId;
-  document.getElementById('sessionInfo').textContent = 'Session: ' + sessionId + ' ('+ data.agentType +')';
-  appendChat('system', '会话已创建，工作目录：' + data.workingDir);
-}
+    createApp({
+      setup() {
+        // 数据
+        const roots = ref([]);
+        const selectedRoot = ref('');
+        const currentPath = ref('');
+        const folderList = ref([]);
+        const agentType = ref('CODEX');
+        const sessionId = ref('');
+        const workingDir = ref('');
+        const messages = ref([]);
+        const userInput = ref('');
+        const starting = ref(false);
+        const sending = ref(false);
+        const chatContainer = ref(null);
 
-function appendChat(role, text) {
-  const c = document.getElementById('chat');
-  const pre = document.createElement('pre');
-  pre.textContent = (role === 'user' ? '你: ' : role + ': ') + text;
-  c.appendChild(pre); c.scrollTop = c.scrollHeight;
-}
+        // 方法
+        const init = async () => {
+          try {
+            const data = await fetch('/api/fs/roots').then(r => r.json());
+            roots.value = data;
+            if (data.length > 0) {
+              selectedRoot.value = data[0];
+              currentPath.value = data[0];
+              await loadList(data[0]);
+            }
+          } catch (error) {
+            ElementPlus.ElMessage.error('加载根路径失败');
+          }
+        };
 
-async function sendMsg() {
-  if (!sessionId) { alert('请先启动会话'); return; }
-  const message = document.getElementById('msg').value.trim();
-  if (!message) return;
-  appendChat('user', message);
-  document.getElementById('msg').value = '';
-  const res = await fetch('/api/chat/session/' + encodeURIComponent(sessionId) + '/message', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({message}) });
-  if (!res.ok) { const t = await res.text(); appendChat('error', '调用失败: ' + t); return; }
-  const data = await res.json();
-  appendChat('agent', data.output);
-}
+        const handleRootChange = async () => {
+          currentPath.value = selectedRoot.value;
+          await loadList(selectedRoot.value);
+        };
 
-function sendMsgStream() {
-  if (!sessionId) { alert('请先启动会话'); return; }
-  const message = document.getElementById('msg').value.trim();
-  if (!message) return;
-  appendChat('user', message);
-  document.getElementById('msg').value = '';
+        const loadList = async (path) => {
+          if (path) currentPath.value = path;
+          try {
+            const data = await fetch('/api/fs/list?path=' + encodeURIComponent(currentPath.value))
+              .then(r => {
+                if (!r.ok) throw new Error('加载失败');
+                return r.json();
+              });
+            folderList.value = data;
+          } catch (error) {
+            ElementPlus.ElMessage.error('加载目录失败: ' + error.message);
+          }
+        };
 
-  // 创建一个 pre 元素用于累积流式输出
-  const c = document.getElementById('chat');
-  const pre = document.createElement('pre');
-  pre.textContent = 'agent: ';
-  c.appendChild(pre);
-  c.scrollTop = c.scrollHeight;
+        const startSession = async () => {
+          starting.value = true;
+          try {
+            const req = { agentType: agentType.value, workingDir: currentPath.value };
+            const res = await fetch('/api/chat/session', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(req)
+            });
+            if (!res.ok) {
+              const text = await res.text();
+              throw new Error(text);
+            }
+            const data = await res.json();
+            sessionId.value = data.sessionId;
+            workingDir.value = data.workingDir;
+            addMessage('system', '会话已创建，工作目录：' + data.workingDir);
+            ElementPlus.ElMessage.success('会话启动成功');
+          } catch (error) {
+            ElementPlus.ElMessage.error('启动失败: ' + error.message);
+          } finally {
+            starting.value = false;
+          }
+        };
 
-  // 使用 SSE 进行流式输出
-  const url = '/api/chat/session/' + encodeURIComponent(sessionId) + '/message/stream?message=' + encodeURIComponent(message);
-  const es = new EventSource(url);
-  let buffer = '';
-  es.addEventListener('chunk', (e) => {
-    buffer += e.data;
-    pre.textContent = 'agent: ' + buffer;
-    c.scrollTop = c.scrollHeight;
-  });
-  es.addEventListener('exit', (e) => {
-    appendChat('system', '进程退出码: ' + e.data);
-    es.close();
-  });
-  es.addEventListener('error', (e) => {
-    appendChat('error', e.data || 'SSE 连接错误');
-    es.close();
-  });
-  es.onerror = () => { /* 网络错误时关闭 */ es.close(); };
-}
+        const addMessage = (role, text) => {
+          messages.value.push({ role, text });
+          nextTick(() => {
+            if (chatContainer.value) {
+              chatContainer.value.scrollTop = chatContainer.value.scrollHeight;
+            }
+          });
+        };
 
-init();
-</script>
+        const sendMessage = async () => {
+          if (!sessionId.value || !userInput.value.trim()) return;
+
+          const message = userInput.value.trim();
+          addMessage('user', message);
+          userInput.value = '';
+
+          try {
+            const res = await fetch('/api/chat/session/' + encodeURIComponent(sessionId.value) + '/message', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ message })
+            });
+            if (!res.ok) {
+              const text = await res.text();
+              throw new Error(text);
+            }
+            const data = await res.json();
+            addMessage('agent', data.output);
+          } catch (error) {
+            addMessage('error', '调用失败: ' + error.message);
+          }
+        };
+
+        const sendMessageStream = () => {
+          if (!sessionId.value || !userInput.value.trim() || sending.value) return;
+
+          const message = userInput.value.trim();
+          addMessage('user', message);
+          userInput.value = '';
+          sending.value = true;
+
+          // 创建消息占位
+          const msgIndex = messages.value.length;
+          addMessage('agent', '');
+
+          const url = '/api/chat/session/' + encodeURIComponent(sessionId.value) + '/message/stream?message=' + encodeURIComponent(message);
+          const es = new EventSource(url);
+          let buffer = '';
+
+          es.addEventListener('chunk', (e) => {
+            buffer += e.data;
+            messages.value[msgIndex].text = buffer;
+            nextTick(() => {
+              if (chatContainer.value) {
+                chatContainer.value.scrollTop = chatContainer.value.scrollHeight;
+              }
+            });
+          });
+
+          es.addEventListener('exit', (e) => {
+            addMessage('system', '进程退出码: ' + e.data);
+            es.close();
+            sending.value = false;
+          });
+
+          es.addEventListener('error', (e) => {
+            addMessage('error', e.data || 'SSE 连接错误');
+            es.close();
+            sending.value = false;
+          });
+
+          es.onerror = () => {
+            es.close();
+            sending.value = false;
+          };
+        };
+
+        onMounted(() => {
+          init();
+        });
+
+        return {
+          roots,
+          selectedRoot,
+          currentPath,
+          folderList,
+          agentType,
+          sessionId,
+          workingDir,
+          messages,
+          userInput,
+          starting,
+          sending,
+          chatContainer,
+          handleRootChange,
+          loadList,
+          startSession,
+          sendMessage,
+          sendMessageStream
+        };
+      }
+    }).use(ElementPlus).mount('#app');
+  </script>
 </body>
 </html>
