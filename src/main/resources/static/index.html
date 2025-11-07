@@ -429,9 +429,10 @@
                 }
               } else if (json.type === 'assistant' && json.message && json.message.content) {
                 // 最终完整消息（如果有的话，使用它替换累积的内容）
+                buffer = '';  // 清空之前的增量累积
                 for (const block of json.message.content) {
                   if (block.type === 'text' && block.text) {
-                    buffer = block.text;
+                    buffer += block.text;  // 追加所有文本块
                   }
                 }
               } else if (json.type === 'result' && json.result) {
