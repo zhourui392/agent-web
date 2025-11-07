@@ -10,13 +10,19 @@ agent:
       - "/tmp"
   cli:
     codex:
-      exec: ${CODEX_CMD:/usr/local/bin/codex}
-      args: []
+      exec: ${CODEX_CMD:codex}
+      args:
+        - exec
       stdin: true
       timeout-seconds: 180
     claude:
-      exec: ${CLAUDE_CLI_CMD:/usr/local/bin/claude}
-      args: []
+      exec: ${CLAUDE_CLI_CMD:claude}
+      args:
+        - --print
+        - --output-format
+        - stream-json
+        - --verbose
+        - --include-partial-messages
       stdin: true
       timeout-seconds: 180
 spring:
