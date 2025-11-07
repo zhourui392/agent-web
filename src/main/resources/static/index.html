@@ -170,6 +170,25 @@
               <div v-if="resumeId"><strong>Resume ID：</strong>{{ resumeId.substring(0, 16) }}...</div>
             </div>
           </el-card>
+
+          <!-- 用户信息 -->
+          <el-card shadow="hover" style="margin-top: 20px;">
+            <template #header>
+              <div style="display: flex; align-items: center; justify-content: space-between;">
+                <div>
+                  <el-icon><User /></el-icon>
+                  <span style="margin-left: 8px; font-weight: 600;">用户信息</span>
+                </div>
+              </div>
+            </template>
+            <div style="margin-bottom: 12px;">
+              <strong>用户名：</strong>{{ username }}
+            </div>
+            <el-button type="danger" style="width: 100%;" @click="handleLogout">
+              <el-icon><SwitchButton /></el-icon>
+              <span>退出登录</span>
+            </el-button>
+          </el-card>
         </div>
       </el-aside>
 
@@ -246,11 +265,44 @@
         const sessionId = ref('');
         const workingDir = ref('');
         const resumeId = ref('');
+        const username = ref('');
         const messages = ref([]);
         const userInput = ref('');
         const starting = ref(false);
         const sending = ref(false);
         const chatContainer = ref(null);
+
+        // 检查登录状态
+        const checkAuth = async () => {
+          try {
+            const res = await fetch('/api/auth/check');
+            if (!res.ok) {
+              window.location.href = '/login.html';
+              return;
+            }
+            const data = await res.json();
+            if (!data.loggedIn) {
+              window.location.href = '/login.html';
+              return;
+            }
+            username.value = data.username || 'admin';
+          } catch (error) {
+            window.location.href = '/login.html';
+          }
+        };
+
+        // 退出登录
+        const handleLogout = async () => {
+          try {
+            await fetch('/api/auth/logout', { method: 'POST' });
+            ElementPlus.ElMessage.success('已退出登录');
+            setTimeout(() => {
+              window.location.href = '/login.html';
+            }, 500);
+          } catch (error) {
+            ElementPlus.ElMessage.error('退出失败');
+          }
+        };
 
         // 方法
         const init = async () => {
@@ -416,8 +468,9 @@
           };
         };
 
-        onMounted(() => {
-          init();
+        onMounted(async () => {
+          await checkAuth();
+          await init();
         });
 
         return {
@@ -429,6 +482,7 @@
           sessionId,
           workingDir,
           resumeId,
+          username,
           messages,
           userInput,
           starting,
@@ -439,7 +493,8 @@
           startSession,
           insertNewline,
           clearContext,
-          sendMessageStream
+          sendMessageStream,
+          handleLogout
         };
       }
     }).use(ElementPlus).mount('#app');
