@@ -121,16 +121,17 @@ public class AgentCliGateway implements AgentGateway {
             }, cfg.getTimeoutSeconds(), TimeUnit.SECONDS);
         }
 
-        // stream reading loop (blocking until EOF)
-        try (InputStream is = p.getInputStream()) {
-            byte[] buf = new byte[2048];
-            int r;
-            while ((r = is.read(buf)) != -1) {
-                String s = new String(buf, 0, r, StandardCharsets.UTF_8);
-                onChunk.accept(s);
+        // stream reading loop: read line-by-line to ensure each SSE chunk is a complete JSON line
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (!line.trim().isEmpty()) {
+                    onChunk.accept(line);
+                }
             }
         } catch (IOException ioe) {
-            onChunk.accept("[error] " + ioe.getMessage() + "\n");
+            onChunk.accept("[error] " + ioe.getMessage());
         } finally {
             if (killer != null) { killer.cancel(false); }
             scheduler.shutdownNow();

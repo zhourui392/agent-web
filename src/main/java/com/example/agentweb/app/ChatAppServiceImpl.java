@@ -60,9 +60,8 @@ public class ChatAppServiceImpl implements ChatAppService {
         if (s == null) {
             throw new IllegalArgumentException("Session not found: " + sessionId);
         }
-        // default timeout: backend process timeout + buffer; using 5 minutes if unknown
-        final long timeoutMs = 5L * 60L * 1000L;
-        final SseEmitter emitter = new SseEmitter(timeoutMs);
+        // No SSE timeout – let the CLI process (and its own watchdog) control the lifecycle
+        final SseEmitter emitter = new SseEmitter(-1L);
 
         agentExecutor.execute(new Runnable() {
             @Override

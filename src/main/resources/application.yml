@@ -6,7 +6,9 @@ server:
 agent:
   fs:
     roots:
-      - "/home"
+      - "/home/service/qpon"
+      - "/home/service/zhou/agent-web"
+      - "/home/service"
       - "/tmp"
   cli:
     codex:
@@ -16,7 +18,7 @@ agent:
         - --skip-git-repo-check
         - --full-auto
       stdin: true
-      timeout-seconds: 180
+      timeout-seconds: 0
     claude:
       exec: ${CLAUDE_CLI_CMD:claude}
       args:
@@ -27,10 +29,14 @@ agent:
         - --include-partial-messages
         - --dangerously-skip-permissions
       stdin: true
-      timeout-seconds: 180
+      timeout-seconds: 0
 spring:
   mvc:
     throw-exception-if-no-handler-found: true
   web:
     resources:
       add-mappings: true
+  servlet:
+    multipart:
+      max-file-size: 100MB
+      max-request-size: 100MB
