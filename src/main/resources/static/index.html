@@ -65,8 +65,8 @@
       font-size: 12px;
     }
     .message-agent .text-segment pre {
-      background: #1e1e1e;
-      color: #d4d4d4;
+      background: #f6f8fa;
+      color: #24292e;
       padding: 12px;
       border-radius: 6px;
       overflow-x: auto;
@@ -355,7 +355,7 @@
               v-model="userInput"
               type="textarea"
               :rows="3"
-              placeholder="请输入你的问题和描述"
+              placeholder="输入你的问题，例如：测试环境，traceId: xxx，问题描述"
               @keydown.enter.exact.prevent="sendMessageStream"
               @keydown.ctrl.enter.exact.prevent="insertNewline"
               :disabled="!sessionId"
