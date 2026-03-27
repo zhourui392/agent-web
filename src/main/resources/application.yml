@@ -1,5 +1,11 @@
 server:
   port: 18092
+  servlet:
+    async:
+      timeout: 7200000
+  tomcat:
+    connection-timeout: 7200000
+    keep-alive-timeout: 7200000
 
 # Allowed roots for browsing on the host running this web service.
 # IMPORTANT: narrow this to specific workspace folders in production.
