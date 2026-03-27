@@ -67,7 +67,7 @@ public class ChatAppServiceImpl implements ChatAppService {
             @Override
             public void run() {
                 try {
-                    gateway.runStream(s.getAgentType(), s.getWorkingDir(), message, resumeId,
+                    gateway.runStream(s.getAgentType(), s.getWorkingDir(), message, sessionId, resumeId,
                             new java.util.function.Consumer<String>() {
                                 @Override
                                 public void accept(String chunk) {
@@ -98,5 +98,10 @@ public class ChatAppServiceImpl implements ChatAppService {
             }
         });
         return emitter;
+    }
+
+    @Override
+    public void stopSession(String sessionId) {
+        gateway.stopStream(sessionId);
     }
 }

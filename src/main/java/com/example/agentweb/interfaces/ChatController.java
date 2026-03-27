@@ -43,10 +43,18 @@ public class ChatController {
         return m;
     }
 
-    @GetMapping(value = "/session/{id}/message/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @GetMapping(value = "/session/{id}/message/stream", produces = "text/event-stream;charset=UTF-8")
     public SseEmitter stream(@PathVariable("id") String id,
                             @RequestParam("message") String message,
                             @RequestParam(value = "resumeId", required = false) String resumeId) {
         return appService.streamMessage(id, message, resumeId);
+    }
+
+    @PostMapping("/session/{id}/stop")
+    public Map<String, Object> stop(@PathVariable("id") String id) {
+        appService.stopSession(id);
+        Map<String, Object> m = new HashMap<String, Object>();
+        m.put("success", true);
+        return m;
     }
 }

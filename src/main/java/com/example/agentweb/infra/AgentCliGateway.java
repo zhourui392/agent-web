@@ -22,6 +22,7 @@ import java.util.concurrent.*;
 public class AgentCliGateway implements AgentGateway {
 
     private final AgentCliProperties props;
+    private final ConcurrentHashMap<String, Process> runningProcesses = new ConcurrentHashMap<String, Process>();
 
     public AgentCliGateway(AgentCliProperties props) {
         this.props = props;
@@ -70,6 +71,7 @@ public class AgentCliGateway implements AgentGateway {
     public void runStream(AgentType type,
                           String workingDir,
                           String userMessage,
+                          String sessionId,
                           String resumeId,
                           java.util.function.Consumer<String> onChunk,
                           java.util.function.IntConsumer onExit) throws IOException, InterruptedException {
@@ -98,6 +100,9 @@ public class AgentCliGateway implements AgentGateway {
         pb.redirectErrorStream(true);
 
         final Process p = pb.start();
+        if (sessionId != null) {
+            runningProcesses.put(sessionId, p);
+        }
         // stdin behavior
         if (cfg.isStdin()) {
             OutputStream os = p.getOutputStream();
@@ -137,7 +142,18 @@ public class AgentCliGateway implements AgentGateway {
             scheduler.shutdownNow();
         }
         int code = p.waitFor();
+        if (sessionId != null) {
+            runningProcesses.remove(sessionId);
+        }
         onExit.accept(code);
+    }
+
+    @Override
+    public void stopStream(String sessionId) {
+        Process p = runningProcesses.remove(sessionId);
+        if (p != null && p.isAlive()) {
+            p.destroyForcibly();
+        }
     }
 
     private String readWithTimeout(Process p, int timeoutSeconds) throws InterruptedException {

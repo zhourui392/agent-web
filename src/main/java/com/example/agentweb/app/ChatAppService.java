@@ -27,4 +27,9 @@ public interface ChatAppService {
      * @param resumeId Optional resume ID for continuing a conversation
      */
     org.springframework.web.servlet.mvc.method.annotation.SseEmitter streamMessage(String sessionId, String message, String resumeId);
+
+    /**
+     * Stop a running stream for the given session.
+     */
+    void stopSession(String sessionId);
 }

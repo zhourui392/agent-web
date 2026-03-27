@@ -8,6 +8,8 @@
   <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
   <!-- Element Plus Icons -->
   <link rel="stylesheet" href="https://unpkg.com/@element-plus/icons-vue/dist/index.css">
+  <!-- Markdown rendering -->
+  <script src="https://unpkg.com/marked@12.0.0/marked.min.js"></script>
   <style>
     html, body {
       margin: 0;
@@ -47,10 +49,41 @@
       border-radius: 12px 12px 12px 4px;
       max-width: 85%;
       box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-      white-space: pre-wrap;
-      font-family: 'Consolas', 'Monaco', monospace;
-      font-size: 13px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 14px;
+      line-height: 1.6;
     }
+    .message-agent .text-segment {
+      white-space: normal;
+    }
+    .message-agent .text-segment p { margin: 0.4em 0; }
+    .message-agent .text-segment code {
+      background: #f0f2f5;
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-family: 'Consolas', 'Monaco', monospace;
+      font-size: 12px;
+    }
+    .message-agent .text-segment pre {
+      background: #1e1e1e;
+      color: #d4d4d4;
+      padding: 12px;
+      border-radius: 6px;
+      overflow-x: auto;
+      font-size: 12px;
+    }
+    .message-agent .text-segment pre code {
+      background: none;
+      padding: 0;
+      color: inherit;
+    }
+    .message-agent .text-segment ul, .message-agent .text-segment ol {
+      padding-left: 1.5em;
+      margin: 0.4em 0;
+    }
+    .message-agent .text-segment strong { font-weight: 600; }
+    .message-agent .text-segment h1, .message-agent .text-segment h2,
+    .message-agent .text-segment h3 { margin: 0.6em 0 0.3em; }
     .message-system {
       background: #e1f3d8;
       color: #67c23a;
@@ -153,23 +186,22 @@
     .loading-dots {
       display: flex;
       align-items: center;
-      justify-content: center;
-      padding: 16px 0;
+      padding: 4px 0;
     }
     .loading-dots span {
       display: inline-block;
-      width: 8px;
-      height: 8px;
-      margin: 0 4px;
+      width: 10px;
+      height: 10px;
+      margin: 0 3px;
       border-radius: 50%;
-      background: #909399;
+      background: #409eff;
       animation: dotBounce 1.4s infinite ease-in-out both;
     }
     .loading-dots span:nth-child(1) { animation-delay: -0.32s; }
     .loading-dots span:nth-child(2) { animation-delay: -0.16s; }
     .loading-dots span:nth-child(3) { animation-delay: 0s; }
     @keyframes dotBounce {
-      0%, 80%, 100% { transform: scale(0.4); opacity: 0.3; }
+      0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
       40% { transform: scale(1); opacity: 1; }
     }
   </style>
@@ -293,17 +325,17 @@
               </div>
               <div v-else-if="msg.role === 'agent'">
                 <div class="message-agent">
-                  <div v-if="!msg.text" class="loading-dots"><span></span><span></span><span></span></div>
-                  <template v-else v-for="(seg, si) in getSegments(msg.text)" :key="si">
-                    <div v-if="seg.type === 'text'" style="white-space: pre-wrap;">{{ seg.content }}</div>
+                  <template v-for="(seg, si) in (msg.segments || [])" :key="si">
+                    <div v-if="seg.type === 'text'" class="text-segment" v-html="renderMarkdown(seg.content)"></div>
                     <div v-else class="tool-block">
                       <div class="tool-header" @click="toggleTool(index, si)">
-                        <span class="tool-toggle" :class="{expanded: isToolExpanded(index, si, msg.text)}">▶</span>
-                        <span class="tool-label">[Tool: {{ seg.name }}]</span>
+                        <span class="tool-toggle" :class="{expanded: isToolExpanded(index, si)}">▶</span>
+                        <span class="tool-label">{{ seg.name }}</span>
                       </div>
-                      <div v-show="isToolExpanded(index, si, msg.text)" class="tool-content">{{ seg.content }}</div>
+                      <div v-show="isToolExpanded(index, si)" class="tool-content">{{ seg.content }}</div>
                     </div>
                   </template>
+                  <div v-if="sending && index === messages.length - 1 && (!msg.segments || !msg.segments.some(s => s.type === 'text' && s.content))" class="loading-dots"><span></span><span></span><span></span></div>
                 </div>
               </div>
               <div v-else-if="msg.role === 'system'">
@@ -323,7 +355,7 @@
               v-model="userInput"
               type="textarea"
               :rows="3"
-              placeholder="输入你的指令，例如：在当前目录初始化一个 Spring Boot 项目"
+              placeholder="请输入你的问题和描述"
               @keydown.enter.exact.prevent="sendMessageStream"
               @keydown.ctrl.enter.exact.prevent="insertNewline"
               :disabled="!sessionId"
@@ -333,7 +365,11 @@
                 <span v-if="sessionId">Enter 发送 | Ctrl+Enter 换行</span>
                 <span v-else>请先启动会话</span>
               </div>
-              <div>
+              <div style="display: flex; gap: 8px;">
+                <el-button type="danger" @click="stopSession" v-if="sending" plain>
+                  <el-icon><VideoPause /></el-icon>
+                  <span>停止</span>
+                </el-button>
                 <el-button type="primary" @click="sendMessageStream" :loading="sending" :disabled="!sessionId || !userInput.trim()">
                   <el-icon><Connection /></el-icon>
                   <span>发送</span>
@@ -373,6 +409,7 @@
         const starting = ref(false);
         const sending = ref(false);
         const chatContainer = ref(null);
+        let currentES = null;
 
         // 方法
         const init = async () => {
@@ -459,57 +496,29 @@
         // 工具折叠状态管理
         const toolStates = reactive({});
 
-        const getSegments = (text) => {
-          if (!text) return [{type: 'text', content: ''}];
-          const parts = text.split(/(\[Tool: [^\]]+\]|\[\/Tool\])/);
-          const segments = [];
-          for (let i = 0; i < parts.length; i++) {
-            const part = parts[i];
-            if (!part) continue;
-            if (part === '[/Tool]') continue;
-            const toolMatch = part.match(/^\[Tool: ([^\]]+)\]$/);
-            if (toolMatch) {
-              let content = '';
-              if (i + 1 < parts.length && !parts[i + 1].match(/^\[Tool: [^\]]+\]$/) && parts[i + 1] !== '[/Tool]') {
-                content = parts[i + 1];
-                i++;
-              }
-              // 跳过紧随的 [/Tool] 结束标记
-              if (i + 1 < parts.length && parts[i + 1] === '[/Tool]') {
-                i++;
-              }
-              segments.push({type: 'tool', name: toolMatch[1], content: content.replace(/^\n+/, '').replace(/\n+$/, '')});
-            } else {
-              // 去掉 tool 标记周围产生的前后空行
-              const trimmed = part.replace(/^\n+/, '').replace(/\n+$/, '');
-              if (trimmed) {
-                segments.push({type: 'text', content: trimmed});
-              }
-            }
-          }
-          return segments.length > 0 ? segments : [{type: 'text', content: text}];
-        };
-
-        const getLastToolSegIndex = (text) => {
-          if (!text) return -1;
-          const segs = getSegments(text);
-          for (let i = segs.length - 1; i >= 0; i--) {
-            if (segs[i].type === 'tool') return i;
-          }
-          return -1;
-        };
-
-        const isToolExpanded = (msgIndex, segIndex, text) => {
+        const isToolExpanded = (msgIndex, segIndex) => {
           const key = msgIndex + '-' + segIndex;
           if (key in toolStates) {
             return toolStates[key];
           }
-          return segIndex === getLastToolSegIndex(text);
+          return false; // 默认折叠，点击展开
         };
 
         const toggleTool = (msgIndex, segIndex) => {
           const key = msgIndex + '-' + segIndex;
           toolStates[key] = !(toolStates[key] === true);
+        };
+
+        // Markdown 渲染
+        const renderMarkdown = (text) => {
+          if (!text) return '';
+          try {
+            if (typeof marked !== 'undefined' && marked.parse) {
+              return marked.parse(text, { breaks: true });
+            }
+          } catch (e) { /* fallback */ }
+          // fallback: 简单转义
+          return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
         };
 
         const formatSize = (bytes) => {
@@ -557,6 +566,21 @@
           ElementPlus.ElMessage.success('上下文已清除');
         };
 
+        const stopSession = async () => {
+          if (!sessionId.value || !sending.value) return;
+          try {
+            await fetch('/api/chat/session/' + encodeURIComponent(sessionId.value) + '/stop', { method: 'POST' });
+          } catch (e) {
+            // best effort
+          }
+          if (currentES) {
+            currentES.close();
+            currentES = null;
+          }
+          sending.value = false;
+          addMessage('system', '已手动停止');
+        };
+
         const sendMessageStream = () => {
           if (!sessionId.value || !userInput.value.trim() || sending.value) return;
 
@@ -565,9 +589,9 @@
           userInput.value = '';
           sending.value = true;
 
-          // 创建消息占位
+          // 使用结构化 segments 数组代替字符串 buffer，彻底分离工具输出和文本
           const msgIndex = messages.value.length;
-          addMessage('agent', '');
+          messages.value.push({ role: 'agent', segments: [] });
 
           let url = '/api/chat/session/' + encodeURIComponent(sessionId.value) + '/message/stream?message=' + encodeURIComponent(message);
           if (resumeId.value) {
@@ -575,12 +599,40 @@
           }
 
           const es = new EventSource(url);
-          let buffer = '';
-          let toolCount = 0;
-
-          // 跟踪工具块状态：是否有未关闭的 [Tool: xxx] 标记
+          currentES = es;
+          let segments = [];
           let inToolUse = false;
-          let hasOpenToolBlock = false; // 是否有未被 [/Tool] 关闭的工具块
+
+          // 向最后一个 text segment 追加，没有则新建
+          function appendText(text) {
+            const last = segments.length > 0 ? segments[segments.length - 1] : null;
+            if (last && last.type === 'text') {
+              last.content += text;
+            } else {
+              segments.push({ type: 'text', content: text });
+            }
+          }
+
+          // 向最近的 tool segment 追加内容（tool_result 始终归入工具块）
+          function appendToolContent(text) {
+            for (let i = segments.length - 1; i >= 0; i--) {
+              if (segments[i].type === 'tool') {
+                segments[i].content += text;
+                return;
+              }
+            }
+            segments.push({ type: 'tool', name: 'Tool', content: text });
+          }
+
+          // 触发 Vue 响应式更新
+          function flushSegments() {
+            messages.value[msgIndex].segments = segments.map(function(s) { return { type: s.type, name: s.name, content: s.content }; });
+            nextTick(() => {
+              if (chatContainer.value) {
+                chatContainer.value.scrollTop = chatContainer.value.scrollHeight;
+              }
+            });
+          }
 
           es.addEventListener('chunk', (e) => {
             const data = e.data;
@@ -593,59 +645,39 @@
                 const evt = json.event;
                 if (evt.type === 'content_block_start' && evt.content_block) {
                   if (evt.content_block.type === 'tool_use') {
-                    // 如果上一个工具块还没关闭，先关闭它
-                    if (hasOpenToolBlock) {
-                      buffer += '\n[/Tool]\n';
-                    }
                     inToolUse = true;
-                    hasOpenToolBlock = true;
-                    toolCount++;
-                    if (toolCount > 1) {
-                      Object.keys(toolStates).forEach(k => {
-                        if (k.startsWith(msgIndex + '-')) delete toolStates[k];
-                      });
-                    }
-                    buffer += '\n[Tool: ' + evt.content_block.name + ']\n';
+                    segments.push({ type: 'tool', name: evt.content_block.name, content: '' });
                   } else {
-                    // 非工具块（text 块）开始，关闭之前的工具块
                     inToolUse = false;
-                    if (hasOpenToolBlock) {
-                      buffer += '\n[/Tool]\n';
-                      hasOpenToolBlock = false;
-                    }
                   }
                 } else if (evt.type === 'content_block_delta' && evt.delta) {
                   if (evt.delta.text) {
-                    buffer += evt.delta.text;
+                    appendText(evt.delta.text);
                   } else if (evt.delta.partial_json) {
-                    // tool_use 的输入参数，逐步拼接 JSON
-                    buffer += evt.delta.partial_json;
+                    appendToolContent(evt.delta.partial_json);
                   }
                 } else if (evt.type === 'content_block_stop') {
                   inToolUse = false;
                 }
               } else if (json.type === 'assistant' && json.message && json.message.content) {
-                // 仅在流式没有捕获到内容时，用完整消息兜底
-                if (buffer.trim().length === 0) {
-                  let assembled = '';
+                // 兜底：仅在流式没有内容时使用完整消息
+                const hasContent = segments.some(function(s) { return s.content && s.content.trim(); });
+                if (!hasContent) {
+                  segments = [];
                   for (const block of json.message.content) {
                     if (block.type === 'text' && block.text) {
-                      assembled += block.text;
+                      segments.push({ type: 'text', content: block.text });
                     } else if (block.type === 'tool_use') {
-                      assembled += '\n[Tool: ' + block.name + ']\n' + JSON.stringify(block.input, null, 2);
+                      segments.push({ type: 'tool', name: block.name, content: JSON.stringify(block.input, null, 2) });
                     }
-                  }
-                  if (assembled.length > 0) {
-                    buffer = assembled;
                   }
                 }
               } else if (json.type === 'user' && json.message && json.message.content) {
-                // 处理 tool_result：提取工具执行结果并追加到 buffer
+                // 处理 tool_result：始终追加到最近的 tool segment，不会混入文本
                 for (const block of json.message.content) {
                   if (block.type === 'tool_result') {
                     let resultText = '';
                     if (json.tool_use_result) {
-                      // 优先使用结构化的 tool_use_result
                       const tur = json.tool_use_result;
                       if (tur.file) {
                         resultText = '[文件: ' + tur.file.filePath + ' (' + tur.file.numLines + '行)]';
@@ -659,57 +691,45 @@
                       resultText = block.content;
                     }
                     if (resultText) {
-                      // 截断过长的输出（超过 2000 字符时）
                       if (resultText.length > 2000) {
                         resultText = resultText.substring(0, 2000) + '\n... (共 ' + resultText.length + ' 字符，已截断)';
                       }
-                      buffer += '\n' + resultText + '\n';
+                      appendToolContent('\n' + resultText);
                     }
                   }
                 }
               } else if (json.type === 'result' && json.result) {
-                // 流结束，关闭未关闭的工具块
-                if (hasOpenToolBlock) {
-                  buffer += '\n[/Tool]\n';
-                  hasOpenToolBlock = false;
-                }
-                if (buffer.trim().length === 0) {
-                  buffer = json.result;
+                const hasContent = segments.some(function(s) { return s.content && s.content.trim(); });
+                if (!hasContent) {
+                  segments = [{ type: 'text', content: json.result }];
                 }
               }
             } catch (err) {
               if (data && !data.startsWith('{') && !data.startsWith('[')) {
-                buffer += data;
+                appendText(data);
               }
             }
-            messages.value[msgIndex].text = buffer;
-            nextTick(() => {
-              if (chatContainer.value) {
-                chatContainer.value.scrollTop = chatContainer.value.scrollHeight;
-              }
-            });
+            flushSegments();
           });
 
           es.addEventListener('exit', (e) => {
-            // 确保最后的工具块被关闭
-            if (hasOpenToolBlock) {
-              buffer += '\n[/Tool]\n';
-              hasOpenToolBlock = false;
-              messages.value[msgIndex].text = buffer;
-            }
+            flushSegments();
             addMessage('system', e.data === '0' ? '任务已完成' : '进程异常退出，退出码: ' + e.data);
             es.close();
+            currentES = null;
             sending.value = false;
           });
 
           es.addEventListener('error', (e) => {
             addMessage('error', e.data || 'SSE 连接错误');
             es.close();
+            currentES = null;
             sending.value = false;
           });
 
           es.onerror = () => {
             es.close();
+            currentES = null;
             sending.value = false;
           };
         };
@@ -738,12 +758,13 @@
           startSession,
           insertNewline,
           clearContext,
+          stopSession,
           sendMessageStream,
           formatSize,
           handleFileCommand,
           onUploadSuccess,
           onUploadError,
-          getSegments,
+          renderMarkdown,
           isToolExpanded,
           toggleTool
         };
