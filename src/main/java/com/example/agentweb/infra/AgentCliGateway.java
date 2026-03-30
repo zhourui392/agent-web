@@ -2,6 +2,8 @@ package com.example.agentweb.infra;
 
 import com.example.agentweb.adapter.AgentGateway;
 import com.example.agentweb.domain.AgentType;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.io.*;
@@ -21,6 +23,7 @@ import java.util.concurrent.*;
 @Component
 public class AgentCliGateway implements AgentGateway {
 
+    private static final Logger log = LoggerFactory.getLogger(AgentCliGateway.class);
     private final AgentCliProperties props;
     private final ConcurrentHashMap<String, Process> runningProcesses = new ConcurrentHashMap<String, Process>();
 
@@ -73,6 +76,7 @@ public class AgentCliGateway implements AgentGateway {
                           String userMessage,
                           String sessionId,
                           String resumeId,
+                          String env,
                           java.util.function.Consumer<String> onChunk,
                           java.util.function.IntConsumer onExit) throws IOException, InterruptedException {
         AgentCliProperties.Client cfg = resolve(type);
@@ -105,8 +109,19 @@ public class AgentCliGateway implements AgentGateway {
         }
         // stdin behavior
         if (cfg.isStdin()) {
+            // 拼接环境提示到用户消息前
+            String envPrefix = "";
+            if (env != null && !env.trim().isEmpty()) {
+                if ("prod".equalsIgnoreCase(env.trim())) {
+                    envPrefix = "[环境约束: 当前为生产环境]\n";
+                } else {
+                    envPrefix = "[环境约束: 当前为测试环境]\n";
+                }
+            }
             OutputStream os = p.getOutputStream();
-            os.write(userMessage.getBytes(StandardCharsets.UTF_8));
+            String fullMessage = envPrefix + userMessage;
+            log.info("stdin message (env={}): {}", env, fullMessage.length() > 200 ? fullMessage.substring(0, 200) + "..." : fullMessage);
+            os.write(fullMessage.getBytes(StandardCharsets.UTF_8));
             os.flush();
             os.close();
         } else {

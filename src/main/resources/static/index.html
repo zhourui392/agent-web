@@ -212,6 +212,21 @@
       <!-- 侧边栏 -->
       <el-aside width="320px">
         <div style="padding: 20px;">
+          <!-- 环境切换 -->
+          <div style="margin-bottom: 16px; display: flex; align-items: center; justify-content: center; gap: 6px;">
+            <el-radio-group v-model="env" size="default" @change="onEnvChange">
+              <el-radio-button value="test">
+                <span :style="{ color: env === 'test' ? '#67c23a' : '', fontWeight: 700, fontSize: '13px' }">【测试环境】</span>
+              </el-radio-button>
+              <el-radio-button value="prod">
+                <span :style="{ color: env === 'prod' ? '#f56c6c' : '', fontWeight: 700, fontSize: '13px' }">【生产环境】</span>
+              </el-radio-button>
+            </el-radio-group>
+            <el-tooltip content="环境选择只是注入限制提示词，并不一定影响最后的查询环境" placement="top">
+              <span style="display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid #909399; color: #909399; font-size: 12px; cursor: pointer; font-weight: bold; user-select: none; flex-shrink: 0;">?</span>
+            </el-tooltip>
+          </div>
+
           <!-- 工作目录选择 -->
           <el-card shadow="hover" style="margin-bottom: 20px;">
             <template #header>
@@ -363,7 +378,7 @@
             <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center;">
               <div style="color: #909399; font-size: 13px;">
                 <span v-if="sessionId">Enter 发送 | Ctrl+Enter 换行</span>
-                <span v-else>请先启动会话</span>
+                <span v-else style="color: #E6A23C; font-weight: bold;">⚠ 请先启动会话</span>
               </div>
               <div style="display: flex; gap: 8px;">
                 <el-button type="danger" @click="stopSession" v-if="sending" plain>
@@ -404,6 +419,7 @@
         const workingDir = ref('');
         const resumeId = ref('');
         const username = ref('admin');
+        const env = ref('test');
         const messages = ref([]);
         const userInput = ref('');
         const starting = ref(false);
@@ -566,6 +582,11 @@
           ElementPlus.ElMessage.success('上下文已清除');
         };
 
+        const onEnvChange = (val) => {
+          const label = val === 'prod' ? '生产环境' : '测试环境';
+          ElementPlus.ElMessage.info('已切换到' + label);
+        };
+
         const stopSession = async () => {
           if (!sessionId.value || !sending.value) return;
           try {
@@ -593,7 +614,7 @@
           const msgIndex = messages.value.length;
           messages.value.push({ role: 'agent', segments: [] });
 
-          let url = '/api/chat/session/' + encodeURIComponent(sessionId.value) + '/message/stream?message=' + encodeURIComponent(message);
+          let url = '/api/chat/session/' + encodeURIComponent(sessionId.value) + '/message/stream?message=' + encodeURIComponent(message) + '&env=' + encodeURIComponent(env.value);
           if (resumeId.value) {
             url += '&resumeId=' + encodeURIComponent(resumeId.value);
           }
@@ -747,6 +768,7 @@
           sessionId,
           workingDir,
           resumeId,
+          env,
           username,
           messages,
           userInput,
@@ -758,6 +780,7 @@
           startSession,
           insertNewline,
           clearContext,
+          onEnvChange,
           stopSession,
           sendMessageStream,
           formatSize,

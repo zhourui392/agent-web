@@ -30,6 +30,7 @@ public interface AgentGateway {
                    String userMessage,
                    String sessionId,
                    String resumeId,
+                   String env,
                    java.util.function.Consumer<String> onChunk,
                    java.util.function.IntConsumer onExit) throws IOException, InterruptedException;
 

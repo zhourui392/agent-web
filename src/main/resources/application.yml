@@ -14,8 +14,8 @@ agent:
     roots:
       - "/home/service/qpon"
       - "/home/service/zhou/agent-web"
-      - "/home/service"
       - "/tmp"
+      - "/home/service"
   cli:
     codex:
       exec: ${CODEX_CMD:codex}
