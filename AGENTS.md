@@ -4,7 +4,8 @@
 - Java Spring Boot (JDK 8). DDD 分层：`interfaces`(Web 接口) / `app`(应用服务) / `domain`(领域模型) / `infra`(基础设施) / `adapter`(网关接口)。
 - 源码：`src/main/java/com/example/agentweb/**`
 - 配置与静态资源：`src/main/resources/application.yml`，`src/main/resources/static/`
-- 测试：`src/test/java/**`，示例：`FsControllerTest.java`、`ChatFlowTest.java`
+- 测试：`src/test/java/**`，示例：`FsControllerTest.java`、`ChatFlowTest.java`、`JsonFileSessionRepoTest.java`
+- 无登录认证，默认用户为 admin。`AuthController` 和 `login.html` 已移除。
 
 ## Build, Test, and Development Commands
 - 构建 Jar：`mvn clean package`

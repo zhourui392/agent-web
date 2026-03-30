@@ -13,8 +13,10 @@ Agent Web 是一个 Web 中间层服务，它将本地命令行 AI 代理（如 
 - **会话管理**: 支持多会话隔离，每个会话绑定独立的工作目录
 - **上下文保持**: 支持 Claude 的会话恢复功能，保持对话连续性
 - **文件系统浏览**: 内置目录浏览器，可视化选择工作目录
-- **身份认证**: 基于 Session 的用户认证机制
 - **双代理支持**: 同时支持 Codex 和 Claude 两种 AI 代理
+- **Markdown 渲染**: 消息内容支持 Markdown 格式渲染，包含代码高亮
+- **会话控制**: 支持停止正在运行的会话
+- **会话持久化**: 基于 JSON 文件的会话持久化存储，服务重启不丢失
 
 ## 技术栈
 
@@ -30,7 +32,7 @@ Agent Web 是一个 Web 中间层服务，它将本地命令行 AI 代理（如 
 - **通信**: RESTful API + Server-Sent Events
 
 ### 支持的 AI 代理
-- **Claude**: Anthropic Claude CLI (Sonnet 4.5)
+- **Claude**: Anthropic Claude CLI (Opus 4.6)
 - **Codex**: OpenAI Codex CLI
 
 ## 快速开始
@@ -98,15 +100,13 @@ java -jar target/agent-web-0.1.0-SNAPSHOT.jar
 
 打开浏览器访问：`http://localhost:18092`
 
-默认登录凭据：
-- 用户名：`admin`
-- 密码：`Zz135246!@#$`
+> 注：已移除登录认证，默认用户为 admin，无需登录即可使用。
 
 ## 使用指南
 
 ### 创建会话
 
-1. 登录系统后，在左侧边栏选择工作目录
+1. 在左侧边栏选择工作目录
 2. 点击根路径下拉框，选择允许的根目录
 3. 浏览并点击目标文件夹
 4. 确认代理类型（当前为 CLAUDE）
@@ -124,29 +124,6 @@ java -jar target/agent-web-0.1.0-SNAPSHOT.jar
 如需开始全新对话，点击"清除上下文"按钮，系统将重置会话状态。
 
 ## API 文档
-
-### 认证接口
-
-#### 登录
-```http
-POST /api/auth/login
-Content-Type: application/json
-
-{
-  "username": "admin",
-  "password": "Zz135246!@#$"
-}
-```
-
-#### 登出
-```http
-POST /api/auth/logout
-```
-
-#### 检查认证状态
-```http
-GET /api/auth/check
-```
 
 ### 文件系统接口
 
@@ -215,8 +192,7 @@ data: 错误信息
 src/main/java/com/example/agentweb/
 ├── interfaces/              # 接口层（REST 控制器、DTO）
 │   ├── ChatController.java       # 聊天会话和消息处理
-│   ├── FsController.java         # 文件系统浏览
-│   ├── AuthController.java       # 用户认证
+│   ├── FsController.java         # 文件系统浏览与文件管理
 │   ├── GlobalExceptionHandler.java
 │   └── dto/                      # 数据传输对象
 │
@@ -226,6 +202,7 @@ src/main/java/com/example/agentweb/
 │
 ├── domain/                  # 领域模型层
 │   ├── ChatSession.java          # 聊天会话聚合根
+│   ├── ChatMessage.java          # 聊天消息模型
 │   └── AgentType.java            # 代理类型枚举
 │
 ├── adapter/                 # 适配器接口
@@ -236,7 +213,7 @@ src/main/java/com/example/agentweb/
 │   ├── AgentCliProperties.java   # CLI 配置属性
 │   ├── FsProperties.java         # 文件系统配置
 │   ├── InMemorySessionRepo.java  # 内存会话仓储
-│   ├── AuthenticationInterceptor.java
+│   ├── JsonFileSessionRepo.java  # JSON 文件会话持久化仓储
 │   └── ExecutorConfig.java       # 线程池配置
 │
 └── config/                  # Spring 配置
@@ -245,8 +222,7 @@ src/main/java/com/example/agentweb/
 src/main/resources/
 ├── application.yml          # 应用配置文件
 └── static/
-    ├── index.html          # 主聊天界面（Vue 3）
-    └── login.html          # 登录页面（Vue 3）
+    └── index.html           # 主聊天界面（Vue 3 + Markdown 渲染）
 ```
 
 ## 配置说明
@@ -323,14 +299,13 @@ agent:
 
 ### 当前实现
 
-- ✅ 基于 Session 的身份认证
 - ✅ 路径验证防止目录穿越
 - ✅ 进程超时保护（默认 180 秒）
-- ⚠️ 使用硬编码的管理员凭据（仅供开发测试）
+- ✅ 默认用户为 admin（已移除登录认证，适用于内网/开发环境）
 
 ### 生产环境建议
 
-- ❗ **更改默认密码**：修改 `AuthController` 中的凭据或集成外部认证系统
+- ❗ **添加认证机制**：集成 OAuth2 或其他外部认证系统
 - ❗ **限制根目录**：在 `application.yml` 中严格限制 `agent.fs.roots`
 - ❗ **启用 HTTPS**：配置 SSL/TLS 证书
 - ❗ **移除危险标志**：评估是否需要 `--dangerously-skip-permissions`
@@ -361,7 +336,7 @@ A:
 3. 在 `AgentCliProperties` 中添加对应的配置类
 
 ### Q: 会话数据存储在哪里？
-A: 当前使用内存存储 (`InMemorySessionRepo`)，服务重启后会话数据会丢失。生产环境建议实现持久化存储（如 Redis）。
+A: 支持内存存储 (`InMemorySessionRepo`) 和 JSON 文件持久化 (`JsonFileSessionRepo`)。使用 JSON 文件存储时，会话数据保存在 `sessions/` 目录下，服务重启后可恢复。
 
 ### Q: 如何自定义超时时间？
 A: 修改 `application.yml` 中的 `timeout-seconds` 配置项。
@@ -372,12 +347,9 @@ A: 支持。每个会话独立管理，互不影响。线程池配置在 `Execut
 ## 开发计划
 
 - [ ] 支持更多 AI 代理（如 GPT-4、Gemini）
-- [ ] 会话持久化存储（Redis/数据库）
-- [ ] 文件上传和下载功能
 - [ ] 多用户管理和权限控制
 - [ ] Docker 容器化部署
 - [ ] WebSocket 替代 SSE
-- [ ] 前端优化：代码高亮、Markdown 渲染
 
 ## 版本历史
 
@@ -387,6 +359,14 @@ A: 支持。每个会话独立管理，互不影响。线程池配置在 `Execut
 - ✅ Codex 和 Claude 自动模式支持
 - ✅ 流式输出显示优化
 - ✅ Git 仓库检查跳过选项
+- ✅ 移除登录认证，默认用户为 admin
+- ✅ 增强文件管理与流式输出体验
+- ✅ 修复 SSE 长连接超时断开问题
+- ✅ 前端 Markdown 渲染与代码高亮
+- ✅ 停止会话功能
+- ✅ 工具调用块优化展示
+- ✅ JSON 文件会话持久化存储
+- ✅ 加载动画优化
 
 ## 许可证
 

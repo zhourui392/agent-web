@@ -2,6 +2,8 @@ package com.example.agentweb.infra;
 
 import com.example.agentweb.adapter.AgentGateway;
 import com.example.agentweb.domain.AgentType;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.io.*;
@@ -21,7 +23,9 @@ import java.util.concurrent.*;
 @Component
 public class AgentCliGateway implements AgentGateway {
 
+    private static final Logger log = LoggerFactory.getLogger(AgentCliGateway.class);
     private final AgentCliProperties props;
+    private final ConcurrentHashMap<String, Process> runningProcesses = new ConcurrentHashMap<String, Process>();
 
     public AgentCliGateway(AgentCliProperties props) {
         this.props = props;
@@ -70,7 +74,9 @@ public class AgentCliGateway implements AgentGateway {
     public void runStream(AgentType type,
                           String workingDir,
                           String userMessage,
+                          String sessionId,
                           String resumeId,
+                          String env,
                           java.util.function.Consumer<String> onChunk,
                           java.util.function.IntConsumer onExit) throws IOException, InterruptedException {
         AgentCliProperties.Client cfg = resolve(type);
@@ -98,10 +104,24 @@ public class AgentCliGateway implements AgentGateway {
         pb.redirectErrorStream(true);
 
         final Process p = pb.start();
+        if (sessionId != null) {
+            runningProcesses.put(sessionId, p);
+        }
         // stdin behavior
         if (cfg.isStdin()) {
+            // 拼接环境提示到用户消息前
+            String envPrefix = "";
+            if (env != null && !env.trim().isEmpty()) {
+                if ("prod".equalsIgnoreCase(env.trim())) {
+                    envPrefix = "[环境约束: 当前为生产环境]\n";
+                } else {
+                    envPrefix = "[环境约束: 当前为测试环境]\n";
+                }
+            }
             OutputStream os = p.getOutputStream();
-            os.write(userMessage.getBytes(StandardCharsets.UTF_8));
+            String fullMessage = envPrefix + userMessage;
+            log.info("stdin message (env={}): {}", env, fullMessage.length() > 200 ? fullMessage.substring(0, 200) + "..." : fullMessage);
+            os.write(fullMessage.getBytes(StandardCharsets.UTF_8));
             os.flush();
             os.close();
         } else {
@@ -121,22 +141,34 @@ public class AgentCliGateway implements AgentGateway {
             }, cfg.getTimeoutSeconds(), TimeUnit.SECONDS);
         }
 
-        // stream reading loop (blocking until EOF)
-        try (InputStream is = p.getInputStream()) {
-            byte[] buf = new byte[2048];
-            int r;
-            while ((r = is.read(buf)) != -1) {
-                String s = new String(buf, 0, r, StandardCharsets.UTF_8);
-                onChunk.accept(s);
+        // stream reading loop: read line-by-line to ensure each SSE chunk is a complete JSON line
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (!line.trim().isEmpty()) {
+                    onChunk.accept(line);
+                }
             }
         } catch (IOException ioe) {
-            onChunk.accept("[error] " + ioe.getMessage() + "\n");
+            onChunk.accept("[error] " + ioe.getMessage());
         } finally {
             if (killer != null) { killer.cancel(false); }
             scheduler.shutdownNow();
         }
         int code = p.waitFor();
+        if (sessionId != null) {
+            runningProcesses.remove(sessionId);
+        }
         onExit.accept(code);
+    }
+
+    @Override
+    public void stopStream(String sessionId) {
+        Process p = runningProcesses.remove(sessionId);
+        if (p != null && p.isAlive()) {
+            p.destroyForcibly();
+        }
     }
 
     private String readWithTimeout(Process p, int timeoutSeconds) throws InterruptedException {

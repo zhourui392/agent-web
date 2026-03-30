@@ -1,13 +1,21 @@
 server:
   port: 18092
+  servlet:
+    async:
+      timeout: 7200000
+  tomcat:
+    connection-timeout: 7200000
+    keep-alive-timeout: 7200000
 
 # Allowed roots for browsing on the host running this web service.
 # IMPORTANT: narrow this to specific workspace folders in production.
 agent:
   fs:
     roots:
-      - "/home"
+      - "/home/service/qpon"
+      - "/home/service/zhou/agent-web"
       - "/tmp"
+      - "/home/service"
   cli:
     codex:
       exec: ${CODEX_CMD:codex}
@@ -16,7 +24,7 @@ agent:
         - --skip-git-repo-check
         - --full-auto
       stdin: true
-      timeout-seconds: 180
+      timeout-seconds: 0
     claude:
       exec: ${CLAUDE_CLI_CMD:claude}
       args:
@@ -27,10 +35,14 @@ agent:
         - --include-partial-messages
         - --dangerously-skip-permissions
       stdin: true
-      timeout-seconds: 180
+      timeout-seconds: 0
 spring:
   mvc:
     throw-exception-if-no-handler-found: true
   web:
     resources:
       add-mappings: true
+  servlet:
+    multipart:
+      max-file-size: 100MB
+      max-request-size: 100MB

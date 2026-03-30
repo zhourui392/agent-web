@@ -8,6 +8,8 @@
   <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
   <!-- Element Plus Icons -->
   <link rel="stylesheet" href="https://unpkg.com/@element-plus/icons-vue/dist/index.css">
+  <!-- Markdown rendering -->
+  <script src="https://unpkg.com/marked@12.0.0/marked.min.js"></script>
   <style>
     html, body {
       margin: 0;
@@ -47,10 +49,41 @@
       border-radius: 12px 12px 12px 4px;
       max-width: 85%;
       box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-      white-space: pre-wrap;
-      font-family: 'Consolas', 'Monaco', monospace;
-      font-size: 13px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 14px;
+      line-height: 1.6;
     }
+    .message-agent .text-segment {
+      white-space: normal;
+    }
+    .message-agent .text-segment p { margin: 0.4em 0; }
+    .message-agent .text-segment code {
+      background: #f0f2f5;
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-family: 'Consolas', 'Monaco', monospace;
+      font-size: 12px;
+    }
+    .message-agent .text-segment pre {
+      background: #f6f8fa;
+      color: #24292e;
+      padding: 12px;
+      border-radius: 6px;
+      overflow-x: auto;
+      font-size: 12px;
+    }
+    .message-agent .text-segment pre code {
+      background: none;
+      padding: 0;
+      color: inherit;
+    }
+    .message-agent .text-segment ul, .message-agent .text-segment ol {
+      padding-left: 1.5em;
+      margin: 0.4em 0;
+    }
+    .message-agent .text-segment strong { font-weight: 600; }
+    .message-agent .text-segment h1, .message-agent .text-segment h2,
+    .message-agent .text-segment h3 { margin: 0.6em 0 0.3em; }
     .message-system {
       background: #e1f3d8;
       color: #67c23a;
@@ -72,14 +105,30 @@
       background: white;
       border-top: 1px solid #ebeef5;
     }
-    .folder-item {
+    .fs-item {
+      display: flex;
+      align-items: center;
       cursor: pointer;
-      padding: 8px 12px;
+      padding: 6px 12px;
       border-radius: 4px;
       transition: background 0.2s;
     }
-    .folder-item:hover {
+    .fs-item:hover {
       background: #f5f7fa;
+    }
+    .fs-item .fs-name {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      margin-left: 8px;
+    }
+    .fs-item .fs-actions {
+      visibility: hidden;
+      flex-shrink: 0;
+    }
+    .fs-item:hover .fs-actions {
+      visibility: visible;
     }
     .session-info {
       padding: 12px;
@@ -94,6 +143,67 @@
       border-right: 1px solid #ebeef5;
       overflow-y: auto;
     }
+    .tool-block {
+      margin: 4px 0;
+      border: 1px solid #e4e7ed;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .tool-header {
+      display: flex;
+      align-items: center;
+      padding: 6px 10px;
+      background: #f5f7fa;
+      cursor: pointer;
+      user-select: none;
+      font-size: 12px;
+      color: #606266;
+    }
+    .tool-header:hover {
+      background: #ebeef5;
+    }
+    .tool-toggle {
+      margin-right: 6px;
+      font-size: 10px;
+      color: #909399;
+      transition: transform 0.2s;
+    }
+    .tool-toggle.expanded {
+      transform: rotate(90deg);
+    }
+    .tool-label {
+      font-weight: 500;
+    }
+    .tool-content {
+      padding: 8px 10px;
+      font-size: 12px;
+      white-space: pre-wrap;
+      max-height: 300px;
+      overflow-y: auto;
+      border-top: 1px solid #e4e7ed;
+      background: #fafafa;
+    }
+    .loading-dots {
+      display: flex;
+      align-items: center;
+      padding: 4px 0;
+    }
+    .loading-dots span {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      margin: 0 3px;
+      border-radius: 50%;
+      background: #409eff;
+      animation: dotBounce 1.4s infinite ease-in-out both;
+    }
+    .loading-dots span:nth-child(1) { animation-delay: -0.32s; }
+    .loading-dots span:nth-child(2) { animation-delay: -0.16s; }
+    .loading-dots span:nth-child(3) { animation-delay: 0s; }
+    @keyframes dotBounce {
+      0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+      40% { transform: scale(1); opacity: 1; }
+    }
   </style>
 </head>
 <body>
@@ -102,6 +212,21 @@
       <!-- 侧边栏 -->
       <el-aside width="320px">
         <div style="padding: 20px;">
+          <!-- 环境切换 -->
+          <div style="margin-bottom: 16px; display: flex; align-items: center; justify-content: center; gap: 6px;">
+            <el-radio-group v-model="env" size="default" @change="onEnvChange">
+              <el-radio-button value="test">
+                <span :style="{ color: env === 'test' ? '#67c23a' : '', fontWeight: 700, fontSize: '13px' }">【测试环境】</span>
+              </el-radio-button>
+              <el-radio-button value="prod">
+                <span :style="{ color: env === 'prod' ? '#f56c6c' : '', fontWeight: 700, fontSize: '13px' }">【生产环境】</span>
+              </el-radio-button>
+            </el-radio-group>
+            <el-tooltip content="环境选择只是注入限制提示词，并不一定影响最后的查询环境" placement="top">
+              <span style="display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid #909399; color: #909399; font-size: 12px; cursor: pointer; font-weight: bold; user-select: none; flex-shrink: 0;">?</span>
+            </el-tooltip>
+          </div>
+
           <!-- 工作目录选择 -->
           <el-card shadow="hover" style="margin-bottom: 20px;">
             <template #header>
@@ -127,14 +252,44 @@
               </el-form-item>
             </el-form>
 
-            <!-- 文件夹列表 -->
+            <!-- 文件/目录列表 -->
             <el-scrollbar height="300px">
-              <div v-for="item in folderList" :key="item.path" class="folder-item" @click="loadList(item.path)">
-                <el-icon><Folder /></el-icon>
-                <span style="margin-left: 8px;">{{ item.name || item.path }}</span>
+              <div v-for="item in folderList" :key="item.path" class="fs-item"
+                   @click="item.dir ? loadList(item.path) : null">
+                <el-icon v-if="item.dir"><Folder /></el-icon>
+                <el-icon v-else><Document /></el-icon>
+                <span class="fs-name">{{ item.name || item.path }}</span>
+                <span v-if="!item.dir" style="color:#909399;font-size:12px;margin-right:8px;">{{ formatSize(item.size) }}</span>
+                <span class="fs-actions" v-if="item.name !== '..'">
+                  <el-dropdown trigger="click" @command="handleFileCommand($event, item)" @click.stop>
+                    <el-icon style="cursor:pointer;" @click.stop><MoreFilled /></el-icon>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item v-if="!item.dir" command="download">下载</el-dropdown-item>
+                        <el-dropdown-item v-if="!item.dir" command="delete" style="color:#f56c6c;">删除</el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                </span>
               </div>
-              <el-empty v-if="folderList.length === 0" description="没有子目录" :image-size="60"></el-empty>
+              <el-empty v-if="folderList.length === 0" description="空目录" :image-size="60"></el-empty>
             </el-scrollbar>
+
+            <!-- 上传按钮 -->
+            <div style="margin-top: 12px;">
+              <el-upload
+                :action="'/api/fs/upload?path=' + encodeURIComponent(currentPath)"
+                name="file"
+                :show-file-list="false"
+                :on-success="onUploadSuccess"
+                :on-error="onUploadError"
+                multiple>
+                <el-button type="primary" size="small" style="width: 100%;">
+                  <el-icon><Upload /></el-icon>
+                  <span>上传文件</span>
+                </el-button>
+              </el-upload>
+            </div>
           </el-card>
 
           <!-- Agent 设置 -->
@@ -148,7 +303,7 @@
 
             <el-form label-position="top" size="default">
               <el-form-item label="Agent 类型">
-                <el-input value="CLAUDE (Sonnet 4.5)" readonly></el-input>
+                <el-input value="CLAUDE CLI" readonly></el-input>
               </el-form-item>
 
               <el-button type="primary" style="width: 100%; margin-bottom: 12px;" @click="startSession" :loading="starting" :disabled="!currentPath">
@@ -171,24 +326,6 @@
             </div>
           </el-card>
 
-          <!-- 用户信息 -->
-          <el-card shadow="hover" style="margin-top: 20px;">
-            <template #header>
-              <div style="display: flex; align-items: center; justify-content: space-between;">
-                <div>
-                  <el-icon><User /></el-icon>
-                  <span style="margin-left: 8px; font-weight: 600;">用户信息</span>
-                </div>
-              </div>
-            </template>
-            <div style="margin-bottom: 12px;">
-              <strong>用户名：</strong>{{ username }}
-            </div>
-            <el-button type="danger" style="width: 100%;" @click="handleLogout">
-              <el-icon><SwitchButton /></el-icon>
-              <span>退出登录</span>
-            </el-button>
-          </el-card>
         </div>
       </el-aside>
 
@@ -202,7 +339,19 @@
                 <div class="message-user">{{ msg.text }}</div>
               </div>
               <div v-else-if="msg.role === 'agent'">
-                <div class="message-agent">{{ msg.text }}</div>
+                <div class="message-agent">
+                  <template v-for="(seg, si) in (msg.segments || [])" :key="si">
+                    <div v-if="seg.type === 'text'" class="text-segment" v-html="renderMarkdown(seg.content)"></div>
+                    <div v-else class="tool-block">
+                      <div class="tool-header" @click="toggleTool(index, si)">
+                        <span class="tool-toggle" :class="{expanded: isToolExpanded(index, si)}">▶</span>
+                        <span class="tool-label">{{ seg.name }}</span>
+                      </div>
+                      <div v-show="isToolExpanded(index, si)" class="tool-content">{{ seg.content }}</div>
+                    </div>
+                  </template>
+                  <div v-if="sending && index === messages.length - 1 && (!msg.segments || !msg.segments.some(s => s.type === 'text' && s.content))" class="loading-dots"><span></span><span></span><span></span></div>
+                </div>
               </div>
               <div v-else-if="msg.role === 'system'">
                 <div class="message-system">{{ msg.text }}</div>
@@ -221,7 +370,7 @@
               v-model="userInput"
               type="textarea"
               :rows="3"
-              placeholder="输入你的指令，例如：在当前目录初始化一个 Spring Boot 项目"
+              placeholder="输入你的问题，例如：测试环境，traceId: xxx，问题描述"
               @keydown.enter.exact.prevent="sendMessageStream"
               @keydown.ctrl.enter.exact.prevent="insertNewline"
               :disabled="!sessionId"
@@ -229,9 +378,13 @@
             <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center;">
               <div style="color: #909399; font-size: 13px;">
                 <span v-if="sessionId">Enter 发送 | Ctrl+Enter 换行</span>
-                <span v-else>请先启动会话</span>
+                <span v-else style="color: #E6A23C; font-weight: bold;">⚠ 请先启动会话</span>
               </div>
-              <div>
+              <div style="display: flex; gap: 8px;">
+                <el-button type="danger" @click="stopSession" v-if="sending" plain>
+                  <el-icon><VideoPause /></el-icon>
+                  <span>停止</span>
+                </el-button>
                 <el-button type="primary" @click="sendMessageStream" :loading="sending" :disabled="!sessionId || !userInput.trim()">
                   <el-icon><Connection /></el-icon>
                   <span>发送</span>
@@ -252,7 +405,7 @@
   <script src="https://unpkg.com/@element-plus/icons-vue"></script>
 
   <script>
-    const { createApp, ref, reactive, onMounted, nextTick } = Vue;
+    const { createApp, ref, reactive, onMounted, nextTick, watch } = Vue;
 
     createApp({
       setup() {
@@ -266,44 +419,14 @@
         const sessionId = ref('');
         const workingDir = ref('');
         const resumeId = ref('');
-        const username = ref('');
+        const username = ref('admin');
+        const env = ref('test');
         const messages = ref([]);
         const userInput = ref('');
         const starting = ref(false);
         const sending = ref(false);
         const chatContainer = ref(null);
-
-        // 检查登录状态
-        const checkAuth = async () => {
-          try {
-            const res = await fetch('/api/auth/check');
-            if (!res.ok) {
-              window.location.href = '/login.html';
-              return;
-            }
-            const data = await res.json();
-            if (!data.loggedIn) {
-              window.location.href = '/login.html';
-              return;
-            }
-            username.value = data.username || 'admin';
-          } catch (error) {
-            window.location.href = '/login.html';
-          }
-        };
-
-        // 退出登录
-        const handleLogout = async () => {
-          try {
-            await fetch('/api/auth/logout', { method: 'POST' });
-            ElementPlus.ElMessage.success('已退出登录');
-            setTimeout(() => {
-              window.location.href = '/login.html';
-            }, 500);
-          } catch (error) {
-            ElementPlus.ElMessage.error('退出失败');
-          }
-        };
+        let currentES = null;
 
         // 方法
         const init = async () => {
@@ -395,10 +518,97 @@
           }
         };
 
+        // 工具折叠状态管理
+        const toolStates = reactive({});
+
+        const isToolExpanded = (msgIndex, segIndex) => {
+          const key = msgIndex + '-' + segIndex;
+          if (key in toolStates) {
+            return toolStates[key];
+          }
+          return false; // 默认折叠，点击展开
+        };
+
+        const toggleTool = (msgIndex, segIndex) => {
+          const key = msgIndex + '-' + segIndex;
+          toolStates[key] = !(toolStates[key] === true);
+        };
+
+        // Markdown 渲染
+        const renderMarkdown = (text) => {
+          if (!text) return '';
+          try {
+            if (typeof marked !== 'undefined' && marked.parse) {
+              return marked.parse(text, { breaks: true });
+            }
+          } catch (e) { /* fallback */ }
+          // fallback: 简单转义
+          return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+        };
+
+        const formatSize = (bytes) => {
+          if (bytes == null) return '';
+          if (bytes < 1024) return bytes + ' B';
+          if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+          return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        };
+
+        const handleFileCommand = (command, item) => {
+          if (command === 'download') {
+            window.open('/api/fs/download?path=' + encodeURIComponent(item.path), '_blank');
+          } else if (command === 'delete') {
+            ElementPlus.ElMessageBox.confirm('确定要删除 ' + item.name + ' 吗？', '确认删除', {
+              confirmButtonText: '删除',
+              cancelButtonText: '取消',
+              type: 'warning'
+            }).then(() => {
+              fetch('/api/fs/delete?path=' + encodeURIComponent(item.path), { method: 'DELETE' })
+                .then(r => {
+                  if (!r.ok) throw new Error('删除失败');
+                  return r.json();
+                })
+                .then(() => {
+                  ElementPlus.ElMessage.success('已删除');
+                  loadList(currentPath.value);
+                })
+                .catch(e => ElementPlus.ElMessage.error(e.message));
+            }).catch(() => {});
+          }
+        };
+
+        const onUploadSuccess = () => {
+          ElementPlus.ElMessage.success('上传成功');
+          loadList(currentPath.value);
+        };
+
+        const onUploadError = () => {
+          ElementPlus.ElMessage.error('上传失败');
+        };
+
         const clearContext = () => {
           resumeId.value = '';
           addMessage('system', '上下文已清除');
           ElementPlus.ElMessage.success('上下文已清除');
+        };
+
+        const onEnvChange = (val) => {
+          const label = val === 'prod' ? '生产环境' : '测试环境';
+          ElementPlus.ElMessage.info('已切换到' + label);
+        };
+
+        const stopSession = async () => {
+          if (!sessionId.value || !sending.value) return;
+          try {
+            await fetch('/api/chat/session/' + encodeURIComponent(sessionId.value) + '/stop', { method: 'POST' });
+          } catch (e) {
+            // best effort
+          }
+          if (currentES) {
+            currentES.close();
+            currentES = null;
+          }
+          sending.value = false;
+          addMessage('system', '已手动停止');
         };
 
         const sendMessageStream = () => {
@@ -409,76 +619,152 @@
           userInput.value = '';
           sending.value = true;
 
-          // 创建消息占位
+          // 使用结构化 segments 数组代替字符串 buffer，彻底分离工具输出和文本
           const msgIndex = messages.value.length;
-          addMessage('agent', '');
+          messages.value.push({ role: 'agent', segments: [] });
 
-          let url = '/api/chat/session/' + encodeURIComponent(sessionId.value) + '/message/stream?message=' + encodeURIComponent(message);
+          let url = '/api/chat/session/' + encodeURIComponent(sessionId.value) + '/message/stream?message=' + encodeURIComponent(message) + '&env=' + encodeURIComponent(env.value);
           if (resumeId.value) {
             url += '&resumeId=' + encodeURIComponent(resumeId.value);
           }
 
           const es = new EventSource(url);
-          let buffer = '';
+          currentES = es;
+          let segments = [];
+          let inToolUse = false;
 
-          es.addEventListener('chunk', (e) => {
-            const data = e.data;
-            // 尝试解析 JSON
-            try {
-              const json = JSON.parse(data);
-              // 提取 resume ID
-              if (json.session_id && !resumeId.value) {
-                resumeId.value = json.session_id;
-              }
-              // 提取文本内容
-              if (json.type === 'stream_event' && json.event) {
-                if (json.event.type === 'content_block_delta' && json.event.delta && json.event.delta.text) {
-                  buffer += json.event.delta.text;
-                }
-              } else if (json.type === 'assistant' && json.message && json.message.content) {
-                buffer = '';
-                for (const block of json.message.content) {
-                  if (block.type === 'text' && block.text) {
-                    buffer += block.text;
-                  }
-                }
-              } else if (json.type === 'result' && json.result) {
-                buffer = json.result;
-              }
-            } catch (err) {
-              // 非 JSON 内容，直接追加为纯文本（过滤掉控制字符）
-              if (data && !data.startsWith('{') && !data.startsWith('[')) {
-                buffer += data;
+          // 向最后一个 text segment 追加，没有则新建
+          function appendText(text) {
+            const last = segments.length > 0 ? segments[segments.length - 1] : null;
+            if (last && last.type === 'text') {
+              last.content += text;
+            } else {
+              segments.push({ type: 'text', content: text });
+            }
+          }
+
+          // 向最近的 tool segment 追加内容（tool_result 始终归入工具块）
+          function appendToolContent(text) {
+            for (let i = segments.length - 1; i >= 0; i--) {
+              if (segments[i].type === 'tool') {
+                segments[i].content += text;
+                return;
               }
             }
-            messages.value[msgIndex].text = buffer;
+            segments.push({ type: 'tool', name: 'Tool', content: text });
+          }
+
+          // 触发 Vue 响应式更新
+          function flushSegments() {
+            messages.value[msgIndex].segments = segments.map(function(s) { return { type: s.type, name: s.name, content: s.content }; });
             nextTick(() => {
               if (chatContainer.value) {
                 chatContainer.value.scrollTop = chatContainer.value.scrollHeight;
               }
             });
+          }
+
+          es.addEventListener('chunk', (e) => {
+            const data = e.data;
+            try {
+              const json = JSON.parse(data);
+              if (json.session_id && !resumeId.value) {
+                resumeId.value = json.session_id;
+              }
+              if (json.type === 'stream_event' && json.event) {
+                const evt = json.event;
+                if (evt.type === 'content_block_start' && evt.content_block) {
+                  if (evt.content_block.type === 'tool_use') {
+                    inToolUse = true;
+                    segments.push({ type: 'tool', name: evt.content_block.name, content: '' });
+                  } else {
+                    inToolUse = false;
+                  }
+                } else if (evt.type === 'content_block_delta' && evt.delta) {
+                  if (evt.delta.text) {
+                    appendText(evt.delta.text);
+                  } else if (evt.delta.partial_json) {
+                    appendToolContent(evt.delta.partial_json);
+                  }
+                } else if (evt.type === 'content_block_stop') {
+                  inToolUse = false;
+                }
+              } else if (json.type === 'assistant' && json.message && json.message.content) {
+                // 兜底：仅在流式没有内容时使用完整消息
+                const hasContent = segments.some(function(s) { return s.content && s.content.trim(); });
+                if (!hasContent) {
+                  segments = [];
+                  for (const block of json.message.content) {
+                    if (block.type === 'text' && block.text) {
+                      segments.push({ type: 'text', content: block.text });
+                    } else if (block.type === 'tool_use') {
+                      segments.push({ type: 'tool', name: block.name, content: JSON.stringify(block.input, null, 2) });
+                    }
+                  }
+                }
+              } else if (json.type === 'user' && json.message && json.message.content) {
+                // 处理 tool_result：始终追加到最近的 tool segment，不会混入文本
+                for (const block of json.message.content) {
+                  if (block.type === 'tool_result') {
+                    let resultText = '';
+                    if (json.tool_use_result) {
+                      const tur = json.tool_use_result;
+                      if (tur.file) {
+                        resultText = '[文件: ' + tur.file.filePath + ' (' + tur.file.numLines + '行)]';
+                      } else if (typeof tur === 'string') {
+                        resultText = tur;
+                      } else if (tur.type === 'text' && typeof block.content === 'string') {
+                        resultText = block.content;
+                      }
+                    }
+                    if (!resultText && typeof block.content === 'string') {
+                      resultText = block.content;
+                    }
+                    if (resultText) {
+                      if (resultText.length > 2000) {
+                        resultText = resultText.substring(0, 2000) + '\n... (共 ' + resultText.length + ' 字符，已截断)';
+                      }
+                      appendToolContent('\n' + resultText);
+                    }
+                  }
+                }
+              } else if (json.type === 'result' && json.result) {
+                const hasContent = segments.some(function(s) { return s.content && s.content.trim(); });
+                if (!hasContent) {
+                  segments = [{ type: 'text', content: json.result }];
+                }
+              }
+            } catch (err) {
+              if (data && !data.startsWith('{') && !data.startsWith('[')) {
+                appendText(data);
+              }
+            }
+            flushSegments();
           });
 
           es.addEventListener('exit', (e) => {
-            addMessage('system', '进程退出码: ' + e.data);
+            flushSegments();
+            addMessage('system', e.data === '0' ? '任务已完成' : '进程异常退出，退出码: ' + e.data);
             es.close();
+            currentES = null;
             sending.value = false;
           });
 
           es.addEventListener('error', (e) => {
             addMessage('error', e.data || 'SSE 连接错误');
             es.close();
+            currentES = null;
             sending.value = false;
           });
 
           es.onerror = () => {
             es.close();
+            currentES = null;
             sending.value = false;
           };
         };
 
         onMounted(async () => {
-          await checkAuth();
           await init();
         });
 
@@ -491,6 +777,7 @@
           sessionId,
           workingDir,
           resumeId,
+          env,
           username,
           messages,
           userInput,
@@ -502,8 +789,16 @@
           startSession,
           insertNewline,
           clearContext,
+          onEnvChange,
+          stopSession,
           sendMessageStream,
-          handleLogout
+          formatSize,
+          handleFileCommand,
+          onUploadSuccess,
+          onUploadError,
+          renderMarkdown,
+          isToolExpanded,
+          toggleTool
         };
       }
     }).use(ElementPlus).mount('#app');

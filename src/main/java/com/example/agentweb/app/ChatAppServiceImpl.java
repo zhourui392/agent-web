@@ -55,20 +55,20 @@ public class ChatAppServiceImpl implements ChatAppService {
     }
 
     @Override
-    public SseEmitter streamMessage(String sessionId, String message, String resumeId) {
+    public SseEmitter streamMessage(String sessionId, String message, String resumeId, String env) {
         final ChatSession s = getSession(sessionId);
         if (s == null) {
             throw new IllegalArgumentException("Session not found: " + sessionId);
         }
-        // default timeout: backend process timeout + buffer; using 5 minutes if unknown
-        final long timeoutMs = 5L * 60L * 1000L;
-        final SseEmitter emitter = new SseEmitter(timeoutMs);
+        // No SSE timeout – let the CLI process (and its own watchdog) control the lifecycle
+        final SseEmitter emitter = new SseEmitter(-1L);
 
+        final String envFinal = env;
         agentExecutor.execute(new Runnable() {
             @Override
             public void run() {
                 try {
-                    gateway.runStream(s.getAgentType(), s.getWorkingDir(), message, resumeId,
+                    gateway.runStream(s.getAgentType(), s.getWorkingDir(), message, sessionId, resumeId, envFinal,
                             new java.util.function.Consumer<String>() {
                                 @Override
                                 public void accept(String chunk) {
@@ -99,5 +99,10 @@ public class ChatAppServiceImpl implements ChatAppService {
             }
         });
         return emitter;
+    }
+
+    @Override
+    public void stopSession(String sessionId) {
+        gateway.stopStream(sessionId);
     }
 }

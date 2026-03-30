@@ -1,6 +1,12 @@
 package com.example.agentweb.domain;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -11,12 +17,23 @@ public class ChatSession {
     private final AgentType agentType;
     private final String workingDir;
     private final Instant createdAt;
+    private final List<ChatMessage> messages;
 
     public ChatSession(AgentType agentType, String workingDir) {
-        this.id = UUID.randomUUID().toString();
+        this(UUID.randomUUID().toString(), agentType, workingDir, Instant.now(), new ArrayList<ChatMessage>());
+    }
+
+    @JsonCreator
+    ChatSession(@JsonProperty("id") String id,
+                @JsonProperty("agentType") AgentType agentType,
+                @JsonProperty("workingDir") String workingDir,
+                @JsonProperty("createdAt") Instant createdAt,
+                @JsonProperty("messages") List<ChatMessage> messages) {
+        this.id = id;
         this.agentType = agentType;
         this.workingDir = workingDir;
-        this.createdAt = Instant.now();
+        this.createdAt = createdAt;
+        this.messages = messages != null ? new ArrayList<ChatMessage>(messages) : new ArrayList<ChatMessage>();
     }
 
     public String getId() {
@@ -33,5 +50,13 @@ public class ChatSession {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public void addMessage(String role, String content) {
+        messages.add(new ChatMessage(role, content));
+    }
+
+    public List<ChatMessage> getMessages() {
+        return Collections.unmodifiableList(messages);
     }
 }
