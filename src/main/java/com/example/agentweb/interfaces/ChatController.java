@@ -79,6 +79,14 @@ public class ChatController {
         return result;
     }
 
+    @DeleteMapping("/session/{id}")
+    public Map<String, Object> deleteSession(@PathVariable("id") String id) {
+        sessionRepository.deleteById(id);
+        Map<String, Object> m = new HashMap<String, Object>();
+        m.put("success", true);
+        return m;
+    }
+
     @PostMapping("/session/{id}/stop")
     public Map<String, Object> stop(@PathVariable("id") String id) {
         appService.stopSession(id);

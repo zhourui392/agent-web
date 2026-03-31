@@ -21,4 +21,6 @@ public interface SessionRepository {
      * Each map contains: sessionId, agentType, workingDir, createdAt, messageCount, title.
      */
     List<Map<String, Object>> findAllSummary();
+
+    void deleteById(String id);
 }

@@ -381,11 +381,16 @@
             </template>
 
             <el-scrollbar height="300px">
-              <div v-for="h in historyList" :key="h.sessionId" class="history-item" @click="viewHistory(h.sessionId)">
-                <div class="history-title">{{ h.title || '新对话' }}</div>
-                <div class="history-meta">
-                  {{ h.workingDir.split('/').pop() }} · {{ h.messageCount }} 条消息 · {{ formatTime(h.createdAt) }}
+              <div v-for="h in historyList" :key="h.sessionId" class="history-item" style="display: flex; align-items: center;">
+                <div style="flex: 1; min-width: 0;" @click="viewHistory(h.sessionId)">
+                  <div class="history-title">{{ h.title || '新对话' }}</div>
+                  <div class="history-meta">
+                    {{ h.workingDir.split('/').pop() }} · {{ h.messageCount }} 条消息 · {{ formatTime(h.createdAt) }}
+                  </div>
                 </div>
+                <el-button size="small" text type="danger" @click.stop="deleteHistory(h.sessionId)" style="flex-shrink: 0; margin-left: 4px;">
+                  <el-icon><Delete /></el-icon>
+                </el-button>
               </div>
               <el-empty v-if="historyList.length === 0" description="暂无历史记录" :image-size="40"></el-empty>
             </el-scrollbar>
@@ -709,6 +714,21 @@
           }
         };
 
+        const deleteHistory = async (sid) => {
+          try {
+            await ElementPlus.ElMessageBox.confirm('确定删除该对话记录？', '确认删除', {
+              confirmButtonText: '删除',
+              cancelButtonText: '取消',
+              type: 'warning'
+            });
+            await fetch('/api/chat/session/' + encodeURIComponent(sid), { method: 'DELETE' });
+            historyList.value = historyList.value.filter(function(h) { return h.sessionId !== sid; });
+            ElementPlus.ElMessage.success('已删除');
+          } catch (e) {
+            // 取消或失败，忽略
+          }
+        };
+
         // 从 assistant 原始 stream-json 内容中提取可读文本
         // 从 assistant 原始 stream-json 内容中提取可读文本
         const parseStreamJson = (raw) => {
@@ -1012,6 +1032,7 @@
           historyMessages,
           historyDrawerVisible,
           loadHistory,
+          deleteHistory,
           viewHistory,
           formatTime,
           escapeHtml

@@ -95,6 +95,12 @@ public class SqliteSessionRepo implements SessionRepository {
         );
     }
 
+    @Override
+    public void deleteById(String id) {
+        jdbc.update("DELETE FROM chat_message WHERE session_id = ?", id);
+        jdbc.update("DELETE FROM chat_session WHERE id = ?", id);
+    }
+
     private List<ChatMessage> loadMessages(String sessionId) {
         return jdbc.query(
                 "SELECT role, content, timestamp FROM chat_message WHERE session_id = ? ORDER BY id ASC",
