@@ -336,35 +336,22 @@
             </div>
           </el-card>
 
-          <!-- Agent 设置 -->
           <el-card shadow="hover">
-            <template #header>
-              <div style="display: flex; align-items: center;">
-                <el-icon><Avatar /></el-icon>
-                <span style="margin-left: 8px; font-weight: 600;">Agent 设置</span>
-              </div>
-            </template>
-
-            <el-form label-position="top" size="default">
-              <el-form-item label="Agent 类型">
-                <el-input value="CLAUDE CLI" readonly></el-input>
-              </el-form-item>
-
-              <el-button type="primary" style="width: 100%; margin-bottom: 12px;" @click="startSession" :loading="starting" :disabled="!currentPath">
+            <div style="display: flex; gap: 12px;">
+              <el-button type="primary" style="flex: 1;" @click="startSession" :loading="starting" :disabled="!currentPath">
                 <el-icon><Connection /></el-icon>
                 <span>启动会话</span>
               </el-button>
 
-              <el-button style="width: 100%;" @click="clearContext" :disabled="!sessionId">
+              <el-button style="flex: 1;" @click="clearContext" :disabled="!sessionId">
                 <el-icon><Delete /></el-icon>
                 <span>清除上下文</span>
               </el-button>
-            </el-form>
+            </div>
 
             <!-- 会话信息 -->
             <div v-if="sessionId" class="session-info">
               <div><strong>会话 ID：</strong>{{ sessionId.substring(0, 8) }}...</div>
-              <div><strong>Agent：</strong>CLAUDE</div>
               <div><strong>目录：</strong>{{ workingDir }}</div>
               <div v-if="resumeId"><strong>Resume ID：</strong>{{ resumeId.substring(0, 16) }}...</div>
             </div>
