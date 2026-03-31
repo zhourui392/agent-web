@@ -337,13 +337,13 @@
           </el-card>
 
           <el-card shadow="hover">
-            <div style="display: flex; gap: 12px;">
-              <el-button type="primary" style="flex: 1;" @click="startSession" :loading="starting" :disabled="!currentPath">
+            <div style="display: flex; gap: 8px;">
+              <el-button type="primary" style="flex: 1; min-width: 0;" @click="startSession" :loading="starting" :disabled="!currentPath">
                 <el-icon><Connection /></el-icon>
                 <span>启动会话</span>
               </el-button>
 
-              <el-button style="flex: 1;" @click="clearContext" :disabled="!sessionId">
+              <el-button style="flex: 1; min-width: 0; margin-left: 0;" @click="clearContext" :disabled="!sessionId">
                 <el-icon><Delete /></el-icon>
                 <span>清除上下文</span>
               </el-button>
