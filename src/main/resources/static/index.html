@@ -5,11 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Agent Web 控制台</title>
   <!-- Element Plus CSS -->
-  <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
-  <!-- Element Plus Icons -->
-  <link rel="stylesheet" href="https://unpkg.com/@element-plus/icons-vue/dist/index.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/element-plus/dist/index.css">
   <!-- Markdown rendering -->
-  <script src="https://unpkg.com/marked@12.0.0/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
   <style>
     html, body {
       margin: 0;
@@ -100,6 +98,43 @@
       text-align: center;
       font-size: 13px;
     }
+    .command-popup {
+      position: absolute;
+      bottom: 100%;
+      left: 0;
+      right: 0;
+      max-height: 240px;
+      overflow-y: auto;
+      background: white;
+      border: 1px solid #dcdfe6;
+      border-radius: 4px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+      z-index: 100;
+      margin-bottom: 4px;
+    }
+    .command-item {
+      padding: 8px 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+    }
+    .command-item:hover, .command-item.active {
+      background: #f0f7ff;
+    }
+    .command-name {
+      font-family: monospace;
+      font-weight: bold;
+      color: #409eff;
+      white-space: nowrap;
+    }
+    .command-desc {
+      color: #909399;
+      font-size: 12px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
     .chat-input-area {
       padding: 16px;
       background: white;
@@ -124,11 +159,8 @@
       margin-left: 8px;
     }
     .fs-item .fs-actions {
-      visibility: hidden;
       flex-shrink: 0;
-    }
-    .fs-item:hover .fs-actions {
-      visibility: visible;
+      padding-left: 4px;
     }
     .session-info {
       padding: 12px;
@@ -151,6 +183,13 @@
     }
     .history-item:hover {
       background: #ecf5ff;
+    }
+    .history-item .el-button {
+      opacity: 0.3;
+      transition: opacity 0.2s;
+    }
+    .history-item:hover .el-button {
+      opacity: 1;
     }
     .history-item .history-title {
       font-size: 13px;
@@ -253,13 +292,16 @@
       <el-aside width="320px">
         <div style="padding: 20px;">
           <!-- 环境切换 -->
-          <div style="margin-bottom: 16px; display: flex; align-items: center; justify-content: center; gap: 6px;">
-            <el-radio-group v-model="env" size="default" @change="onEnvChange">
+          <div style="margin-bottom: 16px; display: flex; align-items: center; justify-content: center; gap: 6px; flex-wrap: nowrap;">
+            <el-radio-group v-model="env" size="small" @change="onEnvChange" style="flex-shrink: 0;">
+              <el-radio-button value="">
+                <span :style="{ fontWeight: 700, fontSize: '12px' }">无</span>
+              </el-radio-button>
               <el-radio-button value="test">
-                <span :style="{ color: env === 'test' ? '#67c23a' : '', fontWeight: 700, fontSize: '13px' }">【测试环境】</span>
+                <span :style="{ color: env !== 'test' ? '#67c23a' : '', fontWeight: 700, fontSize: '12px' }">测试环境</span>
               </el-radio-button>
               <el-radio-button value="prod">
-                <span :style="{ color: env === 'prod' ? '#f56c6c' : '', fontWeight: 700, fontSize: '13px' }">【生产环境】</span>
+                <span :style="{ color: env !== 'prod' ? '#f56c6c' : '', fontWeight: 700, fontSize: '12px' }">生产环境</span>
               </el-radio-button>
             </el-radio-group>
             <el-tooltip content="环境选择只是注入限制提示词，并不一定影响最后的查询环境" placement="top">
@@ -269,13 +311,6 @@
 
           <!-- 工作目录选择 -->
           <el-card shadow="hover" style="margin-bottom: 20px;">
-            <template #header>
-              <div style="display: flex; align-items: center;">
-                <el-icon><Folder /></el-icon>
-                <span style="margin-left: 8px; font-weight: 600;">工作目录</span>
-              </div>
-            </template>
-
             <el-form label-position="top" size="default">
               <el-form-item label="根路径">
                 <el-select v-model="selectedRoot" placeholder="选择根路径" style="width: 100%;" @change="handleRootChange">
@@ -286,27 +321,27 @@
               <el-form-item label="当前路径">
                 <el-input v-model="currentPath" readonly>
                   <template #prefix>
-                    <el-icon><FolderOpened /></el-icon>
+                    <el-icon><folder-opened /></el-icon>
                   </template>
                 </el-input>
               </el-form-item>
             </el-form>
 
             <!-- 文件/目录列表 -->
-            <el-scrollbar height="300px">
+            <el-scrollbar height="200px">
               <div v-for="item in folderList" :key="item.path" class="fs-item"
                    @click="item.dir ? loadList(item.path) : null">
-                <el-icon v-if="item.dir"><Folder /></el-icon>
-                <el-icon v-else><Document /></el-icon>
+                <el-icon v-if="item.dir"><folder /></el-icon>
+                <el-icon v-else><document /></el-icon>
                 <span class="fs-name">{{ item.name || item.path }}</span>
                 <span v-if="!item.dir" style="color:#909399;font-size:12px;margin-right:8px;">{{ formatSize(item.size) }}</span>
-                <span class="fs-actions" v-if="item.name !== '..'">
+                <span class="fs-actions" v-if="!item.dir && item.name !== '..'">
                   <el-dropdown trigger="click" @command="handleFileCommand($event, item)" @click.stop>
-                    <el-icon style="cursor:pointer;" @click.stop><MoreFilled /></el-icon>
+                    <el-icon style="cursor:pointer; font-size: 16px; color: #909399;" @click.stop><more-filled /></el-icon>
                     <template #dropdown>
                       <el-dropdown-menu>
-                        <el-dropdown-item v-if="!item.dir" command="download">下载</el-dropdown-item>
-                        <el-dropdown-item v-if="!item.dir" command="delete" style="color:#f56c6c;">删除</el-dropdown-item>
+                        <el-dropdown-item command="download">下载</el-dropdown-item>
+                        <el-dropdown-item command="delete" style="color:#f56c6c;">删除</el-dropdown-item>
                       </el-dropdown-menu>
                     </template>
                   </el-dropdown>
@@ -325,7 +360,7 @@
                 :on-error="onUploadError"
                 multiple>
                 <el-button type="primary" size="small" style="width: 100%;">
-                  <el-icon><Upload /></el-icon>
+                  <el-icon><upload /></el-icon>
                   <span>上传文件</span>
                 </el-button>
               </el-upload>
@@ -335,12 +370,12 @@
           <el-card shadow="hover">
             <div style="display: flex; gap: 8px;">
               <el-button type="primary" style="flex: 1; min-width: 0;" @click="startSession" :loading="starting" :disabled="!currentPath">
-                <el-icon><Connection /></el-icon>
+                <el-icon><connection /></el-icon>
                 <span>启动会话</span>
               </el-button>
 
               <el-button style="flex: 1; min-width: 0; margin-left: 0;" @click="clearContext" :disabled="!sessionId">
-                <el-icon><Delete /></el-icon>
+                <el-icon><delete /></el-icon>
                 <span>清除上下文</span>
               </el-button>
             </div>
@@ -358,11 +393,11 @@
             <template #header>
               <div style="display: flex; align-items: center; justify-content: space-between;">
                 <div style="display: flex; align-items: center;">
-                  <el-icon><Clock /></el-icon>
+                  <el-icon><clock /></el-icon>
                   <span style="margin-left: 8px; font-weight: 600;">历史对话</span>
                 </div>
                 <el-button size="small" text @click="loadHistory(true)">
-                  <el-icon><Refresh /></el-icon>
+                  <el-icon><refresh /></el-icon>
                 </el-button>
               </div>
             </template>
@@ -376,7 +411,7 @@
                   </div>
                 </div>
                 <el-button size="small" text type="danger" @click.stop="deleteHistory(h.sessionId)" style="flex-shrink: 0; margin-left: 4px;">
-                  <el-icon><Delete /></el-icon>
+                  <el-icon><delete /></el-icon>
                 </el-button>
               </div>
               <div v-if="historyLoading" style="text-align: center; padding: 8px; color: #909399; font-size: 12px;">加载中...</div>
@@ -460,13 +495,21 @@
           </div>
 
           <!-- 输入区 -->
-          <div class="chat-input-area">
+          <div class="chat-input-area" style="position: relative;">
+            <div class="command-popup" v-if="showCommandPopup && filteredCommands.length > 0">
+              <div v-for="(cmd, idx) in filteredCommands" :key="cmd.name"
+                   class="command-item" :class="{active: idx === selectedCommandIdx}"
+                   @mousedown.prevent="selectCommand(cmd)">
+                <span class="command-name">/{{ cmd.name }}</span>
+                <span class="command-desc">{{ cmd.description || cmd.argumentHint }}</span>
+              </div>
+            </div>
             <el-input
               v-model="userInput"
               type="textarea"
               :rows="3"
               placeholder="输入你的问题，例如：测试环境，traceId: xxx，问题描述"
-              @keydown.enter.exact.prevent="sendMessageStream"
+              @keydown.enter.exact.prevent="handleEnter" @keydown.up.prevent="handleArrowUp" @keydown.down.prevent="handleArrowDown" @keydown.tab.prevent="handleTab" @keydown.escape="hideCommandPopup"
               @keydown.ctrl.enter.exact.prevent="insertNewline"
               :disabled="!sessionId"
             ></el-input>
@@ -477,11 +520,11 @@
               </div>
               <div style="display: flex; gap: 8px;">
                 <el-button type="danger" @click="stopSession" v-if="sending" plain>
-                  <el-icon><VideoPause /></el-icon>
+                  <el-icon><video-pause /></el-icon>
                   <span>停止</span>
                 </el-button>
                 <el-button type="primary" @click="sendMessageStream" :loading="sending" :disabled="!sessionId || !userInput.trim()">
-                  <el-icon><Connection /></el-icon>
+                  <el-icon><connection /></el-icon>
                   <span>发送</span>
                 </el-button>
               </div>
@@ -493,16 +536,16 @@
   </div>
 
   <!-- Vue 3 -->
-  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.js"></script>
   <!-- Element Plus -->
-  <script src="https://unpkg.com/element-plus"></script>
+  <script src="https://cdn.jsdelivr.net/npm/element-plus/dist/index.full.min.js"></script>
   <!-- Element Plus Icons -->
-  <script src="https://unpkg.com/@element-plus/icons-vue"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@element-plus/icons-vue/dist/index.iife.min.js"></script>
 
   <script>
     const { createApp, ref, reactive, onMounted, nextTick, watch } = Vue;
 
-    createApp({
+    const app = createApp({
       setup() {
         // 数据
         const DEFAULT_WORKING_PATH = '/home/ubuntu/workspace/qpon';
@@ -528,6 +571,18 @@
         const historyLoading = ref(false);
         const historyMessages = ref([]);
         const historyDrawerVisible = ref(false);
+        const slashCommands = ref([]);
+        const showCommandPopup = ref(false);
+        const selectedCommandIdx = ref(0);
+
+        const filteredCommands = Vue.computed(() => {
+          const input = userInput.value;
+          if (!input.startsWith('/')) return [];
+          const query = input.indexOf(' ') > 0 ? input.substring(1, input.indexOf(' ')) : input.substring(1);
+          if (!query) return slashCommands.value;
+          return slashCommands.value.filter(c => c.name.toLowerCase().includes(query.toLowerCase()));
+        });
+
         let currentES = null;
 
         // 方法
@@ -591,6 +646,11 @@
             resumeId.value = ''; // 清除旧的 resume ID
             addMessage('system', '会话已创建，工作目录：' + data.workingDir);
             ElementPlus.ElMessage.success('会话启动成功');
+            // 加载 slash 命令列表
+            fetch('/api/chat/session/' + encodeURIComponent(data.sessionId) + '/commands')
+              .then(r => r.json())
+              .then(cmds => { slashCommands.value = cmds; })
+              .catch(() => {});
           } catch (error) {
             ElementPlus.ElMessage.error('启动失败: ' + error.message);
           } finally {
@@ -696,7 +756,7 @@
         };
 
         const onEnvChange = (val) => {
-          const label = val === 'prod' ? '生产环境' : '测试环境';
+          const label = val === 'prod' ? '生产环境' : val === 'test' ? '测试环境' : '无环境';
           ElementPlus.ElMessage.info('已切换到' + label);
         };
 
@@ -852,6 +912,44 @@
           addMessage('system', '已手动停止');
         };
 
+
+        const handleEnter = () => {
+          if (showCommandPopup.value && filteredCommands.value.length > 0) {
+            selectCommand(filteredCommands.value[selectedCommandIdx.value]);
+          } else {
+            sendMessageStream();
+          }
+        };
+
+        const handleArrowUp = () => {
+          if (!showCommandPopup.value) return;
+          selectedCommandIdx.value = Math.max(0, selectedCommandIdx.value - 1);
+        };
+
+        const handleArrowDown = () => {
+          if (!showCommandPopup.value) return;
+          selectedCommandIdx.value = Math.min(filteredCommands.value.length - 1, selectedCommandIdx.value + 1);
+        };
+
+        const handleTab = () => {
+          if (showCommandPopup.value && filteredCommands.value.length > 0) {
+            selectCommand(filteredCommands.value[selectedCommandIdx.value]);
+          }
+        };
+
+        const selectCommand = (cmd) => {
+          userInput.value = '/' + cmd.name + ' ';
+          showCommandPopup.value = false;
+          nextTick(() => {
+            const textarea = document.querySelector('textarea');
+            if (textarea) textarea.focus();
+          });
+        };
+
+        const hideCommandPopup = () => {
+          showCommandPopup.value = false;
+        };
+
         const sendMessageStream = () => {
           if (!sessionId.value || !userInput.value.trim() || sending.value) return;
 
@@ -864,7 +962,10 @@
           const msgIndex = messages.value.length;
           messages.value.push({ role: 'agent', segments: [] });
 
-          let url = '/api/chat/session/' + encodeURIComponent(sessionId.value) + '/message/stream?message=' + encodeURIComponent(message) + '&env=' + encodeURIComponent(env.value);
+          let url = '/api/chat/session/' + encodeURIComponent(sessionId.value) + '/message/stream?message=' + encodeURIComponent(message);
+          if (env.value) {
+            url += '&env=' + encodeURIComponent(env.value);
+          }
           if (resumeId.value) {
             url += '&resumeId=' + encodeURIComponent(resumeId.value);
           }
@@ -1010,6 +1111,15 @@
           await loadHistory(true);
         });
 
+        watch(userInput, (val) => {
+          if (val && val.startsWith('/') && val.indexOf(' ') < 0 && slashCommands.value.length > 0) {
+            showCommandPopup.value = true;
+            selectedCommandIdx.value = 0;
+          } else {
+            showCommandPopup.value = false;
+          }
+        });
+
         return {
           roots,
           selectedRoot,
@@ -1033,6 +1143,16 @@
           clearContext,
           onEnvChange,
           stopSession,
+          slashCommands,
+          showCommandPopup,
+          selectedCommandIdx,
+          filteredCommands,
+          handleEnter,
+          handleArrowUp,
+          handleArrowDown,
+          handleTab,
+          selectCommand,
+          hideCommandPopup,
           sendMessageStream,
           formatSize,
           handleFileCommand,
@@ -1054,7 +1174,19 @@
           escapeHtml
         };
       }
-    }).use(ElementPlus).mount('#app');
+    });
+
+    app.use(ElementPlus);
+    // 全局注册 Element Plus 图标组件（同时注册 lowercase 和 kebab-case 别名，兼容 DOM 模板）
+    for (const [name, comp] of Object.entries(ElementPlusIconsVue)) {
+      app.component(name, comp);
+      app.component(name.toLowerCase(), comp);
+      const kebab = name.replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase();
+      if (kebab !== name.toLowerCase()) {
+        app.component(kebab, comp);
+      }
+    }
+    app.mount('#app');
   </script>
 </body>
 </html>

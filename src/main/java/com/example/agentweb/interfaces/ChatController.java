@@ -4,6 +4,7 @@ import com.example.agentweb.app.ChatAppService;
 import com.example.agentweb.domain.ChatMessage;
 import com.example.agentweb.domain.ChatSession;
 import com.example.agentweb.domain.SessionRepository;
+import com.example.agentweb.domain.SlashCommand;
 import com.example.agentweb.interfaces.dto.SendMessageRequest;
 import com.example.agentweb.interfaces.dto.StartSessionRequest;
 import org.springframework.http.MediaType;
@@ -55,6 +56,21 @@ public class ChatController {
                             @RequestParam(value = "resumeId", required = false) String resumeId,
                             @RequestParam(value = "env", required = false) String env) {
         return appService.streamMessage(id, message, resumeId, env);
+    }
+
+    @GetMapping("/session/{id}/commands")
+    public List<Map<String, Object>> listCommands(@PathVariable("id") String id) {
+        return appService.listCommands(id).stream()
+                .map(this::toCommandDto)
+                .collect(java.util.stream.Collectors.toList());
+    }
+
+    private Map<String, Object> toCommandDto(SlashCommand cmd) {
+        Map<String, Object> m = new HashMap<String, Object>();
+        m.put("name", cmd.getName());
+        m.put("description", cmd.getDescription());
+        m.put("argumentHint", cmd.getArgumentHint());
+        return m;
     }
 
     @GetMapping("/sessions")

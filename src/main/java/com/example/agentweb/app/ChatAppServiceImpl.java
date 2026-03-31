@@ -5,6 +5,8 @@ import com.example.agentweb.domain.AgentType;
 import com.example.agentweb.domain.ChatMessage;
 import com.example.agentweb.domain.ChatSession;
 import com.example.agentweb.domain.SessionRepository;
+import com.example.agentweb.domain.SlashCommand;
+import com.example.agentweb.domain.SlashCommandExpander;
 import com.example.agentweb.infra.InMemorySessionRepo;
 import com.example.agentweb.interfaces.dto.SendMessageRequest;
 import com.example.agentweb.interfaces.dto.StartSessionRequest;
@@ -14,6 +16,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.List;
 import java.util.concurrent.Executor;
 
 @Service
@@ -23,15 +26,18 @@ public class ChatAppServiceImpl implements ChatAppService {
     private final SessionRepository sessionRepository;
     private final AgentGateway gateway;
     private final Executor agentExecutor;
+    private final SlashCommandExpander commandExpander;
 
     public ChatAppServiceImpl(InMemorySessionRepo repo,
                               SessionRepository sessionRepository,
                               AgentGateway gateway,
-                              Executor agentExecutor) {
+                              Executor agentExecutor,
+                              SlashCommandExpander commandExpander) {
         this.repo = repo;
         this.sessionRepository = sessionRepository;
         this.gateway = gateway;
         this.agentExecutor = agentExecutor;
+        this.commandExpander = commandExpander;
     }
 
     @Override
@@ -92,7 +98,8 @@ public class ChatAppServiceImpl implements ChatAppService {
             @Override
             public void run() {
                 try {
-                    gateway.runStream(s.getAgentType(), s.getWorkingDir(), message, sessionId, resumeId, envFinal,
+                    String cliMessage = commandExpander.expandIfCommand(s.getWorkingDir(), message);
+                    gateway.runStream(s.getAgentType(), s.getWorkingDir(), cliMessage, sessionId, resumeId, envFinal,
                             new java.util.function.Consumer<String>() {
                                 @Override
                                 public void accept(String chunk) {
@@ -135,5 +142,14 @@ public class ChatAppServiceImpl implements ChatAppService {
     @Override
     public void stopSession(String sessionId) {
         gateway.stopStream(sessionId);
+    }
+
+    @Override
+    public List<SlashCommand> listCommands(String sessionId) {
+        ChatSession s = getSession(sessionId);
+        if (s == null) {
+            throw new IllegalArgumentException("Session not found: " + sessionId);
+        }
+        return commandExpander.listCommands(s.getWorkingDir());
     }
 }

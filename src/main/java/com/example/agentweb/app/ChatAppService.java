@@ -1,11 +1,13 @@
 package com.example.agentweb.app;
 
-import com.example.agentweb.domain.AgentType;
 import com.example.agentweb.domain.ChatSession;
+import com.example.agentweb.domain.SlashCommand;
 import com.example.agentweb.interfaces.dto.SendMessageRequest;
 import com.example.agentweb.interfaces.dto.StartSessionRequest;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.util.List;
 
 /**
  * Application service orchestrating session lifecycle and message handling.
@@ -26,10 +28,12 @@ public interface ChatAppService {
      * Stream output using Server-Sent Events.
      * @param resumeId Optional resume ID for continuing a conversation
      */
-    org.springframework.web.servlet.mvc.method.annotation.SseEmitter streamMessage(String sessionId, String message, String resumeId, String env);
+    SseEmitter streamMessage(String sessionId, String message, String resumeId, String env);
 
     /**
      * Stop a running stream for the given session.
      */
     void stopSession(String sessionId);
+
+    List<SlashCommand> listCommands(String sessionId);
 }
