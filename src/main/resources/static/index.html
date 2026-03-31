@@ -710,9 +710,21 @@
         };
 
         // 从 assistant 原始 stream-json 内容中提取可读文本
+        // 从 assistant 原始 stream-json 内容中提取可读文本
         const parseStreamJson = (raw) => {
-          if (!raw) return '';
+          if (!raw) return [];
           const segments = [];
+
+          // 向最后一个 text segment 追加，没有则新建
+          function appendText(text) {
+            const last = segments.length > 0 ? segments[segments.length - 1] : null;
+            if (last && last.type === 'text') {
+              last.content += text;
+            } else {
+              segments.push({ type: 'text', content: text });
+            }
+          }
+
           const lines = raw.split('\n');
           for (let i = 0; i < lines.length; i++) {
             const line = lines[i].trim();
@@ -727,9 +739,8 @@
                   }
                 } else if (evt.type === 'content_block_delta' && evt.delta) {
                   if (evt.delta.type === 'text_delta' && evt.delta.text) {
-                    segments.push({ type: 'text', content: evt.delta.text });
+                    appendText(evt.delta.text);
                   } else if (evt.delta.type === 'input_json_delta' && evt.delta.partial_json) {
-                    // append to last tool segment
                     for (let j = segments.length - 1; j >= 0; j--) {
                       if (segments[j].type === 'tool') {
                         segments[j].input += evt.delta.partial_json;
@@ -753,7 +764,11 @@
                   }
                 }
               } else if (json.type === 'result' && json.result) {
-                segments.push({ type: 'result', content: json.result });
+                // 仅在没有已解析的文本时使用 result 兜底
+                const hasText = segments.some(function(s) { return s.type === 'text' && s.content.trim(); });
+                if (!hasText) {
+                  segments.push({ type: 'text', content: json.result });
+                }
               }
             } catch (e) { /* skip non-JSON */ }
           }
