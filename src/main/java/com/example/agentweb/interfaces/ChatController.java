@@ -59,18 +59,7 @@ public class ChatController {
 
     @GetMapping("/sessions")
     public List<Map<String, Object>> listSessions() {
-        List<ChatSession> sessions = sessionRepository.findAll();
-        List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
-        for (ChatSession s : sessions) {
-            Map<String, Object> m = new HashMap<String, Object>();
-            m.put("sessionId", s.getId());
-            m.put("agentType", s.getAgentType().name());
-            m.put("workingDir", s.getWorkingDir());
-            m.put("createdAt", s.getCreatedAt().toString());
-            m.put("messageCount", s.getMessages().size());
-            result.add(m);
-        }
-        return result;
+        return sessionRepository.findAllSummary();
     }
 
     @GetMapping("/session/{id}/messages")

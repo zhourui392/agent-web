@@ -1,6 +1,7 @@
 package com.example.agentweb.domain;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Port for persisting chat sessions and their messages.
@@ -14,4 +15,10 @@ public interface SessionRepository {
     ChatSession findById(String id);
 
     List<ChatSession> findAll();
+
+    /**
+     * Returns session summaries including title (first user message).
+     * Each map contains: sessionId, agentType, workingDir, createdAt, messageCount, title.
+     */
+    List<Map<String, Object>> findAllSummary();
 }

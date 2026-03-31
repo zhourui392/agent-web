@@ -9,7 +9,9 @@ import org.springframework.stereotype.Repository;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Repository
 public class SqliteSessionRepo implements SessionRepository {
@@ -69,6 +71,27 @@ public class SqliteSessionRepo implements SessionRepository {
                         Instant.parse(rs.getString("created_at")),
                         loadMessages(rs.getString("id"))
                 )
+        );
+    }
+
+    @Override
+    public List<Map<String, Object>> findAllSummary() {
+        return jdbc.query(
+                "SELECT s.id, s.agent_type, s.working_dir, s.created_at, " +
+                "  (SELECT COUNT(*) FROM chat_message m WHERE m.session_id = s.id) AS message_count, " +
+                "  (SELECT m.content FROM chat_message m WHERE m.session_id = s.id AND m.role = 'user' ORDER BY m.id ASC LIMIT 1) AS title " +
+                "FROM chat_session s ORDER BY s.created_at DESC",
+                (rs, rowNum) -> {
+                    Map<String, Object> m = new HashMap<String, Object>();
+                    m.put("sessionId", rs.getString("id"));
+                    m.put("agentType", rs.getString("agent_type"));
+                    m.put("workingDir", rs.getString("working_dir"));
+                    m.put("createdAt", rs.getString("created_at"));
+                    m.put("messageCount", rs.getInt("message_count"));
+                    String title = rs.getString("title");
+                    m.put("title", title != null ? (title.length() > 50 ? title.substring(0, 50) + "..." : title) : "新对话");
+                    return m;
+                }
         );
     }
 

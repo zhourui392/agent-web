@@ -382,9 +382,9 @@
 
             <el-scrollbar height="300px">
               <div v-for="h in historyList" :key="h.sessionId" class="history-item" @click="viewHistory(h.sessionId)">
-                <div class="history-title">{{ h.workingDir.split('/').pop() || h.workingDir }}</div>
+                <div class="history-title">{{ h.title || '新对话' }}</div>
                 <div class="history-meta">
-                  {{ h.agentType }} · {{ h.messageCount }} 条消息 · {{ formatTime(h.createdAt) }}
+                  {{ h.workingDir.split('/').pop() }} · {{ h.messageCount }} 条消息 · {{ formatTime(h.createdAt) }}
                 </div>
               </div>
               <el-empty v-if="historyList.length === 0" description="暂无历史记录" :image-size="40"></el-empty>
@@ -398,7 +398,31 @@
                 {{ msg.role === 'user' ? '用户' : '助手' }}
                 <span style="font-weight: normal; color: #c0c4cc; margin-left: 8px;">{{ formatTime(msg.timestamp) }}</span>
               </div>
-              <div class="history-msg-content" v-html="msg.role === 'assistant' ? renderMarkdown(msg.content) : escapeHtml(msg.content)"></div>
+              <!-- user message -->
+              <div v-if="msg.role === 'user'" class="history-msg-content">{{ msg.content }}</div>
+              <!-- assistant with parsed segments -->
+              <div v-else-if="msg.parsedSegments" class="history-msg-content">
+                <template v-for="(seg, si) in msg.parsedSegments" :key="si">
+                  <div v-if="seg.type === 'text'" class="text-segment" v-html="renderMarkdown(seg.content)"></div>
+                  <div v-else-if="seg.type === 'tool'" class="tool-block">
+                    <div class="tool-header" @click="seg._expanded = !seg._expanded">
+                      <span class="tool-toggle" :class="{expanded: seg._expanded}">▶</span>
+                      <span class="tool-label">{{ seg.name }}</span>
+                    </div>
+                    <div v-show="seg._expanded" class="tool-content">{{ seg.input }}</div>
+                  </div>
+                  <div v-else-if="seg.type === 'tool_result'" class="tool-block">
+                    <div class="tool-header" @click="seg._expanded = !seg._expanded">
+                      <span class="tool-toggle" :class="{expanded: seg._expanded}">▶</span>
+                      <span class="tool-label">Tool Result</span>
+                    </div>
+                    <div v-show="seg._expanded" class="tool-content">{{ seg.content }}</div>
+                  </div>
+                  <div v-else-if="seg.type === 'result'" class="text-segment" v-html="renderMarkdown(seg.content)"></div>
+                </template>
+              </div>
+              <!-- fallback for assistant without parsed segments -->
+              <div v-else class="history-msg-content" v-html="renderMarkdown(msg.content)"></div>
             </div>
             <el-empty v-if="historyMessages.length === 0" description="暂无消息" :image-size="60"></el-empty>
           </el-drawer>
@@ -685,10 +709,67 @@
           }
         };
 
+        // 从 assistant 原始 stream-json 内容中提取可读文本
+        const parseStreamJson = (raw) => {
+          if (!raw) return '';
+          const segments = [];
+          const lines = raw.split('\n');
+          for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim();
+            if (!line) continue;
+            try {
+              const json = JSON.parse(line);
+              if (json.type === 'stream_event' && json.event) {
+                const evt = json.event;
+                if (evt.type === 'content_block_start' && evt.content_block) {
+                  if (evt.content_block.type === 'tool_use') {
+                    segments.push({ type: 'tool', name: evt.content_block.name, input: '' });
+                  }
+                } else if (evt.type === 'content_block_delta' && evt.delta) {
+                  if (evt.delta.type === 'text_delta' && evt.delta.text) {
+                    segments.push({ type: 'text', content: evt.delta.text });
+                  } else if (evt.delta.type === 'input_json_delta' && evt.delta.partial_json) {
+                    // append to last tool segment
+                    for (let j = segments.length - 1; j >= 0; j--) {
+                      if (segments[j].type === 'tool') {
+                        segments[j].input += evt.delta.partial_json;
+                        break;
+                      }
+                    }
+                  }
+                }
+              } else if (json.type === 'user' && json.message && json.message.content) {
+                for (const block of json.message.content) {
+                  if (block.type === 'tool_result') {
+                    let result = '';
+                    if (json.tool_use_result && typeof json.tool_use_result === 'string') {
+                      result = json.tool_use_result;
+                    } else if (typeof block.content === 'string') {
+                      result = block.content;
+                    }
+                    if (result) {
+                      segments.push({ type: 'tool_result', content: result.length > 500 ? result.substring(0, 500) + '...' : result });
+                    }
+                  }
+                }
+              } else if (json.type === 'result' && json.result) {
+                segments.push({ type: 'result', content: json.result });
+              }
+            } catch (e) { /* skip non-JSON */ }
+          }
+          return segments;
+        };
+
         const viewHistory = async (sid) => {
           try {
             const data = await fetch('/api/chat/session/' + encodeURIComponent(sid) + '/messages').then(r => r.json());
-            historyMessages.value = data;
+            // parse assistant messages to extract readable content
+            historyMessages.value = data.map(function(msg) {
+              if (msg.role === 'assistant' && msg.content && msg.content.startsWith('{')) {
+                return Object.assign({}, msg, { parsedSegments: parseStreamJson(msg.content) });
+              }
+              return msg;
+            });
             historyDrawerVisible.value = true;
           } catch (e) {
             ElementPlus.ElMessage.error('加载消息失败');
