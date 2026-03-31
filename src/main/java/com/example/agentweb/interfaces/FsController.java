@@ -157,7 +157,8 @@ public class FsController {
         String np = Paths.get(p).normalize().toString();
         for (String r : roots) {
             String nr = Paths.get(r).normalize().toString();
-            if (np.equals(nr) || np.startsWith(nr + File.separator)) {
+            String prefix = nr.endsWith(File.separator) ? nr : nr + File.separator;
+            if (np.equals(nr) || np.startsWith(prefix)) {
                 return true;
             }
         }
