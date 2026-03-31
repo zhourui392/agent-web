@@ -1,7 +1,9 @@
 package com.example.agentweb.interfaces;
 
 import com.example.agentweb.app.ChatAppService;
+import com.example.agentweb.domain.ChatMessage;
 import com.example.agentweb.domain.ChatSession;
+import com.example.agentweb.domain.SessionRepository;
 import com.example.agentweb.interfaces.dto.SendMessageRequest;
 import com.example.agentweb.interfaces.dto.StartSessionRequest;
 import org.springframework.http.MediaType;
@@ -11,7 +13,9 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import javax.validation.Valid;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -20,9 +24,11 @@ import java.util.Map;
 public class ChatController {
 
     private final ChatAppService appService;
+    private final SessionRepository sessionRepository;
 
-    public ChatController(ChatAppService appService) {
+    public ChatController(ChatAppService appService, SessionRepository sessionRepository) {
         this.appService = appService;
+        this.sessionRepository = sessionRepository;
     }
 
     @PostMapping("/session")
@@ -49,6 +55,39 @@ public class ChatController {
                             @RequestParam(value = "resumeId", required = false) String resumeId,
                             @RequestParam(value = "env", required = false) String env) {
         return appService.streamMessage(id, message, resumeId, env);
+    }
+
+    @GetMapping("/sessions")
+    public List<Map<String, Object>> listSessions() {
+        List<ChatSession> sessions = sessionRepository.findAll();
+        List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
+        for (ChatSession s : sessions) {
+            Map<String, Object> m = new HashMap<String, Object>();
+            m.put("sessionId", s.getId());
+            m.put("agentType", s.getAgentType().name());
+            m.put("workingDir", s.getWorkingDir());
+            m.put("createdAt", s.getCreatedAt().toString());
+            m.put("messageCount", s.getMessages().size());
+            result.add(m);
+        }
+        return result;
+    }
+
+    @GetMapping("/session/{id}/messages")
+    public List<Map<String, Object>> getMessages(@PathVariable("id") String id) {
+        ChatSession s = sessionRepository.findById(id);
+        if (s == null) {
+            throw new IllegalArgumentException("Session not found: " + id);
+        }
+        List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
+        for (ChatMessage msg : s.getMessages()) {
+            Map<String, Object> m = new HashMap<String, Object>();
+            m.put("role", msg.getRole());
+            m.put("content", msg.getContent());
+            m.put("timestamp", msg.getTimestamp().toString());
+            result.add(m);
+        }
+        return result;
     }
 
     @PostMapping("/session/{id}/stop")

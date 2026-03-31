@@ -24,7 +24,7 @@ public class ChatSession {
     }
 
     @JsonCreator
-    ChatSession(@JsonProperty("id") String id,
+    public ChatSession(@JsonProperty("id") String id,
                 @JsonProperty("agentType") AgentType agentType,
                 @JsonProperty("workingDir") String workingDir,
                 @JsonProperty("createdAt") Instant createdAt,

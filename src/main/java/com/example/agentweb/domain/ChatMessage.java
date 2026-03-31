@@ -22,6 +22,12 @@ public class ChatMessage {
         this.timestamp = Instant.now();
     }
 
+    public ChatMessage(String role, String content, Instant timestamp) {
+        this.role = role;
+        this.content = content;
+        this.timestamp = timestamp;
+    }
+
     public String getRole() {
         return role;
     }

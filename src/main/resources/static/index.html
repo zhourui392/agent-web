@@ -143,6 +143,46 @@
       border-right: 1px solid #ebeef5;
       overflow-y: auto;
     }
+    .history-item {
+      padding: 10px 12px;
+      border-bottom: 1px solid #ebeef5;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .history-item:hover {
+      background: #ecf5ff;
+    }
+    .history-item .history-title {
+      font-size: 13px;
+      font-weight: 500;
+      color: #303133;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .history-item .history-meta {
+      font-size: 11px;
+      color: #909399;
+      margin-top: 4px;
+    }
+    .history-msg {
+      padding: 8px 12px;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    .history-msg-role {
+      font-size: 11px;
+      font-weight: 600;
+      color: #909399;
+      margin-bottom: 2px;
+    }
+    .history-msg-content {
+      font-size: 13px;
+      color: #303133;
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 200px;
+      overflow-y: auto;
+    }
     .tool-block {
       margin: 4px 0;
       border: 1px solid #e4e7ed;
@@ -326,6 +366,43 @@
             </div>
           </el-card>
 
+          <!-- 历史对话记录 -->
+          <el-card shadow="hover" style="margin-top: 20px;">
+            <template #header>
+              <div style="display: flex; align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center;">
+                  <el-icon><Clock /></el-icon>
+                  <span style="margin-left: 8px; font-weight: 600;">历史对话</span>
+                </div>
+                <el-button size="small" text @click="loadHistory">
+                  <el-icon><Refresh /></el-icon>
+                </el-button>
+              </div>
+            </template>
+
+            <el-scrollbar height="300px">
+              <div v-for="h in historyList" :key="h.sessionId" class="history-item" @click="viewHistory(h.sessionId)">
+                <div class="history-title">{{ h.workingDir.split('/').pop() || h.workingDir }}</div>
+                <div class="history-meta">
+                  {{ h.agentType }} · {{ h.messageCount }} 条消息 · {{ formatTime(h.createdAt) }}
+                </div>
+              </div>
+              <el-empty v-if="historyList.length === 0" description="暂无历史记录" :image-size="40"></el-empty>
+            </el-scrollbar>
+          </el-card>
+
+          <!-- 历史消息详情弹窗 -->
+          <el-drawer v-model="historyDrawerVisible" title="对话详情" size="50%" direction="rtl">
+            <div v-for="(msg, i) in historyMessages" :key="i" class="history-msg">
+              <div class="history-msg-role" :style="{ color: msg.role === 'user' ? '#409eff' : '#67c23a' }">
+                {{ msg.role === 'user' ? '用户' : '助手' }}
+                <span style="font-weight: normal; color: #c0c4cc; margin-left: 8px;">{{ formatTime(msg.timestamp) }}</span>
+              </div>
+              <div class="history-msg-content" v-html="msg.role === 'assistant' ? renderMarkdown(msg.content) : escapeHtml(msg.content)"></div>
+            </div>
+            <el-empty v-if="historyMessages.length === 0" description="暂无消息" :image-size="60"></el-empty>
+          </el-drawer>
+
         </div>
       </el-aside>
 
@@ -426,6 +503,9 @@
         const starting = ref(false);
         const sending = ref(false);
         const chatContainer = ref(null);
+        const historyList = ref([]);
+        const historyMessages = ref([]);
+        const historyDrawerVisible = ref(false);
         let currentES = null;
 
         // 方法
@@ -594,6 +674,38 @@
         const onEnvChange = (val) => {
           const label = val === 'prod' ? '生产环境' : '测试环境';
           ElementPlus.ElMessage.info('已切换到' + label);
+        };
+
+        const loadHistory = async () => {
+          try {
+            const data = await fetch('/api/chat/sessions').then(r => r.json());
+            historyList.value = data;
+          } catch (e) {
+            ElementPlus.ElMessage.error('加载历史记录失败');
+          }
+        };
+
+        const viewHistory = async (sid) => {
+          try {
+            const data = await fetch('/api/chat/session/' + encodeURIComponent(sid) + '/messages').then(r => r.json());
+            historyMessages.value = data;
+            historyDrawerVisible.value = true;
+          } catch (e) {
+            ElementPlus.ElMessage.error('加载消息失败');
+          }
+        };
+
+        const formatTime = (isoStr) => {
+          if (!isoStr) return '';
+          try {
+            const d = new Date(isoStr);
+            return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+          } catch (e) { return isoStr; }
+        };
+
+        const escapeHtml = (text) => {
+          if (!text) return '';
+          return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
         };
 
         const stopSession = async () => {
@@ -766,6 +878,7 @@
 
         onMounted(async () => {
           await init();
+          await loadHistory();
         });
 
         return {
@@ -798,7 +911,14 @@
           onUploadError,
           renderMarkdown,
           isToolExpanded,
-          toggleTool
+          toggleTool,
+          historyList,
+          historyMessages,
+          historyDrawerVisible,
+          loadHistory,
+          viewHistory,
+          formatTime,
+          escapeHtml
         };
       }
     }).use(ElementPlus).mount('#app');

@@ -37,6 +37,9 @@ agent:
       stdin: true
       timeout-seconds: 0
 spring:
+  datasource:
+    url: jdbc:sqlite:${AGENT_DB_PATH:data/agent-web.db}
+    driver-class-name: org.sqlite.JDBC
   mvc:
     throw-exception-if-no-handler-found: true
   web:

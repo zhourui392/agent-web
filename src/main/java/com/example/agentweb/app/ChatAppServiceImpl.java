@@ -2,7 +2,9 @@ package com.example.agentweb.app;
 
 import com.example.agentweb.adapter.AgentGateway;
 import com.example.agentweb.domain.AgentType;
+import com.example.agentweb.domain.ChatMessage;
 import com.example.agentweb.domain.ChatSession;
+import com.example.agentweb.domain.SessionRepository;
 import com.example.agentweb.infra.InMemorySessionRepo;
 import com.example.agentweb.interfaces.dto.SendMessageRequest;
 import com.example.agentweb.interfaces.dto.StartSessionRequest;
@@ -18,11 +20,16 @@ import java.util.concurrent.Executor;
 public class ChatAppServiceImpl implements ChatAppService {
 
     private final InMemorySessionRepo repo;
+    private final SessionRepository sessionRepository;
     private final AgentGateway gateway;
     private final Executor agentExecutor;
 
-    public ChatAppServiceImpl(InMemorySessionRepo repo, AgentGateway gateway, Executor agentExecutor) {
+    public ChatAppServiceImpl(InMemorySessionRepo repo,
+                              SessionRepository sessionRepository,
+                              AgentGateway gateway,
+                              Executor agentExecutor) {
         this.repo = repo;
+        this.sessionRepository = sessionRepository;
         this.gateway = gateway;
         this.agentExecutor = agentExecutor;
     }
@@ -37,6 +44,7 @@ public class ChatAppServiceImpl implements ChatAppService {
         }
         ChatSession s = new ChatSession(type, dir.getAbsolutePath());
         repo.save(s);
+        sessionRepository.saveSession(s);
         return s;
     }
 
@@ -46,7 +54,17 @@ public class ChatAppServiceImpl implements ChatAppService {
         if (s == null) {
             throw new IllegalArgumentException("Session not found: " + sessionId);
         }
-        return gateway.runOnce(s.getAgentType(), s.getWorkingDir(), req.getMessage());
+        // persist user message
+        ChatMessage userMsg = new ChatMessage("user", req.getMessage());
+        sessionRepository.addMessage(sessionId, userMsg);
+
+        String output = gateway.runOnce(s.getAgentType(), s.getWorkingDir(), req.getMessage());
+
+        // persist assistant response
+        ChatMessage assistantMsg = new ChatMessage("assistant", output);
+        sessionRepository.addMessage(sessionId, assistantMsg);
+
+        return output;
     }
 
     @Override
@@ -60,8 +78,14 @@ public class ChatAppServiceImpl implements ChatAppService {
         if (s == null) {
             throw new IllegalArgumentException("Session not found: " + sessionId);
         }
+
+        // persist user message
+        ChatMessage userMsg = new ChatMessage("user", message);
+        sessionRepository.addMessage(sessionId, userMsg);
+
         // No SSE timeout – let the CLI process (and its own watchdog) control the lifecycle
         final SseEmitter emitter = new SseEmitter(-1L);
+        final StringBuilder fullResponse = new StringBuilder();
 
         final String envFinal = env;
         agentExecutor.execute(new Runnable() {
@@ -72,6 +96,7 @@ public class ChatAppServiceImpl implements ChatAppService {
                             new java.util.function.Consumer<String>() {
                                 @Override
                                 public void accept(String chunk) {
+                                    fullResponse.append(chunk).append("\n");
                                     try {
                                         emitter.send(SseEmitter.event().name("chunk").data(chunk));
                                     } catch (Exception e) {
@@ -82,6 +107,12 @@ public class ChatAppServiceImpl implements ChatAppService {
                             new java.util.function.IntConsumer() {
                                 @Override
                                 public void accept(int code) {
+                                    // persist complete assistant response
+                                    String response = fullResponse.toString().trim();
+                                    if (!response.isEmpty()) {
+                                        ChatMessage assistantMsg = new ChatMessage("assistant", response);
+                                        sessionRepository.addMessage(sessionId, assistantMsg);
+                                    }
                                     try {
                                         emitter.send(SseEmitter.event().name("exit").data(code));
                                     } catch (Exception ignore) {
