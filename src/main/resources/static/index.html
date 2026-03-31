@@ -178,11 +178,15 @@
     .history-msg-content {
       font-size: 13px;
       color: #303133;
-      white-space: pre-wrap;
       word-break: break-all;
       max-height: 200px;
       overflow-y: auto;
     }
+    .history-msg-content .text-segment {
+      white-space: normal;
+    }
+    .history-msg-content .text-segment p { margin: 0.4em 0; }
+    .history-msg-content .text-segment p:empty { display: none; }
     .tool-block {
       margin: 4px 0;
       border: 1px solid #e4e7ed;
@@ -404,7 +408,7 @@
                 <span style="font-weight: normal; color: #c0c4cc; margin-left: 8px;">{{ formatTime(msg.timestamp) }}</span>
               </div>
               <!-- user message -->
-              <div v-if="msg.role === 'user'" class="history-msg-content">{{ msg.content }}</div>
+              <div v-if="msg.role === 'user'" class="history-msg-content" style="white-space: pre-wrap;">{{ msg.content }}</div>
               <!-- assistant with parsed segments -->
               <div v-else-if="msg.parsedSegments" class="history-msg-content">
                 <template v-for="(seg, si) in msg.parsedSegments" :key="si">
@@ -646,13 +650,15 @@
         // Markdown 渲染
         const renderMarkdown = (text) => {
           if (!text) return '';
+          // 合并3个及以上连续空行为2个换行（保留段落间距，去掉多余空行）
+          let cleaned = text.replace(/\n{3,}/g, '\n\n');
           try {
             if (typeof marked !== 'undefined' && marked.parse) {
-              return marked.parse(text, { breaks: true });
+              return marked.parse(cleaned, { breaks: false });
             }
           } catch (e) { /* fallback */ }
           // fallback: 简单转义
-          return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+          return cleaned.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
         };
 
         const formatSize = (bytes) => {
