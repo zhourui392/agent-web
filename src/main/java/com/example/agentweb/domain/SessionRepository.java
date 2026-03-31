@@ -22,5 +22,12 @@ public interface SessionRepository {
      */
     List<Map<String, Object>> findAllSummary();
 
+    /**
+     * Paged version of findAllSummary.
+     * @param offset number of rows to skip
+     * @param limit  max rows to return
+     */
+    List<Map<String, Object>> findSummaryPaged(int offset, int limit);
+
     void deleteById(String id);
 }

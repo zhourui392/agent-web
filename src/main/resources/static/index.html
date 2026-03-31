@@ -365,13 +365,13 @@
                   <el-icon><Clock /></el-icon>
                   <span style="margin-left: 8px; font-weight: 600;">历史对话</span>
                 </div>
-                <el-button size="small" text @click="loadHistory">
+                <el-button size="small" text @click="loadHistory(true)">
                   <el-icon><Refresh /></el-icon>
                 </el-button>
               </div>
             </template>
 
-            <el-scrollbar height="300px">
+            <el-scrollbar height="300px" @scroll="onHistoryScroll">
               <div v-for="h in historyList" :key="h.sessionId" class="history-item" style="display: flex; align-items: center;">
                 <div style="flex: 1; min-width: 0;" @click="viewHistory(h.sessionId)">
                   <div class="history-title">{{ h.title || '新对话' }}</div>
@@ -383,7 +383,9 @@
                   <el-icon><Delete /></el-icon>
                 </el-button>
               </div>
-              <el-empty v-if="historyList.length === 0" description="暂无历史记录" :image-size="40"></el-empty>
+              <div v-if="historyLoading" style="text-align: center; padding: 8px; color: #909399; font-size: 12px;">加载中...</div>
+              <div v-else-if="!historyHasMore && historyList.length > 0" style="text-align: center; padding: 8px; color: #c0c4cc; font-size: 12px;">没有更多了</div>
+              <el-empty v-if="historyList.length === 0 && !historyLoading" description="暂无历史记录" :image-size="40"></el-empty>
             </el-scrollbar>
           </el-card>
 
@@ -524,6 +526,10 @@
         const sending = ref(false);
         const chatContainer = ref(null);
         const historyList = ref([]);
+        const historyPage = ref(1);
+        const historyPageSize = 20;
+        const historyHasMore = ref(true);
+        const historyLoading = ref(false);
         const historyMessages = ref([]);
         const historyDrawerVisible = ref(false);
         let currentES = null;
@@ -698,12 +704,30 @@
           ElementPlus.ElMessage.info('已切换到' + label);
         };
 
-        const loadHistory = async () => {
+        const loadHistory = async (reset) => {
+          if (reset) {
+            historyPage.value = 1;
+            historyHasMore.value = true;
+            historyList.value = [];
+          }
+          if (!historyHasMore.value || historyLoading.value) return;
+          historyLoading.value = true;
           try {
-            const data = await fetch('/api/chat/sessions').then(r => r.json());
-            historyList.value = data;
+            const data = await fetch('/api/chat/sessions?page=' + historyPage.value + '&size=' + historyPageSize).then(r => r.json());
+            historyList.value = historyList.value.concat(data);
+            historyHasMore.value = data.length >= historyPageSize;
+            historyPage.value++;
           } catch (e) {
             ElementPlus.ElMessage.error('加载历史记录失败');
+          } finally {
+            historyLoading.value = false;
+          }
+        };
+
+        const onHistoryScroll = (e) => {
+          const wrap = e.target || e;
+          if (wrap.scrollHeight - wrap.scrollTop - wrap.clientHeight < 50) {
+            loadHistory(false);
           }
         };
 
@@ -987,7 +1011,7 @@
 
         onMounted(async () => {
           await init();
-          await loadHistory();
+          await loadHistory(true);
         });
 
         return {
@@ -1022,9 +1046,12 @@
           isToolExpanded,
           toggleTool,
           historyList,
+          historyLoading,
+          historyHasMore,
           historyMessages,
           historyDrawerVisible,
           loadHistory,
+          onHistoryScroll,
           deleteHistory,
           viewHistory,
           formatTime,

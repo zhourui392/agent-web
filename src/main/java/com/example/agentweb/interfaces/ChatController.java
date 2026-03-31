@@ -58,8 +58,11 @@ public class ChatController {
     }
 
     @GetMapping("/sessions")
-    public List<Map<String, Object>> listSessions() {
-        return sessionRepository.findAllSummary();
+    public List<Map<String, Object>> listSessions(
+            @RequestParam(value = "page", defaultValue = "1") int page,
+            @RequestParam(value = "size", defaultValue = "20") int size) {
+        int offset = (page - 1) * size;
+        return sessionRepository.findSummaryPaged(offset, size);
     }
 
     @GetMapping("/session/{id}/messages")
