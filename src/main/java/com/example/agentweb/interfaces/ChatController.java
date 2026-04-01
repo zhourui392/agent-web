@@ -106,6 +106,11 @@ public class ChatController {
         return m;
     }
 
+    @PostMapping("/session/{id}/summarize")
+    public Map<String, Object> summarize(@PathVariable("id") String id) throws java.io.IOException, InterruptedException {
+        return appService.summarizeSession(id);
+    }
+
     @PostMapping("/session/{id}/stop")
     public Map<String, Object> stop(@PathVariable("id") String id) {
         appService.stopSession(id);

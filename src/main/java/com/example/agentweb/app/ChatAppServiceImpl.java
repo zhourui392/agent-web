@@ -16,7 +16,13 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Executor;
 
 @Service
@@ -178,5 +184,128 @@ public class ChatAppServiceImpl implements ChatAppService {
             throw new IllegalArgumentException("Session not found: " + sessionId);
         }
         return commandExpander.listCommands(s.getWorkingDir());
+    }
+
+    @Override
+    public Map<String, Object> summarizeSession(String sessionId) throws IOException, InterruptedException {
+        ChatSession s = sessionRepository.findById(sessionId);
+        if (s == null) {
+            throw new IllegalArgumentException("Session not found: " + sessionId);
+        }
+
+        // Build conversation text for summarization prompt
+        StringBuilder conversation = new StringBuilder();
+        for (ChatMessage msg : s.getMessages()) {
+            String role = "user".equals(msg.getRole()) ? "用户" : "助手";
+            conversation.append("[").append(role).append("]: ").append(msg.getContent()).append("\n\n");
+        }
+
+        // Determine next issue number
+        Path issuesDir = Paths.get(s.getWorkingDir(), "docs", "issue-log", "issues");
+        Files.createDirectories(issuesDir);
+        int nextNum = 1;
+        File[] existing = issuesDir.toFile().listFiles((dir, name) -> name.matches("I-\\d{3}-.*\\.md"));
+        if (existing != null) {
+            for (File f : existing) {
+                try {
+                    int num = Integer.parseInt(f.getName().substring(2, 5));
+                    if (num >= nextNum) nextNum = num + 1;
+                } catch (NumberFormatException ignored) {}
+            }
+        }
+        String issueId = String.format("I-%03d", nextNum);
+
+        // Call CLI to generate summary
+        String prompt = "请总结以下对话内容，生成一份问题记录。\n"
+                + "要求：\n"
+                + "1. 第一行输出一个简短标题（不超过30个字，不要包含任何标点或特殊字符，用于文件名）\n"
+                + "2. 空一行后输出完整的 Markdown 格式总结，包含：\n"
+                + "   - ## 问题描述\n"
+                + "   - ## 原因分析\n"
+                + "   - ## 解决方案\n"
+                + "   - ## 关键变更\n"
+                + "3. 只输出以上内容，不要输出其他任何内容\n\n"
+                + "---\n以下是对话内容：\n\n"
+                + conversation.toString();
+
+        String rawOutput = gateway.runOnce(AgentType.CLAUDE, s.getWorkingDir(), prompt);
+
+        // Parse CLI output: extract text content from stream-json
+        StringBuilder plainText = new StringBuilder();
+        for (String line : rawOutput.split("\n")) {
+            line = line.trim();
+            if (line.isEmpty()) continue;
+            if (line.startsWith("{")) {
+                try {
+                    com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
+                    com.fasterxml.jackson.databind.JsonNode node = om.readTree(line);
+                    // stream-json content_block_delta with text
+                    if (node.has("type") && "content_block_delta".equals(node.get("type").asText())) {
+                        com.fasterxml.jackson.databind.JsonNode delta = node.get("delta");
+                        if (delta != null && delta.has("text")) {
+                            plainText.append(delta.get("text").asText());
+                        }
+                    }
+                    // result type
+                    if (node.has("type") && "result".equals(node.get("type").asText())) {
+                        if (node.has("result")) {
+                            plainText.setLength(0);
+                            plainText.append(node.get("result").asText());
+                        }
+                    }
+                } catch (Exception ignored) {}
+            } else {
+                plainText.append(line).append("\n");
+            }
+        }
+
+        String summaryText = plainText.toString().trim();
+        // First line is the title, rest is the markdown body
+        String title;
+        String body;
+        int firstNewline = summaryText.indexOf('\n');
+        if (firstNewline > 0) {
+            title = summaryText.substring(0, firstNewline).trim();
+            body = summaryText.substring(firstNewline).trim();
+        } else {
+            title = summaryText;
+            body = summaryText;
+        }
+
+        // Sanitize title for filename
+        String safeTitle = title.replaceAll("[^a-zA-Z0-9\\u4e00-\\u9fff_-]", "");
+        if (safeTitle.length() > 40) safeTitle = safeTitle.substring(0, 40);
+        if (safeTitle.isEmpty()) safeTitle = "summary";
+        String fileName = issueId + "-" + safeTitle + ".md";
+
+        // Write issue file
+        Path issueFile = issuesDir.resolve(fileName);
+        String issueContent = "# " + issueId + " " + title + "\n\n"
+                + "- **会话ID**: " + sessionId + "\n"
+                + "- **工作目录**: " + s.getWorkingDir() + "\n"
+                + "- **创建时间**: " + java.time.LocalDate.now() + "\n\n"
+                + body + "\n";
+        Files.write(issueFile, issueContent.getBytes(StandardCharsets.UTF_8));
+
+        // Update index.md
+        Path indexFile = Paths.get(s.getWorkingDir(), "docs", "issue-log", "index.md");
+        StringBuilder indexContent = new StringBuilder();
+        if (Files.exists(indexFile)) {
+            indexContent.append(new String(Files.readAllBytes(indexFile), StandardCharsets.UTF_8));
+        } else {
+            indexContent.append("# Issue Log\n\n")
+                    .append("| ID | 标题 | 日期 |\n")
+                    .append("|------|------|------|\n");
+        }
+        indexContent.append("| [").append(issueId).append("](issues/").append(fileName).append(") | ")
+                .append(title).append(" | ").append(java.time.LocalDate.now()).append(" |\n");
+        Files.write(indexFile, indexContent.toString().getBytes(StandardCharsets.UTF_8));
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("issueId", issueId);
+        result.put("fileName", fileName);
+        result.put("title", title);
+        result.put("filePath", issueFile.toString());
+        return result;
     }
 }

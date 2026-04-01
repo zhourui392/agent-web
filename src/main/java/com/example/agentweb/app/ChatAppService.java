@@ -36,4 +36,11 @@ public interface ChatAppService {
     void stopSession(String sessionId);
 
     List<SlashCommand> listCommands(String sessionId);
+
+    /**
+     * Summarize a session's conversation into an issue log file via CLI.
+     * Writes docs/issue-log/issues/I-XXX-title.md and updates index.md.
+     * @return map with issueId, filePath, title
+     */
+    java.util.Map<String, Object> summarizeSession(String sessionId) throws IOException, InterruptedException;
 }
