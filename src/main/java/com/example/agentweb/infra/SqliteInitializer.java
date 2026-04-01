@@ -29,5 +29,11 @@ public class SqliteInitializer {
                 jdbc.execute(trimmed);
             }
         }
+        // Migration: add resume_id column for existing databases
+        try {
+            jdbc.execute("ALTER TABLE chat_session ADD COLUMN resume_id TEXT");
+        } catch (Exception ignored) {
+            // column already exists
+        }
     }
 }

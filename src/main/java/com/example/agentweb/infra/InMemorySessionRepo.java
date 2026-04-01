@@ -13,4 +13,6 @@ public class InMemorySessionRepo {
     public void save(ChatSession s) { store.put(s.getId(), s); }
 
     public ChatSession find(String id) { return store.get(id); }
+
+    public void remove(String id) { store.remove(id); }
 }

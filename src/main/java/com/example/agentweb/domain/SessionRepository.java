@@ -30,4 +30,6 @@ public interface SessionRepository {
     List<Map<String, Object>> findSummaryPaged(int offset, int limit);
 
     void deleteById(String id);
+
+    void updateResumeId(String sessionId, String resumeId);
 }

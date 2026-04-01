@@ -75,7 +75,15 @@ public class ChatAppServiceImpl implements ChatAppService {
 
     @Override
     public ChatSession getSession(String sessionId) {
-        return repo.find(sessionId);
+        ChatSession s = repo.find(sessionId);
+        if (s == null) {
+            // Fallback to persistent storage (e.g. after server restart or resuming from history)
+            s = sessionRepository.findById(sessionId);
+            if (s != null) {
+                repo.save(s);
+            }
+        }
+        return s;
     }
 
     @Override
@@ -92,6 +100,7 @@ public class ChatAppServiceImpl implements ChatAppService {
         // No SSE timeout – let the CLI process (and its own watchdog) control the lifecycle
         final SseEmitter emitter = new SseEmitter(-1L);
         final StringBuilder fullResponse = new StringBuilder();
+        final boolean[] resumeIdSaved = {false};
 
         final String envFinal = env;
         agentExecutor.execute(new Runnable() {
@@ -104,6 +113,24 @@ public class ChatAppServiceImpl implements ChatAppService {
                                 @Override
                                 public void accept(String chunk) {
                                     fullResponse.append(chunk).append("\n");
+                                    // Extract and persist resumeId from first chunk containing session_id
+                                    if (!resumeIdSaved[0]) {
+                                        try {
+                                            if (chunk.contains("\"session_id\"")) {
+                                                com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
+                                                com.fasterxml.jackson.databind.JsonNode node = om.readTree(chunk);
+                                                if (node.has("session_id")) {
+                                                    String cliSessionId = node.get("session_id").asText();
+                                                    if (cliSessionId != null && !cliSessionId.isEmpty()) {
+                                                        sessionRepository.updateResumeId(sessionId, cliSessionId);
+                                                        resumeIdSaved[0] = true;
+                                                    }
+                                                }
+                                            }
+                                        } catch (Exception ignored) {
+                                            // not JSON or no session_id field
+                                        }
+                                    }
                                     try {
                                         emitter.send(SseEmitter.event().name("chunk").data(chunk));
                                     } catch (Exception e) {

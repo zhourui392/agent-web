@@ -2,7 +2,8 @@ CREATE TABLE IF NOT EXISTS chat_session (
     id          TEXT PRIMARY KEY,
     agent_type  TEXT    NOT NULL,
     working_dir TEXT    NOT NULL,
-    created_at  TEXT    NOT NULL
+    created_at  TEXT    NOT NULL,
+    resume_id   TEXT
 );
 
 CREATE TABLE IF NOT EXISTS chat_message (

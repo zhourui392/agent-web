@@ -410,6 +410,9 @@
                     {{ h.workingDir.split('/').pop() }} · {{ h.messageCount }} 条消息 · {{ formatTime(h.createdAt) }}
                   </div>
                 </div>
+                <el-button size="small" text type="primary" @click.stop="resumeHistory(h)" style="flex-shrink: 0; margin-left: 4px;" title="继续对话">
+                  <el-icon><video-play /></el-icon>
+                </el-button>
                 <el-button size="small" text type="danger" @click.stop="deleteHistory(h.sessionId)" style="flex-shrink: 0; margin-left: 4px;">
                   <el-icon><delete /></el-icon>
                 </el-button>
@@ -884,6 +887,36 @@
           }
         };
 
+        const resumeHistory = async (session) => {
+          try {
+            const data = await fetch('/api/chat/session/' + encodeURIComponent(session.sessionId) + '/messages').then(r => r.json());
+            // Restore session state
+            sessionId.value = session.sessionId;
+            resumeId.value = session.resumeId || '';
+            workingDir.value = session.workingDir;
+            agentType.value = session.agentType;
+            // Convert history messages to chat display format
+            messages.value = [];
+            data.forEach(function(msg) {
+              if (msg.role === 'user') {
+                messages.value.push({ role: 'user', text: msg.content });
+              } else if (msg.role === 'assistant') {
+                const segments = msg.content && msg.content.startsWith('{') ? parseStreamJson(msg.content) : [{ type: 'text', content: msg.content }];
+                messages.value.push({ role: 'agent', segments: segments });
+              }
+            });
+            addMessage('system', '已恢复历史会话');
+            // Load slash commands for the session
+            fetch('/api/chat/session/' + encodeURIComponent(session.sessionId) + '/commands')
+              .then(r => r.json())
+              .then(cmds => { slashCommands.value = cmds; })
+              .catch(() => {});
+            ElementPlus.ElMessage.success('已恢复历史会话');
+          } catch (e) {
+            ElementPlus.ElMessage.error('恢复会话失败');
+          }
+        };
+
         const formatTime = (isoStr) => {
           if (!isoStr) return '';
           try {
@@ -1170,6 +1203,7 @@
           onHistoryScroll,
           deleteHistory,
           viewHistory,
+          resumeHistory,
           formatTime,
           escapeHtml
         };

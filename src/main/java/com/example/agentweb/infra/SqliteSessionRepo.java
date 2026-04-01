@@ -25,11 +25,12 @@ public class SqliteSessionRepo implements SessionRepository {
     @Override
     public void saveSession(ChatSession session) {
         jdbc.update(
-                "INSERT OR IGNORE INTO chat_session (id, agent_type, working_dir, created_at) VALUES (?, ?, ?, ?)",
+                "INSERT OR IGNORE INTO chat_session (id, agent_type, working_dir, created_at, resume_id) VALUES (?, ?, ?, ?, ?)",
                 session.getId(),
                 session.getAgentType().name(),
                 session.getWorkingDir(),
-                session.getCreatedAt().toString()
+                session.getCreatedAt().toString(),
+                session.getResumeId()
         );
     }
 
@@ -47,15 +48,19 @@ public class SqliteSessionRepo implements SessionRepository {
     @Override
     public ChatSession findById(String id) {
         List<ChatSession> sessions = jdbc.query(
-                "SELECT id, agent_type, working_dir, created_at FROM chat_session WHERE id = ?",
+                "SELECT id, agent_type, working_dir, created_at, resume_id FROM chat_session WHERE id = ?",
                 new Object[]{id},
-                (rs, rowNum) -> new ChatSession(
-                        rs.getString("id"),
-                        AgentType.valueOf(rs.getString("agent_type")),
-                        rs.getString("working_dir"),
-                        Instant.parse(rs.getString("created_at")),
-                        loadMessages(rs.getString("id"))
-                )
+                (rs, rowNum) -> {
+                    ChatSession s = new ChatSession(
+                            rs.getString("id"),
+                            AgentType.valueOf(rs.getString("agent_type")),
+                            rs.getString("working_dir"),
+                            Instant.parse(rs.getString("created_at")),
+                            loadMessages(rs.getString("id"))
+                    );
+                    s.setResumeId(rs.getString("resume_id"));
+                    return s;
+                }
         );
         return sessions.isEmpty() ? null : sessions.get(0);
     }
@@ -63,21 +68,25 @@ public class SqliteSessionRepo implements SessionRepository {
     @Override
     public List<ChatSession> findAll() {
         return jdbc.query(
-                "SELECT id, agent_type, working_dir, created_at FROM chat_session ORDER BY created_at DESC",
-                (rs, rowNum) -> new ChatSession(
-                        rs.getString("id"),
-                        AgentType.valueOf(rs.getString("agent_type")),
-                        rs.getString("working_dir"),
-                        Instant.parse(rs.getString("created_at")),
-                        loadMessages(rs.getString("id"))
-                )
+                "SELECT id, agent_type, working_dir, created_at, resume_id FROM chat_session ORDER BY created_at DESC",
+                (rs, rowNum) -> {
+                    ChatSession s = new ChatSession(
+                            rs.getString("id"),
+                            AgentType.valueOf(rs.getString("agent_type")),
+                            rs.getString("working_dir"),
+                            Instant.parse(rs.getString("created_at")),
+                            loadMessages(rs.getString("id"))
+                    );
+                    s.setResumeId(rs.getString("resume_id"));
+                    return s;
+                }
         );
     }
 
     @Override
     public List<Map<String, Object>> findAllSummary() {
         return jdbc.query(
-                "SELECT s.id, s.agent_type, s.working_dir, s.created_at, " +
+                "SELECT s.id, s.agent_type, s.working_dir, s.created_at, s.resume_id, " +
                 "  (SELECT COUNT(*) FROM chat_message m WHERE m.session_id = s.id) AS message_count, " +
                 "  (SELECT m.content FROM chat_message m WHERE m.session_id = s.id AND m.role = 'user' ORDER BY m.id ASC LIMIT 1) AS title " +
                 "FROM chat_session s ORDER BY s.created_at DESC",
@@ -87,6 +96,7 @@ public class SqliteSessionRepo implements SessionRepository {
                     m.put("agentType", rs.getString("agent_type"));
                     m.put("workingDir", rs.getString("working_dir"));
                     m.put("createdAt", rs.getString("created_at"));
+                    m.put("resumeId", rs.getString("resume_id"));
                     m.put("messageCount", rs.getInt("message_count"));
                     String title = rs.getString("title");
                     m.put("title", title != null ? (title.length() > 50 ? title.substring(0, 50) + "..." : title) : "新对话");
@@ -98,7 +108,7 @@ public class SqliteSessionRepo implements SessionRepository {
     @Override
     public List<Map<String, Object>> findSummaryPaged(int offset, int limit) {
         return jdbc.query(
-                "SELECT s.id, s.agent_type, s.working_dir, s.created_at, " +
+                "SELECT s.id, s.agent_type, s.working_dir, s.created_at, s.resume_id, " +
                 "  (SELECT COUNT(*) FROM chat_message m WHERE m.session_id = s.id) AS message_count, " +
                 "  (SELECT m.content FROM chat_message m WHERE m.session_id = s.id AND m.role = 'user' ORDER BY m.id ASC LIMIT 1) AS title " +
                 "FROM chat_session s ORDER BY s.created_at DESC LIMIT ? OFFSET ?",
@@ -108,6 +118,7 @@ public class SqliteSessionRepo implements SessionRepository {
                     m.put("agentType", rs.getString("agent_type"));
                     m.put("workingDir", rs.getString("working_dir"));
                     m.put("createdAt", rs.getString("created_at"));
+                    m.put("resumeId", rs.getString("resume_id"));
                     m.put("messageCount", rs.getInt("message_count"));
                     String title = rs.getString("title");
                     m.put("title", title != null ? (title.length() > 50 ? title.substring(0, 50) + "..." : title) : "新对话");
@@ -115,6 +126,11 @@ public class SqliteSessionRepo implements SessionRepository {
                 },
                 limit, offset
         );
+    }
+
+    @Override
+    public void updateResumeId(String sessionId, String resumeId) {
+        jdbc.update("UPDATE chat_session SET resume_id = ? WHERE id = ?", resumeId, sessionId);
     }
 
     @Override

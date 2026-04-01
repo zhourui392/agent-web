@@ -18,6 +18,7 @@ public class ChatSession {
     private final String workingDir;
     private final Instant createdAt;
     private final List<ChatMessage> messages;
+    private String resumeId;
 
     public ChatSession(AgentType agentType, String workingDir) {
         this(UUID.randomUUID().toString(), agentType, workingDir, Instant.now(), new ArrayList<ChatMessage>());
@@ -58,5 +59,13 @@ public class ChatSession {
 
     public List<ChatMessage> getMessages() {
         return Collections.unmodifiableList(messages);
+    }
+
+    public String getResumeId() {
+        return resumeId;
+    }
+
+    public void setResumeId(String resumeId) {
+        this.resumeId = resumeId;
     }
 }
