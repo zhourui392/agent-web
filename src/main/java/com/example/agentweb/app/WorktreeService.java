@@ -10,6 +10,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.concurrent.*;
 
 /**
  * Manages git worktrees for branch-level isolation across a workspace
@@ -19,6 +20,8 @@ import java.util.*;
 public class WorktreeService {
 
     private static final String WORKTREE_DIR = ".worktrees";
+    private static final int FETCH_TIMEOUT_SECONDS = 30;
+    private static final int THREAD_POOL_SIZE = 8;
 
     /**
      * Switch a workspace to a given branch by creating worktrees for every
@@ -38,20 +41,15 @@ public class WorktreeService {
         Path worktreeBase = workspace.resolve(WORKTREE_DIR).resolve(safeBranch);
         Files.createDirectories(worktreeBase);
 
-        List<Map<String, Object>> repos = new ArrayList<>();
+        List<File> gitRepos = collectGitRepos(workspace);
 
-        File[] children = workspace.toFile().listFiles();
-        if (children != null) {
-            Arrays.sort(children);
-            for (File child : children) {
-                if (!child.isDirectory() || child.getName().startsWith(".")) {
-                    continue;
-                }
-                if (!new File(child, ".git").exists()) {
-                    continue;
-                }
-                repos.add(processRepo(child, branch, worktreeBase));
-            }
+        // 并行 fetch 所有仓库
+        parallelFetch(gitRepos);
+
+        // 串行创建 worktree（涉及目录创建，避免并发冲突）
+        List<Map<String, Object>> repos = new ArrayList<>();
+        for (File repo : gitRepos) {
+            repos.add(createWorktreeForRepo(repo, branch, worktreeBase));
         }
 
         Map<String, Object> result = new HashMap<>();
@@ -59,6 +57,50 @@ public class WorktreeService {
         result.put("branch", branch);
         result.put("repos", repos);
         return result;
+    }
+
+    private List<File> collectGitRepos(Path workspace) {
+        List<File> gitRepos = new ArrayList<>();
+        File[] children = workspace.toFile().listFiles();
+        if (children != null) {
+            Arrays.sort(children);
+            for (File child : children) {
+                if (!child.isDirectory() || child.getName().startsWith(".")) {
+                    continue;
+                }
+                if (new File(child, ".git").exists()) {
+                    gitRepos.add(child);
+                }
+            }
+        }
+        return gitRepos;
+    }
+
+    private void parallelFetch(List<File> repos) throws InterruptedException {
+        ExecutorService pool = Executors.newFixedThreadPool(
+                Math.min(THREAD_POOL_SIZE, repos.size()));
+        try {
+            List<Future<?>> futures = new ArrayList<>();
+            for (File repo : repos) {
+                futures.add(pool.submit(() -> {
+                    try {
+                        execWithTimeout(repo, FETCH_TIMEOUT_SECONDS,
+                                "git", "fetch", "--all", "--prune");
+                    } catch (Exception ignored) {
+                        // fetch 失败不阻断流程
+                    }
+                }));
+            }
+            for (Future<?> f : futures) {
+                try {
+                    f.get(FETCH_TIMEOUT_SECONDS + 5, TimeUnit.SECONDS);
+                } catch (ExecutionException | TimeoutException ignored) {
+                    // 单个仓库超时不阻断
+                }
+            }
+        } finally {
+            pool.shutdownNow();
+        }
     }
 
     /**
@@ -120,40 +162,33 @@ public class WorktreeService {
 
     // ---- internal helpers ----
 
-    private Map<String, Object> processRepo(File repoDir, String branch, Path worktreeBase)
+    private Map<String, Object> createWorktreeForRepo(File repoDir, String branch, Path worktreeBase)
             throws IOException, InterruptedException {
 
         Map<String, Object> repoResult = new HashMap<>();
         repoResult.put("name", repoDir.getName());
 
-        // fetch latest (best-effort, may fail without network)
-        exec(repoDir, "git", "fetch", "--all", "--prune");
-
-        if (!branchExists(repoDir, branch)) {
-            repoResult.put("created", false);
-            repoResult.put("reason", "分支不存在");
-            return repoResult;
-        }
+        // 目标分支不存在时回退到 master
+        String actualBranch = branchExists(repoDir, branch) ? branch : "master";
 
         Path repoWorktree = worktreeBase.resolve(repoDir.getName());
         if (Files.isDirectory(repoWorktree)) {
             repoResult.put("created", true);
+            repoResult.put("actualBranch", actualBranch);
             repoResult.put("reason", "已存在");
             return repoResult;
         }
 
-        // Try creating worktree with the branch name directly.
-        // Git will auto-create a tracking local branch if only remote exists.
         int code = exec(repoDir, "git", "worktree", "add",
-                repoWorktree.toString(), branch);
+                repoWorktree.toString(), actualBranch);
 
         if (code != 0) {
-            // Branch might already be checked out; fall back to detached HEAD
             code = exec(repoDir, "git", "worktree", "add", "--detach",
-                    repoWorktree.toString(), "origin/" + branch);
+                    repoWorktree.toString(), "origin/" + actualBranch);
         }
 
         repoResult.put("created", code == 0);
+        repoResult.put("actualBranch", actualBranch);
         if (code != 0) {
             repoResult.put("reason", "创建失败");
         }
@@ -171,6 +206,21 @@ public class WorktreeService {
         String remote = execOutput(repoDir, "git", "branch", "-r", "--list",
                 "origin/" + branch);
         return !remote.trim().isEmpty();
+    }
+
+    private int execWithTimeout(File dir, int timeoutSeconds, String... cmd)
+            throws IOException, InterruptedException {
+        ProcessBuilder pb = new ProcessBuilder(cmd);
+        pb.directory(dir);
+        pb.redirectErrorStream(true);
+        Process p = pb.start();
+        consumeOutput(p);
+        boolean finished = p.waitFor(timeoutSeconds, TimeUnit.SECONDS);
+        if (!finished) {
+            p.destroyForcibly();
+            return -1;
+        }
+        return p.exitValue();
     }
 
     private int exec(File dir, String... cmd) throws IOException, InterruptedException {

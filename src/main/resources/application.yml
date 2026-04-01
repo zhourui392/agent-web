@@ -12,10 +12,7 @@ server:
 agent:
   fs:
     roots:
-      - "/home/service/qpon"
-      - "/home/service/zhou/agent-web"
-      - "/tmp"
-      - "/home/service"
+      - "D:\\qpon\\workspace"
   cli:
     codex:
       exec: ${CODEX_CMD:codex}

@@ -309,6 +309,72 @@
             </el-tooltip>
           </div>
 
+          <!-- 工作目录选择 (可折叠) -->
+          <el-card shadow="hover" style="margin-bottom: 20px;">
+            <div style="display: flex; align-items: center; cursor: pointer; user-select: none;" @click="workspaceExpanded = !workspaceExpanded">
+              <el-icon style="margin-right: 6px; transition: transform 0.2s;" :style="{ transform: workspaceExpanded ? 'rotate(90deg)' : '' }"><arrow-right /></el-icon>
+              <el-icon style="margin-right: 6px;"><folder-opened /></el-icon>
+              <span style="font-weight: 600; font-size: 13px;">工作空间</span>
+              <span v-if="currentPath && !workspaceExpanded" style="margin-left: 8px; font-size: 12px; color: #909399; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ currentPath }}</span>
+            </div>
+            <div v-show="workspaceExpanded" style="margin-top: 12px;">
+              <el-form label-position="top" size="default">
+                <el-form-item label="根路径">
+                  <el-select v-model="selectedRoot" placeholder="选择根路径" style="width: 100%;" @change="handleRootChange">
+                    <el-option v-for="root in roots" :key="root" :label="root" :value="root"></el-option>
+                  </el-select>
+                </el-form-item>
+
+                <el-form-item label="当前路径">
+                  <el-input v-model="currentPath" readonly>
+                    <template #prefix>
+                      <el-icon><folder-opened /></el-icon>
+                    </template>
+                  </el-input>
+                </el-form-item>
+              </el-form>
+
+              <!-- 文件/目录列表 -->
+              <el-scrollbar height="200px">
+                <div v-for="item in folderList" :key="item.path" class="fs-item"
+                     @click="item.dir ? loadList(item.path) : null">
+                  <el-icon v-if="item.dir"><folder /></el-icon>
+                  <el-icon v-else><document /></el-icon>
+                  <span class="fs-name">{{ item.name || item.path }}</span>
+                  <span v-if="!item.dir" style="color:#909399;font-size:12px;margin-right:8px;">{{ formatSize(item.size) }}</span>
+                  <span class="fs-actions" v-if="!item.dir && item.name !== '..'">
+                    <el-dropdown trigger="click" @command="handleFileCommand($event, item)" @click.stop>
+                      <el-icon style="cursor:pointer; font-size: 16px; color: #909399;" @click.stop><more-filled /></el-icon>
+                      <template #dropdown>
+                        <el-dropdown-menu>
+                          <el-dropdown-item command="download">下载</el-dropdown-item>
+                          <el-dropdown-item command="delete" style="color:#f56c6c;">删除</el-dropdown-item>
+                        </el-dropdown-menu>
+                      </template>
+                    </el-dropdown>
+                  </span>
+                </div>
+                <el-empty v-if="folderList.length === 0" description="空目录" :image-size="60"></el-empty>
+              </el-scrollbar>
+
+              <!-- 上传按钮 -->
+              <div style="margin-top: 12px;">
+                <el-upload
+                  :action="'/api/fs/upload?path=' + encodeURIComponent(currentPath)"
+                  name="file"
+                  :show-file-list="false"
+                  :on-success="onUploadSuccess"
+                  :on-error="onUploadError"
+                  multiple>
+                  <el-button type="primary" size="small" style="width: 100%;">
+                    <el-icon><upload /></el-icon>
+                    <span>上传文件</span>
+                  </el-button>
+                </el-upload>
+              </div>
+            </div>
+          </el-card>
+
           <!-- 分支切换 (仅测试环境) -->
           <div v-if="env === 'test'" style="margin-bottom: 16px;">
             <el-card shadow="hover" size="small">
@@ -338,73 +404,15 @@
                   {{ b }}
                 </el-tag>
               </div>
-              <div v-if="switchResult" style="margin-top: 8px; font-size: 12px; color: #909399;">
-                <div v-for="r in switchResult" :key="r.name">
-                  <el-icon v-if="r.created" style="color: #67c23a;"><circle-check-filled /></el-icon>
-                  <el-icon v-else style="color: #c0c4cc;"><circle-close-filled /></el-icon>
-                  {{ r.name }} <span v-if="r.reason" style="color: #c0c4cc;">{{ r.reason }}</span>
+              <div v-if="switchResult && switchResult.filter(r => r.created).length > 0" style="margin-top: 8px; font-size: 12px; color: #909399;">
+                <div v-for="r in switchResult.filter(r => r.created)" :key="r.name">
+                  <el-icon style="color: #67c23a;"><circle-check-filled /></el-icon>
+                  {{ r.name }}
+                  <span v-if="r.actualBranch && r.actualBranch !== selectedBranch" style="color: #e6a23c;">(master)</span>
                 </div>
               </div>
             </el-card>
           </div>
-
-          <!-- 工作目录选择 -->
-          <el-card shadow="hover" style="margin-bottom: 20px;">
-            <el-form label-position="top" size="default">
-              <el-form-item label="根路径">
-                <el-select v-model="selectedRoot" placeholder="选择根路径" style="width: 100%;" @change="handleRootChange">
-                  <el-option v-for="root in roots" :key="root" :label="root" :value="root"></el-option>
-                </el-select>
-              </el-form-item>
-
-              <el-form-item label="当前路径">
-                <el-input v-model="currentPath" readonly>
-                  <template #prefix>
-                    <el-icon><folder-opened /></el-icon>
-                  </template>
-                </el-input>
-              </el-form-item>
-            </el-form>
-
-            <!-- 文件/目录列表 -->
-            <el-scrollbar height="200px">
-              <div v-for="item in folderList" :key="item.path" class="fs-item"
-                   @click="item.dir ? loadList(item.path) : null">
-                <el-icon v-if="item.dir"><folder /></el-icon>
-                <el-icon v-else><document /></el-icon>
-                <span class="fs-name">{{ item.name || item.path }}</span>
-                <span v-if="!item.dir" style="color:#909399;font-size:12px;margin-right:8px;">{{ formatSize(item.size) }}</span>
-                <span class="fs-actions" v-if="!item.dir && item.name !== '..'">
-                  <el-dropdown trigger="click" @command="handleFileCommand($event, item)" @click.stop>
-                    <el-icon style="cursor:pointer; font-size: 16px; color: #909399;" @click.stop><more-filled /></el-icon>
-                    <template #dropdown>
-                      <el-dropdown-menu>
-                        <el-dropdown-item command="download">下载</el-dropdown-item>
-                        <el-dropdown-item command="delete" style="color:#f56c6c;">删除</el-dropdown-item>
-                      </el-dropdown-menu>
-                    </template>
-                  </el-dropdown>
-                </span>
-              </div>
-              <el-empty v-if="folderList.length === 0" description="空目录" :image-size="60"></el-empty>
-            </el-scrollbar>
-
-            <!-- 上传按钮 -->
-            <div style="margin-top: 12px;">
-              <el-upload
-                :action="'/api/fs/upload?path=' + encodeURIComponent(currentPath)"
-                name="file"
-                :show-file-list="false"
-                :on-success="onUploadSuccess"
-                :on-error="onUploadError"
-                multiple>
-                <el-button type="primary" size="small" style="width: 100%;">
-                  <el-icon><upload /></el-icon>
-                  <span>上传文件</span>
-                </el-button>
-              </el-upload>
-            </div>
-          </el-card>
 
           <el-card shadow="hover">
             <div style="display: flex; gap: 8px;">
@@ -601,6 +609,7 @@
         // 数据
         const DEFAULT_WORKING_PATH = '/home/ubuntu/workspace/qpon';
         const roots = ref([]);
+        const workspaceExpanded = ref(false);
         const selectedRoot = ref('');
         const currentPath = ref('');
         const folderList = ref([]);
@@ -1291,6 +1300,7 @@
 
         return {
           roots,
+          workspaceExpanded,
           selectedRoot,
           currentPath,
           folderList,
