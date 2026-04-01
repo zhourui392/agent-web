@@ -33,3 +33,6 @@ logs/
 
 # Application specific
 *.jar.original
+
+# Data
+data/

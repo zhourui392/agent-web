@@ -309,6 +309,45 @@
             </el-tooltip>
           </div>
 
+          <!-- 分支切换 (仅测试环境) -->
+          <div v-if="env === 'test'" style="margin-bottom: 16px;">
+            <el-card shadow="hover" size="small">
+              <template #header>
+                <div style="display: flex; align-items: center; gap: 6px; padding: 0;">
+                  <el-icon><switch-button /></el-icon>
+                  <span style="font-weight: 600; font-size: 13px;">分支切换</span>
+                  <span v-if="currentBranch" style="margin-left: auto; font-size: 12px; color: #67c23a;">{{ currentBranch }}</span>
+                </div>
+              </template>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <el-select v-model="selectedBranch" filterable allow-create default-first-option
+                           placeholder="选择或输入分支名" style="flex: 1;" clearable
+                           @clear="clearBranch">
+                  <el-option v-for="b in savedBranches" :key="b" :label="b" :value="b"></el-option>
+                </el-select>
+                <el-button type="primary" size="default" @click="switchBranch"
+                           :loading="switchingBranch" :disabled="!selectedBranch || !currentPath">
+                  切换
+                </el-button>
+              </div>
+              <div v-if="savedBranches.length > 0" style="margin-top: 8px;">
+                <el-tag v-for="b in savedBranches" :key="b" closable size="small"
+                        :type="b === currentBranch ? 'success' : 'info'"
+                        @close="removeSavedBranch(b)" style="margin: 2px; cursor: pointer;"
+                        @click="selectedBranch = b">
+                  {{ b }}
+                </el-tag>
+              </div>
+              <div v-if="switchResult" style="margin-top: 8px; font-size: 12px; color: #909399;">
+                <div v-for="r in switchResult" :key="r.name">
+                  <el-icon v-if="r.created" style="color: #67c23a;"><circle-check-filled /></el-icon>
+                  <el-icon v-else style="color: #c0c4cc;"><circle-close-filled /></el-icon>
+                  {{ r.name }} <span v-if="r.reason" style="color: #c0c4cc;">{{ r.reason }}</span>
+                </div>
+              </div>
+            </el-card>
+          </div>
+
           <!-- 工作目录选择 -->
           <el-card shadow="hover" style="margin-bottom: 20px;">
             <el-form label-position="top" size="default">
@@ -588,6 +627,12 @@
         const slashCommands = ref([]);
         const showCommandPopup = ref(false);
         const selectedCommandIdx = ref(0);
+        const selectedBranch = ref('');
+        const currentBranch = ref('');
+        const switchingBranch = ref(false);
+        const savedBranches = ref(JSON.parse(localStorage.getItem('agent_saved_branches') || '[]'));
+        const switchResult = ref(null);
+        const originalWorkspacePath = ref('');
 
         const filteredCommands = Vue.computed(() => {
           const input = userInput.value;
@@ -772,6 +817,67 @@
         const onEnvChange = (val) => {
           const label = val === 'prod' ? '生产环境' : val === 'test' ? '测试环境' : '无环境';
           ElementPlus.ElMessage.info('已切换到' + label);
+          if (val !== 'test') {
+            clearBranch();
+          }
+        };
+
+        const switchBranch = async () => {
+          if (!selectedBranch.value || !currentPath.value) return;
+          switchingBranch.value = true;
+          switchResult.value = null;
+          try {
+            // Remember original path before first switch
+            if (!originalWorkspacePath.value) {
+              originalWorkspacePath.value = currentPath.value;
+            }
+            const wsPath = originalWorkspacePath.value || currentPath.value;
+            const res = await fetch('/api/worktree/switch', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ workspacePath: wsPath, branch: selectedBranch.value })
+            });
+            if (!res.ok) {
+              const text = await res.text();
+              throw new Error(text);
+            }
+            const data = await res.json();
+            // Save branch to localStorage
+            if (!savedBranches.value.includes(selectedBranch.value)) {
+              savedBranches.value.push(selectedBranch.value);
+              localStorage.setItem('agent_saved_branches', JSON.stringify(savedBranches.value));
+            }
+            currentBranch.value = selectedBranch.value;
+            switchResult.value = data.repos;
+            // Navigate to worktree path
+            currentPath.value = data.worktreePath;
+            await loadList(data.worktreePath);
+            const created = data.repos.filter(function(r) { return r.created; }).length;
+            ElementPlus.ElMessage.success('已切换到 ' + selectedBranch.value + '，' + created + ' 个仓库');
+          } catch (e) {
+            ElementPlus.ElMessage.error('切换分支失败: ' + e.message);
+          } finally {
+            switchingBranch.value = false;
+          }
+        };
+
+        const clearBranch = () => {
+          if (originalWorkspacePath.value) {
+            currentPath.value = originalWorkspacePath.value;
+            loadList(originalWorkspacePath.value);
+          }
+          currentBranch.value = '';
+          selectedBranch.value = '';
+          switchResult.value = null;
+          originalWorkspacePath.value = '';
+        };
+
+        const removeSavedBranch = (branch) => {
+          savedBranches.value = savedBranches.value.filter(function(b) { return b !== branch; });
+          localStorage.setItem('agent_saved_branches', JSON.stringify(savedBranches.value));
+          if (selectedBranch.value === branch) {
+            selectedBranch.value = '';
+          }
         };
 
         const loadHistory = async (reset) => {
@@ -1219,6 +1325,14 @@
           sendMessageStream,
           formatSize,
           handleFileCommand,
+          selectedBranch,
+          currentBranch,
+          switchingBranch,
+          savedBranches,
+          switchResult,
+          switchBranch,
+          clearBranch,
+          removeSavedBranch,
           onUploadSuccess,
           onUploadError,
           renderMarkdown,
