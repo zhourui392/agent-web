@@ -659,7 +659,25 @@
             const data = await fetch('/api/fs/roots').then(r => r.json());
             roots.value = data;
             if (data.length > 0) {
-              // 查找默认路径所属的根路径
+              // 尝试恢复上次的 worktree 状态
+              const saved = JSON.parse(localStorage.getItem('agent_worktree_state') || 'null');
+              if (saved && saved.worktreePath && saved.currentBranch) {
+                // 检查 worktree 目录是否还存在
+                const check = await fetch('/api/fs/list?path=' + encodeURIComponent(saved.worktreePath));
+                if (check.ok) {
+                  const wsRoot = data.find(root => saved.originalWorkspacePath.startsWith(root));
+                  selectedRoot.value = wsRoot || data[0];
+                  originalWorkspacePath.value = saved.originalWorkspacePath;
+                  currentBranch.value = saved.currentBranch;
+                  selectedBranch.value = saved.currentBranch;
+                  currentPath.value = saved.worktreePath;
+                  await loadList(saved.worktreePath);
+                  return;
+                }
+                // worktree 已被删除，清除状态
+                clearWorktreeState();
+              }
+
               const defaultRoot = data.find(root => DEFAULT_WORKING_PATH.startsWith(root));
               if (defaultRoot) {
                 selectedRoot.value = defaultRoot;
@@ -831,12 +849,23 @@
           }
         };
 
+        const saveWorktreeState = () => {
+          localStorage.setItem('agent_worktree_state', JSON.stringify({
+            originalWorkspacePath: originalWorkspacePath.value,
+            currentBranch: currentBranch.value,
+            worktreePath: currentPath.value
+          }));
+        };
+
+        const clearWorktreeState = () => {
+          localStorage.removeItem('agent_worktree_state');
+        };
+
         const switchBranch = async () => {
           if (!selectedBranch.value || !currentPath.value) return;
           switchingBranch.value = true;
           switchResult.value = null;
           try {
-            // Remember original path before first switch
             if (!originalWorkspacePath.value) {
               originalWorkspacePath.value = currentPath.value;
             }
@@ -851,16 +880,15 @@
               throw new Error(text);
             }
             const data = await res.json();
-            // Save branch to localStorage
             if (!savedBranches.value.includes(selectedBranch.value)) {
               savedBranches.value.push(selectedBranch.value);
               localStorage.setItem('agent_saved_branches', JSON.stringify(savedBranches.value));
             }
             currentBranch.value = selectedBranch.value;
             switchResult.value = data.repos;
-            // Navigate to worktree path
             currentPath.value = data.worktreePath;
             await loadList(data.worktreePath);
+            saveWorktreeState();
             const created = data.repos.filter(function(r) { return r.created; }).length;
             ElementPlus.ElMessage.success('已切换到 ' + selectedBranch.value + '，' + created + ' 个仓库');
           } catch (e) {
@@ -879,12 +907,22 @@
           selectedBranch.value = '';
           switchResult.value = null;
           originalWorkspacePath.value = '';
+          clearWorktreeState();
         };
 
-        const removeSavedBranch = (branch) => {
+        const removeSavedBranch = async (branch) => {
+          const wsPath = originalWorkspacePath.value || currentPath.value;
+          try {
+            await fetch('/api/worktree/remove?workspacePath=' + encodeURIComponent(wsPath)
+                + '&branch=' + encodeURIComponent(branch), { method: 'DELETE' });
+          } catch (e) {
+            // 删除失败不阻断 UI 操作
+          }
           savedBranches.value = savedBranches.value.filter(function(b) { return b !== branch; });
           localStorage.setItem('agent_saved_branches', JSON.stringify(savedBranches.value));
-          if (selectedBranch.value === branch) {
+          if (currentBranch.value === branch) {
+            clearBranch();
+          } else if (selectedBranch.value === branch) {
             selectedBranch.value = '';
           }
         };
