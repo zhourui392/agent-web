@@ -132,19 +132,55 @@ public class ScheduledTaskServiceImpl implements ScheduledTaskService {
 
     /**
      * Core execution logic shared by cron trigger and manual trigger.
+     * Uses runStream (same as chat) so that output format, resumeId extraction,
+     * and process management are fully consistent with interactive conversations.
      */
     String doExecute(ScheduledTask task) {
         log.info("Executing scheduled task: {} ({})", task.getName(), task.getId());
-        ChatSession session = ChatSession.forTask(task.getName(), AgentType.CLAUDE, task.getWorkingDir());
+        final ChatSession session = ChatSession.forTask(task.getName(), AgentType.CLAUDE, task.getWorkingDir());
         inMemoryRepo.save(session);
         sessionRepository.saveSession(session);
 
         // Persist user message (the prompt)
         sessionRepository.addMessage(session.getId(), new ChatMessage("user", task.getPrompt()));
 
+        final StringBuilder fullResponse = new StringBuilder();
+        final boolean[] resumeIdSaved = {false};
+
         try {
-            String output = gateway.runOnce(AgentType.CLAUDE, task.getWorkingDir(), task.getPrompt());
-            sessionRepository.addMessage(session.getId(), new ChatMessage("assistant", output));
+            gateway.runStream(AgentType.CLAUDE, task.getWorkingDir(), task.getPrompt(),
+                    session.getId(), null, null,
+                    new java.util.function.Consumer<String>() {
+                        @Override
+                        public void accept(String chunk) {
+                            fullResponse.append(chunk).append("\n");
+                            if (!resumeIdSaved[0]) {
+                                try {
+                                    if (chunk.contains("\"session_id\"")) {
+                                        com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
+                                        com.fasterxml.jackson.databind.JsonNode node = om.readTree(chunk);
+                                        if (node.has("session_id")) {
+                                            String cliSessionId = node.get("session_id").asText();
+                                            if (cliSessionId != null && !cliSessionId.isEmpty()) {
+                                                sessionRepository.updateResumeId(session.getId(), cliSessionId);
+                                                resumeIdSaved[0] = true;
+                                            }
+                                        }
+                                    }
+                                } catch (Exception ignored) {
+                                }
+                            }
+                        }
+                    },
+                    new java.util.function.IntConsumer() {
+                        @Override
+                        public void accept(int code) {
+                            String response = fullResponse.toString().trim();
+                            if (!response.isEmpty()) {
+                                sessionRepository.addMessage(session.getId(), new ChatMessage("assistant", response));
+                            }
+                        }
+                    });
         } catch (Exception e) {
             log.error("Scheduled task execution failed: {} ({})", task.getName(), task.getId(), e);
             sessionRepository.addMessage(session.getId(), new ChatMessage("assistant", "[error] " + e.getMessage()));
