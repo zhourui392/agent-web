@@ -399,8 +399,12 @@
               <div v-if="savedBranches.length > 0" style="margin-top: 8px;">
                 <el-tag v-for="b in savedBranches" :key="b" closable size="small"
                         :type="b === currentBranch ? 'success' : 'info'"
+                        :disabled="removingBranch === b"
                         @close="removeSavedBranch(b)" style="margin: 2px; cursor: pointer;"
                         @click="selectedBranch = b">
+                  <template v-if="removingBranch === b">
+                    <el-icon class="is-loading" style="margin-right: 4px;"><loading /></el-icon>
+                  </template>
                   {{ b }}
                 </el-tag>
               </div>
@@ -641,6 +645,7 @@
         const switchingBranch = ref(false);
         const savedBranches = ref(JSON.parse(localStorage.getItem('agent_saved_branches') || '[]'));
         const switchResult = ref(null);
+        const removingBranch = ref('');
         const originalWorkspacePath = ref('');
 
         const filteredCommands = Vue.computed(() => {
@@ -911,12 +916,16 @@
         };
 
         const removeSavedBranch = async (branch) => {
+          removingBranch.value = branch;
           const wsPath = originalWorkspacePath.value || currentPath.value;
           try {
             await fetch('/api/worktree/remove?workspacePath=' + encodeURIComponent(wsPath)
                 + '&branch=' + encodeURIComponent(branch), { method: 'DELETE' });
+            ElementPlus.ElMessage.success('已清理分支 ' + branch + ' 的 worktree');
           } catch (e) {
-            // 删除失败不阻断 UI 操作
+            ElementPlus.ElMessage.warning('清理 worktree 失败，已移除标签');
+          } finally {
+            removingBranch.value = '';
           }
           savedBranches.value = savedBranches.value.filter(function(b) { return b !== branch; });
           localStorage.setItem('agent_saved_branches', JSON.stringify(savedBranches.value));
@@ -1378,6 +1387,7 @@
           switchingBranch,
           savedBranches,
           switchResult,
+          removingBranch,
           switchBranch,
           clearBranch,
           removeSavedBranch,
