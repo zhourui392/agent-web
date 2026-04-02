@@ -162,18 +162,72 @@
       flex-shrink: 0;
       padding-left: 4px;
     }
-    .session-info {
-      padding: 12px;
-      background: #f0f9ff;
-      border-radius: 8px;
-      margin-top: 12px;
-      font-size: 13px;
-      color: #409eff;
-    }
     .el-aside {
       background: #fafafa;
       border-right: 1px solid #ebeef5;
+      overflow-y: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    /* 顶栏 */
+    .topbar {
+      display: flex;
+      align-items: center;
+      padding: 0 20px;
+      gap: 16px;
+      background: #fff;
+      border-bottom: 1px solid #e4e7ed;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+      height: 100%;
+    }
+    .topbar .logo {
+      font-weight: 700;
+      font-size: 15px;
+      white-space: nowrap;
+    }
+    .topbar .divider {
+      width: 1px;
+      height: 24px;
+      background: #dcdfe6;
+      flex-shrink: 0;
+    }
+    .workspace-selector {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 12px;
+      border: 1px solid #dcdfe6;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      color: #606266;
+      background: #f5f7fa;
+      max-width: 320px;
+    }
+    .workspace-selector:hover {
+      border-color: #409eff;
+    }
+    .workspace-selector .path {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    /* 侧边栏 */
+    .sidebar-header {
+      padding: 12px 16px;
+      border-bottom: 1px solid #f0f0f0;
+      flex-shrink: 0;
+    }
+    .history-list {
+      flex: 1;
       overflow-y: auto;
+      padding: 4px 8px;
+    }
+    .history-group-title {
+      font-size: 11px;
+      color: #909399;
+      padding: 12px 8px 6px;
+      font-weight: 600;
     }
     .history-item {
       padding: 10px 12px;
@@ -288,103 +342,46 @@
 <body>
   <div id="app">
     <el-container style="height: 100%">
-      <!-- 侧边栏 -->
-      <el-aside width="320px">
-        <div style="padding: 20px;">
-          <!-- 环境切换 -->
-          <div style="margin-bottom: 16px; display: flex; align-items: center; justify-content: center; gap: 6px; flex-wrap: nowrap;">
-            <el-radio-group v-model="env" size="small" @change="onEnvChange" style="flex-shrink: 0;">
-              <el-radio-button value="">
-                <span :style="{ fontWeight: 700, fontSize: '12px' }">无</span>
-              </el-radio-button>
-              <el-radio-button value="test">
-                <span :style="{ color: env !== 'test' ? '#67c23a' : '', fontWeight: 700, fontSize: '12px' }">测试环境</span>
-              </el-radio-button>
-              <el-radio-button value="prod">
-                <span :style="{ color: env !== 'prod' ? '#f56c6c' : '', fontWeight: 700, fontSize: '12px' }">生产环境</span>
-              </el-radio-button>
-            </el-radio-group>
-            <el-tooltip content="环境选择只是注入限制提示词，并不一定影响最后的查询环境" placement="top">
-              <span style="display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid #909399; color: #909399; font-size: 12px; cursor: pointer; font-weight: bold; user-select: none; flex-shrink: 0;">?</span>
-            </el-tooltip>
+      <!-- ========== 顶栏 ========== -->
+      <el-header height="52px" style="padding: 0;">
+        <div class="topbar">
+          <!-- ① Logo -->
+          <span class="logo">Agent Web</span>
+          <div class="divider"></div>
+
+          <!-- ② 环境切换 -->
+          <el-radio-group v-model="env" size="small" @change="onEnvChange" style="flex-shrink: 0;">
+            <el-radio-button value="">
+              <span :style="{ fontWeight: 700, fontSize: '12px' }">无</span>
+            </el-radio-button>
+            <el-radio-button value="test">
+              <span :style="{ color: env !== 'test' ? '#67c23a' : '', fontWeight: 700, fontSize: '12px' }">测试环境</span>
+            </el-radio-button>
+            <el-radio-button value="prod">
+              <span :style="{ color: env !== 'prod' ? '#f56c6c' : '', fontWeight: 700, fontSize: '12px' }">生产环境</span>
+            </el-radio-button>
+          </el-radio-group>
+          <el-tooltip content="环境选择只是注入限制提示词，并不一定影响最后的查询环境" placement="bottom">
+            <span style="display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid #909399; color: #909399; font-size: 12px; cursor: pointer; font-weight: bold; user-select: none; flex-shrink: 0;">?</span>
+          </el-tooltip>
+          <div class="divider"></div>
+
+          <!-- ③ 工作目录选择器 -->
+          <div class="workspace-selector" @click="workspaceDialogVisible = true">
+            <el-icon><folder-opened /></el-icon>
+            <span class="path">{{ currentPath || '选择工作目录' }}</span>
+            <el-icon><arrow-down /></el-icon>
           </div>
 
-          <!-- 工作目录选择 (可折叠) -->
-          <el-card shadow="hover" style="margin-bottom: 20px;">
-            <div style="display: flex; align-items: center; cursor: pointer; user-select: none;" @click="workspaceExpanded = !workspaceExpanded">
-              <el-icon style="margin-right: 6px; transition: transform 0.2s;" :style="{ transform: workspaceExpanded ? 'rotate(90deg)' : '' }"><arrow-right /></el-icon>
-              <el-icon style="margin-right: 6px;"><folder-opened /></el-icon>
-              <span style="font-weight: 600; font-size: 13px;">工作空间</span>
-              <span v-if="currentPath && !workspaceExpanded" style="margin-left: 8px; font-size: 12px; color: #909399; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ currentPath }}</span>
-            </div>
-            <div v-show="workspaceExpanded" style="margin-top: 12px;">
-              <el-form label-position="top" size="default">
-                <el-form-item label="根路径">
-                  <el-select v-model="selectedRoot" placeholder="选择根路径" style="width: 100%;" @change="handleRootChange">
-                    <el-option v-for="root in roots" :key="root" :label="root" :value="root"></el-option>
-                  </el-select>
-                </el-form-item>
-
-                <el-form-item label="当前路径">
-                  <el-input v-model="currentPath" readonly>
-                    <template #prefix>
-                      <el-icon><folder-opened /></el-icon>
-                    </template>
-                  </el-input>
-                </el-form-item>
-              </el-form>
-
-              <!-- 文件/目录列表 -->
-              <el-scrollbar height="200px">
-                <div v-for="item in folderList" :key="item.path" class="fs-item"
-                     @click="item.dir ? loadList(item.path) : null">
-                  <el-icon v-if="item.dir"><folder /></el-icon>
-                  <el-icon v-else><document /></el-icon>
-                  <span class="fs-name">{{ item.name || item.path }}</span>
-                  <span v-if="!item.dir" style="color:#909399;font-size:12px;margin-right:8px;">{{ formatSize(item.size) }}</span>
-                  <span class="fs-actions" v-if="!item.dir && item.name !== '..'">
-                    <el-dropdown trigger="click" @command="handleFileCommand($event, item)" @click.stop>
-                      <el-icon style="cursor:pointer; font-size: 16px; color: #909399;" @click.stop><more-filled /></el-icon>
-                      <template #dropdown>
-                        <el-dropdown-menu>
-                          <el-dropdown-item command="download">下载</el-dropdown-item>
-                          <el-dropdown-item command="delete" style="color:#f56c6c;">删除</el-dropdown-item>
-                        </el-dropdown-menu>
-                      </template>
-                    </el-dropdown>
-                  </span>
-                </div>
-                <el-empty v-if="folderList.length === 0" description="空目录" :image-size="60"></el-empty>
-              </el-scrollbar>
-
-              <!-- 上传按钮 -->
-              <div style="margin-top: 12px;">
-                <el-upload
-                  :action="'/api/fs/upload?path=' + encodeURIComponent(currentPath)"
-                  name="file"
-                  :show-file-list="false"
-                  :on-success="onUploadSuccess"
-                  :on-error="onUploadError"
-                  multiple>
-                  <el-button type="primary" size="small" style="width: 100%;">
-                    <el-icon><upload /></el-icon>
-                    <span>上传文件</span>
-                  </el-button>
-                </el-upload>
-              </div>
-            </div>
-          </el-card>
-
-          <!-- 分支切换 (仅测试环境) -->
-          <div v-if="env === 'test'" style="margin-bottom: 16px;">
-            <el-card shadow="hover" size="small">
-              <template #header>
-                <div style="display: flex; align-items: center; gap: 6px; padding: 0;">
-                  <el-icon><switch-button /></el-icon>
-                  <span style="font-weight: 600; font-size: 13px;">分支切换</span>
-                  <span v-if="currentBranch" style="margin-left: auto; font-size: 12px; color: #67c23a;">{{ currentBranch }}</span>
-                </div>
+          <!-- ④ 分支标签（仅测试环境） -->
+          <template v-if="env === 'test'">
+            <el-popover trigger="click" width="400" placement="bottom-start">
+              <template #reference>
+                <el-tag type="success" style="cursor: pointer; flex-shrink: 0;">
+                  🌿 {{ currentBranch || '选择分支' }}
+                </el-tag>
               </template>
+              <!-- 分支切换内容 -->
               <div style="display: flex; align-items: center; gap: 8px;">
                 <el-select v-model="selectedBranch" filterable allow-create default-first-option
                            placeholder="选择或输入分支名" style="flex: 1;" clearable
@@ -415,50 +412,41 @@
                   <span v-if="r.actualBranch && r.actualBranch !== selectedBranch" style="color: #e6a23c;">(master)</span>
                 </div>
               </div>
-            </el-card>
+            </el-popover>
+          </template>
+
+          <!-- 右侧弹性空间 -->
+          <span style="flex: 1;"></span>
+
+          <!-- ⑤ 定时任务按钮 -->
+          <el-button @click="taskManagerVisible = true" style="flex-shrink: 0;">
+            <el-icon><timer /></el-icon>
+            <span>定时任务</span>
+            <el-badge :value="taskList.length" v-if="taskList.length" :offset="[6, -2]" />
+          </el-button>
+        </div>
+      </el-header>
+
+      <el-container>
+        <!-- ========== 侧边栏（仅新对话 + 历史列表） ========== -->
+        <el-aside width="280px">
+          <!-- 新对话按钮 -->
+          <div class="sidebar-header">
+            <el-button type="primary" @click="newConversation" :loading="starting" :disabled="!currentPath" style="width: 100%;">
+              <el-icon><plus /></el-icon>
+              <span>新对话</span>
+            </el-button>
           </div>
 
-          <el-card shadow="hover">
-            <div style="display: flex; gap: 8px;">
-              <el-button type="primary" style="flex: 1; min-width: 0;" @click="newConversation" :loading="starting" :disabled="!currentPath">
-                <el-icon><connection /></el-icon>
-                <span>新对话</span>
-              </el-button>
-
-              <el-button style="flex: 1; min-width: 0; margin-left: 0;" @click="clearContext" :disabled="!sessionId">
-                <el-icon><delete /></el-icon>
-                <span>清除上下文</span>
-              </el-button>
-            </div>
-
-            <!-- 会话信息 -->
-            <div v-if="sessionId" class="session-info">
-              <div><strong>会话 ID：</strong>{{ sessionId.substring(0, 8) }}...</div>
-              <div><strong>目录：</strong>{{ workingDir }}</div>
-              <div v-if="resumeId"><strong>Resume ID：</strong>{{ resumeId.substring(0, 16) }}...</div>
-            </div>
-          </el-card>
-
-          <!-- 历史对话记录 -->
-          <el-card shadow="hover" style="margin-top: 20px;">
-            <template #header>
-              <div style="display: flex; align-items: center; justify-content: space-between;">
-                <div style="display: flex; align-items: center;">
-                  <el-icon><clock /></el-icon>
-                  <span style="margin-left: 8px; font-weight: 600;">历史对话</span>
-                </div>
-                <el-button size="small" text @click="loadHistory(true)">
-                  <el-icon><refresh /></el-icon>
-                </el-button>
-              </div>
-            </template>
-
-            <el-scrollbar height="300px" @scroll="onHistoryScroll">
-              <div v-for="h in historyList" :key="h.sessionId" class="history-item" style="display: flex; align-items: center;">
+          <!-- 历史对话列表（按日期分组，占满剩余空间） -->
+          <div class="history-list" @scroll="onHistoryScroll">
+            <div v-for="group in groupedHistory" :key="group.label">
+              <div class="history-group-title">{{ group.label }}</div>
+              <div v-for="h in group.items" :key="h.sessionId" class="history-item" style="display: flex; align-items: center;">
                 <div style="flex: 1; min-width: 0;" @click="viewHistory(h.sessionId)">
                   <div class="history-title">{{ h.title || '新对话' }}</div>
                   <div class="history-meta">
-                    {{ h.workingDir.split('/').pop() }} · {{ h.messageCount }} 条消息 · {{ formatTime(h.createdAt) }}
+                    {{ h.workingDir.split('/').pop() }} · {{ h.messageCount }} 条 · {{ formatTime(h.createdAt) }}
                   </div>
                 </div>
                 <el-button size="small" text type="primary" @click.stop="resumeHistory(h)" style="flex-shrink: 0; margin-left: 4px;" title="继续对话">
@@ -468,230 +456,282 @@
                   <el-icon><delete /></el-icon>
                 </el-button>
               </div>
-              <div v-if="historyLoading" style="text-align: center; padding: 8px; color: #909399; font-size: 12px;">加载中...</div>
-              <div v-else-if="!historyHasMore && historyList.length > 0" style="text-align: center; padding: 8px; color: #c0c4cc; font-size: 12px;">没有更多了</div>
-              <el-empty v-if="historyList.length === 0 && !historyLoading" description="暂无历史记录" :image-size="40"></el-empty>
-            </el-scrollbar>
-          </el-card>
-
-          <!-- 定时任务 -->
-          <el-card shadow="hover" style="margin-top: 20px;">
-            <template #header>
-              <div style="display: flex; align-items: center; justify-content: space-between;">
-                <div style="display: flex; align-items: center;">
-                  <el-icon><timer /></el-icon>
-                  <span style="margin-left: 8px; font-weight: 600;">定时任务</span>
-                </div>
-                <div>
-                  <el-button size="small" text @click="loadTasks">
-                    <el-icon><refresh /></el-icon>
-                  </el-button>
-                  <el-button size="small" type="primary" text @click="openTaskDialog(null)">
-                    <el-icon><plus /></el-icon>
-                  </el-button>
-                </div>
-              </div>
-            </template>
-
-            <el-scrollbar max-height="250px">
-              <div v-for="t in taskList" :key="t.id" style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
-                <div style="display: flex; align-items: center; justify-content: space-between;">
-                  <div style="flex: 1; min-width: 0;">
-                    <div style="font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                      {{ t.name }}
-                      <el-tag size="small" :type="t.enabled ? 'success' : 'info'" style="margin-left: 6px;">{{ t.enabled ? '启用' : '停用' }}</el-tag>
-                    </div>
-                    <div style="font-size: 11px; color: #909399; margin-top: 2px;">
-                      {{ t.cronExpr }}
-                      <span v-if="t.lastRunAt"> · 上次: {{ formatTime(t.lastRunAt) }}</span>
-                    </div>
-                  </div>
-                  <div style="flex-shrink: 0; display: flex; gap: 2px;">
-                    <el-tooltip content="立即执行">
-                      <el-button size="small" text type="success" @click="runTask(t.id)">
-                        <el-icon><video-play /></el-icon>
-                      </el-button>
-                    </el-tooltip>
-                    <el-tooltip :content="t.enabled ? '停用' : '启用'">
-                      <el-button size="small" text :type="t.enabled ? 'warning' : 'primary'" @click="toggleTask(t.id)">
-                        <el-icon><component :is="t.enabled ? 'video-pause' : 'caret-right'" /></el-icon>
-                      </el-button>
-                    </el-tooltip>
-                    <el-tooltip content="编辑">
-                      <el-button size="small" text @click="openTaskDialog(t)">
-                        <el-icon><edit /></el-icon>
-                      </el-button>
-                    </el-tooltip>
-                    <el-tooltip content="删除">
-                      <el-button size="small" text type="danger" @click="deleteTask(t.id)">
-                        <el-icon><delete /></el-icon>
-                      </el-button>
-                    </el-tooltip>
-                  </div>
-                </div>
-              </div>
-              <el-empty v-if="taskList.length === 0" description="暂无定时任务" :image-size="40"></el-empty>
-            </el-scrollbar>
-          </el-card>
-
-          <!-- 定时任务编辑对话框 -->
-          <el-dialog v-model="taskDialogVisible" :title="taskEditing ? '编辑定时任务' : '新建定时任务'" width="500px">
-            <el-form label-position="top" size="default">
-              <el-form-item label="任务名称">
-                <el-input v-model="taskForm.name" placeholder="例如：日报生成"></el-input>
-              </el-form-item>
-              <el-form-item label="Cron 表达式">
-                <el-input v-model="taskForm.cronExpr" placeholder="例如：0 0 9 * * ?">
-                  <template #append>
-                    <el-dropdown trigger="click" @command="setCronPreset">
-                      <el-button>预设</el-button>
-                      <template #dropdown>
-                        <el-dropdown-menu>
-                          <el-dropdown-item command="0 */30 * * * ?">每30分钟</el-dropdown-item>
-                          <el-dropdown-item command="0 0 * * * ?">每小时</el-dropdown-item>
-                          <el-dropdown-item command="0 0 9 * * ?">每天9点</el-dropdown-item>
-                          <el-dropdown-item command="0 0 9 * * MON-FRI">工作日9点</el-dropdown-item>
-                          <el-dropdown-item command="0 0 */6 * * ?">每6小时</el-dropdown-item>
-                        </el-dropdown-menu>
-                      </template>
-                    </el-dropdown>
-                  </template>
-                </el-input>
-              </el-form-item>
-              <el-form-item label="Prompt">
-                <el-input v-model="taskForm.prompt" type="textarea" :rows="4" placeholder="要执行的提示词"></el-input>
-              </el-form-item>
-              <el-form-item label="工作目录">
-                <el-input v-model="taskForm.workingDir" placeholder="工作目录路径"></el-input>
-              </el-form-item>
-            </el-form>
-            <template #footer>
-              <el-button @click="taskDialogVisible = false">取消</el-button>
-              <el-button type="primary" :loading="taskLoading" @click="saveTask">保存</el-button>
-            </template>
-          </el-dialog>
-
-          <!-- 历史消息详情弹窗 -->
-          <el-drawer v-model="historyDrawerVisible" title="对话详情" size="50%" direction="rtl">
-            <template #header>
-              <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
-                <span style="font-size: 16px; font-weight: 600;">对话详情</span>
-                <el-button type="primary" size="small" :loading="summarizing" @click="summarizeSession" style="margin-right: 24px;">
-                  <el-icon style="margin-right: 4px;"><document /></el-icon>
-                  生成总结
-                </el-button>
-              </div>
-            </template>
-            <div v-for="(msg, i) in historyMessages" :key="i" class="history-msg">
-              <div class="history-msg-role" :style="{ color: msg.role === 'user' ? '#409eff' : '#67c23a' }">
-                {{ msg.role === 'user' ? '用户' : '助手' }}
-                <span style="font-weight: normal; color: #c0c4cc; margin-left: 8px;">{{ formatTime(msg.timestamp) }}</span>
-              </div>
-              <!-- user message -->
-              <div v-if="msg.role === 'user'" class="history-msg-content" style="white-space: pre-wrap;">{{ msg.content }}</div>
-              <!-- assistant with parsed segments -->
-              <div v-else-if="msg.parsedSegments" class="history-msg-content">
-                <template v-for="(seg, si) in msg.parsedSegments" :key="si">
-                  <div v-if="seg.type === 'text'" class="text-segment" v-html="renderMarkdown(seg.content)"></div>
-                  <div v-else-if="seg.type === 'tool'" class="tool-block">
-                    <div class="tool-header" @click="seg._expanded = !seg._expanded">
-                      <span class="tool-toggle" :class="{expanded: seg._expanded}">▶</span>
-                      <span class="tool-label">{{ seg.name }}</span>
-                    </div>
-                    <div v-show="seg._expanded" class="tool-content">{{ seg.input }}</div>
-                  </div>
-                  <div v-else-if="seg.type === 'tool_result'" class="tool-block">
-                    <div class="tool-header" @click="seg._expanded = !seg._expanded">
-                      <span class="tool-toggle" :class="{expanded: seg._expanded}">▶</span>
-                      <span class="tool-label">Tool Result</span>
-                    </div>
-                    <div v-show="seg._expanded" class="tool-content">{{ seg.content }}</div>
-                  </div>
-                  <div v-else-if="seg.type === 'result'" class="text-segment" v-html="renderMarkdown(seg.content)"></div>
-                </template>
-              </div>
-              <!-- fallback for assistant without parsed segments -->
-              <div v-else class="history-msg-content" v-html="renderMarkdown(msg.content)"></div>
             </div>
-            <el-empty v-if="historyMessages.length === 0" description="暂无消息" :image-size="60"></el-empty>
-          </el-drawer>
+            <div v-if="historyLoading" style="text-align: center; padding: 8px; color: #909399; font-size: 12px;">加载中...</div>
+            <div v-else-if="!historyHasMore && historyList.length > 0" style="text-align: center; padding: 8px; color: #c0c4cc; font-size: 12px;">没有更多了</div>
+            <el-empty v-if="historyList.length === 0 && !historyLoading" description="暂无历史记录" :image-size="40"></el-empty>
+          </div>
+        </el-aside>
 
-        </div>
-      </el-aside>
-
-      <!-- 主内容区 -->
-      <el-main style="padding: 0;">
-        <div class="chat-container">
-          <!-- 聊天消息区 -->
-          <div class="chat-messages" ref="chatContainer">
-            <div v-for="(msg, index) in messages" :key="index" class="chat-message">
-              <div v-if="msg.role === 'user'" style="display: flex; justify-content: flex-end;">
-                <div class="message-user">{{ msg.text }}</div>
-              </div>
-              <div v-else-if="msg.role === 'agent'">
-                <div class="message-agent">
-                  <template v-for="(seg, si) in (msg.segments || [])" :key="si">
-                    <div v-if="seg.type === 'text'" class="text-segment" v-html="renderMarkdown(seg.content)"></div>
-                    <div v-else class="tool-block">
-                      <div class="tool-header" @click="toggleTool(index, si)">
-                        <span class="tool-toggle" :class="{expanded: isToolExpanded(index, si)}">▶</span>
-                        <span class="tool-label">{{ seg.name }}</span>
+        <!-- ========== 主内容区 ========== -->
+        <el-main style="padding: 0;">
+          <div class="chat-container">
+            <!-- 聊天消息区 -->
+            <div class="chat-messages" ref="chatContainer">
+              <div v-for="(msg, index) in messages" :key="index" class="chat-message">
+                <div v-if="msg.role === 'user'" style="display: flex; justify-content: flex-end;">
+                  <div class="message-user">{{ msg.text }}</div>
+                </div>
+                <div v-else-if="msg.role === 'agent'">
+                  <div class="message-agent">
+                    <template v-for="(seg, si) in (msg.segments || [])" :key="si">
+                      <div v-if="seg.type === 'text'" class="text-segment" v-html="renderMarkdown(seg.content)"></div>
+                      <div v-else class="tool-block">
+                        <div class="tool-header" @click="toggleTool(index, si)">
+                          <span class="tool-toggle" :class="{expanded: isToolExpanded(index, si)}">▶</span>
+                          <span class="tool-label">{{ seg.name }}</span>
+                        </div>
+                        <div v-show="isToolExpanded(index, si)" class="tool-content">{{ seg.content }}</div>
                       </div>
-                      <div v-show="isToolExpanded(index, si)" class="tool-content">{{ seg.content }}</div>
-                    </div>
-                  </template>
-                  <div v-if="sending && index === messages.length - 1 && (!msg.segments || !msg.segments.some(s => s.type === 'text' && s.content))" class="loading-dots"><span></span><span></span><span></span></div>
+                    </template>
+                    <div v-if="sending && index === messages.length - 1 && (!msg.segments || !msg.segments.some(s => s.type === 'text' && s.content))" class="loading-dots"><span></span><span></span><span></span></div>
+                  </div>
+                </div>
+                <div v-else-if="msg.role === 'system'">
+                  <div class="message-system">{{ msg.text }}</div>
+                </div>
+                <div v-else-if="msg.role === 'error'">
+                  <div class="message-error">{{ msg.text }}</div>
                 </div>
               </div>
-              <div v-else-if="msg.role === 'system'">
-                <div class="message-system">{{ msg.text }}</div>
-              </div>
-              <div v-else-if="msg.role === 'error'">
-                <div class="message-error">{{ msg.text }}</div>
-              </div>
+
+              <el-empty v-if="messages.length === 0" description="请选择工作目录，输入问题即可开始对话" :image-size="120"></el-empty>
             </div>
 
-            <el-empty v-if="messages.length === 0" description="请选择工作目录，输入问题即可开始对话" :image-size="120"></el-empty>
-          </div>
-
-          <!-- 输入区 -->
-          <div class="chat-input-area" style="position: relative;">
-            <div class="command-popup" v-if="showCommandPopup && filteredCommands.length > 0">
-              <div v-for="(cmd, idx) in filteredCommands" :key="cmd.name"
-                   class="command-item" :class="{active: idx === selectedCommandIdx}"
-                   @mousedown.prevent="selectCommand(cmd)">
-                <span class="command-name">/{{ cmd.name }}</span>
-                <span class="command-desc">{{ cmd.description || cmd.argumentHint }}</span>
+            <!-- 输入区 -->
+            <div class="chat-input-area" style="position: relative;">
+              <div class="command-popup" v-if="showCommandPopup && filteredCommands.length > 0">
+                <div v-for="(cmd, idx) in filteredCommands" :key="cmd.name"
+                     class="command-item" :class="{active: idx === selectedCommandIdx}"
+                     @mousedown.prevent="selectCommand(cmd)">
+                  <span class="command-name">/{{ cmd.name }}</span>
+                  <span class="command-desc">{{ cmd.description || cmd.argumentHint }}</span>
+                </div>
               </div>
-            </div>
-            <el-input
-              v-model="userInput"
-              type="textarea"
-              :rows="3"
-              placeholder="输入你的问题，例如：测试环境，traceId: xxx，问题描述"
-              @keydown.enter.exact.prevent="handleEnter" @keydown.up.prevent="handleArrowUp" @keydown.down.prevent="handleArrowDown" @keydown.tab.prevent="handleTab" @keydown.escape="hideCommandPopup"
-              @keydown.ctrl.enter.exact.prevent="insertNewline"
-              :disabled="!currentPath"
-            ></el-input>
-            <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center;">
-              <div style="color: #909399; font-size: 13px;">
-                <span v-if="currentPath">Enter 发送 | Ctrl+Enter 换行</span>
-                <span v-else style="color: #E6A23C; font-weight: bold;">⚠ 请先选择工作目录</span>
-              </div>
-              <div style="display: flex; gap: 8px;">
-                <el-button type="danger" @click="stopSession" v-if="sending" plain>
-                  <el-icon><video-pause /></el-icon>
-                  <span>停止</span>
-                </el-button>
-                <el-button type="primary" @click="sendMessageStream" :loading="sending" :disabled="!currentPath || !userInput.trim()">
-                  <el-icon><connection /></el-icon>
-                  <span>发送</span>
-                </el-button>
+              <el-input
+                v-model="userInput"
+                type="textarea"
+                :rows="3"
+                placeholder="输入你的问题，例如：测试环境，traceId: xxx，问题描述"
+                @keydown.enter.exact.prevent="handleEnter" @keydown.up.prevent="handleArrowUp" @keydown.down.prevent="handleArrowDown" @keydown.tab.prevent="handleTab" @keydown.escape="hideCommandPopup"
+                @keydown.ctrl.enter.exact.prevent="insertNewline"
+                :disabled="!currentPath"
+              ></el-input>
+              <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                  <span style="color: #909399; font-size: 13px;" v-if="currentPath">Enter 发送 | Ctrl+Enter 换行</span>
+                  <span v-if="!currentPath" style="color: #E6A23C; font-weight: bold; font-size: 13px;">⚠ 请先选择工作目录</span>
+                  <el-button text size="small" @click="clearContext" :disabled="!sessionId" style="color: #909399;">
+                    清除上下文
+                  </el-button>
+                </div>
+                <div style="display: flex; gap: 8px;">
+                  <el-button type="danger" @click="stopSession" v-if="sending" plain>
+                    <el-icon><video-pause /></el-icon>
+                    <span>停止</span>
+                  </el-button>
+                  <el-button type="primary" @click="sendMessageStream" :loading="sending" :disabled="!currentPath || !userInput.trim()">
+                    <el-icon><connection /></el-icon>
+                    <span>发送</span>
+                  </el-button>
+                </div>
               </div>
             </div>
           </div>
+        </el-main>
+      </el-container>
+
+      <!-- ========== 工作空间弹窗 ========== -->
+      <el-dialog v-model="workspaceDialogVisible" title="工作空间" width="520px">
+        <el-form label-position="top" size="default">
+          <el-form-item label="根路径">
+            <el-select v-model="selectedRoot" placeholder="选择根路径" style="width: 100%;" @change="handleRootChange">
+              <el-option v-for="root in roots" :key="root" :label="root" :value="root"></el-option>
+            </el-select>
+          </el-form-item>
+          <el-form-item label="当前路径">
+            <el-input v-model="currentPath" readonly>
+              <template #prefix>
+                <el-icon><folder-opened /></el-icon>
+              </template>
+            </el-input>
+          </el-form-item>
+        </el-form>
+
+        <!-- 文件/目录列表 -->
+        <el-scrollbar height="280px">
+          <div v-for="item in folderList" :key="item.path" class="fs-item"
+               @click="item.dir ? loadList(item.path) : null">
+            <el-icon v-if="item.dir"><folder /></el-icon>
+            <el-icon v-else><document /></el-icon>
+            <span class="fs-name">{{ item.name || item.path }}</span>
+            <span v-if="!item.dir" style="color:#909399;font-size:12px;margin-right:8px;">{{ formatSize(item.size) }}</span>
+            <span class="fs-actions" v-if="!item.dir && item.name !== '..'">
+              <el-dropdown trigger="click" @command="handleFileCommand($event, item)" @click.stop>
+                <el-icon style="cursor:pointer; font-size: 16px; color: #909399;" @click.stop><more-filled /></el-icon>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="download">下载</el-dropdown-item>
+                    <el-dropdown-item command="delete" style="color:#f56c6c;">删除</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+            </span>
+          </div>
+          <el-empty v-if="folderList.length === 0" description="空目录" :image-size="60"></el-empty>
+        </el-scrollbar>
+
+        <!-- 上传按钮 -->
+        <div style="margin-top: 12px;">
+          <el-upload
+            :action="'/api/fs/upload?path=' + encodeURIComponent(currentPath)"
+            name="file"
+            :show-file-list="false"
+            :on-success="onUploadSuccess"
+            :on-error="onUploadError"
+            multiple>
+            <el-button type="primary" size="small" style="width: 100%;">
+              <el-icon><upload /></el-icon>
+              <span>上传文件</span>
+            </el-button>
+          </el-upload>
         </div>
-      </el-main>
+      </el-dialog>
+
+      <!-- ========== 定时任务管理弹窗 ========== -->
+      <el-dialog v-model="taskManagerVisible" title="定时任务管理" width="600px">
+        <div style="display: flex; justify-content: flex-end; margin-bottom: 12px;">
+          <el-button size="small" @click="loadTasks">
+            <el-icon><refresh /></el-icon>
+            <span>刷新</span>
+          </el-button>
+          <el-button size="small" type="primary" @click="openTaskDialog(null)" style="margin-left: 8px;">
+            <el-icon><plus /></el-icon>
+            <span>新建</span>
+          </el-button>
+        </div>
+        <el-scrollbar max-height="400px">
+          <div v-for="t in taskList" :key="t.id" style="padding: 10px 0; border-bottom: 1px solid #f0f0f0;">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+              <div style="flex: 1; min-width: 0;">
+                <div style="font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                  {{ t.name }}
+                  <el-tag size="small" :type="t.enabled ? 'success' : 'info'" style="margin-left: 6px;">{{ t.enabled ? '启用' : '停用' }}</el-tag>
+                </div>
+                <div style="font-size: 11px; color: #909399; margin-top: 2px;">
+                  {{ t.cronExpr }}
+                  <span v-if="t.lastRunAt"> · 上次: {{ formatTime(t.lastRunAt) }}</span>
+                </div>
+              </div>
+              <div style="flex-shrink: 0; display: flex; gap: 2px;">
+                <el-tooltip content="立即执行">
+                  <el-button size="small" text type="success" @click="runTask(t.id)">
+                    <el-icon><video-play /></el-icon>
+                  </el-button>
+                </el-tooltip>
+                <el-tooltip :content="t.enabled ? '停用' : '启用'">
+                  <el-button size="small" text :type="t.enabled ? 'warning' : 'primary'" @click="toggleTask(t.id)">
+                    <el-icon><component :is="t.enabled ? 'video-pause' : 'caret-right'" /></el-icon>
+                  </el-button>
+                </el-tooltip>
+                <el-tooltip content="编辑">
+                  <el-button size="small" text @click="openTaskDialog(t)">
+                    <el-icon><edit /></el-icon>
+                  </el-button>
+                </el-tooltip>
+                <el-tooltip content="删除">
+                  <el-button size="small" text type="danger" @click="deleteTask(t.id)">
+                    <el-icon><delete /></el-icon>
+                  </el-button>
+                </el-tooltip>
+              </div>
+            </div>
+          </div>
+          <el-empty v-if="taskList.length === 0" description="暂无定时任务" :image-size="40"></el-empty>
+        </el-scrollbar>
+      </el-dialog>
+
+      <!-- 定时任务编辑对话框 -->
+      <el-dialog v-model="taskDialogVisible" :title="taskEditing ? '编辑定时任务' : '新建定时任务'" width="500px">
+        <el-form label-position="top" size="default">
+          <el-form-item label="任务名称">
+            <el-input v-model="taskForm.name" placeholder="例如：日报生成"></el-input>
+          </el-form-item>
+          <el-form-item label="Cron 表达式">
+            <el-input v-model="taskForm.cronExpr" placeholder="例如：0 0 9 * * ?">
+              <template #append>
+                <el-dropdown trigger="click" @command="setCronPreset">
+                  <el-button>预设</el-button>
+                  <template #dropdown>
+                    <el-dropdown-menu>
+                      <el-dropdown-item command="0 */30 * * * ?">每30分钟</el-dropdown-item>
+                      <el-dropdown-item command="0 0 * * * ?">每小时</el-dropdown-item>
+                      <el-dropdown-item command="0 0 9 * * ?">每天9点</el-dropdown-item>
+                      <el-dropdown-item command="0 0 9 * * MON-FRI">工作日9点</el-dropdown-item>
+                      <el-dropdown-item command="0 0 */6 * * ?">每6小时</el-dropdown-item>
+                    </el-dropdown-menu>
+                  </template>
+                </el-dropdown>
+              </template>
+            </el-input>
+          </el-form-item>
+          <el-form-item label="Prompt">
+            <el-input v-model="taskForm.prompt" type="textarea" :rows="4" placeholder="要执行的提示词"></el-input>
+          </el-form-item>
+          <el-form-item label="工作目录">
+            <el-input v-model="taskForm.workingDir" placeholder="工作目录路径"></el-input>
+          </el-form-item>
+        </el-form>
+        <template #footer>
+          <el-button @click="taskDialogVisible = false">取消</el-button>
+          <el-button type="primary" :loading="taskLoading" @click="saveTask">保存</el-button>
+        </template>
+      </el-dialog>
+
+      <!-- 历史消息详情弹窗 -->
+      <el-drawer v-model="historyDrawerVisible" title="对话详情" size="50%" direction="rtl">
+        <template #header>
+          <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+            <span style="font-size: 16px; font-weight: 600;">对话详情</span>
+            <el-button type="primary" size="small" :loading="summarizing" @click="summarizeSession" style="margin-right: 24px;">
+              <el-icon style="margin-right: 4px;"><document /></el-icon>
+              生成总结
+            </el-button>
+          </div>
+        </template>
+        <div v-for="(msg, i) in historyMessages" :key="i" class="history-msg">
+          <div class="history-msg-role" :style="{ color: msg.role === 'user' ? '#409eff' : '#67c23a' }">
+            {{ msg.role === 'user' ? '用户' : '助手' }}
+            <span style="font-weight: normal; color: #c0c4cc; margin-left: 8px;">{{ formatTime(msg.timestamp) }}</span>
+          </div>
+          <!-- user message -->
+          <div v-if="msg.role === 'user'" class="history-msg-content" style="white-space: pre-wrap;">{{ msg.content }}</div>
+          <!-- assistant with parsed segments -->
+          <div v-else-if="msg.parsedSegments" class="history-msg-content">
+            <template v-for="(seg, si) in msg.parsedSegments" :key="si">
+              <div v-if="seg.type === 'text'" class="text-segment" v-html="renderMarkdown(seg.content)"></div>
+              <div v-else-if="seg.type === 'tool'" class="tool-block">
+                <div class="tool-header" @click="seg._expanded = !seg._expanded">
+                  <span class="tool-toggle" :class="{expanded: seg._expanded}">▶</span>
+                  <span class="tool-label">{{ seg.name }}</span>
+                </div>
+                <div v-show="seg._expanded" class="tool-content">{{ seg.input }}</div>
+              </div>
+              <div v-else-if="seg.type === 'tool_result'" class="tool-block">
+                <div class="tool-header" @click="seg._expanded = !seg._expanded">
+                  <span class="tool-toggle" :class="{expanded: seg._expanded}">▶</span>
+                  <span class="tool-label">Tool Result</span>
+                </div>
+                <div v-show="seg._expanded" class="tool-content">{{ seg.content }}</div>
+              </div>
+              <div v-else-if="seg.type === 'result'" class="text-segment" v-html="renderMarkdown(seg.content)"></div>
+            </template>
+          </div>
+          <!-- fallback for assistant without parsed segments -->
+          <div v-else class="history-msg-content" v-html="renderMarkdown(msg.content)"></div>
+        </div>
+        <el-empty v-if="historyMessages.length === 0" description="暂无消息" :image-size="60"></el-empty>
+      </el-drawer>
     </el-container>
   </div>
 
@@ -710,7 +750,6 @@
         // 数据
         const DEFAULT_WORKING_PATH = '/home/ubuntu/workspace/qpon';
         const roots = ref([]);
-        const workspaceExpanded = ref(false);
         const selectedRoot = ref('');
         const currentPath = ref('');
         const folderList = ref([]);
@@ -756,6 +795,28 @@
           workingDir: '',
         });
         const taskLoading = ref(false);
+        const workspaceDialogVisible = ref(false);
+        const taskManagerVisible = ref(false);
+
+        const groupedHistory = Vue.computed(() => {
+          const now = new Date();
+          const today = now.toDateString();
+          const yesterday = new Date(now - 86400000).toDateString();
+          const groups = { today: [], yesterday: [], older: [] };
+
+          historyList.value.forEach(h => {
+            const d = new Date(h.createdAt).toDateString();
+            if (d === today) groups.today.push(h);
+            else if (d === yesterday) groups.yesterday.push(h);
+            else groups.older.push(h);
+          });
+
+          const result = [];
+          if (groups.today.length) result.push({ label: '今天', items: groups.today });
+          if (groups.yesterday.length) result.push({ label: '昨天', items: groups.yesterday });
+          if (groups.older.length) result.push({ label: '更早', items: groups.older });
+          return result;
+        });
 
         const filteredCommands = Vue.computed(() => {
           const input = userInput.value;
@@ -1559,7 +1620,6 @@
 
         return {
           roots,
-          workspaceExpanded,
           selectedRoot,
           currentPath,
           folderList,
@@ -1634,6 +1694,9 @@
           toggleTask,
           runTask,
           setCronPreset,
+          workspaceDialogVisible,
+          taskManagerVisible,
+          groupedHistory,
         };
       }
     });
