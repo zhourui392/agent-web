@@ -6,9 +6,9 @@ import java.util.List;
 
 public interface ScheduledTaskService {
 
-    ScheduledTask create(String name, String cronExpr, String prompt, String agentType, String workingDir);
+    ScheduledTask create(String name, String cronExpr, String prompt, String workingDir);
 
-    ScheduledTask update(String id, String name, String cronExpr, String prompt, String agentType, String workingDir);
+    ScheduledTask update(String id, String name, String cronExpr, String prompt, String workingDir);
 
     void delete(String id);
 

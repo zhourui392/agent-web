@@ -41,5 +41,27 @@ public class SqliteInitializer {
         } catch (Exception ignored) {
             // column already exists
         }
+        // Migration: remove agent_type column from scheduled_task
+        migrateScheduledTaskDropAgentType();
+    }
+
+    private void migrateScheduledTaskDropAgentType() {
+        try {
+            // Check if agent_type column exists
+            jdbc.queryForList("SELECT agent_type FROM scheduled_task LIMIT 1");
+        } catch (Exception e) {
+            // Column doesn't exist, no migration needed
+            return;
+        }
+        jdbc.execute("CREATE TABLE scheduled_task_new ("
+                + "id TEXT PRIMARY KEY, name TEXT NOT NULL, cron_expr TEXT NOT NULL, "
+                + "prompt TEXT NOT NULL, working_dir TEXT NOT NULL, "
+                + "enabled INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, "
+                + "updated_at TEXT NOT NULL, last_run_at TEXT, last_session_id TEXT)");
+        jdbc.execute("INSERT INTO scheduled_task_new "
+                + "SELECT id, name, cron_expr, prompt, working_dir, enabled, "
+                + "created_at, updated_at, last_run_at, last_session_id FROM scheduled_task");
+        jdbc.execute("DROP TABLE scheduled_task");
+        jdbc.execute("ALTER TABLE scheduled_task_new RENAME TO scheduled_task");
     }
 }

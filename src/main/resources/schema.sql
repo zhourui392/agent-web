@@ -22,7 +22,6 @@ CREATE TABLE IF NOT EXISTS scheduled_task (
     name            TEXT    NOT NULL,
     cron_expr       TEXT    NOT NULL,
     prompt          TEXT    NOT NULL,
-    agent_type      TEXT    NOT NULL,
     working_dir     TEXT    NOT NULL,
     enabled         INTEGER NOT NULL DEFAULT 1,
     created_at      TEXT    NOT NULL,

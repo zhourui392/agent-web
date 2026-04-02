@@ -11,7 +11,6 @@ public class ScheduledTask {
     private String name;
     private String cronExpr;
     private String prompt;
-    private AgentType agentType;
     private String workingDir;
     private boolean enabled;
     private Instant createdAt;
@@ -19,13 +18,11 @@ public class ScheduledTask {
     private Instant lastRunAt;
     private String lastSessionId;
 
-    public ScheduledTask(String name, String cronExpr, String prompt,
-                         AgentType agentType, String workingDir) {
+    public ScheduledTask(String name, String cronExpr, String prompt, String workingDir) {
         this.id = UUID.randomUUID().toString();
         this.name = name;
         this.cronExpr = cronExpr;
         this.prompt = prompt;
-        this.agentType = agentType;
         this.workingDir = workingDir;
         this.enabled = true;
         this.createdAt = Instant.now();
@@ -33,14 +30,13 @@ public class ScheduledTask {
     }
 
     public ScheduledTask(String id, String name, String cronExpr, String prompt,
-                         AgentType agentType, String workingDir, boolean enabled,
+                         String workingDir, boolean enabled,
                          Instant createdAt, Instant updatedAt, Instant lastRunAt,
                          String lastSessionId) {
         this.id = id;
         this.name = name;
         this.cronExpr = cronExpr;
         this.prompt = prompt;
-        this.agentType = agentType;
         this.workingDir = workingDir;
         this.enabled = enabled;
         this.createdAt = createdAt;
@@ -56,8 +52,6 @@ public class ScheduledTask {
     public void setCronExpr(String cronExpr) { this.cronExpr = cronExpr; }
     public String getPrompt() { return prompt; }
     public void setPrompt(String prompt) { this.prompt = prompt; }
-    public AgentType getAgentType() { return agentType; }
-    public void setAgentType(AgentType agentType) { this.agentType = agentType; }
     public String getWorkingDir() { return workingDir; }
     public void setWorkingDir(String workingDir) { this.workingDir = workingDir; }
     public boolean isEnabled() { return enabled; }

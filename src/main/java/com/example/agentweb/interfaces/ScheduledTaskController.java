@@ -42,7 +42,7 @@ public class ScheduledTaskController {
     public Map<String, Object> createTask(@Valid @RequestBody CreateScheduledTaskRequest req) {
         ScheduledTask task = taskService.create(
                 req.getName(), req.getCronExpr(), req.getPrompt(),
-                req.getAgentType(), req.getWorkingDir());
+                req.getWorkingDir());
         return toMap(task);
     }
 
@@ -59,7 +59,7 @@ public class ScheduledTaskController {
     public Map<String, Object> updateTask(@PathVariable String id, @RequestBody UpdateScheduledTaskRequest req) {
         ScheduledTask task = taskService.update(
                 id, req.getName(), req.getCronExpr(), req.getPrompt(),
-                req.getAgentType(), req.getWorkingDir());
+                req.getWorkingDir());
         return toMap(task);
     }
 
@@ -99,7 +99,6 @@ public class ScheduledTaskController {
         m.put("name", t.getName());
         m.put("cronExpr", t.getCronExpr());
         m.put("prompt", t.getPrompt());
-        m.put("agentType", t.getAgentType().name());
         m.put("workingDir", t.getWorkingDir());
         m.put("enabled", t.isEnabled());
         m.put("createdAt", t.getCreatedAt() != null ? t.getCreatedAt().toString() : null);

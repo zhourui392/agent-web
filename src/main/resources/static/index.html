@@ -502,7 +502,7 @@
                       <el-tag size="small" :type="t.enabled ? 'success' : 'info'" style="margin-left: 6px;">{{ t.enabled ? '启用' : '停用' }}</el-tag>
                     </div>
                     <div style="font-size: 11px; color: #909399; margin-top: 2px;">
-                      {{ t.cronExpr }} · {{ t.agentType }}
+                      {{ t.cronExpr }}
                       <span v-if="t.lastRunAt"> · 上次: {{ formatTime(t.lastRunAt) }}</span>
                     </div>
                   </div>
@@ -560,12 +560,6 @@
               </el-form-item>
               <el-form-item label="Prompt">
                 <el-input v-model="taskForm.prompt" type="textarea" :rows="4" placeholder="要执行的提示词"></el-input>
-              </el-form-item>
-              <el-form-item label="Agent 类型">
-                <el-select v-model="taskForm.agentType" style="width: 100%;">
-                  <el-option label="CLAUDE" value="CLAUDE"></el-option>
-                  <el-option label="CODEX" value="CODEX"></el-option>
-                </el-select>
               </el-form-item>
               <el-form-item label="工作目录">
                 <el-input v-model="taskForm.workingDir" placeholder="工作目录路径"></el-input>
@@ -759,7 +753,6 @@
           name: '',
           cronExpr: '',
           prompt: '',
-          agentType: 'CLAUDE',
           workingDir: '',
         });
         const taskLoading = ref(false);
@@ -1269,14 +1262,12 @@
             taskForm.name = task.name;
             taskForm.cronExpr = task.cronExpr;
             taskForm.prompt = task.prompt;
-            taskForm.agentType = task.agentType;
             taskForm.workingDir = task.workingDir;
           } else {
             taskEditing.value = null;
             taskForm.name = '';
             taskForm.cronExpr = '';
             taskForm.prompt = '';
-            taskForm.agentType = 'CLAUDE';
             taskForm.workingDir = currentPath.value;
           }
           taskDialogVisible.value = true;
@@ -1289,7 +1280,6 @@
               name: taskForm.name,
               cronExpr: taskForm.cronExpr,
               prompt: taskForm.prompt,
-              agentType: taskForm.agentType,
               workingDir: taskForm.workingDir,
             });
             const headers = { 'Content-Type': 'application/json' };

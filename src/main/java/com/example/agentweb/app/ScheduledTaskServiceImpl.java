@@ -45,15 +45,14 @@ public class ScheduledTaskServiceImpl implements ScheduledTaskService {
     }
 
     @Override
-    public ScheduledTask create(String name, String cronExpr, String prompt, String agentType, String workingDir) {
+    public ScheduledTask create(String name, String cronExpr, String prompt, String workingDir) {
         // Validate cron expression
         try {
             new CronTrigger(cronExpr);
         } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException("无效的 Cron 表达式: " + cronExpr);
         }
-        AgentType type = AgentType.valueOf(agentType);
-        ScheduledTask task = new ScheduledTask(name, cronExpr, prompt, type, workingDir);
+        ScheduledTask task = new ScheduledTask(name, cronExpr, prompt, workingDir);
         taskRepo.save(task);
         if (dynamicScheduler != null) {
             dynamicScheduler.scheduleTask(task);
@@ -62,7 +61,7 @@ public class ScheduledTaskServiceImpl implements ScheduledTaskService {
     }
 
     @Override
-    public ScheduledTask update(String id, String name, String cronExpr, String prompt, String agentType, String workingDir) {
+    public ScheduledTask update(String id, String name, String cronExpr, String prompt, String workingDir) {
         ScheduledTask task = taskRepo.findById(id);
         if (task == null) {
             throw new IllegalArgumentException("任务不存在: " + id);
@@ -77,7 +76,6 @@ public class ScheduledTaskServiceImpl implements ScheduledTaskService {
         }
         if (name != null) task.setName(name);
         if (prompt != null) task.setPrompt(prompt);
-        if (agentType != null) task.setAgentType(AgentType.valueOf(agentType));
         if (workingDir != null) task.setWorkingDir(workingDir);
         task.setUpdatedAt(Instant.now());
         taskRepo.update(task);
@@ -137,7 +135,7 @@ public class ScheduledTaskServiceImpl implements ScheduledTaskService {
      */
     String doExecute(ScheduledTask task) {
         log.info("Executing scheduled task: {} ({})", task.getName(), task.getId());
-        ChatSession session = ChatSession.forTask(task.getName(), task.getAgentType(), task.getWorkingDir());
+        ChatSession session = ChatSession.forTask(task.getName(), AgentType.CLAUDE, task.getWorkingDir());
         inMemoryRepo.save(session);
         sessionRepository.saveSession(session);
 
@@ -145,7 +143,7 @@ public class ScheduledTaskServiceImpl implements ScheduledTaskService {
         sessionRepository.addMessage(session.getId(), new ChatMessage("user", task.getPrompt()));
 
         try {
-            String output = gateway.runOnce(task.getAgentType(), task.getWorkingDir(), task.getPrompt());
+            String output = gateway.runOnce(AgentType.CLAUDE, task.getWorkingDir(), task.getPrompt());
             sessionRepository.addMessage(session.getId(), new ChatMessage("assistant", output));
         } catch (Exception e) {
             log.error("Scheduled task execution failed: {} ({})", task.getName(), task.getId(), e);

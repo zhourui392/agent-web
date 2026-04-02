@@ -10,8 +10,6 @@ public class CreateScheduledTaskRequest {
     @NotBlank
     private String prompt;
     @NotBlank
-    private String agentType;
-    @NotBlank
     private String workingDir;
 
     public String getName() { return name; }
@@ -20,8 +18,6 @@ public class CreateScheduledTaskRequest {
     public void setCronExpr(String cronExpr) { this.cronExpr = cronExpr; }
     public String getPrompt() { return prompt; }
     public void setPrompt(String prompt) { this.prompt = prompt; }
-    public String getAgentType() { return agentType; }
-    public void setAgentType(String agentType) { this.agentType = agentType; }
     public String getWorkingDir() { return workingDir; }
     public void setWorkingDir(String workingDir) { this.workingDir = workingDir; }
 }

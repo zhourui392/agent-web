@@ -59,13 +59,11 @@ public class ScheduledTaskTest {
 
     @Test
     public void scheduledTask_should_generate_id_and_defaults() {
-        ScheduledTask task = new ScheduledTask("daily-report", "0 0 9 * * ?", "生成日报",
-                AgentType.CLAUDE, "/tmp");
+        ScheduledTask task = new ScheduledTask("daily-report", "0 0 9 * * ?", "生成日报", "/tmp");
         assertNotNull(task.getId());
         assertEquals("daily-report", task.getName());
         assertEquals("0 0 9 * * ?", task.getCronExpr());
         assertEquals("生成日报", task.getPrompt());
-        assertEquals(AgentType.CLAUDE, task.getAgentType());
         assertEquals("/tmp", task.getWorkingDir());
         assertTrue(task.isEnabled());
         assertNotNull(task.getCreatedAt());
@@ -92,8 +90,7 @@ public class ScheduledTaskTest {
 
     @Test
     public void save_and_findById_should_round_trip() {
-        ScheduledTask task = new ScheduledTask("test-save", "0 0 * * * ?", "hello",
-                AgentType.CODEX, "/tmp");
+        ScheduledTask task = new ScheduledTask("test-save", "0 0 * * * ?", "hello", "/tmp");
         taskRepo.save(task);
 
         ScheduledTask loaded = taskRepo.findById(task.getId());
@@ -102,14 +99,12 @@ public class ScheduledTaskTest {
         assertEquals("test-save", loaded.getName());
         assertEquals("0 0 * * * ?", loaded.getCronExpr());
         assertEquals("hello", loaded.getPrompt());
-        assertEquals(AgentType.CODEX, loaded.getAgentType());
         assertTrue(loaded.isEnabled());
     }
 
     @Test
     public void update_should_persist_changes() {
-        ScheduledTask task = new ScheduledTask("test-update", "0 0 * * * ?", "original",
-                AgentType.CLAUDE, "/tmp");
+        ScheduledTask task = new ScheduledTask("test-update", "0 0 * * * ?", "original", "/tmp");
         taskRepo.save(task);
 
         task.setName("updated-name");
@@ -125,8 +120,7 @@ public class ScheduledTaskTest {
 
     @Test
     public void deleteById_should_remove_task() {
-        ScheduledTask task = new ScheduledTask("test-delete", "0 0 * * * ?", "bye",
-                AgentType.CLAUDE, "/tmp");
+        ScheduledTask task = new ScheduledTask("test-delete", "0 0 * * * ?", "bye", "/tmp");
         taskRepo.save(task);
         assertNotNull(taskRepo.findById(task.getId()));
 
@@ -136,12 +130,10 @@ public class ScheduledTaskTest {
 
     @Test
     public void findAllEnabled_should_filter_disabled() {
-        ScheduledTask enabled = new ScheduledTask("enabled-task", "0 0 * * * ?", "e",
-                AgentType.CLAUDE, "/tmp");
+        ScheduledTask enabled = new ScheduledTask("enabled-task", "0 0 * * * ?", "e", "/tmp");
         taskRepo.save(enabled);
 
-        ScheduledTask disabled = new ScheduledTask("disabled-task", "0 0 * * * ?", "d",
-                AgentType.CLAUDE, "/tmp");
+        ScheduledTask disabled = new ScheduledTask("disabled-task", "0 0 * * * ?", "d", "/tmp");
         disabled.setEnabled(false);
         // Need to save with enabled=false — save uses constructor default true,
         // so update right after to flip it
@@ -155,8 +147,7 @@ public class ScheduledTaskTest {
 
     @Test
     public void updateLastRun_should_persist() {
-        ScheduledTask task = new ScheduledTask("test-lastrun", "0 0 * * * ?", "run",
-                AgentType.CLAUDE, "/tmp");
+        ScheduledTask task = new ScheduledTask("test-lastrun", "0 0 * * * ?", "run", "/tmp");
         taskRepo.save(task);
 
         Instant now = Instant.now();
@@ -213,7 +204,7 @@ public class ScheduledTaskTest {
     @Test
     public void create_task_api_should_return_task() throws Exception {
         String body = "{\"name\":\"api-test\",\"cronExpr\":\"0 0 * * * ?\","
-                + "\"prompt\":\"test prompt\",\"agentType\":\"CODEX\",\"workingDir\":\"/tmp\"}";
+                + "\"prompt\":\"test prompt\",\"workingDir\":\"/tmp\"}";
 
         mvc.perform(post("/api/tasks")
                         .contentType(MediaType.APPLICATION_JSON).content(body))
@@ -221,7 +212,6 @@ public class ScheduledTaskTest {
                 .andExpect(jsonPath("$.name").value("api-test"))
                 .andExpect(jsonPath("$.cronExpr").value("0 0 * * * ?"))
                 .andExpect(jsonPath("$.prompt").value("test prompt"))
-                .andExpect(jsonPath("$.agentType").value("CODEX"))
                 .andExpect(jsonPath("$.enabled").value(true))
                 .andExpect(jsonPath("$.id").isNotEmpty());
     }
@@ -229,7 +219,7 @@ public class ScheduledTaskTest {
     @Test
     public void create_task_with_invalid_cron_should_fail() throws Exception {
         String body = "{\"name\":\"bad-cron\",\"cronExpr\":\"not-a-cron\","
-                + "\"prompt\":\"test\",\"agentType\":\"CLAUDE\",\"workingDir\":\"/tmp\"}";
+                + "\"prompt\":\"test\",\"workingDir\":\"/tmp\"}";
 
         mvc.perform(post("/api/tasks")
                         .contentType(MediaType.APPLICATION_JSON).content(body))
@@ -240,7 +230,7 @@ public class ScheduledTaskTest {
     public void list_tasks_api_should_return_all() throws Exception {
         // Create a task first
         String body = "{\"name\":\"list-test\",\"cronExpr\":\"0 0 9 * * ?\","
-                + "\"prompt\":\"p\",\"agentType\":\"CLAUDE\",\"workingDir\":\"/tmp\"}";
+                + "\"prompt\":\"p\",\"workingDir\":\"/tmp\"}";
         mvc.perform(post("/api/tasks")
                 .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isOk());
@@ -255,7 +245,7 @@ public class ScheduledTaskTest {
     public void update_task_api_should_modify_fields() throws Exception {
         // Create
         String createBody = "{\"name\":\"update-test\",\"cronExpr\":\"0 0 * * * ?\","
-                + "\"prompt\":\"old\",\"agentType\":\"CLAUDE\",\"workingDir\":\"/tmp\"}";
+                + "\"prompt\":\"old\",\"workingDir\":\"/tmp\"}";
         MvcResult createResult = mvc.perform(post("/api/tasks")
                         .contentType(MediaType.APPLICATION_JSON).content(createBody))
                 .andExpect(status().isOk())
@@ -276,7 +266,7 @@ public class ScheduledTaskTest {
     public void delete_task_api_should_succeed() throws Exception {
         // Create
         String body = "{\"name\":\"delete-test\",\"cronExpr\":\"0 0 * * * ?\","
-                + "\"prompt\":\"d\",\"agentType\":\"CLAUDE\",\"workingDir\":\"/tmp\"}";
+                + "\"prompt\":\"d\",\"workingDir\":\"/tmp\"}";
         MvcResult result = mvc.perform(post("/api/tasks")
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isOk())
@@ -298,7 +288,7 @@ public class ScheduledTaskTest {
     @Test
     public void toggle_task_should_flip_enabled() throws Exception {
         String body = "{\"name\":\"toggle-test\",\"cronExpr\":\"0 0 * * * ?\","
-                + "\"prompt\":\"t\",\"agentType\":\"CLAUDE\",\"workingDir\":\"/tmp\"}";
+                + "\"prompt\":\"t\",\"workingDir\":\"/tmp\"}";
         MvcResult result = mvc.perform(post("/api/tasks")
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isOk())
@@ -326,7 +316,7 @@ public class ScheduledTaskTest {
     @Test
     public void run_task_should_return_success() throws Exception {
         String body = "{\"name\":\"run-test\",\"cronExpr\":\"0 0 * * * ?\","
-                + "\"prompt\":\"hello from task\",\"agentType\":\"CODEX\",\"workingDir\":\"/tmp\"}";
+                + "\"prompt\":\"hello from task\",\"workingDir\":\"/tmp\"}";
         MvcResult result = mvc.perform(post("/api/tasks")
                         .contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isOk())

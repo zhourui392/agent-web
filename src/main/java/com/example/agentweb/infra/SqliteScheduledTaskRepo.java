@@ -1,6 +1,5 @@
 package com.example.agentweb.infra;
 
-import com.example.agentweb.domain.AgentType;
 import com.example.agentweb.domain.ScheduledTask;
 import com.example.agentweb.domain.ScheduledTaskRepository;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -31,7 +30,6 @@ public class SqliteScheduledTaskRepo implements ScheduledTaskRepository {
                     rs.getString("name"),
                     rs.getString("cron_expr"),
                     rs.getString("prompt"),
-                    AgentType.valueOf(rs.getString("agent_type")),
                     rs.getString("working_dir"),
                     rs.getInt("enabled") == 1,
                     Instant.parse(rs.getString("created_at")),
@@ -45,9 +43,9 @@ public class SqliteScheduledTaskRepo implements ScheduledTaskRepository {
     @Override
     public void save(ScheduledTask task) {
         jdbc.update(
-                "INSERT INTO scheduled_task (id, name, cron_expr, prompt, agent_type, working_dir, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO scheduled_task (id, name, cron_expr, prompt, working_dir, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 task.getId(), task.getName(), task.getCronExpr(), task.getPrompt(),
-                task.getAgentType().name(), task.getWorkingDir(),
+                task.getWorkingDir(),
                 task.isEnabled() ? 1 : 0,
                 task.getCreatedAt().toString(), task.getUpdatedAt().toString()
         );
@@ -56,9 +54,9 @@ public class SqliteScheduledTaskRepo implements ScheduledTaskRepository {
     @Override
     public void update(ScheduledTask task) {
         jdbc.update(
-                "UPDATE scheduled_task SET name = ?, cron_expr = ?, prompt = ?, agent_type = ?, working_dir = ?, enabled = ?, updated_at = ? WHERE id = ?",
+                "UPDATE scheduled_task SET name = ?, cron_expr = ?, prompt = ?, working_dir = ?, enabled = ?, updated_at = ? WHERE id = ?",
                 task.getName(), task.getCronExpr(), task.getPrompt(),
-                task.getAgentType().name(), task.getWorkingDir(),
+                task.getWorkingDir(),
                 task.isEnabled() ? 1 : 0,
                 Instant.now().toString(), task.getId()
         );
