@@ -9,6 +9,7 @@ import java.io.File;
 import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.Map;
 
@@ -85,7 +86,7 @@ class WorktreeServiceTest {
         // Should return worktree base path
         String worktreePath = (String) result.get("worktreePath");
         assertNotNull(worktreePath);
-        assertTrue(Files.isDirectory(Path.of(worktreePath)));
+        assertTrue(Files.isDirectory(Paths.get(worktreePath)));
 
         // Should report per-repo results
         @SuppressWarnings("unchecked")
@@ -93,15 +94,15 @@ class WorktreeServiceTest {
         assertEquals(3, repos.size());
 
         // service-a and service-b should have worktrees created
-        Map<String, Object> repoA = repos.stream().filter(r -> "service-a".equals(r.get("name"))).findFirst().orElseThrow();
+        Map<String, Object> repoA = repos.stream().filter(r -> "service-a".equals(r.get("name"))).findFirst().orElseThrow(() -> new RuntimeException("not found"));
         assertTrue((Boolean) repoA.get("created"));
-        assertTrue(Files.isDirectory(Path.of(worktreePath, "service-a")));
+        assertTrue(Files.isDirectory(Paths.get(worktreePath, "service-a")));
 
-        Map<String, Object> repoB = repos.stream().filter(r -> "service-b".equals(r.get("name"))).findFirst().orElseThrow();
+        Map<String, Object> repoB = repos.stream().filter(r -> "service-b".equals(r.get("name"))).findFirst().orElseThrow(() -> new RuntimeException("not found"));
         assertTrue((Boolean) repoB.get("created"));
 
         // service-c should NOT have worktree
-        Map<String, Object> repoC = repos.stream().filter(r -> "service-c".equals(r.get("name"))).findFirst().orElseThrow();
+        Map<String, Object> repoC = repos.stream().filter(r -> "service-c".equals(r.get("name"))).findFirst().orElseThrow(() -> new RuntimeException("not found"));
         assertFalse((Boolean) repoC.get("created"));
     }
 
@@ -119,7 +120,7 @@ class WorktreeServiceTest {
         String path2 = (String) result2.get("worktreePath");
 
         assertEquals(path1, path2);
-        assertTrue(Files.isDirectory(Path.of(path2, "service-a")));
+        assertTrue(Files.isDirectory(Paths.get(path2, "service-a")));
     }
 
     @Test
@@ -131,7 +132,7 @@ class WorktreeServiceTest {
 
         String worktreePath = (String) result.get("worktreePath");
         // Path should not contain raw slashes from branch name
-        String dirName = Path.of(worktreePath).getFileName().toString();
+        String dirName = Paths.get(worktreePath).getFileName().toString();
         assertFalse(dirName.contains("/"));
     }
 
@@ -185,13 +186,13 @@ class WorktreeServiceTest {
 
         // Verify worktree exists
         String worktreePath = workspace.resolve(".worktrees").resolve("to-remove").toString();
-        assertTrue(Files.isDirectory(Path.of(worktreePath)));
+        assertTrue(Files.isDirectory(Paths.get(worktreePath)));
 
         // Remove
         service.removeWorktree(workspace.toString(), "to-remove");
 
         // Verify removed
-        assertFalse(Files.exists(Path.of(worktreePath)));
+        assertFalse(Files.exists(Paths.get(worktreePath)));
 
         // List should be empty
         List<Map<String, Object>> list = service.listWorktrees(workspace.toString());
@@ -221,7 +222,7 @@ class WorktreeServiceTest {
         String worktreePath = (String) result.get("worktreePath");
 
         // Verify feature.txt exists in worktree but not in original
-        Path worktreeFile = Path.of(worktreePath, "service-a", "feature.txt");
+        Path worktreeFile = Paths.get(worktreePath, "service-a", "feature.txt");
         assertTrue(Files.exists(worktreeFile));
         assertEquals("feature content", new String(Files.readAllBytes(worktreeFile)));
 
