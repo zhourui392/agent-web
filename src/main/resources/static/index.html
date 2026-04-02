@@ -522,8 +522,9 @@
                 <div style="display: flex; align-items: center; gap: 12px;">
                   <span style="color: #909399; font-size: 13px;" v-if="currentPath">Enter 发送 | Ctrl+Enter 换行</span>
                   <span v-if="!currentPath" style="color: #E6A23C; font-weight: bold; font-size: 13px;">⚠ 请先选择工作目录</span>
-                  <el-button text size="small" @click="clearContext" :disabled="!sessionId" style="color: #909399;">
-                    清除上下文
+                  <el-button size="small" @click="clearContext" :disabled="!sessionId" plain>
+                    <el-icon><delete /></el-icon>
+                    <span>清除上下文</span>
                   </el-button>
                 </div>
                 <div style="display: flex; gap: 8px;">

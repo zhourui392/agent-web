@@ -201,7 +201,7 @@ public class ChatAppServiceImpl implements ChatAppService {
         }
 
         // Determine next issue number
-        Path issuesDir = Paths.get(s.getWorkingDir(), "docs", "issue-log", "issues");
+        Path issuesDir = Paths.get(s.getWorkingDir(), "docs", "issue-log");
         Files.createDirectories(issuesDir);
         int nextNum = 1;
         File[] existing = issuesDir.toFile().listFiles((dir, name) -> name.matches("I-\\d{3}-.*\\.md"));
@@ -297,7 +297,7 @@ public class ChatAppServiceImpl implements ChatAppService {
                     .append("| ID | 标题 | 日期 |\n")
                     .append("|------|------|------|\n");
         }
-        indexContent.append("| [").append(issueId).append("](issues/").append(fileName).append(") | ")
+        indexContent.append("| [").append(issueId).append("](").append(fileName).append(") | ")
                 .append(title).append(" | ").append(java.time.LocalDate.now()).append(" |\n");
         Files.write(indexFile, indexContent.toString().getBytes(StandardCharsets.UTF_8));
 
