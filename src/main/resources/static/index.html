@@ -406,7 +406,7 @@
                   {{ b }}
                 </el-tag>
               </div>
-              <div v-if="switchResult && switchResult.filter(r => r.created).length > 0" style="margin-top: 8px; font-size: 12px; color: #909399;">
+              <div v-if="switchResult && switchResult.filter(r => r.created).length > 0" style="margin-top: 8px; font-size: 12px; color: #909399; max-height: 260px; overflow-y: auto;">
                 <div v-for="r in switchResult.filter(r => r.created)" :key="r.name">
                   <el-icon style="color: #67c23a;"><circle-check-filled /></el-icon>
                   {{ r.name }}
