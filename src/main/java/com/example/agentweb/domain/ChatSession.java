@@ -19,9 +19,16 @@ public class ChatSession {
     private final Instant createdAt;
     private final List<ChatMessage> messages;
     private String resumeId;
+    private String title;
 
     public ChatSession(AgentType agentType, String workingDir) {
         this(UUID.randomUUID().toString(), agentType, workingDir, Instant.now(), new ArrayList<ChatMessage>());
+    }
+
+    public static ChatSession forTask(String taskName, AgentType agentType, String workingDir) {
+        ChatSession s = new ChatSession(agentType, workingDir);
+        s.setTitle("Task-" + taskName);
+        return s;
     }
 
     @JsonCreator
@@ -67,5 +74,13 @@ public class ChatSession {
 
     public void setResumeId(String resumeId) {
         this.resumeId = resumeId;
+    }
+
+    public String getTitle() {
+        return title;
+    }
+
+    public void setTitle(String title) {
+        this.title = title;
     }
 }

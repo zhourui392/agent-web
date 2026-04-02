@@ -25,12 +25,13 @@ public class SqliteSessionRepo implements SessionRepository {
     @Override
     public void saveSession(ChatSession session) {
         jdbc.update(
-                "INSERT OR IGNORE INTO chat_session (id, agent_type, working_dir, created_at, resume_id) VALUES (?, ?, ?, ?, ?)",
+                "INSERT OR IGNORE INTO chat_session (id, agent_type, working_dir, created_at, resume_id, title) VALUES (?, ?, ?, ?, ?, ?)",
                 session.getId(),
                 session.getAgentType().name(),
                 session.getWorkingDir(),
                 session.getCreatedAt().toString(),
-                session.getResumeId()
+                session.getResumeId(),
+                session.getTitle()
         );
     }
 
@@ -48,7 +49,7 @@ public class SqliteSessionRepo implements SessionRepository {
     @Override
     public ChatSession findById(String id) {
         List<ChatSession> sessions = jdbc.query(
-                "SELECT id, agent_type, working_dir, created_at, resume_id FROM chat_session WHERE id = ?",
+                "SELECT id, agent_type, working_dir, created_at, resume_id, title FROM chat_session WHERE id = ?",
                 new Object[]{id},
                 (rs, rowNum) -> {
                     ChatSession s = new ChatSession(
@@ -59,6 +60,7 @@ public class SqliteSessionRepo implements SessionRepository {
                             loadMessages(rs.getString("id"))
                     );
                     s.setResumeId(rs.getString("resume_id"));
+                    s.setTitle(rs.getString("title"));
                     return s;
                 }
         );
@@ -68,7 +70,7 @@ public class SqliteSessionRepo implements SessionRepository {
     @Override
     public List<ChatSession> findAll() {
         return jdbc.query(
-                "SELECT id, agent_type, working_dir, created_at, resume_id FROM chat_session ORDER BY created_at DESC",
+                "SELECT id, agent_type, working_dir, created_at, resume_id, title FROM chat_session ORDER BY created_at DESC",
                 (rs, rowNum) -> {
                     ChatSession s = new ChatSession(
                             rs.getString("id"),
@@ -78,6 +80,7 @@ public class SqliteSessionRepo implements SessionRepository {
                             loadMessages(rs.getString("id"))
                     );
                     s.setResumeId(rs.getString("resume_id"));
+                    s.setTitle(rs.getString("title"));
                     return s;
                 }
         );
@@ -88,7 +91,7 @@ public class SqliteSessionRepo implements SessionRepository {
         return jdbc.query(
                 "SELECT s.id, s.agent_type, s.working_dir, s.created_at, s.resume_id, " +
                 "  (SELECT COUNT(*) FROM chat_message m WHERE m.session_id = s.id) AS message_count, " +
-                "  (SELECT m.content FROM chat_message m WHERE m.session_id = s.id AND m.role = 'user' ORDER BY m.id ASC LIMIT 1) AS title " +
+                "  COALESCE(s.title, (SELECT m.content FROM chat_message m WHERE m.session_id = s.id AND m.role = 'user' ORDER BY m.id ASC LIMIT 1)) AS title " +
                 "FROM chat_session s ORDER BY s.created_at DESC",
                 (rs, rowNum) -> {
                     Map<String, Object> m = new HashMap<String, Object>();
@@ -110,7 +113,7 @@ public class SqliteSessionRepo implements SessionRepository {
         return jdbc.query(
                 "SELECT s.id, s.agent_type, s.working_dir, s.created_at, s.resume_id, " +
                 "  (SELECT COUNT(*) FROM chat_message m WHERE m.session_id = s.id) AS message_count, " +
-                "  (SELECT m.content FROM chat_message m WHERE m.session_id = s.id AND m.role = 'user' ORDER BY m.id ASC LIMIT 1) AS title " +
+                "  COALESCE(s.title, (SELECT m.content FROM chat_message m WHERE m.session_id = s.id AND m.role = 'user' ORDER BY m.id ASC LIMIT 1)) AS title " +
                 "FROM chat_session s ORDER BY s.created_at DESC LIMIT ? OFFSET ?",
                 (rs, rowNum) -> {
                     Map<String, Object> m = new HashMap<String, Object>();

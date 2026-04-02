@@ -16,3 +16,17 @@ CREATE TABLE IF NOT EXISTS chat_message (
 );
 
 CREATE INDEX IF NOT EXISTS idx_chat_message_session_id ON chat_message(session_id);
+
+CREATE TABLE IF NOT EXISTS scheduled_task (
+    id              TEXT PRIMARY KEY,
+    name            TEXT    NOT NULL,
+    cron_expr       TEXT    NOT NULL,
+    prompt          TEXT    NOT NULL,
+    agent_type      TEXT    NOT NULL,
+    working_dir     TEXT    NOT NULL,
+    enabled         INTEGER NOT NULL DEFAULT 1,
+    created_at      TEXT    NOT NULL,
+    updated_at      TEXT    NOT NULL,
+    last_run_at     TEXT,
+    last_session_id TEXT
+);

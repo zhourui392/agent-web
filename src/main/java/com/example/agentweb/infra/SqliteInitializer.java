@@ -35,5 +35,11 @@ public class SqliteInitializer {
         } catch (Exception ignored) {
             // column already exists
         }
+        // Migration: add title column for explicit session titles
+        try {
+            jdbc.execute("ALTER TABLE chat_session ADD COLUMN title TEXT");
+        } catch (Exception ignored) {
+            // column already exists
+        }
     }
 }

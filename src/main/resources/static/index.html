@@ -474,6 +474,109 @@
             </el-scrollbar>
           </el-card>
 
+          <!-- 定时任务 -->
+          <el-card shadow="hover" style="margin-top: 20px;">
+            <template #header>
+              <div style="display: flex; align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center;">
+                  <el-icon><timer /></el-icon>
+                  <span style="margin-left: 8px; font-weight: 600;">定时任务</span>
+                </div>
+                <div>
+                  <el-button size="small" text @click="loadTasks">
+                    <el-icon><refresh /></el-icon>
+                  </el-button>
+                  <el-button size="small" type="primary" text @click="openTaskDialog(null)">
+                    <el-icon><plus /></el-icon>
+                  </el-button>
+                </div>
+              </div>
+            </template>
+
+            <el-scrollbar max-height="250px">
+              <div v-for="t in taskList" :key="t.id" style="padding: 8px 0; border-bottom: 1px solid #f0f0f0;">
+                <div style="display: flex; align-items: center; justify-content: space-between;">
+                  <div style="flex: 1; min-width: 0;">
+                    <div style="font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                      {{ t.name }}
+                      <el-tag size="small" :type="t.enabled ? 'success' : 'info'" style="margin-left: 6px;">{{ t.enabled ? '启用' : '停用' }}</el-tag>
+                    </div>
+                    <div style="font-size: 11px; color: #909399; margin-top: 2px;">
+                      {{ t.cronExpr }} · {{ t.agentType }}
+                      <span v-if="t.lastRunAt"> · 上次: {{ formatTime(t.lastRunAt) }}</span>
+                    </div>
+                  </div>
+                  <div style="flex-shrink: 0; display: flex; gap: 2px;">
+                    <el-tooltip content="立即执行">
+                      <el-button size="small" text type="success" @click="runTask(t.id)">
+                        <el-icon><video-play /></el-icon>
+                      </el-button>
+                    </el-tooltip>
+                    <el-tooltip :content="t.enabled ? '停用' : '启用'">
+                      <el-button size="small" text :type="t.enabled ? 'warning' : 'primary'" @click="toggleTask(t.id)">
+                        <el-icon><component :is="t.enabled ? 'video-pause' : 'caret-right'" /></el-icon>
+                      </el-button>
+                    </el-tooltip>
+                    <el-tooltip content="编辑">
+                      <el-button size="small" text @click="openTaskDialog(t)">
+                        <el-icon><edit /></el-icon>
+                      </el-button>
+                    </el-tooltip>
+                    <el-tooltip content="删除">
+                      <el-button size="small" text type="danger" @click="deleteTask(t.id)">
+                        <el-icon><delete /></el-icon>
+                      </el-button>
+                    </el-tooltip>
+                  </div>
+                </div>
+              </div>
+              <el-empty v-if="taskList.length === 0" description="暂无定时任务" :image-size="40"></el-empty>
+            </el-scrollbar>
+          </el-card>
+
+          <!-- 定时任务编辑对话框 -->
+          <el-dialog v-model="taskDialogVisible" :title="taskEditing ? '编辑定时任务' : '新建定时任务'" width="500px">
+            <el-form label-position="top" size="default">
+              <el-form-item label="任务名称">
+                <el-input v-model="taskForm.name" placeholder="例如：日报生成"></el-input>
+              </el-form-item>
+              <el-form-item label="Cron 表达式">
+                <el-input v-model="taskForm.cronExpr" placeholder="例如：0 0 9 * * ?">
+                  <template #append>
+                    <el-dropdown trigger="click" @command="setCronPreset">
+                      <el-button>预设</el-button>
+                      <template #dropdown>
+                        <el-dropdown-menu>
+                          <el-dropdown-item command="0 */30 * * * ?">每30分钟</el-dropdown-item>
+                          <el-dropdown-item command="0 0 * * * ?">每小时</el-dropdown-item>
+                          <el-dropdown-item command="0 0 9 * * ?">每天9点</el-dropdown-item>
+                          <el-dropdown-item command="0 0 9 * * MON-FRI">工作日9点</el-dropdown-item>
+                          <el-dropdown-item command="0 0 */6 * * ?">每6小时</el-dropdown-item>
+                        </el-dropdown-menu>
+                      </template>
+                    </el-dropdown>
+                  </template>
+                </el-input>
+              </el-form-item>
+              <el-form-item label="Prompt">
+                <el-input v-model="taskForm.prompt" type="textarea" :rows="4" placeholder="要执行的提示词"></el-input>
+              </el-form-item>
+              <el-form-item label="Agent 类型">
+                <el-select v-model="taskForm.agentType" style="width: 100%;">
+                  <el-option label="CLAUDE" value="CLAUDE"></el-option>
+                  <el-option label="CODEX" value="CODEX"></el-option>
+                </el-select>
+              </el-form-item>
+              <el-form-item label="工作目录">
+                <el-input v-model="taskForm.workingDir" placeholder="工作目录路径"></el-input>
+              </el-form-item>
+            </el-form>
+            <template #footer>
+              <el-button @click="taskDialogVisible = false">取消</el-button>
+              <el-button type="primary" :loading="taskLoading" @click="saveTask">保存</el-button>
+            </template>
+          </el-dialog>
+
           <!-- 历史消息详情弹窗 -->
           <el-drawer v-model="historyDrawerVisible" title="对话详情" size="50%" direction="rtl">
             <template #header>
@@ -647,6 +750,19 @@
         const switchResult = ref(null);
         const removingBranch = ref('');
         const originalWorkspacePath = ref('');
+
+        // --- 定时任务 ---
+        const taskList = ref([]);
+        const taskDialogVisible = ref(false);
+        const taskEditing = ref(null);
+        const taskForm = reactive({
+          name: '',
+          cronExpr: '',
+          prompt: '',
+          agentType: 'CLAUDE',
+          workingDir: '',
+        });
+        const taskLoading = ref(false);
 
         const filteredCommands = Vue.computed(() => {
           const input = userInput.value;
@@ -1137,6 +1253,96 @@
           addMessage('system', '已手动停止');
         };
 
+        // --- 定时任务方法 ---
+        const loadTasks = async () => {
+          try {
+            const data = await fetch('/api/tasks').then(r => r.json());
+            taskList.value = data;
+          } catch (e) {
+            ElementPlus.ElMessage.error('加载定时任务失败');
+          }
+        };
+
+        const openTaskDialog = (task) => {
+          if (task) {
+            taskEditing.value = task.id;
+            taskForm.name = task.name;
+            taskForm.cronExpr = task.cronExpr;
+            taskForm.prompt = task.prompt;
+            taskForm.agentType = task.agentType;
+            taskForm.workingDir = task.workingDir;
+          } else {
+            taskEditing.value = null;
+            taskForm.name = '';
+            taskForm.cronExpr = '';
+            taskForm.prompt = '';
+            taskForm.agentType = 'CLAUDE';
+            taskForm.workingDir = currentPath.value;
+          }
+          taskDialogVisible.value = true;
+        };
+
+        const saveTask = async () => {
+          taskLoading.value = true;
+          try {
+            const body = JSON.stringify({
+              name: taskForm.name,
+              cronExpr: taskForm.cronExpr,
+              prompt: taskForm.prompt,
+              agentType: taskForm.agentType,
+              workingDir: taskForm.workingDir,
+            });
+            const headers = { 'Content-Type': 'application/json' };
+            if (taskEditing.value) {
+              const res = await fetch('/api/tasks/' + taskEditing.value, { method: 'PUT', headers, body });
+              if (!res.ok) throw new Error(await res.text());
+            } else {
+              const res = await fetch('/api/tasks', { method: 'POST', headers, body });
+              if (!res.ok) throw new Error(await res.text());
+            }
+            taskDialogVisible.value = false;
+            ElementPlus.ElMessage.success(taskEditing.value ? '任务已更新' : '任务已创建');
+            await loadTasks();
+          } catch (e) {
+            ElementPlus.ElMessage.error('保存失败: ' + (e.message || '未知错误'));
+          } finally {
+            taskLoading.value = false;
+          }
+        };
+
+        const deleteTask = async (id) => {
+          try {
+            await ElementPlus.ElMessageBox.confirm('确定删除该定时任务？', '确认删除', {
+              confirmButtonText: '删除', cancelButtonText: '取消', type: 'warning',
+            });
+            await fetch('/api/tasks/' + id, { method: 'DELETE' });
+            ElementPlus.ElMessage.success('已删除');
+            await loadTasks();
+          } catch (e) { /* cancelled or failed */ }
+        };
+
+        const toggleTask = async (id) => {
+          try {
+            await fetch('/api/tasks/' + id + '/toggle', { method: 'POST' });
+            await loadTasks();
+          } catch (e) {
+            ElementPlus.ElMessage.error('切换失败');
+          }
+        };
+
+        const runTask = async (id) => {
+          try {
+            await fetch('/api/tasks/' + id + '/run', { method: 'POST' });
+            ElementPlus.ElMessage.success('任务已触发，结果将在历史对话中查看');
+          } catch (e) {
+            ElementPlus.ElMessage.error('触发失败');
+          }
+        };
+
+        const setCronPreset = (expr) => {
+          taskForm.cronExpr = expr;
+        };
+
 
         const handleEnter = () => {
           if (showCommandPopup.value && filteredCommands.value.length > 0) {
@@ -1334,6 +1540,7 @@
         onMounted(async () => {
           await init();
           await loadHistory(true);
+          await loadTasks();
         });
 
         watch(userInput, (val) => {
@@ -1409,7 +1616,19 @@
           summarizeSession,
           summarizing,
           formatTime,
-          escapeHtml
+          escapeHtml,
+          taskList,
+          taskDialogVisible,
+          taskEditing,
+          taskForm,
+          taskLoading,
+          loadTasks,
+          openTaskDialog,
+          saveTask,
+          deleteTask,
+          toggleTask,
+          runTask,
+          setCronPreset,
         };
       }
     });
