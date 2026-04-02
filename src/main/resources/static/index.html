@@ -420,9 +420,9 @@
 
           <el-card shadow="hover">
             <div style="display: flex; gap: 8px;">
-              <el-button type="primary" style="flex: 1; min-width: 0;" @click="startSession" :loading="starting" :disabled="!currentPath">
+              <el-button type="primary" style="flex: 1; min-width: 0;" @click="newConversation" :loading="starting" :disabled="!currentPath">
                 <el-icon><connection /></el-icon>
-                <span>启动会话</span>
+                <span>新对话</span>
               </el-button>
 
               <el-button style="flex: 1; min-width: 0; margin-left: 0;" @click="clearContext" :disabled="!sessionId">
@@ -651,7 +651,7 @@
               </div>
             </div>
 
-            <el-empty v-if="messages.length === 0" description="请选择工作目录并启动会话" :image-size="120"></el-empty>
+            <el-empty v-if="messages.length === 0" description="请选择工作目录，输入问题即可开始对话" :image-size="120"></el-empty>
           </div>
 
           <!-- 输入区 -->
@@ -671,19 +671,19 @@
               placeholder="输入你的问题，例如：测试环境，traceId: xxx，问题描述"
               @keydown.enter.exact.prevent="handleEnter" @keydown.up.prevent="handleArrowUp" @keydown.down.prevent="handleArrowDown" @keydown.tab.prevent="handleTab" @keydown.escape="hideCommandPopup"
               @keydown.ctrl.enter.exact.prevent="insertNewline"
-              :disabled="!sessionId"
+              :disabled="!currentPath"
             ></el-input>
             <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center;">
               <div style="color: #909399; font-size: 13px;">
-                <span v-if="sessionId">Enter 发送 | Ctrl+Enter 换行</span>
-                <span v-else style="color: #E6A23C; font-weight: bold;">⚠ 请先启动会话</span>
+                <span v-if="currentPath">Enter 发送 | Ctrl+Enter 换行</span>
+                <span v-else style="color: #E6A23C; font-weight: bold;">⚠ 请先选择工作目录</span>
               </div>
               <div style="display: flex; gap: 8px;">
                 <el-button type="danger" @click="stopSession" v-if="sending" plain>
                   <el-icon><video-pause /></el-icon>
                   <span>停止</span>
                 </el-button>
-                <el-button type="primary" @click="sendMessageStream" :loading="sending" :disabled="!sessionId || !userInput.trim()">
+                <el-button type="primary" @click="sendMessageStream" :loading="sending" :disabled="!currentPath || !userInput.trim()">
                   <el-icon><connection /></el-icon>
                   <span>发送</span>
                 </el-button>
@@ -827,32 +827,41 @@
           }
         };
 
-        const startSession = async () => {
+        const ensureSession = async () => {
+          if (sessionId.value) return;
+          const req = { agentType: agentType.value, workingDir: currentPath.value };
+          const res = await fetch('/api/chat/session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(req)
+          });
+          if (!res.ok) {
+            const text = await res.text();
+            throw new Error(text);
+          }
+          const data = await res.json();
+          sessionId.value = data.sessionId;
+          workingDir.value = data.workingDir;
+          resumeId.value = '';
+          // 加载 slash 命令列表
+          fetch('/api/chat/session/' + encodeURIComponent(data.sessionId) + '/commands')
+            .then(r => r.json())
+            .then(cmds => { slashCommands.value = cmds; })
+            .catch(() => {});
+        };
+
+        const newConversation = async () => {
           starting.value = true;
           try {
-            const req = { agentType: agentType.value, workingDir: currentPath.value };
-            const res = await fetch('/api/chat/session', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(req)
-            });
-            if (!res.ok) {
-              const text = await res.text();
-              throw new Error(text);
-            }
-            const data = await res.json();
-            sessionId.value = data.sessionId;
-            workingDir.value = data.workingDir;
-            resumeId.value = ''; // 清除旧的 resume ID
-            addMessage('system', '会话已创建，工作目录：' + data.workingDir);
-            ElementPlus.ElMessage.success('会话启动成功');
-            // 加载 slash 命令列表
-            fetch('/api/chat/session/' + encodeURIComponent(data.sessionId) + '/commands')
-              .then(r => r.json())
-              .then(cmds => { slashCommands.value = cmds; })
-              .catch(() => {});
+            sessionId.value = '';
+            messages.value = [];
+            resumeId.value = '';
+            slashCommands.value = [];
+            await ensureSession();
+            addMessage('system', '新对话已创建，工作目录：' + workingDir.value);
+            ElementPlus.ElMessage.success('新对话已创建');
           } catch (error) {
-            ElementPlus.ElMessage.error('启动失败: ' + error.message);
+            ElementPlus.ElMessage.error('创建失败: ' + error.message);
           } finally {
             starting.value = false;
           }
@@ -1371,8 +1380,14 @@
           showCommandPopup.value = false;
         };
 
-        const sendMessageStream = () => {
-          if (!sessionId.value || !userInput.value.trim() || sending.value) return;
+        const sendMessageStream = async () => {
+          if (!currentPath.value || !userInput.value.trim() || sending.value) return;
+          try {
+            await ensureSession();
+          } catch (error) {
+            ElementPlus.ElMessage.error('创建会话失败: ' + error.message);
+            return;
+          }
 
           const message = userInput.value.trim();
           addMessage('user', message);
@@ -1561,7 +1576,7 @@
           chatContainer,
           handleRootChange,
           loadList,
-          startSession,
+          newConversation,
           insertNewline,
           clearContext,
           onEnvChange,
