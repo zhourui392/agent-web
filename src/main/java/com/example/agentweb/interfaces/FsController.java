@@ -85,9 +85,12 @@ public class FsController {
     public Map<String, Object> upload(@RequestParam("path") String path,
                                       @RequestParam("file") MultipartFile file) throws IOException {
         String targetDir = sanitize(path);
-        assertUnderRoots(targetDir);
+        assertUnderHome(targetDir);
         File dir = new File(targetDir);
-        if (!dir.exists() || !dir.isDirectory()) {
+        if (!dir.exists()) {
+            dir.mkdirs();
+        }
+        if (!dir.isDirectory()) {
             throw new IllegalArgumentException("Not a directory: " + targetDir);
         }
         String originalName = file.getOriginalFilename();
@@ -163,5 +166,14 @@ public class FsController {
             }
         }
         return false;
+    }
+
+    private void assertUnderHome(String p) {
+        String home = System.getProperty("user.home");
+        String np = Paths.get(p).normalize().toString();
+        String prefix = home.endsWith(File.separator) ? home : home + File.separator;
+        if (!np.equals(home) && !np.startsWith(prefix)) {
+            throw new IllegalArgumentException("Upload path must be under home directory: " + home);
+        }
     }
 }
