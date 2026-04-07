@@ -77,6 +77,7 @@ public class WorktreeService {
     }
 
     private void parallelFetch(List<File> repos) throws InterruptedException {
+        if (repos.isEmpty()) return;
         ExecutorService pool = Executors.newFixedThreadPool(
                 Math.min(THREAD_POOL_SIZE, repos.size()));
         try {

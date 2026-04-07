@@ -16,5 +16,5 @@ agent:
 
 spring:
   datasource:
-    url: "jdbc:sqlite::memory:"
+    url: "jdbc:sqlite:file:testdb?mode=memory&cache=shared"
     driver-class-name: org.sqlite.JDBC
