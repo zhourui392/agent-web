@@ -28,11 +28,14 @@ public class ChatController {
     private final ChatAppService appService;
     private final SessionRepository sessionRepository;
     private final EnvProperties envProperties;
+    private final com.example.agentweb.domain.SlashCommandExpander commandExpander;
 
-    public ChatController(ChatAppService appService, SessionRepository sessionRepository, EnvProperties envProperties) {
+    public ChatController(ChatAppService appService, SessionRepository sessionRepository, EnvProperties envProperties,
+                          com.example.agentweb.domain.SlashCommandExpander commandExpander) {
         this.appService = appService;
         this.sessionRepository = sessionRepository;
         this.envProperties = envProperties;
+        this.commandExpander = commandExpander;
     }
 
     @PostMapping("/session")
@@ -64,6 +67,13 @@ public class ChatController {
     @GetMapping("/session/{id}/commands")
     public List<Map<String, Object>> listCommands(@PathVariable("id") String id) {
         return appService.listCommands(id).stream()
+                .map(this::toCommandDto)
+                .collect(java.util.stream.Collectors.toList());
+    }
+
+    @GetMapping("/commands")
+    public List<Map<String, Object>> listCommandsByDir(@RequestParam("workingDir") String workingDir) {
+        return commandExpander.listCommands(workingDir).stream()
                 .map(this::toCommandDto)
                 .collect(java.util.stream.Collectors.toList());
     }

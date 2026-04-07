@@ -211,27 +211,24 @@ const app = createApp({
       sessionId.value = data.sessionId;
       workingDir.value = data.workingDir;
       resumeId.value = '';
-      fetch('/api/chat/session/' + encodeURIComponent(data.sessionId) + '/commands')
-        .then(r => r.json())
-        .then(cmds => { slashCommands.value = cmds; })
-        .catch(() => {});
+    };
+
+    const loadSlashCommands = async () => {
+      if (!currentPath.value) return;
+      try {
+        const cmds = await fetch('/api/chat/commands?workingDir=' + encodeURIComponent(currentPath.value)).then(r => r.json());
+        slashCommands.value = cmds;
+      } catch (e) {
+        slashCommands.value = [];
+      }
     };
 
     const newConversation = async () => {
-      starting.value = true;
-      try {
-        sessionId.value = '';
-        messages.value = [];
-        resumeId.value = '';
-        slashCommands.value = [];
-        await ensureSession();
-        addMessage('system', '新对话已创建，工作目录：' + workingDir.value);
-        ElementPlus.ElMessage.success('新对话已创建');
-      } catch (error) {
-        ElementPlus.ElMessage.error('创建失败: ' + error.message);
-      } finally {
-        starting.value = false;
-      }
+      sessionId.value = '';
+      messages.value = [];
+      resumeId.value = '';
+      addMessage('system', '新对话已就绪，工作目录：' + currentPath.value);
+      ElementPlus.ElMessage.success('新对话已就绪');
     };
 
     const clearContext = () => {
@@ -874,10 +871,13 @@ const app = createApp({
       await init();
       await loadHistory(true);
       await loadTasks();
-      // 自动创建 session 以加载 slash commands，避免首次输入 / 无法唤起
-      if (currentPath.value) {
-        ensureSession().catch(() => {});
-      }
+    });
+
+    watch(currentPath, () => {
+      sessionId.value = '';
+      messages.value = [];
+      resumeId.value = '';
+      loadSlashCommands();
     });
 
     watch(userInput, (val) => {
