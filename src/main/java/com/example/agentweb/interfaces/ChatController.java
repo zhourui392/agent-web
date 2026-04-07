@@ -5,6 +5,7 @@ import com.example.agentweb.domain.ChatMessage;
 import com.example.agentweb.domain.ChatSession;
 import com.example.agentweb.domain.SessionRepository;
 import com.example.agentweb.domain.SlashCommand;
+import com.example.agentweb.infra.EnvProperties;
 import com.example.agentweb.interfaces.dto.SendMessageRequest;
 import com.example.agentweb.interfaces.dto.StartSessionRequest;
 import org.springframework.http.MediaType;
@@ -26,10 +27,12 @@ public class ChatController {
 
     private final ChatAppService appService;
     private final SessionRepository sessionRepository;
+    private final EnvProperties envProperties;
 
-    public ChatController(ChatAppService appService, SessionRepository sessionRepository) {
+    public ChatController(ChatAppService appService, SessionRepository sessionRepository, EnvProperties envProperties) {
         this.appService = appService;
         this.sessionRepository = sessionRepository;
+        this.envProperties = envProperties;
     }
 
     @PostMapping("/session")
@@ -109,6 +112,19 @@ public class ChatController {
     @PostMapping("/session/{id}/summarize")
     public Map<String, Object> summarize(@PathVariable("id") String id) throws java.io.IOException, InterruptedException {
         return appService.summarizeSession(id);
+    }
+
+    @GetMapping("/envs")
+    public List<Map<String, Object>> listEnvs() {
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (EnvProperties.EnvEntry e : envProperties.getEnvs()) {
+            Map<String, Object> m = new HashMap<>();
+            m.put("key", e.getKey());
+            m.put("label", e.getLabel());
+            m.put("color", e.getColor());
+            result.add(m);
+        }
+        return result;
     }
 
     @PostMapping("/session/{id}/stop")

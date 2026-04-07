@@ -74,7 +74,7 @@ start() {
     if is_running; then
         echo -e "${GREEN}✓ Service started successfully (PID: $pid)${NC}"
         echo -e "${GREEN}✓ Log file: $LOG_FILE${NC}"
-        echo -e "${GREEN}✓ Server running on port 18092${NC}"
+        echo -e "${GREEN}✓ Server running on port 17988${NC}"
         return 0
     else
         echo -e "${RED}✗ Failed to start service${NC}"
@@ -152,7 +152,7 @@ status() {
         echo -e "${GREEN}✓ Service is running${NC}"
         echo -e "  PID: $pid"
         echo -e "  Log: $LOG_FILE"
-        echo -e "  Port: 18092"
+        echo -e "  Port: 17988"
         echo ""
 
         # Show process info

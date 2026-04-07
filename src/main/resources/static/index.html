@@ -17,26 +17,29 @@
       <!-- ========== 顶栏 ========== -->
       <el-header height="52px" style="padding: 0;">
         <div class="topbar">
+          <!-- ① 汉堡菜单（移动端） -->
+          <el-button v-if="isMobile" text @click="sidebarVisible = !sidebarVisible" class="hamburger-btn">
+            <el-icon size="20"><fold /></el-icon>
+          </el-button>
           <!-- ① Logo -->
           <span class="logo">Agent Web</span>
-          <div class="divider"></div>
+          <div class="divider hidden-mobile"></div>
 
           <!-- ② 环境切换 -->
-          <el-radio-group v-model="env" size="small" @change="onEnvChange" style="flex-shrink: 0;">
-            <el-radio-button value="">
-              <span :style="{ fontWeight: 700, fontSize: '12px' }">无</span>
-            </el-radio-button>
-            <el-radio-button value="test">
-              <span :style="{ color: env !== 'test' ? '#67c23a' : '', fontWeight: 700, fontSize: '12px' }">测试环境</span>
-            </el-radio-button>
-            <el-radio-button value="prod">
-              <span :style="{ color: env !== 'prod' ? '#f56c6c' : '', fontWeight: 700, fontSize: '12px' }">生产环境</span>
-            </el-radio-button>
-          </el-radio-group>
-          <el-tooltip content="环境选择只是注入限制提示词，并不一定影响最后的查询环境" placement="bottom">
-            <span style="display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid #909399; color: #909399; font-size: 12px; cursor: pointer; font-weight: bold; user-select: none; flex-shrink: 0;">?</span>
-          </el-tooltip>
-          <div class="divider"></div>
+          <template v-if="envList.length > 0">
+            <el-radio-group v-model="env" size="small" @change="onEnvChange" style="flex-shrink: 0;" class="hidden-mobile">
+              <el-radio-button value="">
+                <span :style="{ fontWeight: 700, fontSize: '12px' }">无</span>
+              </el-radio-button>
+              <el-radio-button v-for="e in envList" :key="e.key" :value="e.key">
+                <span :style="{ color: env !== e.key ? e.color : '', fontWeight: 700, fontSize: '12px' }">{{ e.label }}</span>
+              </el-radio-button>
+            </el-radio-group>
+            <el-tooltip content="环境选择只是注入限制提示词，并不一定影响最后的查询环境" placement="bottom">
+              <span class="hidden-mobile" style="display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid #909399; color: #909399; font-size: 12px; cursor: pointer; font-weight: bold; user-select: none; flex-shrink: 0;">?</span>
+            </el-tooltip>
+            <div class="divider hidden-mobile"></div>
+          </template>
 
           <!-- ③ 工作目录选择器 -->
           <div class="workspace-selector" @click="workspaceDialogVisible = true">
@@ -93,15 +96,21 @@
           <!-- ⑤ 定时任务按钮 -->
           <el-button @click="taskManagerVisible = true" style="flex-shrink: 0;">
             <el-icon><timer /></el-icon>
-            <span>定时任务</span>
+            <span class="hidden-mobile">定时任务</span>
             <el-badge :value="taskList.length" v-if="taskList.length" :offset="[6, -2]" />
+          </el-button>
+
+          <!-- ⑥ 登出按钮 -->
+          <el-button @click="doLogout" style="flex-shrink: 0;" plain>
+            <el-icon><switch-button /></el-icon>
+            <span class="hidden-mobile">登出</span>
           </el-button>
         </div>
       </el-header>
 
       <el-container style="flex: 1; overflow: hidden;">
-        <!-- ========== 侧边栏（仅新对话 + 历史列表） ========== -->
-        <el-aside width="280px">
+        <!-- ========== 侧边栏 - 桌面端 ========== -->
+        <el-aside v-if="!isMobile" width="280px">
           <!-- 新对话按钮 -->
           <div class="sidebar-header">
             <el-button type="primary" @click="newConversation" :loading="starting" :disabled="!currentPath" style="width: 100%;">
@@ -134,6 +143,54 @@
             <el-empty v-if="historyList.length === 0 && !historyLoading" description="暂无历史记录" :image-size="40"></el-empty>
           </div>
         </el-aside>
+
+        <!-- ========== 侧边栏 - 移动端抽屉 ========== -->
+        <el-drawer v-if="isMobile" v-model="sidebarVisible" direction="ltr" size="280px" :show-close="false" :with-header="false">
+          <div style="display: flex; flex-direction: column; height: 100%;">
+            <!-- 环境切换（移动端放侧边栏） -->
+            <div v-if="envList.length > 0" style="padding: 12px 16px; border-bottom: 1px solid #f0f0f0;">
+              <div style="font-size: 12px; color: #909399; margin-bottom: 8px;">环境切换</div>
+              <el-radio-group v-model="env" size="small" @change="onEnvChange">
+                <el-radio-button value="">
+                  <span :style="{ fontWeight: 700, fontSize: '12px' }">无</span>
+                </el-radio-button>
+                <el-radio-button v-for="e in envList" :key="e.key" :value="e.key">
+                  <span :style="{ color: env !== e.key ? e.color : '', fontWeight: 700, fontSize: '12px' }">{{ e.label }}</span>
+                </el-radio-button>
+              </el-radio-group>
+            </div>
+            <!-- 新对话按钮 -->
+            <div class="sidebar-header">
+              <el-button type="primary" @click="newConversation(); sidebarVisible = false;" :loading="starting" :disabled="!currentPath" style="width: 100%;">
+                <el-icon><plus /></el-icon>
+                <span>新对话</span>
+              </el-button>
+            </div>
+            <!-- 历史列表 -->
+            <div class="history-list" @scroll="onHistoryScroll" style="flex: 1; min-height: 0; overflow-y: auto;">
+              <div v-for="group in groupedHistory" :key="group.label">
+                <div class="history-group-title">{{ group.label }}</div>
+                <div v-for="h in group.items" :key="h.sessionId" class="history-item" style="display: flex; align-items: center;">
+                  <div style="flex: 1; min-width: 0;" @click="viewHistory(h.sessionId); sidebarVisible = false;">
+                    <div class="history-title">{{ h.title || '新对话' }}</div>
+                    <div class="history-meta">
+                      {{ h.workingDir.split('/').pop() }} · {{ h.messageCount }} 条 · {{ formatTime(h.createdAt) }}
+                    </div>
+                  </div>
+                  <el-button size="small" text type="primary" @click.stop="resumeHistory(h); sidebarVisible = false;" style="flex-shrink: 0; margin-left: 4px;" title="继续对话">
+                    <el-icon><video-play /></el-icon>
+                  </el-button>
+                  <el-button size="small" text type="danger" @click.stop="deleteHistory(h.sessionId)" style="flex-shrink: 0; margin-left: 4px;">
+                    <el-icon><delete /></el-icon>
+                  </el-button>
+                </div>
+              </div>
+              <div v-if="historyLoading" style="text-align: center; padding: 8px; color: #909399; font-size: 12px;">加载中...</div>
+              <div v-else-if="!historyHasMore && historyList.length > 0" style="text-align: center; padding: 8px; color: #c0c4cc; font-size: 12px;">没有更多了</div>
+              <el-empty v-if="historyList.length === 0 && !historyLoading" description="暂无历史记录" :image-size="40"></el-empty>
+            </div>
+          </div>
+        </el-drawer>
 
         <!-- ========== 主内容区 ========== -->
         <el-main style="padding: 0;">
@@ -189,9 +246,9 @@
                 @keydown.ctrl.enter.exact.prevent="insertNewline"
                 :disabled="!currentPath"
               ></el-input>
-              <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center;">
-                <div style="display: flex; align-items: center; gap: 12px;">
-                  <span style="color: #909399; font-size: 13px;" v-if="currentPath">Enter 发送 | Ctrl+Enter 换行</span>
+              <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span class="hidden-mobile" style="color: #909399; font-size: 13px;" v-if="currentPath">Enter 发送 | Ctrl+Enter 换行</span>
                   <span v-if="!currentPath" style="color: #E6A23C; font-weight: bold; font-size: 13px;">⚠ 请先选择工作目录</span>
                   <el-button size="small" @click="clearContext" :disabled="!sessionId" plain>
                     <el-icon><delete /></el-icon>
@@ -215,7 +272,7 @@
       </el-container>
 
       <!-- ========== 工作空间弹窗 ========== -->
-      <el-dialog v-model="workspaceDialogVisible" title="工作空间" width="520px">
+      <el-dialog v-model="workspaceDialogVisible" title="工作空间" :width="isMobile ? '92%' : '520px'">
         <el-form label-position="top" size="default">
           <el-form-item label="根路径">
             <el-select v-model="selectedRoot" placeholder="选择根路径" style="width: 100%;" @change="handleRootChange">
@@ -272,7 +329,7 @@
       </el-dialog>
 
       <!-- ========== 定时任务管理弹窗 ========== -->
-      <el-dialog v-model="taskManagerVisible" title="定时任务管理" width="600px">
+      <el-dialog v-model="taskManagerVisible" title="定时任务管理" :width="isMobile ? '92%' : '600px'">
         <div style="display: flex; justify-content: flex-end; margin-bottom: 12px;">
           <el-button size="small" @click="loadTasks">
             <el-icon><refresh /></el-icon>
@@ -325,7 +382,7 @@
       </el-dialog>
 
       <!-- 定时任务编辑对话框 -->
-      <el-dialog v-model="taskDialogVisible" :title="taskEditing ? '编辑定时任务' : '新建定时任务'" width="500px">
+      <el-dialog v-model="taskDialogVisible" :title="taskEditing ? '编辑定时任务' : '新建定时任务'" :width="isMobile ? '92%' : '500px'">
         <el-form label-position="top" size="default">
           <el-form-item label="任务名称">
             <el-input v-model="taskForm.name" placeholder="例如：日报生成"></el-input>
@@ -362,7 +419,7 @@
       </el-dialog>
 
       <!-- 历史消息详情弹窗 -->
-      <el-drawer v-model="historyDrawerVisible" title="对话详情" size="50%" direction="rtl">
+      <el-drawer v-model="historyDrawerVisible" title="对话详情" :size="isMobile ? '100%' : '50%'" direction="rtl">
         <template #header>
           <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
             <span style="font-size: 16px; font-weight: 600;">对话详情</span>

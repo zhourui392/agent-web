@@ -1,5 +1,5 @@
 server:
-  port: 18092
+  port: 17988
   servlet:
     async:
       timeout: 7200000
@@ -12,7 +12,7 @@ server:
 agent:
   fs:
     roots:
-      - "D:\\qpon\\workspace"
+      - "/home/ubuntu/qpon"
   cli:
     codex:
       exec: ${CODEX_CMD:codex}
@@ -33,6 +33,21 @@ agent:
         - --dangerously-skip-permissions
       stdin: true
       timeout-seconds: 0
+  envs:
+    #- key: test
+    #  label: 测试环境
+    #  color: "#67c23a"
+    #  prompt: "[环境约束: 当前为测试环境，可以放心执行变更操作]\n"
+    #- key: prod
+    #  label: 生产环境
+    #  color: "#f56c6c"
+    #  prompt: "[环境约束: 当前为生产环境，禁止执行任何写操作(INSERT/UPDATE/DELETE/DROP等)，只允许SELECT查询]\n"
+  auth:
+    enabled: true
+    username: admin
+    password: "Aa135246"
+    max-fail-count: 50
+
 spring:
   datasource:
     url: jdbc:sqlite:${AGENT_DB_PATH:data/agent-web.db}

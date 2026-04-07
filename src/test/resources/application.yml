@@ -1,0 +1,20 @@
+agent:
+  auth:
+    enabled: false
+  fs:
+    roots:
+      - /tmp
+  cli:
+    codex:
+      exec: echo
+      stdin: true
+      timeout-seconds: 0
+    claude:
+      exec: echo
+      stdin: true
+      timeout-seconds: 0
+
+spring:
+  datasource:
+    url: "jdbc:sqlite::memory:"
+    driver-class-name: org.sqlite.JDBC

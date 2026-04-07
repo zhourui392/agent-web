@@ -13,7 +13,8 @@ const app = createApp({
     const workingDir = ref('');
     const resumeId = ref('');
     const username = ref('admin');
-    const env = ref('test');
+    const env = ref('');
+    const envList = ref([]);
     const messages = ref([]);
     const userInput = ref('');
     const starting = ref(false);
@@ -52,6 +53,13 @@ const app = createApp({
     const taskLoading = ref(false);
     const workspaceDialogVisible = ref(false);
     const taskManagerVisible = ref(false);
+    const sidebarVisible = ref(false);
+    const isMobile = ref(window.innerWidth <= 768);
+
+    window.addEventListener('resize', () => {
+      isMobile.value = window.innerWidth <= 768;
+      if (!isMobile.value) sidebarVisible.value = false;
+    });
 
     const groupedHistory = Vue.computed(() => {
       const now = new Date();
@@ -86,6 +94,11 @@ const app = createApp({
     // ========== 初始化 ==========
     const init = async () => {
       try {
+        const envData = await fetch('/api/chat/envs').then(r => r.json());
+        envList.value = envData;
+        if (envData.length > 0) {
+          env.value = envData[0].key;
+        }
         const data = await fetch('/api/fs/roots').then(r => r.json());
         roots.value = data;
         if (data.length > 0) {
@@ -307,7 +320,8 @@ const app = createApp({
 
     // ========== 环境与分支 ==========
     const onEnvChange = (val) => {
-      const label = val === 'prod' ? '生产环境' : val === 'test' ? '测试环境' : '无环境';
+      const found = envList.value.find(e => e.key === val);
+      const label = found ? found.label : '无环境';
       ElementPlus.ElMessage.info('已切换到' + label);
       if (val !== 'test') {
         clearBranch();
@@ -875,6 +889,15 @@ const app = createApp({
       }
     });
 
+    async function doLogout() {
+      try {
+        await fetch('/api/auth/logout', { method: 'POST' });
+      } catch (e) {
+        // ignore
+      }
+      window.location.href = '/login.html';
+    }
+
     return {
       roots,
       selectedRoot,
@@ -885,6 +908,7 @@ const app = createApp({
       workingDir,
       resumeId,
       env,
+      envList,
       username,
       messages,
       userInput,
@@ -953,7 +977,10 @@ const app = createApp({
       setCronPreset,
       workspaceDialogVisible,
       taskManagerVisible,
+      sidebarVisible,
+      isMobile,
       groupedHistory,
+      doLogout,
     };
   }
 });

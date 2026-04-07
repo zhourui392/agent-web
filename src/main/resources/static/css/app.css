@@ -327,3 +327,38 @@ html, body {
   0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
   40% { transform: scale(1); opacity: 1; }
 }
+
+/* ========== 移动端适配 ========== */
+@media (max-width: 768px) {
+  .hidden-mobile {
+    display: none !important;
+  }
+  .topbar {
+    padding: 0 10px;
+    gap: 8px;
+  }
+  .topbar .logo {
+    font-size: 14px;
+  }
+  .workspace-selector {
+    max-width: 160px;
+    font-size: 12px;
+    padding: 4px 8px;
+  }
+  .message-user {
+    max-width: 85%;
+  }
+  .message-agent {
+    max-width: 95%;
+  }
+  .chat-messages {
+    padding: 12px;
+  }
+  .chat-input-area {
+    padding: 10px;
+  }
+  .hamburger-btn {
+    flex-shrink: 0;
+    padding: 4px;
+  }
+}

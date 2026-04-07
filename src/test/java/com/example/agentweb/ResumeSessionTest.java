@@ -13,6 +13,7 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -40,6 +41,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "agent.cli.codex.args=Echo,${MESSAGE}"
 })
 @AutoConfigureMockMvc
+@Transactional
 public class ResumeSessionTest {
 
     @Autowired

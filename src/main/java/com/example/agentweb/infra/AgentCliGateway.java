@@ -25,10 +25,12 @@ public class AgentCliGateway implements AgentGateway {
 
     private static final Logger log = LoggerFactory.getLogger(AgentCliGateway.class);
     private final AgentCliProperties props;
+    private final EnvProperties envProperties;
     private final ConcurrentHashMap<String, Process> runningProcesses = new ConcurrentHashMap<String, Process>();
 
-    public AgentCliGateway(AgentCliProperties props) {
+    public AgentCliGateway(AgentCliProperties props, EnvProperties envProperties) {
         this.props = props;
+        this.envProperties = envProperties;
     }
 
     @Override
@@ -109,13 +111,11 @@ public class AgentCliGateway implements AgentGateway {
         }
         // stdin behavior
         if (cfg.isStdin()) {
-            // 拼接环境提示到用户消息前
             String envPrefix = "";
             if (env != null && !env.trim().isEmpty()) {
-                if ("prod".equalsIgnoreCase(env.trim())) {
-                    envPrefix = "[环境约束: 当前为生产环境]\n";
-                } else {
-                    envPrefix = "[环境约束: 当前为测试环境]\n";
+                EnvProperties.EnvEntry entry = envProperties.findByKey(env.trim());
+                if (entry != null && entry.getPrompt() != null) {
+                    envPrefix = entry.getPrompt();
                 }
             }
             OutputStream os = p.getOutputStream();
