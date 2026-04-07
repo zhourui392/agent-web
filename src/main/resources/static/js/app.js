@@ -3,7 +3,6 @@ const { createApp, ref, reactive, onMounted, nextTick, watch } = Vue;
 const app = createApp({
   setup() {
     // 数据
-    const DEFAULT_WORKING_PATH = '/home/ubuntu/workspace/qpon';
     const roots = ref([]);
     const selectedRoot = ref('');
     const currentPath = ref('');
@@ -119,16 +118,9 @@ const app = createApp({
             clearWorktreeState();
           }
 
-          const defaultRoot = data.find(root => DEFAULT_WORKING_PATH.startsWith(root));
-          if (defaultRoot) {
-            selectedRoot.value = defaultRoot;
-            currentPath.value = DEFAULT_WORKING_PATH;
-            await loadList(DEFAULT_WORKING_PATH);
-          } else {
-            selectedRoot.value = data[0];
-            currentPath.value = data[0];
-            await loadList(data[0]);
-          }
+          selectedRoot.value = data[0];
+          currentPath.value = data[0];
+          await loadList(data[0]);
         }
       } catch (error) {
         ElementPlus.ElMessage.error('加载根路径失败');
