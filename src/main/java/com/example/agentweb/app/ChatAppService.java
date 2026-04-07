@@ -35,6 +35,11 @@ public interface ChatAppService {
      */
     void stopSession(String sessionId);
 
+    /**
+     * Check if the agent process is still running for the given session.
+     */
+    boolean isSessionRunning(String sessionId);
+
     List<SlashCommand> listCommands(String sessionId);
 
     /**

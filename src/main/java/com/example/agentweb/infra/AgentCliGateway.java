@@ -171,6 +171,12 @@ public class AgentCliGateway implements AgentGateway {
         }
     }
 
+    @Override
+    public boolean isRunning(String sessionId) {
+        Process p = runningProcesses.get(sessionId);
+        return p != null && p.isAlive();
+    }
+
     private String readWithTimeout(Process p, int timeoutSeconds) throws InterruptedException {
         java.util.concurrent.ThreadPoolExecutor es = new java.util.concurrent.ThreadPoolExecutor(
                 1, 1, 60L, java.util.concurrent.TimeUnit.SECONDS,

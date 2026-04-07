@@ -465,7 +465,7 @@ const app = createApp({
             const evt = json.event;
             if (evt.type === 'content_block_start' && evt.content_block) {
               if (evt.content_block.type === 'tool_use') {
-                segments.push({ type: 'tool', name: evt.content_block.name, input: '' });
+                segments.push({ type: 'tool', name: evt.content_block.name, content: '' });
               }
             } else if (evt.type === 'content_block_delta' && evt.delta) {
               if (evt.delta.type === 'text_delta' && evt.delta.text) {
@@ -473,7 +473,7 @@ const app = createApp({
               } else if (evt.delta.type === 'input_json_delta' && evt.delta.partial_json) {
                 for (let j = segments.length - 1; j >= 0; j--) {
                   if (segments[j].type === 'tool') {
-                    segments[j].input += evt.delta.partial_json;
+                    segments[j].content += evt.delta.partial_json;
                     break;
                   }
                 }
@@ -489,7 +489,20 @@ const app = createApp({
                   result = block.content;
                 }
                 if (result) {
-                  segments.push({ type: 'tool_result', content: result.length > 500 ? result.substring(0, 500) + '...' : result });
+                  if (result.length > 2000) {
+                    result = result.substring(0, 2000) + '\n... (共 ' + result.length + ' 字符，已截断)';
+                  }
+                  let merged = false;
+                  for (let j = segments.length - 1; j >= 0; j--) {
+                    if (segments[j].type === 'tool') {
+                      segments[j].content = (segments[j].content || '') + '\n' + result;
+                      merged = true;
+                      break;
+                    }
+                  }
+                  if (!merged) {
+                    segments.push({ type: 'tool', name: 'Tool Result', content: result });
+                  }
                 }
               }
             }
@@ -701,6 +714,84 @@ const app = createApp({
       showCommandPopup.value = false;
     };
 
+    // ========== 断连恢复 ==========
+    let lastEventTime = 0;
+    let heartbeatTimer = null;
+    let recovering = false;
+
+    function startHeartbeat() {
+      stopHeartbeat();
+      lastEventTime = Date.now();
+      heartbeatTimer = setInterval(function() {
+        if (!sending.value) { stopHeartbeat(); return; }
+        if (currentES && currentES.readyState === EventSource.CLOSED) {
+          recoverSession();
+          return;
+        }
+        if (!currentES && sending.value) {
+          recoverSession();
+          return;
+        }
+        if (Date.now() - lastEventTime > 30000) {
+          recoverSession();
+        }
+      }, 10000);
+    }
+
+    function stopHeartbeat() {
+      if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+    }
+
+    async function recoverSession() {
+      if (recovering || !sessionId.value) return;
+      recovering = true;
+      stopHeartbeat();
+      if (currentES) { currentES.close(); currentES = null; }
+      try {
+        const statusRes = await fetch('/api/chat/session/' + encodeURIComponent(sessionId.value) + '/status').then(r => r.json());
+        if (statusRes.running) {
+          await pollUntilDone();
+        }
+        await reloadMessages();
+      } catch (e) {
+        // fallback: just stop sending state
+      }
+      sending.value = false;
+      recovering = false;
+    }
+
+    async function pollUntilDone() {
+      while (true) {
+        await new Promise(r => setTimeout(r, 3000));
+        try {
+          const res = await fetch('/api/chat/session/' + encodeURIComponent(sessionId.value) + '/status').then(r => r.json());
+          if (!res.running) break;
+        } catch (e) { break; }
+      }
+    }
+
+    async function reloadMessages() {
+      try {
+        const data = await fetch('/api/chat/session/' + encodeURIComponent(sessionId.value) + '/messages').then(r => r.json());
+        messages.value = [];
+        data.forEach(function(msg) {
+          if (msg.role === 'user') {
+            messages.value.push({ role: 'user', text: msg.content });
+          } else if (msg.role === 'assistant') {
+            const segments = msg.content && msg.content.startsWith('{') ? parseStreamJson(msg.content) : [{ type: 'text', content: msg.content }];
+            messages.value.push({ role: 'agent', segments: segments });
+          }
+        });
+        nextTick(() => {
+          if (chatContainer.value) {
+            chatContainer.value.scrollTop = chatContainer.value.scrollHeight;
+          }
+        });
+      } catch (e) {
+        // ignore
+      }
+    }
+
     // ========== SSE 消息发送 ==========
     const sendMessageStream = async () => {
       if (!currentPath.value || !userInput.value.trim() || sending.value) return;
@@ -729,6 +820,7 @@ const app = createApp({
 
       const es = new EventSource(url);
       currentES = es;
+      startHeartbeat();
       let segments = [];
       let inToolUse = false;
 
@@ -761,6 +853,7 @@ const app = createApp({
       }
 
       es.addEventListener('chunk', (e) => {
+        lastEventTime = Date.now();
         const data = e.data;
         try {
           const json = JSON.parse(data);
@@ -837,6 +930,7 @@ const app = createApp({
       });
 
       es.addEventListener('exit', (e) => {
+        stopHeartbeat();
         flushSegments();
         addMessage('system', e.data === '0' ? '任务已完成' : '进程异常退出，退出码: ' + e.data);
         es.close();
@@ -845,6 +939,7 @@ const app = createApp({
       });
 
       es.addEventListener('error', (e) => {
+        stopHeartbeat();
         addMessage('error', e.data || 'SSE 连接错误');
         es.close();
         currentES = null;
@@ -852,9 +947,9 @@ const app = createApp({
       });
 
       es.onerror = () => {
+        // Do not clear sending here — let heartbeat/visibilitychange trigger recovery
         es.close();
         currentES = null;
-        sending.value = false;
       };
     };
 
@@ -863,6 +958,14 @@ const app = createApp({
       await init();
       await loadHistory(true);
       await loadTasks();
+
+      document.addEventListener('visibilitychange', function() {
+        if (document.visibilityState === 'visible' && sending.value && !recovering) {
+          if (!currentES || currentES.readyState === EventSource.CLOSED || Date.now() - lastEventTime > 30000) {
+            recoverSession();
+          }
+        }
+      });
     });
 
     watch(currentPath, () => {

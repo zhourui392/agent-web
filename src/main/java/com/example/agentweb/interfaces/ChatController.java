@@ -137,6 +137,13 @@ public class ChatController {
         return result;
     }
 
+    @GetMapping("/session/{id}/status")
+    public Map<String, Object> sessionStatus(@PathVariable("id") String id) {
+        Map<String, Object> m = new HashMap<String, Object>();
+        m.put("running", appService.isSessionRunning(id));
+        return m;
+    }
+
     @PostMapping("/session/{id}/stop")
     public Map<String, Object> stop(@PathVariable("id") String id) {
         appService.stopSession(id);

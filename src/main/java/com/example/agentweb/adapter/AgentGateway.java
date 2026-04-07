@@ -38,4 +38,9 @@ public interface AgentGateway {
      * Stop a running stream process by session ID.
      */
     void stopStream(String sessionId);
+
+    /**
+     * Check if a stream process is still running for the given session.
+     */
+    boolean isRunning(String sessionId);
 }

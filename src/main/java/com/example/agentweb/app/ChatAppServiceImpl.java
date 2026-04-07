@@ -178,6 +178,11 @@ public class ChatAppServiceImpl implements ChatAppService {
     }
 
     @Override
+    public boolean isSessionRunning(String sessionId) {
+        return gateway.isRunning(sessionId);
+    }
+
+    @Override
     public List<SlashCommand> listCommands(String sessionId) {
         ChatSession s = getSession(sessionId);
         if (s == null) {
