@@ -45,7 +45,7 @@ agent:
   auth:
     enabled: true
     username: admin
-    password: "Aa135246"
+    password: "Zz135246!@"
     max-fail-count: 50
 
 spring:
