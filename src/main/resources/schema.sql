@@ -3,7 +3,8 @@ CREATE TABLE IF NOT EXISTS chat_session (
     agent_type  TEXT    NOT NULL,
     working_dir TEXT    NOT NULL,
     created_at  TEXT    NOT NULL,
-    resume_id   TEXT
+    resume_id   TEXT,
+    share_token TEXT
 );
 
 CREATE TABLE IF NOT EXISTS chat_message (
@@ -16,6 +17,8 @@ CREATE TABLE IF NOT EXISTS chat_message (
 );
 
 CREATE INDEX IF NOT EXISTS idx_chat_message_session_id ON chat_message(session_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_session_share_token ON chat_session(share_token);
 
 CREATE TABLE IF NOT EXISTS scheduled_task (
     id              TEXT PRIMARY KEY,

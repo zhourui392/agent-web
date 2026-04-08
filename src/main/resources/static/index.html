@@ -423,10 +423,16 @@
         <template #header>
           <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
             <span style="font-size: 16px; font-weight: 600;">对话详情</span>
-            <el-button type="primary" size="small" :loading="summarizing" @click="summarizeSession" style="margin-right: 24px;">
-              <el-icon style="margin-right: 4px;"><document /></el-icon>
-              生成总结
-            </el-button>
+            <div style="display: flex; gap: 8px; margin-right: 24px;">
+              <el-button size="small" @click="shareSession">
+                <el-icon style="margin-right: 4px;"><share /></el-icon>
+                分享
+              </el-button>
+              <el-button type="primary" size="small" :loading="summarizing" @click="summarizeSession">
+                <el-icon style="margin-right: 4px;"><document /></el-icon>
+                生成总结
+              </el-button>
+            </div>
           </div>
         </template>
         <div v-for="(msg, i) in historyMessages" :key="i" class="history-msg">

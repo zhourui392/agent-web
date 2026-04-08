@@ -68,7 +68,11 @@ public class AuthFilter implements Filter {
         return "/login.html".equals(path)
                 || "/api/auth/login".equals(path)
                 || path.startsWith("/css/login")
-                || path.startsWith("/js/login");
+                || path.startsWith("/js/login")
+                || "/share.html".equals(path)
+                || path.startsWith("/api/share/")
+                || path.startsWith("/css/")
+                || path.startsWith("/js/");
     }
 
     private boolean isApiPath(String path) {

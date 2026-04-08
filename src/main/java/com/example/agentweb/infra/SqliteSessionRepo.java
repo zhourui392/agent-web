@@ -142,6 +142,42 @@ public class SqliteSessionRepo implements SessionRepository {
         jdbc.update("DELETE FROM chat_session WHERE id = ?", id);
     }
 
+    @Override
+    public String setShareToken(String sessionId, String shareToken) {
+        // If session already has a share token, return it
+        List<String> existing = jdbc.query(
+                "SELECT share_token FROM chat_session WHERE id = ? AND share_token IS NOT NULL",
+                new Object[]{sessionId},
+                (rs, rowNum) -> rs.getString("share_token")
+        );
+        if (!existing.isEmpty()) {
+            return existing.get(0);
+        }
+        jdbc.update("UPDATE chat_session SET share_token = ? WHERE id = ?", shareToken, sessionId);
+        return shareToken;
+    }
+
+    @Override
+    public ChatSession findByShareToken(String shareToken) {
+        List<ChatSession> sessions = jdbc.query(
+                "SELECT id, agent_type, working_dir, created_at, resume_id, title FROM chat_session WHERE share_token = ?",
+                new Object[]{shareToken},
+                (rs, rowNum) -> {
+                    ChatSession s = new ChatSession(
+                            rs.getString("id"),
+                            AgentType.valueOf(rs.getString("agent_type")),
+                            rs.getString("working_dir"),
+                            Instant.parse(rs.getString("created_at")),
+                            loadMessages(rs.getString("id"))
+                    );
+                    s.setResumeId(rs.getString("resume_id"));
+                    s.setTitle(rs.getString("title"));
+                    return s;
+                }
+        );
+        return sessions.isEmpty() ? null : sessions.get(0);
+    }
+
     private List<ChatMessage> loadMessages(String sessionId) {
         return jdbc.query(
                 "SELECT role, content, timestamp FROM chat_message WHERE session_id = ? ORDER BY id ASC",

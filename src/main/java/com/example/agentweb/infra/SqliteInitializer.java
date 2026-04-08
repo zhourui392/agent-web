@@ -41,6 +41,16 @@ public class SqliteInitializer {
         } catch (Exception ignored) {
             // column already exists
         }
+        // Migration: add share_token column for session sharing
+        try {
+            jdbc.execute("ALTER TABLE chat_session ADD COLUMN share_token TEXT");
+        } catch (Exception ignored) {
+            // column already exists
+        }
+        try {
+            jdbc.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_session_share_token ON chat_session(share_token)");
+        } catch (Exception ignored) {
+        }
         // Migration: remove agent_type column from scheduled_task
         migrateScheduledTaskDropAgentType();
     }

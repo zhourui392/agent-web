@@ -560,6 +560,23 @@ const app = createApp({
       }
     };
 
+    const shareSession = async () => {
+      if (!currentHistorySessionId.value) return;
+      try {
+        const res = await fetch('/api/chat/session/' + encodeURIComponent(currentHistorySessionId.value) + '/share', { method: 'POST' });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text);
+        }
+        const data = await res.json();
+        const shareUrl = window.location.origin + '/share.html?token=' + data.shareToken;
+        await navigator.clipboard.writeText(shareUrl);
+        ElementPlus.ElMessage.success('分享链接已复制到剪贴板');
+      } catch (e) {
+        ElementPlus.ElMessage.error('生成分享链接失败: ' + (e.message || '未知错误'));
+      }
+    };
+
     const summarizeSession = async () => {
       if (!currentHistorySessionId.value) return;
       summarizing.value = true;
@@ -1054,6 +1071,7 @@ const app = createApp({
       deleteHistory,
       viewHistory,
       resumeHistory,
+      shareSession,
       summarizeSession,
       summarizing,
       formatTime,

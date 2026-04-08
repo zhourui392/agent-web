@@ -32,4 +32,14 @@ public interface SessionRepository {
     void deleteById(String id);
 
     void updateResumeId(String sessionId, String resumeId);
+
+    /**
+     * Sets a share token for the given session. Returns the token.
+     */
+    String setShareToken(String sessionId, String shareToken);
+
+    /**
+     * Finds a session by its share token.
+     */
+    ChatSession findByShareToken(String shareToken);
 }
