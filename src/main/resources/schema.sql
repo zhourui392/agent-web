@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS chat_message (
 
 CREATE INDEX IF NOT EXISTS idx_chat_message_session_id ON chat_message(session_id);
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_session_share_token ON chat_session(share_token);
+-- share_token index is created after migration in SqliteInitializer
 
 CREATE TABLE IF NOT EXISTS scheduled_task (
     id              TEXT PRIMARY KEY,

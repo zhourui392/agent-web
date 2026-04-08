@@ -6,8 +6,8 @@ import com.example.agentweb.domain.ChatMessage;
 import com.example.agentweb.domain.ChatSession;
 import com.example.agentweb.domain.ScheduledTask;
 import com.example.agentweb.domain.ScheduledTaskRepository;
+import com.example.agentweb.domain.SessionCache;
 import com.example.agentweb.domain.SessionRepository;
-import com.example.agentweb.infra.InMemorySessionRepo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.support.CronTrigger;
@@ -16,6 +16,11 @@ import org.springframework.stereotype.Service;
 import java.time.Instant;
 import java.util.List;
 
+/**
+ * 定时任务应用服务实现，管理定时任务的 CRUD 和执行。
+ * <p>任务执行时会创建独立 {@link ChatSession}，通过 {@link AgentGateway} 调用 CLI Agent，
+ * 并将结果持久化为对话记录。</p>
+ */
 @Service
 public class ScheduledTaskServiceImpl implements ScheduledTaskService {
 
@@ -23,17 +28,17 @@ public class ScheduledTaskServiceImpl implements ScheduledTaskService {
 
     private final ScheduledTaskRepository taskRepo;
     private final SessionRepository sessionRepository;
-    private final InMemorySessionRepo inMemoryRepo;
+    private final SessionCache sessionCache;
     private final AgentGateway gateway;
     private DynamicTaskScheduler dynamicScheduler;
 
     public ScheduledTaskServiceImpl(ScheduledTaskRepository taskRepo,
                                     SessionRepository sessionRepository,
-                                    InMemorySessionRepo inMemoryRepo,
+                                    SessionCache sessionCache,
                                     AgentGateway gateway) {
         this.taskRepo = taskRepo;
         this.sessionRepository = sessionRepository;
-        this.inMemoryRepo = inMemoryRepo;
+        this.sessionCache = sessionCache;
         this.gateway = gateway;
     }
 
@@ -138,49 +143,19 @@ public class ScheduledTaskServiceImpl implements ScheduledTaskService {
     String doExecute(ScheduledTask task) {
         log.info("Executing scheduled task: {} ({})", task.getName(), task.getId());
         final ChatSession session = ChatSession.forTask(task.getName(), AgentType.CLAUDE, task.getWorkingDir());
-        inMemoryRepo.save(session);
+        sessionCache.save(session);
         sessionRepository.saveSession(session);
 
         // Persist user message (the prompt)
         sessionRepository.addMessage(session.getId(), new ChatMessage("user", task.getPrompt()));
 
-        final StringBuilder fullResponse = new StringBuilder();
-        final boolean[] resumeIdSaved = {false};
+        final StreamChunkHandler handler = new StreamChunkHandler(sessionRepository, session.getId());
 
         try {
             gateway.runStream(AgentType.CLAUDE, task.getWorkingDir(), task.getPrompt(),
                     session.getId(), null, null,
-                    new java.util.function.Consumer<String>() {
-                        @Override
-                        public void accept(String chunk) {
-                            fullResponse.append(chunk).append("\n");
-                            if (!resumeIdSaved[0]) {
-                                try {
-                                    if (chunk.contains("\"session_id\"")) {
-                                        com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
-                                        com.fasterxml.jackson.databind.JsonNode node = om.readTree(chunk);
-                                        if (node.has("session_id")) {
-                                            String cliSessionId = node.get("session_id").asText();
-                                            if (cliSessionId != null && !cliSessionId.isEmpty()) {
-                                                sessionRepository.updateResumeId(session.getId(), cliSessionId);
-                                                resumeIdSaved[0] = true;
-                                            }
-                                        }
-                                    }
-                                } catch (Exception ignored) {
-                                }
-                            }
-                        }
-                    },
-                    new java.util.function.IntConsumer() {
-                        @Override
-                        public void accept(int code) {
-                            String response = fullResponse.toString().trim();
-                            if (!response.isEmpty()) {
-                                sessionRepository.addMessage(session.getId(), new ChatMessage("assistant", response));
-                            }
-                        }
-                    });
+                    handler.onChunk(null),
+                    handler.onExit(null));
         } catch (Exception e) {
             log.error("Scheduled task execution failed: {} ({})", task.getName(), task.getId(), e);
             sessionRepository.addMessage(session.getId(), new ChatMessage("assistant", "[error] " + e.getMessage()));

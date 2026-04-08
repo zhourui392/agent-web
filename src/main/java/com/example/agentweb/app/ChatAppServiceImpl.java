@@ -6,8 +6,8 @@ import com.example.agentweb.domain.ChatMessage;
 import com.example.agentweb.domain.ChatSession;
 import com.example.agentweb.domain.SessionRepository;
 import com.example.agentweb.domain.SlashCommand;
+import com.example.agentweb.domain.SessionCache;
 import com.example.agentweb.domain.SlashCommandExpander;
-import com.example.agentweb.infra.InMemorySessionRepo;
 import com.example.agentweb.interfaces.dto.SendMessageRequest;
 import com.example.agentweb.interfaces.dto.StartSessionRequest;
 import org.springframework.stereotype.Service;
@@ -16,34 +16,37 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executor;
 
+/**
+ * 聊天应用服务实现，编排会话生命周期、消息收发与对话摘要生成。
+ * <p>通过 {@link SessionCache} 做内存快查，{@link SessionRepository} 做持久化，
+ * 并委托 {@link AgentGateway} 调用 CLI Agent 完成实际推理。</p>
+ */
 @Service
 public class ChatAppServiceImpl implements ChatAppService {
 
-    private final InMemorySessionRepo repo;
+    private final SessionCache sessionCache;
     private final SessionRepository sessionRepository;
     private final AgentGateway gateway;
     private final Executor agentExecutor;
     private final SlashCommandExpander commandExpander;
+    private final IssueLogWriter issueLogWriter;
 
-    public ChatAppServiceImpl(InMemorySessionRepo repo,
+    public ChatAppServiceImpl(SessionCache sessionCache,
                               SessionRepository sessionRepository,
                               AgentGateway gateway,
                               Executor agentExecutor,
-                              SlashCommandExpander commandExpander) {
-        this.repo = repo;
+                              SlashCommandExpander commandExpander,
+                              IssueLogWriter issueLogWriter) {
+        this.sessionCache = sessionCache;
         this.sessionRepository = sessionRepository;
         this.gateway = gateway;
         this.agentExecutor = agentExecutor;
         this.commandExpander = commandExpander;
+        this.issueLogWriter = issueLogWriter;
     }
 
     @Override
@@ -55,7 +58,7 @@ public class ChatAppServiceImpl implements ChatAppService {
             throw new IllegalArgumentException("Working directory not found: " + req.getWorkingDir());
         }
         ChatSession s = new ChatSession(type, dir.getAbsolutePath());
-        repo.save(s);
+        sessionCache.save(s);
         sessionRepository.saveSession(s);
         return s;
     }
@@ -81,12 +84,12 @@ public class ChatAppServiceImpl implements ChatAppService {
 
     @Override
     public ChatSession getSession(String sessionId) {
-        ChatSession s = repo.find(sessionId);
+        ChatSession s = sessionCache.find(sessionId);
         if (s == null) {
             // Fallback to persistent storage (e.g. after server restart or resuming from history)
             s = sessionRepository.findById(sessionId);
             if (s != null) {
-                repo.save(s);
+                sessionCache.save(s);
             }
         }
         return s;
@@ -105,8 +108,7 @@ public class ChatAppServiceImpl implements ChatAppService {
 
         // No SSE timeout – let the CLI process (and its own watchdog) control the lifecycle
         final SseEmitter emitter = new SseEmitter(-1L);
-        final StringBuilder fullResponse = new StringBuilder();
-        final boolean[] resumeIdSaved = {false};
+        final StreamChunkHandler handler = new StreamChunkHandler(sessionRepository, sessionId);
 
         final String envFinal = env;
         agentExecutor.execute(new Runnable() {
@@ -115,44 +117,19 @@ public class ChatAppServiceImpl implements ChatAppService {
                 try {
                     String cliMessage = commandExpander.expandIfCommand(s.getWorkingDir(), message);
                     gateway.runStream(s.getAgentType(), s.getWorkingDir(), cliMessage, sessionId, resumeId, envFinal,
-                            new java.util.function.Consumer<String>() {
+                            handler.onChunk(new java.util.function.Consumer<String>() {
                                 @Override
                                 public void accept(String chunk) {
-                                    fullResponse.append(chunk).append("\n");
-                                    // Extract and persist resumeId from first chunk containing session_id
-                                    if (!resumeIdSaved[0]) {
-                                        try {
-                                            if (chunk.contains("\"session_id\"")) {
-                                                com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
-                                                com.fasterxml.jackson.databind.JsonNode node = om.readTree(chunk);
-                                                if (node.has("session_id")) {
-                                                    String cliSessionId = node.get("session_id").asText();
-                                                    if (cliSessionId != null && !cliSessionId.isEmpty()) {
-                                                        sessionRepository.updateResumeId(sessionId, cliSessionId);
-                                                        resumeIdSaved[0] = true;
-                                                    }
-                                                }
-                                            }
-                                        } catch (Exception ignored) {
-                                            // not JSON or no session_id field
-                                        }
-                                    }
                                     try {
                                         emitter.send(SseEmitter.event().name("chunk").data(chunk));
                                     } catch (Exception e) {
-                                        // client likely disconnected; best effort to stop
+                                        // client likely disconnected
                                     }
                                 }
-                            },
-                            new java.util.function.IntConsumer() {
+                            }),
+                            handler.onExit(new java.util.function.IntConsumer() {
                                 @Override
                                 public void accept(int code) {
-                                    // persist complete assistant response
-                                    String response = fullResponse.toString().trim();
-                                    if (!response.isEmpty()) {
-                                        ChatMessage assistantMsg = new ChatMessage("assistant", response);
-                                        sessionRepository.addMessage(sessionId, assistantMsg);
-                                    }
                                     try {
                                         emitter.send(SseEmitter.event().name("exit").data(code));
                                     } catch (Exception ignore) {
@@ -160,7 +137,7 @@ public class ChatAppServiceImpl implements ChatAppService {
                                     }
                                     emitter.complete();
                                 }
-                            });
+                            }));
                 } catch (Exception ex) {
                     try {
                         emitter.send(SseEmitter.event().name("error").data(ex.getMessage()));
@@ -198,30 +175,29 @@ public class ChatAppServiceImpl implements ChatAppService {
             throw new IllegalArgumentException("Session not found: " + sessionId);
         }
 
-        // Build conversation text for summarization prompt
+        // 1. 构建对话文本
+        String conversationText = buildConversationText(s);
+
+        // 2. 调用 CLI 生成摘要
+        String prompt = buildSummarizePrompt(conversationText);
+        String rawOutput = gateway.runOnce(AgentType.CLAUDE, s.getWorkingDir(), prompt);
+
+        // 3. 解析 CLI 输出并写入 issue-log
+        String summaryText = issueLogWriter.extractPlainText(rawOutput);
+        return issueLogWriter.writeIssueLog(s.getWorkingDir(), sessionId, summaryText);
+    }
+
+    private String buildConversationText(ChatSession session) {
         StringBuilder conversation = new StringBuilder();
-        for (ChatMessage msg : s.getMessages()) {
+        for (ChatMessage msg : session.getMessages()) {
             String role = "user".equals(msg.getRole()) ? "用户" : "助手";
             conversation.append("[").append(role).append("]: ").append(msg.getContent()).append("\n\n");
         }
+        return conversation.toString();
+    }
 
-        // Determine next issue number
-        Path issuesDir = Paths.get(s.getWorkingDir(), "docs", "issue-log");
-        Files.createDirectories(issuesDir);
-        int nextNum = 1;
-        File[] existing = issuesDir.toFile().listFiles((dir, name) -> name.matches("I-\\d{3}-.*\\.md"));
-        if (existing != null) {
-            for (File f : existing) {
-                try {
-                    int num = Integer.parseInt(f.getName().substring(2, 5));
-                    if (num >= nextNum) nextNum = num + 1;
-                } catch (NumberFormatException ignored) {}
-            }
-        }
-        String issueId = String.format("I-%03d", nextNum);
-
-        // Call CLI to generate summary
-        String prompt = "请总结以下对话内容，生成一份问题记录。\n"
+    private String buildSummarizePrompt(String conversationText) {
+        return "请总结以下对话内容，生成一份问题记录。\n"
                 + "要求：\n"
                 + "1. 第一行输出一个简短标题（不超过30个字，不要包含任何标点或特殊字符，用于文件名）\n"
                 + "2. 空一行后输出完整的 Markdown 格式总结，包含：\n"
@@ -231,86 +207,6 @@ public class ChatAppServiceImpl implements ChatAppService {
                 + "   - ## 关键变更\n"
                 + "3. 只输出以上内容，不要输出其他任何内容\n\n"
                 + "---\n以下是对话内容：\n\n"
-                + conversation.toString();
-
-        String rawOutput = gateway.runOnce(AgentType.CLAUDE, s.getWorkingDir(), prompt);
-
-        // Parse CLI output: extract text content from stream-json
-        StringBuilder plainText = new StringBuilder();
-        for (String line : rawOutput.split("\n")) {
-            line = line.trim();
-            if (line.isEmpty()) continue;
-            if (line.startsWith("{")) {
-                try {
-                    com.fasterxml.jackson.databind.ObjectMapper om = new com.fasterxml.jackson.databind.ObjectMapper();
-                    com.fasterxml.jackson.databind.JsonNode node = om.readTree(line);
-                    // stream-json content_block_delta with text
-                    if (node.has("type") && "content_block_delta".equals(node.get("type").asText())) {
-                        com.fasterxml.jackson.databind.JsonNode delta = node.get("delta");
-                        if (delta != null && delta.has("text")) {
-                            plainText.append(delta.get("text").asText());
-                        }
-                    }
-                    // result type
-                    if (node.has("type") && "result".equals(node.get("type").asText())) {
-                        if (node.has("result")) {
-                            plainText.setLength(0);
-                            plainText.append(node.get("result").asText());
-                        }
-                    }
-                } catch (Exception ignored) {}
-            } else {
-                plainText.append(line).append("\n");
-            }
-        }
-
-        String summaryText = plainText.toString().trim();
-        // First line is the title, rest is the markdown body
-        String title;
-        String body;
-        int firstNewline = summaryText.indexOf('\n');
-        if (firstNewline > 0) {
-            title = summaryText.substring(0, firstNewline).trim();
-            body = summaryText.substring(firstNewline).trim();
-        } else {
-            title = summaryText;
-            body = summaryText;
-        }
-
-        // Sanitize title for filename
-        String safeTitle = title.replaceAll("[^a-zA-Z0-9\\u4e00-\\u9fff_-]", "");
-        if (safeTitle.length() > 40) safeTitle = safeTitle.substring(0, 40);
-        if (safeTitle.isEmpty()) safeTitle = "summary";
-        String fileName = issueId + "-" + safeTitle + ".md";
-
-        // Write issue file
-        Path issueFile = issuesDir.resolve(fileName);
-        String issueContent = "# " + issueId + " " + title + "\n\n"
-                + "- **会话ID**: " + sessionId + "\n"
-                + "- **工作目录**: " + s.getWorkingDir() + "\n"
-                + "- **创建时间**: " + java.time.LocalDate.now() + "\n\n"
-                + body + "\n";
-        Files.write(issueFile, issueContent.getBytes(StandardCharsets.UTF_8));
-
-        // Update index.md
-        Path indexFile = Paths.get(s.getWorkingDir(), "docs", "issue-log", "index.md");
-        StringBuilder indexContent = new StringBuilder();
-        if (Files.exists(indexFile)) {
-            indexContent.append(new String(Files.readAllBytes(indexFile), StandardCharsets.UTF_8));
-        } else {
-            indexContent.append("# Issue Log\n\n")
-                    .append("| ID | 标题 | 日期 |\n")
-                    .append("|------|------|------|\n");
-        }
-        indexContent.append("| [").append(issueId).append("](").append(fileName).append(") | ")
-                .append(title).append(" | ").append(java.time.LocalDate.now()).append(" |\n");
-        Files.write(indexFile, indexContent.toString().getBytes(StandardCharsets.UTF_8));
-
-        Map<String, Object> result = new HashMap<>();
-        result.put("issueId", issueId);
-        result.put("fileName", fileName);
-        result.put("title", title);
-        result.put("filePath", issueFile.toString());
-        return result;
+                + conversationText;
     }
 }

@@ -6,8 +6,15 @@ import com.example.agentweb.domain.ChatSession;
 import com.example.agentweb.domain.SessionRepository;
 import com.example.agentweb.domain.SlashCommand;
 import com.example.agentweb.infra.EnvProperties;
+import com.example.agentweb.interfaces.dto.CommandDto;
+import com.example.agentweb.interfaces.dto.EnvDto;
+import com.example.agentweb.interfaces.dto.MessageDto;
 import com.example.agentweb.interfaces.dto.SendMessageRequest;
+import com.example.agentweb.interfaces.dto.SendMessageResponse;
+import com.example.agentweb.interfaces.dto.SessionStatusResponse;
 import com.example.agentweb.interfaces.dto.StartSessionRequest;
+import com.example.agentweb.interfaces.dto.StartSessionResponse;
+import com.example.agentweb.interfaces.dto.SuccessResponse;
 import org.springframework.http.MediaType;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
@@ -16,7 +23,6 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import javax.validation.Valid;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -39,21 +45,15 @@ public class ChatController {
     }
 
     @PostMapping("/session")
-    public Map<String, Object> start(@Valid @RequestBody StartSessionRequest req) {
+    public StartSessionResponse start(@Valid @RequestBody StartSessionRequest req) {
         ChatSession s = appService.startSession(req);
-        Map<String, Object> m = new HashMap<String, Object>();
-        m.put("sessionId", s.getId());
-        m.put("agentType", s.getAgentType().name());
-        m.put("workingDir", s.getWorkingDir());
-        return m;
+        return new StartSessionResponse(s.getId(), s.getAgentType().name(), s.getWorkingDir());
     }
 
     @PostMapping("/session/{id}/message")
-    public Map<String, Object> send(@PathVariable("id") String id, @Valid @RequestBody SendMessageRequest req) throws IOException, InterruptedException {
+    public SendMessageResponse send(@PathVariable("id") String id, @Valid @RequestBody SendMessageRequest req) throws IOException, InterruptedException {
         String out = appService.sendMessage(id, req);
-        Map<String, Object> m = new HashMap<String, Object>();
-        m.put("output", out);
-        return m;
+        return new SendMessageResponse(out);
     }
 
     @GetMapping(value = "/session/{id}/message/stream", produces = "text/event-stream;charset=UTF-8")
@@ -65,25 +65,21 @@ public class ChatController {
     }
 
     @GetMapping("/session/{id}/commands")
-    public List<Map<String, Object>> listCommands(@PathVariable("id") String id) {
+    public List<CommandDto> listCommands(@PathVariable("id") String id) {
         return appService.listCommands(id).stream()
                 .map(this::toCommandDto)
                 .collect(java.util.stream.Collectors.toList());
     }
 
     @GetMapping("/commands")
-    public List<Map<String, Object>> listCommandsByDir(@RequestParam("workingDir") String workingDir) {
+    public List<CommandDto> listCommandsByDir(@RequestParam("workingDir") String workingDir) {
         return commandExpander.listCommands(workingDir).stream()
                 .map(this::toCommandDto)
                 .collect(java.util.stream.Collectors.toList());
     }
 
-    private Map<String, Object> toCommandDto(SlashCommand cmd) {
-        Map<String, Object> m = new HashMap<String, Object>();
-        m.put("name", cmd.getName());
-        m.put("description", cmd.getDescription());
-        m.put("argumentHint", cmd.getArgumentHint());
-        return m;
+    private CommandDto toCommandDto(SlashCommand cmd) {
+        return new CommandDto(cmd.getName(), cmd.getDescription(), cmd.getArgumentHint());
     }
 
     @GetMapping("/sessions")
@@ -95,28 +91,22 @@ public class ChatController {
     }
 
     @GetMapping("/session/{id}/messages")
-    public List<Map<String, Object>> getMessages(@PathVariable("id") String id) {
+    public List<MessageDto> getMessages(@PathVariable("id") String id) {
         ChatSession s = sessionRepository.findById(id);
         if (s == null) {
             throw new IllegalArgumentException("Session not found: " + id);
         }
-        List<Map<String, Object>> result = new ArrayList<Map<String, Object>>();
+        List<MessageDto> result = new ArrayList<MessageDto>();
         for (ChatMessage msg : s.getMessages()) {
-            Map<String, Object> m = new HashMap<String, Object>();
-            m.put("role", msg.getRole());
-            m.put("content", msg.getContent());
-            m.put("timestamp", msg.getTimestamp().toString());
-            result.add(m);
+            result.add(new MessageDto(msg.getRole(), msg.getContent(), msg.getTimestamp().toString()));
         }
         return result;
     }
 
     @DeleteMapping("/session/{id}")
-    public Map<String, Object> deleteSession(@PathVariable("id") String id) {
+    public SuccessResponse deleteSession(@PathVariable("id") String id) {
         sessionRepository.deleteById(id);
-        Map<String, Object> m = new HashMap<String, Object>();
-        m.put("success", true);
-        return m;
+        return new SuccessResponse(true);
     }
 
     @PostMapping("/session/{id}/summarize")
@@ -125,30 +115,22 @@ public class ChatController {
     }
 
     @GetMapping("/envs")
-    public List<Map<String, Object>> listEnvs() {
-        List<Map<String, Object>> result = new ArrayList<>();
+    public List<EnvDto> listEnvs() {
+        List<EnvDto> result = new ArrayList<EnvDto>();
         for (EnvProperties.EnvEntry e : envProperties.getEnvs()) {
-            Map<String, Object> m = new HashMap<>();
-            m.put("key", e.getKey());
-            m.put("label", e.getLabel());
-            m.put("color", e.getColor());
-            result.add(m);
+            result.add(new EnvDto(e.getKey(), e.getLabel(), e.getColor()));
         }
         return result;
     }
 
     @GetMapping("/session/{id}/status")
-    public Map<String, Object> sessionStatus(@PathVariable("id") String id) {
-        Map<String, Object> m = new HashMap<String, Object>();
-        m.put("running", appService.isSessionRunning(id));
-        return m;
+    public SessionStatusResponse sessionStatus(@PathVariable("id") String id) {
+        return new SessionStatusResponse(appService.isSessionRunning(id));
     }
 
     @PostMapping("/session/{id}/stop")
-    public Map<String, Object> stop(@PathVariable("id") String id) {
+    public SuccessResponse stop(@PathVariable("id") String id) {
         appService.stopSession(id);
-        Map<String, Object> m = new HashMap<String, Object>();
-        m.put("success", true);
-        return m;
+        return new SuccessResponse(true);
     }
 }

@@ -1,5 +1,7 @@
 package com.example.agentweb.interfaces;
 
+import com.example.agentweb.interfaces.dto.SuccessResponse;
+import com.example.agentweb.interfaces.dto.UploadResponse;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
@@ -82,8 +84,8 @@ public class FsController {
     }
 
     @PostMapping(value = "/upload", produces = MediaType.APPLICATION_JSON_VALUE)
-    public Map<String, Object> upload(@RequestParam("path") String path,
-                                      @RequestParam("file") MultipartFile file) throws IOException {
+    public UploadResponse upload(@RequestParam("path") String path,
+                                 @RequestParam("file") MultipartFile file) throws IOException {
         String targetDir = sanitize(path);
         assertUnderHome(targetDir);
         File dir = new File(targetDir);
@@ -100,11 +102,7 @@ public class FsController {
         Path targetFile = Paths.get(targetDir, originalName);
         Files.copy(file.getInputStream(), targetFile, StandardCopyOption.REPLACE_EXISTING);
 
-        Map<String, Object> result = new HashMap<String, Object>(4);
-        result.put("success", Boolean.TRUE);
-        result.put("path", targetFile.toString());
-        result.put("size", file.getSize());
-        return result;
+        return new UploadResponse(true, targetFile.toString(), file.getSize());
     }
 
     @GetMapping("/download")
@@ -129,7 +127,7 @@ public class FsController {
     }
 
     @DeleteMapping(value = "/delete", produces = MediaType.APPLICATION_JSON_VALUE)
-    public Map<String, Object> delete(@RequestParam("path") String path) throws IOException {
+    public SuccessResponse delete(@RequestParam("path") String path) throws IOException {
         String filePath = sanitize(path);
         assertUnderRoots(filePath);
         File file = new File(filePath);
@@ -141,9 +139,7 @@ public class FsController {
         }
         Files.delete(file.toPath());
 
-        Map<String, Object> result = new HashMap<String, Object>(2);
-        result.put("success", Boolean.TRUE);
-        return result;
+        return new SuccessResponse(true);
     }
 
     private String sanitize(String p) {
