@@ -7,6 +7,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
@@ -25,9 +26,9 @@ public class WorktreeService {
 
     /**
      * Switch a workspace to a given branch by creating worktrees for every
-     * git repo under {@code workspacePath} that contains the branch.
-     *
-     * @return result map with worktreePath, branch, and per-repo status
+     * git repo under {@code workspacePath}. Repos that have the target branch
+     * get a real worktree on it; repos that don't fall back to the default
+     * branch (origin/HEAD, else current HEAD) via a symlink to the main repo.
      */
     public Map<String, Object> switchBranch(String workspacePath, String branch)
             throws IOException, InterruptedException {
@@ -43,10 +44,8 @@ public class WorktreeService {
 
         List<File> gitRepos = collectGitRepos(workspace);
 
-        // 并行 fetch 所有仓库
         parallelFetch(gitRepos);
 
-        // 串行创建 worktree（涉及目录创建，避免并发冲突）
         List<Map<String, Object>> repos = new ArrayList<>();
         for (File repo : gitRepos) {
             repos.add(createWorktreeForRepo(repo, branch, worktreeBase));
@@ -88,7 +87,6 @@ public class WorktreeService {
                         execWithTimeout(repo, FETCH_TIMEOUT_SECONDS,
                                 "git", "fetch", "--all", "--prune");
                     } catch (Exception ignored) {
-                        // fetch 失败不阻断流程
                     }
                 }));
             }
@@ -96,7 +94,6 @@ public class WorktreeService {
                 try {
                     f.get(FETCH_TIMEOUT_SECONDS + 5, TimeUnit.SECONDS);
                 } catch (ExecutionException | TimeoutException ignored) {
-                    // 单个仓库超时不阻断
                 }
             }
         } finally {
@@ -147,13 +144,19 @@ public class WorktreeService {
             return;
         }
 
-        File[] repos = worktreeBase.toFile().listFiles(File::isDirectory);
-        if (repos != null) {
-            for (File repoWorktree : repos) {
-                File originalRepo = workspace.resolve(repoWorktree.getName()).toFile();
+        File[] entries = worktreeBase.toFile().listFiles();
+        if (entries != null) {
+            for (File entry : entries) {
+                Path entryPath = entry.toPath();
+                // Symlinks point back to the main repo (fallback path); just unlink.
+                if (Files.isSymbolicLink(entryPath)) {
+                    Files.delete(entryPath);
+                    continue;
+                }
+                File originalRepo = workspace.resolve(entry.getName()).toFile();
                 if (originalRepo.isDirectory() && new File(originalRepo, ".git").exists()) {
                     exec(originalRepo, "git", "worktree", "remove", "--force",
-                            repoWorktree.getAbsolutePath());
+                            entry.getAbsolutePath());
                 }
             }
         }
@@ -169,44 +172,123 @@ public class WorktreeService {
         Map<String, Object> repoResult = new HashMap<>();
         repoResult.put("name", repoDir.getName());
 
-        // 目标分支不存在时回退到 master
-        String actualBranch = branchExists(repoDir, branch) ? branch : "master";
+        boolean localExists = localBranchExists(repoDir, branch);
+        boolean remoteExists = remoteBranchExists(repoDir, branch);
+
+        String actualBranch;
+        boolean isFallback;
+        if (localExists || remoteExists) {
+            actualBranch = branch;
+            isFallback = false;
+        } else {
+            actualBranch = defaultBranch(repoDir);
+            isFallback = true;
+        }
+        repoResult.put("actualBranch", actualBranch);
 
         Path repoWorktree = worktreeBase.resolve(repoDir.getName());
-        if (Files.isDirectory(repoWorktree)) {
+        if (Files.exists(repoWorktree, LinkOption.NOFOLLOW_LINKS)) {
             repoResult.put("created", true);
-            repoResult.put("actualBranch", actualBranch);
             repoResult.put("reason", "已存在");
             return repoResult;
         }
 
-        int code = exec(repoDir, "git", "worktree", "add",
-                repoWorktree.toString(), actualBranch);
-
-        if (code != 0) {
-            code = exec(repoDir, "git", "worktree", "add", "--detach",
-                    repoWorktree.toString(), "origin/" + actualBranch);
+        // If the target branch is already checked out somewhere (including the main
+        // repo), git refuses to add another worktree for it. Symlink to that path
+        // instead — this handles both the "repo has no such branch, fallback to
+        // master currently checked out in main repo" case and the "user picks the
+        // branch already in use" case, and avoids detached-HEAD fallbacks.
+        String existingCheckout = findCheckoutPath(repoDir, actualBranch);
+        if (existingCheckout != null) {
+            Files.createSymbolicLink(repoWorktree, Paths.get(existingCheckout));
+            repoResult.put("created", true);
+            repoResult.put("reason", isFallback ? "无此分支，复用默认分支路径" : "复用已检出路径");
+            return repoResult;
         }
 
-        repoResult.put("created", code == 0);
-        repoResult.put("actualBranch", actualBranch);
-        if (code != 0) {
-            repoResult.put("reason", "创建失败");
+        String[] cmd;
+        if (localBranchExists(repoDir, actualBranch)) {
+            cmd = new String[]{"git", "worktree", "add",
+                    repoWorktree.toString(), actualBranch};
+        } else if (remoteBranchExists(repoDir, actualBranch)) {
+            // Create a new local tracking branch from origin/<branch>.
+            cmd = new String[]{"git", "worktree", "add", "-b", actualBranch,
+                    repoWorktree.toString(), "origin/" + actualBranch};
+        } else {
+            repoResult.put("created", false);
+            repoResult.put("reason", "分支不存在");
+            return repoResult;
+        }
+
+        ExecResult er = execCapture(repoDir, cmd);
+        repoResult.put("created", er.exitCode == 0);
+        if (er.exitCode != 0) {
+            String msg = er.output.trim();
+            repoResult.put("reason", msg.isEmpty() ? "创建失败" : msg);
+        } else if (isFallback) {
+            repoResult.put("reason", "无此分支，已回退到默认分支");
         }
         return repoResult;
     }
 
-    private boolean branchExists(File repoDir, String branch)
+    private boolean localBranchExists(File repoDir, String branch)
             throws IOException, InterruptedException {
-        // local branch
-        String local = execOutput(repoDir, "git", "branch", "--list", branch);
-        if (!local.trim().isEmpty()) {
-            return true;
+        ExecResult r = execCapture(repoDir, "git", "show-ref", "--verify",
+                "--quiet", "refs/heads/" + branch);
+        return r.exitCode == 0;
+    }
+
+    private boolean remoteBranchExists(File repoDir, String branch)
+            throws IOException, InterruptedException {
+        ExecResult r = execCapture(repoDir, "git", "show-ref", "--verify",
+                "--quiet", "refs/remotes/origin/" + branch);
+        return r.exitCode == 0;
+    }
+
+    /**
+     * Determine the repo's default branch. Prefer {@code origin/HEAD}; fall back
+     * to the repo's current HEAD branch so single-repo test setups without a
+     * remote still resolve to something sensible.
+     */
+    private String defaultBranch(File repoDir) throws IOException, InterruptedException {
+        ExecResult r = execCapture(repoDir, "git", "symbolic-ref", "--short",
+                "refs/remotes/origin/HEAD");
+        if (r.exitCode == 0) {
+            String out = r.output.trim();
+            if (out.startsWith("origin/")) {
+                return out.substring("origin/".length());
+            }
         }
-        // remote branch
-        String remote = execOutput(repoDir, "git", "branch", "-r", "--list",
-                "origin/" + branch);
-        return !remote.trim().isEmpty();
+        ExecResult head = execCapture(repoDir, "git", "rev-parse",
+                "--abbrev-ref", "HEAD");
+        String cur = head.output.trim();
+        return cur.isEmpty() || "HEAD".equals(cur) ? "master" : cur;
+    }
+
+    /**
+     * Returns the path of the existing worktree that currently has {@code branch}
+     * checked out, or {@code null} if none. Parses {@code git worktree list --porcelain}.
+     */
+    private String findCheckoutPath(File repoDir, String branch)
+            throws IOException, InterruptedException {
+        ExecResult r = execCapture(repoDir, "git", "worktree", "list", "--porcelain");
+        if (r.exitCode != 0) return null;
+
+        String targetRef = "refs/heads/" + branch;
+        String currentPath = null;
+        for (String line : r.output.split("\n")) {
+            if (line.startsWith("worktree ")) {
+                currentPath = line.substring("worktree ".length()).trim();
+            } else if (line.startsWith("branch ")) {
+                String ref = line.substring("branch ".length()).trim();
+                if (ref.equals(targetRef) && currentPath != null) {
+                    return currentPath;
+                }
+            } else if (line.isEmpty()) {
+                currentPath = null;
+            }
+        }
+        return null;
     }
 
     private int execWithTimeout(File dir, int timeoutSeconds, String... cmd)
@@ -225,23 +307,26 @@ public class WorktreeService {
     }
 
     private int exec(File dir, String... cmd) throws IOException, InterruptedException {
-        ProcessBuilder pb = new ProcessBuilder(cmd);
-        pb.directory(dir);
-        pb.redirectErrorStream(true);
-        Process p = pb.start();
-        consumeOutput(p);
-        return p.waitFor();
+        return execCapture(dir, cmd).exitCode;
     }
 
     private String execOutput(File dir, String... cmd)
+            throws IOException, InterruptedException {
+        return execCapture(dir, cmd).output;
+    }
+
+    private ExecResult execCapture(File dir, String... cmd)
             throws IOException, InterruptedException {
         ProcessBuilder pb = new ProcessBuilder(cmd);
         pb.directory(dir);
         pb.redirectErrorStream(true);
         Process p = pb.start();
         String output = consumeOutput(p);
-        p.waitFor();
-        return output;
+        int code = p.waitFor();
+        ExecResult r = new ExecResult();
+        r.exitCode = code;
+        r.output = output;
+        return r;
     }
 
     private String consumeOutput(Process p) throws IOException {
@@ -268,5 +353,10 @@ public class WorktreeService {
 
     private String safeBranchName(String branch) {
         return branch.replaceAll("[^a-zA-Z0-9._-]", "-");
+    }
+
+    private static final class ExecResult {
+        int exitCode;
+        String output;
     }
 }

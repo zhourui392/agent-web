@@ -101,9 +101,13 @@ class WorktreeServiceTest {
         Map<String, Object> repoB = repos.stream().filter(r -> "service-b".equals(r.get("name"))).findFirst().orElseThrow(() -> new RuntimeException("not found"));
         assertTrue((Boolean) repoB.get("created"));
 
-        // service-c should NOT have worktree
+        // service-c has no feature/login → falls back to default branch (master),
+        // which is already checked out in the main repo → symlink to that path
+        // so the agent can still access this repo from the worktree base.
         Map<String, Object> repoC = repos.stream().filter(r -> "service-c".equals(r.get("name"))).findFirst().orElseThrow(() -> new RuntimeException("not found"));
-        assertFalse((Boolean) repoC.get("created"));
+        assertTrue((Boolean) repoC.get("created"));
+        assertEquals("master", repoC.get("actualBranch"));
+        assertTrue(Files.isSymbolicLink(Paths.get(worktreePath, "service-c")));
     }
 
     @Test
