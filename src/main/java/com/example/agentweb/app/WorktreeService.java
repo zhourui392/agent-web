@@ -149,7 +149,7 @@ public class WorktreeService {
             for (File entry : entries) {
                 Path entryPath = entry.toPath();
                 // Symlinks point back to the main repo (fallback path); just unlink.
-                if (Files.isSymbolicLink(entryPath)) {
+                if (isDirectoryLink(entryPath)) {
                     Files.delete(entryPath);
                     continue;
                 }
@@ -200,7 +200,7 @@ public class WorktreeService {
         // branch already in use" case, and avoids detached-HEAD fallbacks.
         String existingCheckout = findCheckoutPath(repoDir, actualBranch);
         if (existingCheckout != null) {
-            Files.createSymbolicLink(repoWorktree, Paths.get(existingCheckout));
+            createDirectoryLink(repoWorktree, Paths.get(existingCheckout));
             repoResult.put("created", true);
             repoResult.put("reason", isFallback ? "无此分支，复用默认分支路径" : "复用已检出路径");
             return repoResult;
@@ -289,6 +289,47 @@ public class WorktreeService {
             }
         }
         return null;
+    }
+
+    private boolean isWindows() {
+        return System.getProperty("os.name").toLowerCase().contains("win");
+    }
+
+    /**
+     * Create a directory link: symlink on Unix, NTFS junction on Windows.
+     * Junctions do not require administrator privileges.
+     */
+    private void createDirectoryLink(Path link, Path target)
+            throws IOException, InterruptedException {
+        if (isWindows()) {
+            ExecResult r = execCapture(link.getParent().toFile(),
+                    "cmd", "/c", "mklink", "/J", link.toString(), target.toString());
+            if (r.exitCode != 0) {
+                throw new IOException("Failed to create junction: " + r.output.trim());
+            }
+        } else {
+            Files.createSymbolicLink(link, target);
+        }
+    }
+
+    /**
+     * Check whether a path is a directory link (symlink or NTFS junction).
+     */
+    private boolean isDirectoryLink(Path path) {
+        if (Files.isSymbolicLink(path)) {
+            return true;
+        }
+        // Junction points are not detected by isSymbolicLink on Windows
+        if (isWindows() && Files.isDirectory(path)) {
+            try {
+                Path realPath = path.toRealPath();
+                Path absolutePath = path.toAbsolutePath().normalize();
+                return !realPath.equals(absolutePath);
+            } catch (IOException e) {
+                return false;
+            }
+        }
+        return false;
     }
 
     private int execWithTimeout(File dir, int timeoutSeconds, String... cmd)
