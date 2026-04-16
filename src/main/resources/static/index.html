@@ -60,7 +60,7 @@
               <div style="display: flex; align-items: center; gap: 8px;">
                 <el-select v-model="selectedBranch" filterable allow-create default-first-option
                            placeholder="选择或输入分支名" style="flex: 1;" clearable
-                           @clear="clearBranch">
+                           :teleported="false" @clear="clearBranch">
                   <el-option v-for="b in savedBranches" :key="b" :label="b" :value="b"></el-option>
                 </el-select>
                 <el-button type="primary" size="default" @click="switchBranch"
