@@ -187,11 +187,21 @@ public class ChatAppServiceImpl implements ChatAppService {
         return issueLogWriter.writeIssueLog(s.getWorkingDir(), sessionId, summaryText);
     }
 
+    /**
+     * 构建摘要用对话文本。assistant 消息在存库时是 CLI 原始 stream-json
+     * （含大量 tool_use / tool_result / thinking 块，单条可达数十万字符），
+     * 直接喂给摘要 CLI 会爆上下文，因此此处剥离为纯文本；user 消息已是纯文本，原样保留。
+     */
     private String buildConversationText(ChatSession session) {
         StringBuilder conversation = new StringBuilder();
         for (ChatMessage msg : session.getMessages()) {
-            String role = "user".equals(msg.getRole()) ? "用户" : "助手";
-            conversation.append("[").append(role).append("]: ").append(msg.getContent()).append("\n\n");
+            boolean isUser = "user".equals(msg.getRole());
+            String text = isUser ? msg.getContent() : issueLogWriter.extractPlainText(msg.getContent());
+            if (text == null || text.isEmpty()) {
+                continue;
+            }
+            String role = isUser ? "用户" : "助手";
+            conversation.append("[").append(role).append("]: ").append(text).append("\n\n");
         }
         return conversation.toString();
     }

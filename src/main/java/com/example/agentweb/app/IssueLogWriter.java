@@ -23,10 +23,13 @@ class IssueLogWriter {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     /**
-     * 从 CLI 流式 JSON 输出中提取纯文本内容。
-     *
-     * @param rawOutput CLI 原始输出（可能包含 stream-json 格式）
-     * @return 提取后的纯文本
+     * 从 CLI 流式 JSON 输出中提取纯文本内容，丢弃 tool_use / tool_result / thinking /
+     * 系统 init 等噪音块。同时兼容两种 CLI 输出形态：
+     * <ul>
+     *   <li>SDK 增量流（{@code content_block_delta.delta.text}）</li>
+     *   <li>Claude Code stream-json（{@code type=assistant} 行内的 text 块，及终局 {@code result}）</li>
+     * </ul>
+     * 非 JSON 行按原文保留，兼容历史纯文本消息。
      */
     String extractPlainText(String rawOutput) {
         StringBuilder plainText = new StringBuilder();
@@ -138,18 +141,34 @@ class IssueLogWriter {
     private void parseJsonLine(String line, StringBuilder plainText) {
         try {
             JsonNode node = OBJECT_MAPPER.readTree(line);
-            // stream-json content_block_delta with text
-            if (node.has("type") && "content_block_delta".equals(node.get("type").asText())) {
+            String type = node.path("type").asText("");
+
+            if ("content_block_delta".equals(type)) {
                 JsonNode delta = node.get("delta");
                 if (delta != null && delta.has("text")) {
                     plainText.append(delta.get("text").asText());
                 }
+                return;
             }
-            // result type
-            if (node.has("type") && "result".equals(node.get("type").asText())) {
-                if (node.has("result")) {
+
+            if ("assistant".equals(type)) {
+                JsonNode content = node.path("message").path("content");
+                if (content.isArray()) {
+                    for (JsonNode block : content) {
+                        if ("text".equals(block.path("type").asText())) {
+                            plainText.append(block.path("text").asText());
+                        }
+                    }
+                }
+                return;
+            }
+
+            if ("result".equals(type)) {
+                String resultText = node.path("result").asText("");
+                // 仅当终局结果非空时，用其覆盖累积文本（终局结果更权威）
+                if (!resultText.isEmpty()) {
                     plainText.setLength(0);
-                    plainText.append(node.get("result").asText());
+                    plainText.append(resultText);
                 }
             }
         } catch (Exception ignored) {
