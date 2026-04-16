@@ -6,6 +6,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -107,7 +108,29 @@ class WorktreeServiceTest {
         Map<String, Object> repoC = repos.stream().filter(r -> "service-c".equals(r.get("name"))).findFirst().orElseThrow(() -> new RuntimeException("not found"));
         assertTrue((Boolean) repoC.get("created"));
         assertEquals("master", repoC.get("actualBranch"));
-        assertTrue(Files.isSymbolicLink(Paths.get(worktreePath, "service-c")));
+        assertTrue(isDirectoryLink(Paths.get(worktreePath, "service-c")),
+                "service-c should be a directory link (symlink on *nix, junction on Windows)");
+    }
+
+    /**
+     * 跨平台 "目录链接" 检测：Unix 符号链接或 Windows NTFS junction 皆视为链接。
+     * junction 不会被 {@link Files#isSymbolicLink} 识别，需通过 {@code toRealPath} 比较判断。
+     */
+    private static boolean isDirectoryLink(Path path) {
+        if (Files.isSymbolicLink(path)) {
+            return true;
+        }
+        boolean windows = System.getProperty("os.name", "").toLowerCase().contains("win");
+        if (windows && Files.isDirectory(path)) {
+            try {
+                Path real = path.toRealPath();
+                Path absolute = path.toAbsolutePath().normalize();
+                return !real.equals(absolute);
+            } catch (IOException e) {
+                return false;
+            }
+        }
+        return false;
     }
 
     @Test

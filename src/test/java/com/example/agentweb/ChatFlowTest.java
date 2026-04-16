@@ -5,6 +5,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,13 +20,20 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest(properties = {
         "agent.fs.roots=/tmp",
-        "agent.cli.codex.exec=/bin/echo",
-        "agent.cli.codex.stdin=false",
-        "agent.cli.codex.args=Echo,${MESSAGE}"
+        "agent.cli.codex.stdin=false"
 })
 @AutoConfigureMockMvc
 @Transactional
 public class ChatFlowTest {
+
+    /**
+     * Windows 没有 {@code /bin/echo}，改用 {@code cmd /c echo} 作为跨平台 stub。
+     * 期望产物为 {@code "Echo " + userMessage}。
+     */
+    @DynamicPropertySource
+    static void configureEchoCli(DynamicPropertyRegistry registry) {
+        TestCliStub.register(registry);
+    }
 
     @Autowired
     private MockMvc mvc;

@@ -48,6 +48,11 @@ class WorktreeControllerTest {
         gitExec(repo, "branch", "test-branch");
     }
 
+    /** 转义 JSON 字符串中的反斜杠和双引号（Windows 路径含反斜杠时必需）。 */
+    private static String jsonEscape(String s) {
+        return s.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
     private static void gitExec(Path dir, String... args) throws Exception {
         String[] cmd = new String[args.length + 1];
         cmd[0] = "git";
@@ -67,7 +72,7 @@ class WorktreeControllerTest {
     @Test
     @DisplayName("POST /api/worktree/switch 创建 worktree 并返回结果")
     void switchBranch_returns200WithWorktreePath() throws Exception {
-        String body = "{\"workspacePath\":\"" + workspacePath + "\",\"branch\":\"test-branch\"}";
+        String body = "{\"workspacePath\":\"" + jsonEscape(workspacePath) + "\",\"branch\":\"test-branch\"}";
 
         mvc.perform(post("/api/worktree/switch")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -84,7 +89,7 @@ class WorktreeControllerTest {
     @DisplayName("GET /api/worktree/list 列出已创建的 worktree")
     void listWorktrees_returnsCreatedBranches() throws Exception {
         // Ensure worktree exists
-        String body = "{\"workspacePath\":\"" + workspacePath + "\",\"branch\":\"test-branch\"}";
+        String body = "{\"workspacePath\":\"" + jsonEscape(workspacePath) + "\",\"branch\":\"test-branch\"}";
         mvc.perform(post("/api/worktree/switch")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body));
@@ -101,7 +106,7 @@ class WorktreeControllerTest {
     @DisplayName("DELETE /api/worktree/remove 删除指定分支的 worktree")
     void removeWorktree_deletesAndReturnsSuccess() throws Exception {
         // Create first
-        String body = "{\"workspacePath\":\"" + workspacePath + "\",\"branch\":\"test-branch\"}";
+        String body = "{\"workspacePath\":\"" + jsonEscape(workspacePath) + "\",\"branch\":\"test-branch\"}";
         mvc.perform(post("/api/worktree/switch")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body));
