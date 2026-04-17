@@ -1,383 +1,244 @@
 # Agent Web
 
-> 一个基于 Spring Boot 的 Web 服务，通过浏览器界面驱动本地 CLI AI 代理（Codex/Claude）
+> 基于 Spring Boot 的 Web 服务，通过浏览器界面驱动本地 CLI AI 代理（Claude / Codex）
 
-## 项目简介
+## 核心特性
 
-Agent Web 是一个 Web 中间层服务，它将本地命令行 AI 代理（如 Claude CLI 和 Codex）封装为 Web API，并提供了一个现代化的聊天界面。用户无需直接使用终端命令，即可通过浏览器与 AI 代理进行交互，完成代码生成、项目分析等任务。
-
-### 核心特性
-
-- **Web 化交互**: 通过友好的聊天界面与 CLI 代理通信，无需记忆复杂命令
-- **实时流式输出**: 基于 Server-Sent Events (SSE) 的实时响应流式传输
-- **会话管理**: 支持多会话隔离，每个会话绑定独立的工作目录
-- **上下文保持**: 支持 Claude 的会话恢复功能，保持对话连续性
-- **文件系统浏览**: 内置目录浏览器，可视化选择工作目录
-- **双代理支持**: 同时支持 Codex 和 Claude 两种 AI 代理
-- **Markdown 渲染**: 消息内容支持 Markdown 格式渲染，包含代码高亮
-- **会话控制**: 支持停止正在运行的会话
-- **会话持久化**: 基于 JSON 文件的会话持久化存储，服务重启不丢失
+- **Web 化交互** — 聊天界面与 CLI 代理通信，无需终端命令
+- **实时流式输出** — 基于 SSE 的响应流式传输
+- **会话管理** — 多会话隔离，每个会话绑定独立工作目录，支持上下文恢复
+- **会话持久化** — SQLite + JSON 双存储，服务重启不丢失
+- **文件系统浏览** — 目录浏览、文件上传 / 下载 / 删除
+- **对话分享** — 生成公开链接，他人免登录查看历史对话
+- **定时任务** — Cron 表达式驱动的定时 Agent 任务调度
+- **Git Worktree** — 按分支切换工作空间，支持并行多分支开发
+- **Slash Commands** — 自动扫描工作目录下的自定义命令并展开
+- **环境切换** — 支持多环境（测试 / 生产）上下文配置
 
 ## 技术栈
 
-### 后端
-- **框架**: Spring Boot 2.7.18
-- **语言**: Java 8+
-- **构建工具**: Maven
-- **架构模式**: 领域驱动设计 (DDD) + 六边形架构
-
-### 前端
-- **框架**: Vue 3 (CDN)
-- **UI 组件**: Element Plus
-- **通信**: RESTful API + Server-Sent Events
-
-### 支持的 AI 代理
-- **Claude**: Anthropic Claude CLI (Opus 4.6)
-- **Codex**: OpenAI Codex CLI
+| 层面 | 技术 |
+|------|------|
+| 后端框架 | Spring Boot 2.7.18 / Java 8+ / Maven |
+| 数据库 | SQLite（会话 + 定时任务持久化） |
+| 前端 | Vue 3 + Element Plus（CDN） |
+| 通信 | RESTful API + Server-Sent Events |
+| 架构 | DDD + 六边形架构 |
+| 代码质量 | Alibaba P3C (PMD) |
+| 支持的代理 | Claude CLI (Opus 4.6) / OpenAI Codex CLI |
 
 ## 快速开始
 
 ### 环境要求
 
-- Java 8 或更高版本
+- Java 8+
 - Maven 3.6+
 - Claude CLI 或 Codex CLI（至少安装一个）
 
-### 安装步骤
+### 启动
 
-1. **克隆项目**
 ```bash
-git clone <repository-url>
-cd agent-web
+# 构建
+mvn clean package
+
+# 启动（二选一）
+mvn spring-boot:run
+java -jar target/agent-web-0.1.0-SNAPSHOT.jar
+
+# 访问
+http://localhost:17988
 ```
 
-2. **配置 CLI 代理路径**（可选）
+默认登录凭据：`admin` / `Aa135246`（可在 `application.yml` 中修改）。
 
-如果 Claude/Codex 不在系统 PATH 中，可设置环境变量：
-```bash
-export CLAUDE_CLI_CMD=/path/to/claude
-export CODEX_CMD=/path/to/codex
-```
+### 基本配置
 
-3. **修改配置文件**（推荐）
+编辑 `src/main/resources/application.yml`：
 
-编辑 `src/main/resources/application.yml`，限制允许访问的目录：
 ```yaml
+server:
+  port: 17988
+
 agent:
+  # 允许访问的根目录
   fs:
     roots:
-      - "/home/user/projects"  # 修改为实际的工作目录
-      - "/tmp"
+      - "/home/user/projects"
+  # 认证配置
+  auth:
+    enabled: true
+    username: admin
+    password: "your-password"
+    max-fail-count: 50
+  # CLI 代理路径（也可通过环境变量 CLAUDE_CLI_CMD / CODEX_CMD 覆盖）
+  cli:
+    claude:
+      exec: ${CLAUDE_CLI_CMD:claude}
+      timeout-seconds: 0  # 0 表示不超时
+    codex:
+      exec: ${CODEX_CMD:codex}
+      timeout-seconds: 0
 ```
-
-4. **构建项目**
-```bash
-mvn clean package
-```
-
-5. **启动服务**
-
-使用 Maven 启动：
-```bash
-mvn spring-boot:run
-```
-
-或使用提供的脚本：
-```bash
-# Linux/macOS
-./run.sh
-
-# Windows
-run.bat
-```
-
-或直接运行 JAR：
-```bash
-java -jar target/agent-web-0.1.0-SNAPSHOT.jar
-```
-
-6. **访问应用**
-
-打开浏览器访问：`http://localhost:18092`
-
-> 注：已移除登录认证，默认用户为 admin，无需登录即可使用。
 
 ## 使用指南
 
-### 创建会话
+1. 登录后在左侧边栏选择工作目录
+2. 点击"开始会话"创建 Agent 会话
+3. 在输入框输入指令，按 `Enter` 发送（`Ctrl+Enter` 换行）
+4. 实时查看 Agent 流式响应
+5. 可通过"分享"按钮生成公开链接
 
-1. 在左侧边栏选择工作目录
-2. 点击根路径下拉框，选择允许的根目录
-3. 浏览并点击目标文件夹
-4. 确认代理类型（当前为 CLAUDE）
-5. 点击"开始会话"按钮
+## API 接口
 
-### 发送消息
+### 认证 `/api/auth`
 
-1. 会话创建成功后，在底部输入框输入你的指令
-2. 按 `Enter` 发送消息（`Ctrl+Enter` 换行）
-3. 实时查看 AI 代理的流式响应
-4. 系统会自动提取并保存 Resume ID，用于恢复上下文
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/auth/login` | 登录 |
+| POST | `/api/auth/logout` | 登出 |
+| GET | `/api/auth/status` | 登录状态与认证开关 |
 
-### 清除上下文
+### 聊天会话 `/api/chat`
 
-如需开始全新对话，点击"清除上下文"按钮，系统将重置会话状态。
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/chat/session` | 创建会话 |
+| GET | `/api/chat/sessions?page=&size=` | 会话列表（分页） |
+| GET | `/api/chat/session/{id}/messages` | 会话历史消息 |
+| GET | `/api/chat/session/{id}/status` | 会话运行状态 |
+| POST | `/api/chat/session/{id}/message` | 发送消息（同步） |
+| GET | `/api/chat/session/{id}/message/stream` | 发送消息（SSE 流式） |
+| POST | `/api/chat/session/{id}/stop` | 停止运行中的会话 |
+| POST | `/api/chat/session/{id}/summarize` | 总结会话为 Issue Log |
+| DELETE | `/api/chat/session/{id}` | 删除会话 |
+| GET | `/api/chat/session/{id}/commands` | 会话可用 Slash Commands |
+| GET | `/api/chat/commands?workingDir=` | 按目录查询 Slash Commands |
+| GET | `/api/chat/envs` | 环境配置列表 |
 
-## API 文档
+### 对话分享
 
-### 文件系统接口
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/chat/session/{id}/share` | 生成分享链接 |
+| GET | `/api/share/{token}` | 查看分享内容（无需认证） |
 
-#### 获取允许的根目录
-```http
-GET /api/fs/roots
-```
+### 文件系统 `/api/fs`
 
-#### 列出子目录
-```http
-GET /api/fs/list?path=/home/user/projects
-```
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/fs/roots` | 允许的根目录列表 |
+| GET | `/api/fs/list?path=` | 列出目录内容 |
+| POST | `/api/fs/upload` | 上传文件 |
+| GET | `/api/fs/download?path=` | 下载文件 |
+| DELETE | `/api/fs/delete?path=` | 删除文件 |
 
-### 聊天会话接口
+### 定时任务 `/api/tasks`
 
-#### 创建会话
-```http
-POST /api/chat/session
-Content-Type: application/json
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/tasks` | 任务列表 |
+| POST | `/api/tasks` | 创建任务 |
+| GET | `/api/tasks/{id}` | 任务详情 |
+| PUT | `/api/tasks/{id}` | 更新任务 |
+| DELETE | `/api/tasks/{id}` | 删除任务 |
+| POST | `/api/tasks/{id}/toggle` | 启用 / 禁用 |
+| POST | `/api/tasks/{id}/run` | 手动触发执行 |
 
-{
-  "agentType": "CLAUDE",
-  "workingDir": "/home/user/projects/my-project"
-}
-```
+### Git Worktree `/api/worktree`
 
-响应：
-```json
-{
-  "sessionId": "550e8400-e29b-41d4-a716-446655440000",
-  "agentType": "CLAUDE",
-  "workingDir": "/home/user/projects/my-project"
-}
-```
-
-#### 发送消息（同步）
-```http
-POST /api/chat/session/{sessionId}/message
-Content-Type: application/json
-
-{
-  "message": "分析这个项目的结构"
-}
-```
-
-#### 发送消息（流式）
-```http
-GET /api/chat/session/{sessionId}/message/stream?message=分析项目结构&resumeId=xxx
-```
-
-响应格式（Server-Sent Events）：
-```
-event: chunk
-data: {"type":"stream_event","content":"..."}
-
-event: exit
-data: 0
-
-event: error
-data: 错误信息
-```
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/worktree/switch` | 按分支切换工作空间 |
+| GET | `/api/worktree/list?workspacePath=` | 列出分支 |
+| DELETE | `/api/worktree/remove?workspacePath=&branch=` | 移除 worktree |
 
 ## 项目结构
 
 ```
 src/main/java/com/example/agentweb/
 ├── interfaces/              # 接口层（REST 控制器、DTO）
-│   ├── ChatController.java       # 聊天会话和消息处理
-│   ├── FsController.java         # 文件系统浏览与文件管理
-│   ├── GlobalExceptionHandler.java
-│   └── dto/                      # 数据传输对象
+│   ├── ChatController           # 聊天会话与消息
+│   ├── FsController             # 文件系统浏览与管理
+│   ├── AuthController           # 登录认证
+│   ├── ShareController          # 对话分享
+│   ├── ScheduledTaskController  # 定时任务管理
+│   ├── WorktreeController       # Git Worktree 管理
+│   ├── GlobalExceptionHandler   # 全局异常处理
+│   └── dto/                     # 数据传输对象（14 个）
 │
 ├── app/                     # 应用服务层
-│   ├── ChatAppService.java       # 服务接口
-│   └── ChatAppServiceImpl.java   # 服务实现
+│   ├── ChatAppService           # 聊天服务接口与实现
+│   ├── ScheduledTaskService     # 定时任务服务接口与实现
+│   ├── WorktreeService          # Worktree 操作服务
+│   ├── DynamicTaskScheduler     # 动态 Cron 调度器
+│   ├── IssueLogWriter           # 会话总结输出
+│   └── StreamChunkHandler       # SSE 流式块处理
 │
 ├── domain/                  # 领域模型层
-│   ├── ChatSession.java          # 聊天会话聚合根
-│   ├── ChatMessage.java          # 聊天消息模型
-│   └── AgentType.java            # 代理类型枚举
+│   ├── ChatSession              # 聊天会话聚合根
+│   ├── ChatMessage              # 聊天消息
+│   ├── AgentType                # 代理类型枚举
+│   ├── ScheduledTask            # 定时任务实体
+│   ├── SlashCommand / Scanner / Expander  # 自定义命令
+│   ├── SessionRepository        # 会话仓储接口
+│   ├── SessionCache             # 会话缓存接口
+│   └── ScheduledTaskRepository  # 定时任务仓储接口
 │
 ├── adapter/                 # 适配器接口
-│   └── AgentGateway.java         # 代理网关接口
+│   └── AgentGateway             # 代理网关端口
 │
 ├── infra/                   # 基础设施层
-│   ├── AgentCliGateway.java      # CLI 进程执行适配器
-│   ├── AgentCliProperties.java   # CLI 配置属性
-│   ├── FsProperties.java         # 文件系统配置
-│   ├── InMemorySessionRepo.java  # 内存会话仓储
-│   ├── JsonFileSessionRepo.java  # JSON 文件会话持久化仓储
-│   └── ExecutorConfig.java       # 线程池配置
+│   ├── AgentCliGateway          # CLI 进程执行适配器
+│   ├── SqliteSessionRepo        # SQLite 会话持久化
+│   ├── SqliteScheduledTaskRepo  # SQLite 定时任务持久化
+│   ├── JsonFileSessionRepo      # JSON 文件会话持久化
+│   ├── InMemorySessionRepo      # 内存会话缓存
+│   ├── SqliteInitializer        # SQLite 建表初始化
+│   ├── AuthFilter               # 认证过滤器
+│   ├── FileSlashCommandScanner  # 文件系统命令扫描
+│   ├── SlashCommandBeanRegistrar # 命令 Bean 注册
+│   └── *Properties              # 配置属性类
 │
-└── config/                  # Spring 配置
-    └── WebConfig.java            # Web MVC 配置
+└── config/
+    └── WebConfig                # Web MVC 配置
 
 src/main/resources/
-├── application.yml          # 应用配置文件
+├── application.yml
 └── static/
-    └── index.html           # 主聊天界面（Vue 3 + Markdown 渲染）
+    ├── index.html           # 主界面
+    ├── login.html           # 登录页
+    ├── share.html           # 分享页
+    ├── js/app.js            # 前端逻辑
+    └── css/app.css          # 样式
 ```
 
-## 配置说明
+## 测试
 
-### 端口配置
-```yaml
-server:
-  port: 18092  # 修改为所需端口
+```bash
+mvn test          # 运行所有测试
+mvn pmd:check     # 代码质量检查（Alibaba P3C）
 ```
 
-### 文件系统根目录
-```yaml
-agent:
-  fs:
-    roots:
-      - "/home"      # 生产环境应限制为特定目录
-      - "/tmp"
-```
-
-### Codex 代理配置
-```yaml
-agent:
-  cli:
-    codex:
-      exec: ${CODEX_CMD:codex}  # 可通过环境变量覆盖
-      args:
-        - exec
-        - --skip-git-repo-check
-        - --full-auto
-      stdin: true
-      timeout-seconds: 180      # 超时时间（秒）
-```
-
-### Claude 代理配置
-```yaml
-agent:
-  cli:
-    claude:
-      exec: ${CLAUDE_CLI_CMD:claude}
-      args:
-        - --print
-        - --output-format
-        - stream-json
-        - --verbose
-        - --include-partial-messages
-        - --dangerously-skip-permissions
-      stdin: true
-      timeout-seconds: 180
-```
-
-## 架构设计
-
-### 设计原则
-
-本项目采用 **领域驱动设计 (DDD)** 和 **六边形架构（端口与适配器）**，确保代码的可维护性和可测试性。
-
-### 分层结构
-
-1. **接口层 (interfaces)**: 处理 HTTP 请求和响应，定义 DTO
-2. **应用层 (app)**: 协调领域对象和基础设施，编排业务流程
-3. **领域层 (domain)**: 核心业务逻辑和领域模型
-4. **适配器层 (adapter)**: 定义外部系统交互的端口
-5. **基础设施层 (infra)**: 实现具体的技术细节（进程调用、存储等）
-
-### 执行流程
-
-**会话创建流程**:
-1. 用户选择工作目录 → 2. 发送 `POST /api/chat/session` → 3. 创建 `ChatSession` 对象 → 4. 存储到内存仓储 → 5. 返回会话 ID
-
-**消息执行流程（流式）**:
-1. 用户输入消息 → 2. 发送 `GET /stream?message=xxx` → 3. 启动 CLI 进程 → 4. 将消息写入 stdin → 5. 实时读取 stdout → 6. 通过 SSE 推送到前端 → 7. 进程结束，返回退出码
+测试文件：
+- `ChatFlowTest` — 聊天流程集成测试
+- `FsControllerTest` — 文件系统控制器测试
+- `ResumeSessionTest` — 会话恢复测试
+- `ScheduledTaskTest` — 定时任务测试
+- `SlashCommandScannerTest` / `SlashCommandExpanderTest` — 自定义命令测试
+- `WorktreeControllerTest` / `WorktreeServiceTest` — Worktree 测试
+- `JsonFileSessionRepoTest` — JSON 持久化测试
 
 ## 安全注意事项
 
 ### 当前实现
 
-- ✅ 路径验证防止目录穿越
-- ✅ 进程超时保护（默认 180 秒）
-- ✅ 默认用户为 admin（已移除登录认证，适用于内网/开发环境）
+- 路径验证防止目录穿越
+- 登录认证 + 失败次数锁定
+- 分享链接基于随机 Token，无需认证
 
 ### 生产环境建议
 
-- ❗ **添加认证机制**：集成 OAuth2 或其他外部认证系统
-- ❗ **限制根目录**：在 `application.yml` 中严格限制 `agent.fs.roots`
-- ❗ **启用 HTTPS**：配置 SSL/TLS 证书
-- ❗ **移除危险标志**：评估是否需要 `--dangerously-skip-permissions`
-- ❗ **添加访问日志**：记录所有代理调用和文件访问
-- ❗ **实施速率限制**：防止滥用和资源耗尽
-
-## 测试
-
-### 运行测试
-```bash
-# 运行所有测试
-mvn test
-
-# 运行代码质量检查
-mvn pmd:check
-```
-
-### 测试文件
-- `FsControllerTest.java` - 文件系统控制器测试
-- `ChatFlowTest.java` - 聊天流程集成测试
-
-## 常见问题
-
-### Q: 如何添加新的 AI 代理？
-A:
-1. 在 `AgentType` 枚举中添加新类型
-2. 在 `application.yml` 中配置代理的 CLI 命令和参数
-3. 在 `AgentCliProperties` 中添加对应的配置类
-
-### Q: 会话数据存储在哪里？
-A: 支持内存存储 (`InMemorySessionRepo`) 和 JSON 文件持久化 (`JsonFileSessionRepo`)。使用 JSON 文件存储时，会话数据保存在 `sessions/` 目录下，服务重启后可恢复。
-
-### Q: 如何自定义超时时间？
-A: 修改 `application.yml` 中的 `timeout-seconds` 配置项。
-
-### Q: 支持并发会话吗？
-A: 支持。每个会话独立管理，互不影响。线程池配置在 `ExecutorConfig` 中。
-
-## 开发计划
-
-- [ ] 支持更多 AI 代理（如 GPT-4、Gemini）
-- [ ] 多用户管理和权限控制
-- [ ] Docker 容器化部署
-- [ ] WebSocket 替代 SSE
-
-## 版本历史
-
-### 0.1.0-SNAPSHOT (当前版本)
-- ✅ Claude 会话上下文管理和恢复支持
-- ✅ 前端升级到 Vue 3 + Element Plus
-- ✅ Codex 和 Claude 自动模式支持
-- ✅ 流式输出显示优化
-- ✅ Git 仓库检查跳过选项
-- ✅ 移除登录认证，默认用户为 admin
-- ✅ 增强文件管理与流式输出体验
-- ✅ 修复 SSE 长连接超时断开问题
-- ✅ 前端 Markdown 渲染与代码高亮
-- ✅ 停止会话功能
-- ✅ 工具调用块优化展示
-- ✅ JSON 文件会话持久化存储
-- ✅ 加载动画优化
-
-## 许可证
-
-请根据项目实际情况添加许可证信息。
-
-## 贡献
-
-欢迎提交 Issue 和 Pull Request！
-
-## 联系方式
-
-如有问题或建议，请通过以下方式联系：
-- 提交 Issue: [项目仓库]
-- 邮箱: [联系邮箱]
+- 修改默认密码，限制 `agent.fs.roots` 为必要目录
+- 启用 HTTPS
+- 评估是否需要 `--dangerously-skip-permissions`
+- 添加访问日志与速率限制
