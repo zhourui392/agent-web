@@ -30,6 +30,17 @@ public class WorktreeController {
         return worktreeService.switchBranch(workspacePath, branch);
     }
 
+    @PostMapping("/update")
+    public Map<String, Object> updateBranch(@RequestBody Map<String, String> req)
+            throws IOException, InterruptedException {
+        String workspacePath = req.get("workspacePath");
+        String branch = req.get("branch");
+        if (workspacePath == null || branch == null) {
+            throw new IllegalArgumentException("workspacePath and branch are required");
+        }
+        return worktreeService.updateBranch(workspacePath, branch);
+    }
+
     @GetMapping("/list")
     public List<Map<String, Object>> list(@RequestParam("workspacePath") String workspacePath)
             throws IOException {

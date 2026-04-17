@@ -67,6 +67,10 @@
                            :loading="switchingBranch" :disabled="!selectedBranch || !currentPath">
                   切换
                 </el-button>
+                <el-button size="default" @click="updateBranch"
+                           :loading="updatingBranch" :disabled="!currentBranch">
+                  更新
+                </el-button>
               </div>
               <div v-if="savedBranches.length > 0" style="margin-top: 8px;">
                 <el-tag v-for="b in savedBranches" :key="b" closable size="small"
@@ -85,6 +89,17 @@
                   <el-icon style="color: #67c23a;"><circle-check-filled /></el-icon>
                   {{ r.name }}
                   <span v-if="r.actualBranch && r.actualBranch !== selectedBranch" style="color: #e6a23c;">(master)</span>
+                </div>
+              </div>
+              <div v-if="updateResult && updateResult.length > 0" style="margin-top: 8px; font-size: 12px; color: #909399; max-height: 260px; overflow-y: auto;">
+                <div v-for="r in updateResult" :key="'upd-' + r.name">
+                  <el-icon v-if="r.updated" style="color: #67c23a;"><circle-check-filled /></el-icon>
+                  <el-icon v-else-if="r.skipped" style="color: #909399;"><circle-check-filled /></el-icon>
+                  <el-icon v-else style="color: #f56c6c;"><circle-close-filled /></el-icon>
+                  {{ r.name }}
+                  <span :style="{ color: r.updated ? '#67c23a' : (r.skipped ? '#909399' : '#f56c6c') }">
+                    {{ r.reason }}
+                  </span>
                 </div>
               </div>
             </el-popover>

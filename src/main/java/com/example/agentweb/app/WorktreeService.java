@@ -117,6 +117,127 @@ public class WorktreeService {
     }
 
     /**
+     * Pull latest commits into every real worktree of {@code branch}. Symlink /
+     * junction leaves point into the main repo checkout; pulling those would
+     * move the user's in-progress HEAD, so skip them with a clear reason.
+     */
+    public Map<String, Object> updateBranch(String workspacePath, String branch)
+            throws IOException, InterruptedException {
+
+        Path workspace = Paths.get(workspacePath).normalize();
+        if (!Files.isDirectory(workspace)) {
+            throw new IllegalArgumentException("Workspace not found: " + workspacePath);
+        }
+        String safeBranch = safeBranchName(branch);
+        Path worktreeBase = workspace.resolve(WORKTREE_DIR).resolve(safeBranch);
+        if (!Files.isDirectory(worktreeBase)) {
+            throw new IllegalArgumentException("Branch worktree not found: " + branch);
+        }
+
+        List<Path> realWorktrees = new ArrayList<>();
+        List<String> skippedLinks = new ArrayList<>();
+        Files.walkFileTree(worktreeBase, EnumSet.noneOf(java.nio.file.FileVisitOption.class),
+                MAX_SCAN_DEPTH, new SimpleFileVisitor<Path>() {
+            @Override
+            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                if (dir.equals(worktreeBase)) {
+                    return FileVisitResult.CONTINUE;
+                }
+                if (isDirectoryLink(dir)) {
+                    skippedLinks.add(worktreeBase.relativize(dir).toString());
+                    return FileVisitResult.SKIP_SUBTREE;
+                }
+                if (Files.exists(dir.resolve(".git"))) {
+                    realWorktrees.add(dir);
+                    return FileVisitResult.SKIP_SUBTREE;
+                }
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                if (attrs.isSymbolicLink()) {
+                    skippedLinks.add(worktreeBase.relativize(file).toString());
+                }
+                return FileVisitResult.CONTINUE;
+            }
+        });
+
+        List<Map<String, Object>> repos = parallelPull(worktreeBase, realWorktrees);
+        for (String name : skippedLinks) {
+            Map<String, Object> r = new HashMap<>();
+            r.put("name", name);
+            r.put("updated", false);
+            r.put("skipped", true);
+            r.put("reason", "回退分支，跳过");
+            repos.add(r);
+        }
+        repos.sort(Comparator.comparing(m -> String.valueOf(m.get("name"))));
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("branch", branch);
+        result.put("repos", repos);
+        return result;
+    }
+
+    private List<Map<String, Object>> parallelPull(Path worktreeBase, List<Path> repos)
+            throws InterruptedException {
+        List<Map<String, Object>> results = new ArrayList<>();
+        if (repos.isEmpty()) return results;
+
+        ExecutorService pool = Executors.newFixedThreadPool(
+                Math.min(THREAD_POOL_SIZE, repos.size()));
+        try {
+            List<Future<Map<String, Object>>> futures = new ArrayList<>();
+            for (Path repo : repos) {
+                final String name = worktreeBase.relativize(repo).toString();
+                futures.add(pool.submit(() -> pullOne(name, repo.toFile())));
+            }
+            for (int i = 0; i < futures.size(); i++) {
+                String name = worktreeBase.relativize(repos.get(i)).toString();
+                try {
+                    results.add(futures.get(i).get(FETCH_TIMEOUT_SECONDS + 5, TimeUnit.SECONDS));
+                } catch (ExecutionException | TimeoutException ex) {
+                    Map<String, Object> r = new HashMap<>();
+                    r.put("name", name);
+                    r.put("updated", false);
+                    r.put("reason", ex instanceof TimeoutException ? "超时" : "执行异常");
+                    results.add(r);
+                }
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+        return results;
+    }
+
+    /**
+     * Run {@code git pull --ff-only} and classify the outcome by comparing HEAD
+     * before/after — locale-independent, works regardless of git's language.
+     */
+    private Map<String, Object> pullOne(String name, File repoDir) {
+        Map<String, Object> r = new HashMap<>();
+        r.put("name", name);
+        try {
+            String before = execCapture(repoDir, "git", "rev-parse", "HEAD").output.trim();
+            ExecResult pull = execCapture(repoDir, "git", "pull", "--ff-only");
+            if (pull.exitCode != 0) {
+                r.put("updated", false);
+                String msg = pull.output.trim();
+                r.put("reason", msg.isEmpty() ? "更新失败" : msg);
+                return r;
+            }
+            String after = execCapture(repoDir, "git", "rev-parse", "HEAD").output.trim();
+            r.put("updated", true);
+            r.put("reason", before.equals(after) ? "已是最新" : "已更新");
+        } catch (Exception ex) {
+            r.put("updated", false);
+            r.put("reason", ex.getMessage() == null ? "异常" : ex.getMessage());
+        }
+        return r;
+    }
+
+    /**
      * List all worktree branch directories under the workspace.
      */
     public List<Map<String, Object>> listWorktrees(String workspacePath) throws IOException {

@@ -38,6 +38,8 @@ const app = createApp({
     const switchResult = ref(null);
     const removingBranch = ref('');
     const originalWorkspacePath = ref('');
+    const updatingBranch = ref(false);
+    const updateResult = ref(null);
 
     // --- 定时任务 ---
     const taskList = ref([]);
@@ -357,12 +359,46 @@ const app = createApp({
         currentPath.value = data.worktreePath;
         await loadList(data.worktreePath);
         saveWorktreeState();
-        const created = data.repos.filter(function(r) { return r.created; }).length;
-        ElementPlus.ElMessage.success('已切换到 ' + selectedBranch.value + '，' + created + ' 个仓库');
+        const switched = data.repos.filter(function(r) {
+          return r.created && r.actualBranch === selectedBranch.value;
+        }).length;
+        ElementPlus.ElMessage.success('已切换到 ' + selectedBranch.value + '，' + switched + ' 个服务');
       } catch (e) {
         ElementPlus.ElMessage.error('切换分支失败: ' + e.message);
       } finally {
         switchingBranch.value = false;
+      }
+    };
+
+    const updateBranch = async () => {
+      if (!currentBranch.value) return;
+      const wsPath = originalWorkspacePath.value || currentPath.value;
+      if (!wsPath) return;
+      updatingBranch.value = true;
+      updateResult.value = null;
+      try {
+        const res = await fetch('/api/worktree/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ workspacePath: wsPath, branch: currentBranch.value })
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text);
+        }
+        const data = await res.json();
+        updateResult.value = data.repos;
+        const ok = data.repos.filter(function(r) { return r.updated; }).length;
+        const failed = data.repos.filter(function(r) { return !r.updated && !r.skipped; }).length;
+        if (failed === 0) {
+          ElementPlus.ElMessage.success('已更新 ' + ok + ' 个服务');
+        } else {
+          ElementPlus.ElMessage.warning('成功 ' + ok + '，失败 ' + failed);
+        }
+      } catch (e) {
+        ElementPlus.ElMessage.error('更新失败: ' + e.message);
+      } finally {
+        updatingBranch.value = false;
       }
     };
 
@@ -374,6 +410,7 @@ const app = createApp({
       currentBranch.value = '';
       selectedBranch.value = '';
       switchResult.value = null;
+      updateResult.value = null;
       originalWorkspacePath.value = '';
       clearWorktreeState();
     };
@@ -1054,6 +1091,9 @@ const app = createApp({
       switchResult,
       removingBranch,
       switchBranch,
+      updateBranch,
+      updatingBranch,
+      updateResult,
       clearBranch,
       removeSavedBranch,
       onUploadSuccess,
