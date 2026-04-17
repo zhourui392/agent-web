@@ -599,6 +599,28 @@ const app = createApp({
       }
     };
 
+    const copyToClipboard = async (text) => {
+      if (navigator.clipboard && window.isSecureContext) {
+        try {
+          await navigator.clipboard.writeText(text);
+          return true;
+        } catch (e) { /* fall through */ }
+      }
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        return ok;
+      } catch (e) {
+        return false;
+      }
+    };
+
     const shareSession = async () => {
       if (!currentHistorySessionId.value) return;
       try {
@@ -609,8 +631,15 @@ const app = createApp({
         }
         const data = await res.json();
         const shareUrl = window.location.origin + '/share.html?token=' + data.shareToken;
-        await navigator.clipboard.writeText(shareUrl);
-        ElementPlus.ElMessage.success('分享链接已复制到剪贴板');
+        const copied = await copyToClipboard(shareUrl);
+        if (copied) {
+          ElementPlus.ElMessage.success('分享链接已复制到剪贴板');
+        } else {
+          ElementPlus.ElMessageBox.alert(shareUrl, '分享链接（请手动复制）', {
+            confirmButtonText: '关闭',
+            customClass: 'share-link-dialog'
+          });
+        }
       } catch (e) {
         ElementPlus.ElMessage.error('生成分享链接失败: ' + (e.message || '未知错误'));
       }
