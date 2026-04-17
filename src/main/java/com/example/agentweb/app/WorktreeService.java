@@ -6,10 +6,13 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
 import java.util.concurrent.*;
 
@@ -23,6 +26,9 @@ public class WorktreeService {
     private static final String WORKTREE_DIR = ".worktrees";
     private static final int FETCH_TIMEOUT_SECONDS = 30;
     private static final int THREAD_POOL_SIZE = 8;
+    // Depth relative to workspace root: root=0, direct child=1. A value of 4
+    // lets us find repos at workspace/a/b/c/repo.
+    private static final int MAX_SCAN_DEPTH = 4;
 
     /**
      * Switch a workspace to a given branch by creating worktrees for every
@@ -42,13 +48,15 @@ public class WorktreeService {
         Path worktreeBase = workspace.resolve(WORKTREE_DIR).resolve(safeBranch);
         Files.createDirectories(worktreeBase);
 
-        List<File> gitRepos = collectGitRepos(workspace);
+        List<RepoEntry> gitRepos = collectGitRepos(workspace);
 
-        parallelFetch(gitRepos);
+        List<File> repoDirs = new ArrayList<>();
+        for (RepoEntry e : gitRepos) repoDirs.add(e.dir);
+        parallelFetch(repoDirs);
 
         List<Map<String, Object>> repos = new ArrayList<>();
-        for (File repo : gitRepos) {
-            repos.add(createWorktreeForRepo(repo, branch, worktreeBase));
+        for (RepoEntry entry : gitRepos) {
+            repos.add(createWorktreeForRepo(entry, branch, worktreeBase));
         }
 
         Map<String, Object> result = new HashMap<>();
@@ -58,21 +66,28 @@ public class WorktreeService {
         return result;
     }
 
-    private List<File> collectGitRepos(Path workspace) {
-        List<File> gitRepos = new ArrayList<>();
-        File[] children = workspace.toFile().listFiles();
-        if (children != null) {
-            Arrays.sort(children);
-            for (File child : children) {
-                if (!child.isDirectory() || child.getName().startsWith(".")) {
-                    continue;
+    private List<RepoEntry> collectGitRepos(Path workspace) throws IOException {
+        List<RepoEntry> repos = new ArrayList<>();
+        Files.walkFileTree(workspace, EnumSet.noneOf(java.nio.file.FileVisitOption.class),
+                MAX_SCAN_DEPTH, new SimpleFileVisitor<Path>() {
+            @Override
+            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                if (dir.equals(workspace)) {
+                    return FileVisitResult.CONTINUE;
                 }
-                if (new File(child, ".git").exists()) {
-                    gitRepos.add(child);
+                // Skip hidden dirs (.git, .worktrees, .idea, ...).
+                if (dir.getFileName().toString().startsWith(".")) {
+                    return FileVisitResult.SKIP_SUBTREE;
                 }
+                if (Files.exists(dir.resolve(".git"))) {
+                    repos.add(new RepoEntry(dir.toFile(), workspace.relativize(dir)));
+                    return FileVisitResult.SKIP_SUBTREE;
+                }
+                return FileVisitResult.CONTINUE;
             }
-        }
-        return gitRepos;
+        });
+        repos.sort(Comparator.comparing(r -> r.relativePath.toString()));
+        return repos;
     }
 
     private void parallelFetch(List<File> repos) throws InterruptedException {
@@ -104,7 +119,7 @@ public class WorktreeService {
     /**
      * List all worktree branch directories under the workspace.
      */
-    public List<Map<String, Object>> listWorktrees(String workspacePath) {
+    public List<Map<String, Object>> listWorktrees(String workspacePath) throws IOException {
         Path worktreeBase = Paths.get(workspacePath).normalize().resolve(WORKTREE_DIR);
         List<Map<String, Object>> result = new ArrayList<>();
 
@@ -122,12 +137,47 @@ public class WorktreeService {
                 Map<String, Object> item = new HashMap<>();
                 item.put("branch", branchDir.getName());
                 item.put("path", branchDir.getAbsolutePath());
-                File[] repos = branchDir.listFiles(File::isDirectory);
-                item.put("repoCount", repos != null ? repos.length : 0);
+                item.put("repoCount", countRepoLeaves(branchDir.toPath()));
                 result.add(item);
             }
         }
         return result;
+    }
+
+    /**
+     * Count repo leaves under a branch worktree root. A leaf is either a
+     * symlink (fallback path) or a directory containing {@code .git}.
+     */
+    private int countRepoLeaves(Path base) throws IOException {
+        int[] count = {0};
+        Files.walkFileTree(base, EnumSet.noneOf(java.nio.file.FileVisitOption.class),
+                MAX_SCAN_DEPTH, new SimpleFileVisitor<Path>() {
+            @Override
+            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                if (dir.equals(base)) {
+                    return FileVisitResult.CONTINUE;
+                }
+                // NTFS junction: counts as a link leaf, do not descend.
+                if (isDirectoryLink(dir)) {
+                    count[0]++;
+                    return FileVisitResult.SKIP_SUBTREE;
+                }
+                if (Files.exists(dir.resolve(".git"))) {
+                    count[0]++;
+                    return FileVisitResult.SKIP_SUBTREE;
+                }
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                if (attrs.isSymbolicLink()) {
+                    count[0]++;
+                }
+                return FileVisitResult.CONTINUE;
+            }
+        });
+        return count[0];
     }
 
     /**
@@ -144,20 +194,46 @@ public class WorktreeService {
             return;
         }
 
-        File[] entries = worktreeBase.toFile().listFiles();
-        if (entries != null) {
-            for (File entry : entries) {
-                Path entryPath = entry.toPath();
-                // Symlinks point back to the main repo (fallback path); just unlink.
-                if (isDirectoryLink(entryPath)) {
-                    Files.delete(entryPath);
-                    continue;
+        List<Path> links = new ArrayList<>();
+        List<Path> realWorktrees = new ArrayList<>();
+        Files.walkFileTree(worktreeBase, EnumSet.noneOf(java.nio.file.FileVisitOption.class),
+                MAX_SCAN_DEPTH, new SimpleFileVisitor<Path>() {
+            @Override
+            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                if (dir.equals(worktreeBase)) {
+                    return FileVisitResult.CONTINUE;
                 }
-                File originalRepo = workspace.resolve(entry.getName()).toFile();
-                if (originalRepo.isDirectory() && new File(originalRepo, ".git").exists()) {
-                    exec(originalRepo, "git", "worktree", "remove", "--force",
-                            entry.getAbsolutePath());
+                // NTFS junctions masquerade as regular directories to walkFileTree;
+                // detect them here so we don't descend into the target checkout.
+                if (isDirectoryLink(dir)) {
+                    links.add(dir);
+                    return FileVisitResult.SKIP_SUBTREE;
                 }
+                if (Files.exists(dir.resolve(".git"))) {
+                    realWorktrees.add(dir);
+                    return FileVisitResult.SKIP_SUBTREE;
+                }
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                if (attrs.isSymbolicLink()) {
+                    links.add(file);
+                }
+                return FileVisitResult.CONTINUE;
+            }
+        });
+
+        for (Path link : links) {
+            Files.delete(link);
+        }
+        for (Path wt : realWorktrees) {
+            Path rel = worktreeBase.relativize(wt);
+            Path originalRepo = workspace.resolve(rel);
+            if (Files.isDirectory(originalRepo) && Files.exists(originalRepo.resolve(".git"))) {
+                exec(originalRepo.toFile(), "git", "worktree", "remove", "--force",
+                        wt.toString());
             }
         }
 
@@ -166,11 +242,14 @@ public class WorktreeService {
 
     // ---- internal helpers ----
 
-    private Map<String, Object> createWorktreeForRepo(File repoDir, String branch, Path worktreeBase)
+    private Map<String, Object> createWorktreeForRepo(RepoEntry entry, String branch, Path worktreeBase)
             throws IOException, InterruptedException {
 
+        File repoDir = entry.dir;
         Map<String, Object> repoResult = new HashMap<>();
-        repoResult.put("name", repoDir.getName());
+        // Use relative path as the logical name — disambiguates repos that share
+        // the same leaf name under different parent directories.
+        repoResult.put("name", entry.relativePath.toString());
 
         boolean localExists = localBranchExists(repoDir, branch);
         boolean remoteExists = remoteBranchExists(repoDir, branch);
@@ -186,11 +265,15 @@ public class WorktreeService {
         }
         repoResult.put("actualBranch", actualBranch);
 
-        Path repoWorktree = worktreeBase.resolve(repoDir.getName());
+        Path repoWorktree = worktreeBase.resolve(entry.relativePath);
         if (Files.exists(repoWorktree, LinkOption.NOFOLLOW_LINKS)) {
             repoResult.put("created", true);
             repoResult.put("reason", "已存在");
             return repoResult;
+        }
+        Path parent = repoWorktree.getParent();
+        if (parent != null) {
+            Files.createDirectories(parent);
         }
 
         // If the target branch is already checked out somewhere (including the main
@@ -399,5 +482,15 @@ public class WorktreeService {
     private static final class ExecResult {
         int exitCode;
         String output;
+    }
+
+    private static final class RepoEntry {
+        final File dir;
+        final Path relativePath;
+
+        RepoEntry(File dir, Path relativePath) {
+            this.dir = dir;
+            this.relativePath = relativePath;
+        }
     }
 }

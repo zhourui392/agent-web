@@ -233,6 +233,67 @@ class WorktreeServiceTest {
     }
 
     @Test
+    @DisplayName("switchBranch: 支持嵌套工作空间布局（仓库在第三层）")
+    void switchBranch_supportsNestedLayout() throws Exception {
+        // workspace/team-x/project-a/service-1/.git
+        // workspace/team-x/project-a/service-2/.git
+        // workspace/team-y/project-b/service-1/.git  (same leaf name, different parent)
+        Path nested1 = workspace.resolve("team-x/project-a/service-1");
+        Path nested2 = workspace.resolve("team-x/project-a/service-2");
+        Path nested3 = workspace.resolve("team-y/project-b/service-1");
+        Files.createDirectories(nested1.getParent());
+        Files.createDirectories(nested2.getParent());
+        Files.createDirectories(nested3.getParent());
+        initRepo(nested1, "feature/x");
+        initRepo(nested2, "feature/x");
+        initRepo(nested3, "feature/x");
+
+        Map<String, Object> result = service.switchBranch(workspace.toString(), "feature/x");
+        String worktreePath = (String) result.get("worktreePath");
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> repos = (List<Map<String, Object>>) result.get("repos");
+        assertEquals(3, repos.size(), "should find all 3 nested repos");
+
+        // All three should be created on the target branch
+        for (Map<String, Object> r : repos) {
+            assertTrue((Boolean) r.get("created"), "repo " + r.get("name") + " not created");
+        }
+
+        // Worktree directories mirror the workspace nesting — no collision between
+        // the two service-1 repos.
+        assertTrue(Files.isDirectory(Paths.get(worktreePath, "team-x/project-a/service-1")));
+        assertTrue(Files.isDirectory(Paths.get(worktreePath, "team-x/project-a/service-2")));
+        assertTrue(Files.isDirectory(Paths.get(worktreePath, "team-y/project-b/service-1")));
+
+        // Names in the result are relative paths so callers can distinguish duplicates.
+        assertTrue(repos.stream().anyMatch(r -> "team-x/project-a/service-1".equals(r.get("name"))
+                || "team-x\\project-a\\service-1".equals(r.get("name"))));
+
+        // list reports the correct repo count for the nested layout
+        List<Map<String, Object>> list = service.listWorktrees(workspace.toString());
+        assertEquals(3, list.get(0).get("repoCount"));
+
+        // removeWorktree cleans up nested worktrees without leaving the branch dir behind
+        service.removeWorktree(workspace.toString(), "feature/x");
+        assertFalse(Files.exists(Paths.get(worktreePath)));
+    }
+
+    /** Init a repo at an already-existing parent path (not a direct child of workspace). */
+    private void initRepo(Path repoDir, String... branches) throws Exception {
+        Files.createDirectories(repoDir);
+        git(repoDir, "init");
+        git(repoDir, "config", "user.email", "test@test.com");
+        git(repoDir, "config", "user.name", "test");
+        Files.write(repoDir.resolve("README.md"), "# test".getBytes());
+        git(repoDir, "add", ".");
+        git(repoDir, "commit", "-m", "init");
+        for (String b : branches) {
+            git(repoDir, "branch", b);
+        }
+    }
+
+    @Test
     @DisplayName("switchBranch: worktree 中的文件内容对应分支代码")
     void switchBranch_worktreeContainsBranchCode() throws Exception {
         Path repo = createRepo("service-a", "feature/new-file");

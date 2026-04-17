@@ -31,7 +31,8 @@ public class WorktreeController {
     }
 
     @GetMapping("/list")
-    public List<Map<String, Object>> list(@RequestParam("workspacePath") String workspacePath) {
+    public List<Map<String, Object>> list(@RequestParam("workspacePath") String workspacePath)
+            throws IOException {
         return worktreeService.listWorktrees(workspacePath);
     }
 
