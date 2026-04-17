@@ -1,6 +1,6 @@
 # Agent Web
 
-> 基于 Spring Boot 的 Web 服务，通过浏览器界面驱动本地 CLI AI 代理（Claude / Codex）
+> 基于 Spring Boot 的 Web 服务，通过浏览器界面驱动本地 Claude CLI
 
 ## 核心特性
 
@@ -25,7 +25,7 @@
 | 通信 | RESTful API + Server-Sent Events |
 | 架构 | DDD + 六边形架构 |
 | 代码质量 | Alibaba P3C (PMD) |
-| 支持的代理 | Claude CLI (Opus 4.6) / OpenAI Codex CLI |
+| 支持的代理 | Claude CLI |
 
 ## 快速开始
 
@@ -33,7 +33,7 @@
 
 - Java 8+
 - Maven 3.6+
-- Claude CLI 或 Codex CLI（至少安装一个）
+- Claude CLI
 
 ### 启动
 
@@ -70,14 +70,11 @@ agent:
     username: admin
     password: "your-password"
     max-fail-count: 50
-  # CLI 代理路径（也可通过环境变量 CLAUDE_CLI_CMD / CODEX_CMD 覆盖）
+  # CLI 代理路径（也可通过环境变量 CLAUDE_CLI_CMD 覆盖）
   cli:
     claude:
       exec: ${CLAUDE_CLI_CMD:claude}
       timeout-seconds: 0  # 0 表示不超时
-    codex:
-      exec: ${CODEX_CMD:codex}
-      timeout-seconds: 0
 ```
 
 ## 使用指南
