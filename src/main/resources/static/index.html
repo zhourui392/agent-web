@@ -108,14 +108,48 @@
           <!-- 右侧弹性空间 -->
           <span style="flex: 1;"></span>
 
-          <!-- ⑤ 定时任务按钮 -->
+          <!-- ⑤ 使用说明 -->
+          <el-popover trigger="click" :width="380" placement="bottom-end">
+            <template #reference>
+              <el-button style="flex-shrink: 0;" plain>
+                <el-icon><question-filled /></el-icon>
+                <span class="hidden-mobile">使用说明</span>
+              </el-button>
+            </template>
+            <div style="font-size: 13px; line-height: 1.7; max-height: 70vh; overflow-y: auto;">
+              <div style="font-weight: 600; color: #303133; margin-bottom: 6px;">快速开始</div>
+              <ol style="padding-left: 20px; margin: 0 0 10px;">
+                <li>（可选）点击顶部<b>工作目录</b>，选择项目根路径</li>
+                <li>（可选）切换<b>环境</b>：测试 / 生产会注入对应约束提示词</li>
+                <li>测试环境下可点击 🌿 <b>分支标签</b> 切换或更新 worktree</li>
+                <li>在底部输入框提问，<el-tag size="small" effect="plain">Enter</el-tag> 发送，<el-tag size="small" effect="plain">Ctrl+Enter</el-tag> 换行</li>
+              </ol>
+              <div style="font-weight: 600; color: #303133; margin-bottom: 6px;">输入技巧</div>
+              <ul style="padding-left: 20px; margin: 0 0 10px;">
+                <li>输入 <code>/</code> 触发命令补全，<el-tag size="small" effect="plain">↑↓</el-tag> 选择，<el-tag size="small" effect="plain">Tab</el-tag> 确认</li>
+                <li><b>清除上下文</b>：开启新一轮对话但保留会话</li>
+                <li><b>停止</b>：中断当前 AI 回答</li>
+              </ul>
+              <div style="font-weight: 600; color: #303133; margin-bottom: 6px;">侧边栏</div>
+              <ul style="padding-left: 20px; margin: 0 0 10px;">
+                <li>点击历史项 <b>查看</b>；点击 ▶ <b>继续对话</b>；🗑 <b>删除</b></li>
+              </ul>
+              <div style="font-weight: 600; color: #303133; margin-bottom: 6px;">其他</div>
+              <ul style="padding-left: 20px; margin: 0;">
+                <li><b>定时任务</b>：创建周期性 Prompt</li>
+                <li><b>工作空间弹窗</b>支持 上传 / 下载 / 删除 文件</li>
+              </ul>
+            </div>
+          </el-popover>
+
+          <!-- ⑥ 定时任务按钮 -->
           <el-button @click="taskManagerVisible = true" style="flex-shrink: 0;">
             <el-icon><timer /></el-icon>
             <span class="hidden-mobile">定时任务</span>
             <el-badge :value="taskList.length" v-if="taskList.length" :offset="[6, -2]" />
           </el-button>
 
-          <!-- ⑥ 登出按钮 -->
+          <!-- ⑦ 登出按钮 -->
           <el-button @click="doLogout" style="flex-shrink: 0;" plain>
             <el-icon><switch-button /></el-icon>
             <span class="hidden-mobile">登出</span>
