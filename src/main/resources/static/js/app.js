@@ -335,6 +335,7 @@ const app = createApp({
       if (!selectedBranch.value || !currentPath.value) return;
       switchingBranch.value = true;
       switchResult.value = null;
+      updateResult.value = null;
       try {
         if (!originalWorkspacePath.value) {
           originalWorkspacePath.value = currentPath.value;
@@ -376,6 +377,7 @@ const app = createApp({
       if (!wsPath) return;
       updatingBranch.value = true;
       updateResult.value = null;
+      switchResult.value = null;
       try {
         const res = await fetch('/api/worktree/update', {
           method: 'POST',
