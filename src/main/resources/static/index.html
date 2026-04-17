@@ -35,7 +35,7 @@
                 <span :style="{ color: env !== e.key ? e.color : '', fontWeight: 700, fontSize: '12px' }">{{ e.label }}</span>
               </el-radio-button>
             </el-radio-group>
-            <el-tooltip content="环境选择只是注入限制提示词，并不一定影响最后的查询环境" placement="bottom">
+            <el-tooltip raw-content content="环境选择使用注入限制提示词<br/>生产环境只能根据日志定位问题" placement="bottom">
               <span class="hidden-mobile" style="display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid #909399; color: #909399; font-size: 12px; cursor: pointer; font-weight: bold; user-select: none; flex-shrink: 0;">?</span>
             </el-tooltip>
             <div class="divider hidden-mobile"></div>
