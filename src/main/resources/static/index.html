@@ -75,8 +75,10 @@
               <div v-if="savedBranches.length > 0" style="margin-top: 8px;">
                 <el-tag v-for="b in savedBranches" :key="b" closable size="small"
                         :type="b === currentBranch ? 'success' : 'info'"
+                        :effect="b === selectedBranch ? 'dark' : 'light'"
                         :disabled="removingBranch === b"
-                        @close="removeSavedBranch(b)" style="margin: 2px; cursor: pointer;"
+                        @close="removeSavedBranch(b)"
+                        :style="{ margin: '2px', cursor: 'pointer', outline: b === selectedBranch ? '2px solid #409eff' : 'none' }"
                         @click="selectedBranch = b">
                   <template v-if="removingBranch === b">
                     <el-icon class="is-loading" style="margin-right: 4px;"><loading /></el-icon>
