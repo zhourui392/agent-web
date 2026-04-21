@@ -4,6 +4,14 @@ html, body {
   height: 100%;
   overflow: hidden;
 }
+@keyframes branch-tag-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(230, 162, 60, 0.55); }
+  50%      { box-shadow: 0 0 0 6px rgba(230, 162, 60, 0); }
+}
+.branch-tag-attention {
+  animation: branch-tag-pulse 1.6s ease-in-out infinite;
+  font-weight: 600;
+}
 #app {
   height: 100%;
 }

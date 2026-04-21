@@ -52,8 +52,11 @@
           <template v-if="env === 'test'">
             <el-popover trigger="click" width="400" placement="bottom-start">
               <template #reference>
-                <el-tag type="success" style="cursor: pointer; flex-shrink: 0;">
-                  🌿 {{ currentBranch || '选择分支' }}
+                <el-tag :type="currentBranch ? 'success' : 'warning'"
+                        :effect="currentBranch ? 'light' : 'dark'"
+                        :class="{ 'branch-tag-attention': !currentBranch }"
+                        style="cursor: pointer; flex-shrink: 0;">
+                  🌿 {{ currentBranch || '请选择分支' }}
                 </el-tag>
               </template>
               <!-- 分支切换内容 -->
