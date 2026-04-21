@@ -45,7 +45,7 @@ class WorktreeControllerTest {
         Files.write(repo.resolve("README.md"), "# svc-alpha".getBytes());
         gitExec(repo, "add", ".");
         gitExec(repo, "commit", "-m", "init");
-        gitExec(repo, "branch", "test-branch");
+        gitExec(repo, "branch", "feature/test-branch");
     }
 
     /** 转义 JSON 字符串中的反斜杠和双引号（Windows 路径含反斜杠时必需）。 */
@@ -72,14 +72,14 @@ class WorktreeControllerTest {
     @Test
     @DisplayName("POST /api/worktree/switch 创建 worktree 并返回结果")
     void switchBranch_returns200WithWorktreePath() throws Exception {
-        String body = "{\"workspacePath\":\"" + jsonEscape(workspacePath) + "\",\"branch\":\"test-branch\"}";
+        String body = "{\"workspacePath\":\"" + jsonEscape(workspacePath) + "\",\"branch\":\"feature/test-branch\"}";
 
         mvc.perform(post("/api/worktree/switch")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.worktreePath").isNotEmpty())
-                .andExpect(jsonPath("$.branch").value("test-branch"))
+                .andExpect(jsonPath("$.branch").value("feature/test-branch"))
                 .andExpect(jsonPath("$.repos").isArray())
                 .andExpect(jsonPath("$.repos[0].name").value("svc-alpha"))
                 .andExpect(jsonPath("$.repos[0].created").value(true));
@@ -89,7 +89,7 @@ class WorktreeControllerTest {
     @DisplayName("GET /api/worktree/list 列出已创建的 worktree")
     void listWorktrees_returnsCreatedBranches() throws Exception {
         // Ensure worktree exists
-        String body = "{\"workspacePath\":\"" + jsonEscape(workspacePath) + "\",\"branch\":\"test-branch\"}";
+        String body = "{\"workspacePath\":\"" + jsonEscape(workspacePath) + "\",\"branch\":\"feature/test-branch\"}";
         mvc.perform(post("/api/worktree/switch")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body));
@@ -98,7 +98,8 @@ class WorktreeControllerTest {
                         .param("workspacePath", workspacePath))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$").isArray())
-                .andExpect(jsonPath("$[0].branch").value("test-branch"))
+                // worktree 目录名里斜杠被 safeBranchName 替换为 '-'
+                .andExpect(jsonPath("$[0].branch").value("feature-test-branch"))
                 .andExpect(jsonPath("$[0].repoCount").value(1));
     }
 
@@ -106,15 +107,15 @@ class WorktreeControllerTest {
     @DisplayName("DELETE /api/worktree/remove 删除指定分支的 worktree")
     void removeWorktree_deletesAndReturnsSuccess() throws Exception {
         // Create first
-        String body = "{\"workspacePath\":\"" + jsonEscape(workspacePath) + "\",\"branch\":\"test-branch\"}";
+        String body = "{\"workspacePath\":\"" + jsonEscape(workspacePath) + "\",\"branch\":\"feature/test-branch\"}";
         mvc.perform(post("/api/worktree/switch")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body));
 
-        // Remove
+        // Remove (传原始分支名；service 内部自己做 safeBranchName 目录映射)
         mvc.perform(delete("/api/worktree/remove")
                         .param("workspacePath", workspacePath)
-                        .param("branch", "test-branch"))
+                        .param("branch", "feature/test-branch"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true));
 
@@ -128,11 +129,36 @@ class WorktreeControllerTest {
     @Test
     @DisplayName("POST /api/worktree/switch 无效路径返回 400")
     void switchBranch_invalidPath_returns400() throws Exception {
-        String body = "{\"workspacePath\":\"/nonexistent/path\",\"branch\":\"master\"}";
+        String body = "{\"workspacePath\":\"/nonexistent/path\",\"branch\":\"feature/x\"}";
 
         mvc.perform(post("/api/worktree/switch")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("POST /api/worktree/switch 分支名前缀不合规返回 400")
+    void switchBranch_disallowedPrefix_returns400() throws Exception {
+        String body = "{\"workspacePath\":\"" + jsonEscape(workspacePath) + "\",\"branch\":\"master\"}";
+
+        mvc.perform(post("/api/worktree/switch")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error", containsString("必须以")));
+    }
+
+    @Test
+    @DisplayName("POST /api/worktree/switch 自动去除分支名前后空格")
+    void switchBranch_trimsWhitespace() throws Exception {
+        // 末尾/开头带空格，backend 应自动 trim 后再校验，落到 feature/test-branch
+        String body = "{\"workspacePath\":\"" + jsonEscape(workspacePath) + "\",\"branch\":\"  feature/test-branch  \"}";
+
+        mvc.perform(post("/api/worktree/switch")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.branch").value("feature/test-branch"));
     }
 }

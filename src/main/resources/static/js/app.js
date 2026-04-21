@@ -358,7 +358,9 @@ const app = createApp({
     };
 
     const switchBranch = async () => {
-      if (!selectedBranch.value || !currentPath.value) return;
+      const trimmedBranch = (selectedBranch.value || '').trim();
+      if (!trimmedBranch || !currentPath.value) return;
+      selectedBranch.value = trimmedBranch;
       switchingBranch.value = true;
       switchResult.value = null;
       updateResult.value = null;
@@ -370,27 +372,27 @@ const app = createApp({
         const res = await fetch('/api/worktree/switch', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ workspacePath: wsPath, branch: selectedBranch.value })
+          body: JSON.stringify({ workspacePath: wsPath, branch: trimmedBranch })
         });
         if (!res.ok) {
           const text = await res.text();
           throw new Error(text);
         }
         const data = await res.json();
-        if (!savedBranches.value.includes(selectedBranch.value)) {
-          savedBranches.value.push(selectedBranch.value);
+        if (!savedBranches.value.includes(trimmedBranch)) {
+          savedBranches.value.push(trimmedBranch);
           localStorage.setItem('agent_saved_branches', JSON.stringify(savedBranches.value));
         }
-        currentBranch.value = selectedBranch.value;
+        currentBranch.value = trimmedBranch;
         switchResult.value = data.repos;
         currentPath.value = data.worktreePath;
         await loadList(data.worktreePath);
         saveWorktreeState();
         loadWorktreeBranches();
         const switched = data.repos.filter(function(r) {
-          return r.created && r.actualBranch === selectedBranch.value;
+          return r.created && r.actualBranch === trimmedBranch;
         }).length;
-        ElementPlus.ElMessage.success('已切换到 ' + selectedBranch.value + '，' + switched + ' 个服务');
+        ElementPlus.ElMessage.success('已切换到 ' + trimmedBranch + '，' + switched + ' 个服务');
       } catch (e) {
         ElementPlus.ElMessage.error('切换分支失败: ' + e.message);
       } finally {

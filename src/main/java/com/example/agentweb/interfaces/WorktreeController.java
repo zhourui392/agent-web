@@ -1,6 +1,7 @@
 package com.example.agentweb.interfaces;
 
 import com.example.agentweb.app.WorktreeService;
+import com.example.agentweb.domain.BranchNameValidator;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 
@@ -27,7 +28,8 @@ public class WorktreeController {
         if (workspacePath == null || branch == null) {
             throw new IllegalArgumentException("workspacePath and branch are required");
         }
-        return worktreeService.switchBranch(workspacePath, branch);
+        String normalizedBranch = BranchNameValidator.validateAndNormalize(branch);
+        return worktreeService.switchBranch(workspacePath, normalizedBranch);
     }
 
     @PostMapping("/update")
