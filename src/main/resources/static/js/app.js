@@ -40,6 +40,8 @@ const app = createApp({
     const originalWorkspacePath = ref('');
     const updatingBranch = ref(false);
     const updateResult = ref(null);
+    const worktreeBranches = ref([]);
+    const branchPopoverVisible = ref(false);
 
     // --- 定时任务 ---
     const taskList = ref([]);
@@ -88,6 +90,19 @@ const app = createApp({
       const query = input.indexOf(' ') > 0 ? input.substring(1, input.indexOf(' ')) : input.substring(1);
       if (!query) return slashCommands.value;
       return slashCommands.value.filter(c => c.name.toLowerCase().includes(query.toLowerCase()));
+    });
+
+    // 下拉选项 = 本地已有 worktree 分支 + localStorage 保存过的分支，去重后保留 worktree 优先顺序
+    const branchOptions = Vue.computed(() => {
+      const seen = new Set();
+      const result = [];
+      for (const b of worktreeBranches.value) {
+        if (b && !seen.has(b)) { seen.add(b); result.push(b); }
+      }
+      for (const b of savedBranches.value) {
+        if (b && !seen.has(b)) { seen.add(b); result.push(b); }
+      }
+      return result;
     });
 
     let currentES = null;
@@ -331,6 +346,17 @@ const app = createApp({
       localStorage.removeItem('agent_worktree_state');
     };
 
+    const loadWorktreeBranches = async () => {
+      const wsPath = originalWorkspacePath.value || currentPath.value;
+      if (!wsPath) { worktreeBranches.value = []; return; }
+      try {
+        const data = await fetch('/api/worktree/list?workspacePath=' + encodeURIComponent(wsPath)).then(r => r.json());
+        worktreeBranches.value = Array.isArray(data) ? data.map(w => w.branch).filter(Boolean) : [];
+      } catch (e) {
+        worktreeBranches.value = [];
+      }
+    };
+
     const switchBranch = async () => {
       if (!selectedBranch.value || !currentPath.value) return;
       switchingBranch.value = true;
@@ -360,6 +386,7 @@ const app = createApp({
         currentPath.value = data.worktreePath;
         await loadList(data.worktreePath);
         saveWorktreeState();
+        loadWorktreeBranches();
         const switched = data.repos.filter(function(r) {
           return r.created && r.actualBranch === selectedBranch.value;
         }).length;
@@ -436,6 +463,7 @@ const app = createApp({
       } else if (selectedBranch.value === branch) {
         selectedBranch.value = '';
       }
+      loadWorktreeBranches();
     };
 
     // ========== 历史记录 ==========
@@ -1060,6 +1088,10 @@ const app = createApp({
       loadSlashCommands();
     });
 
+    watch(branchPopoverVisible, (v) => {
+      if (v) loadWorktreeBranches();
+    });
+
     watch(userInput, (val) => {
       if (val && val.startsWith('/') && val.indexOf(' ') < 0 && slashCommands.value.length > 0) {
         showCommandPopup.value = true;
@@ -1119,6 +1151,8 @@ const app = createApp({
       currentBranch,
       switchingBranch,
       savedBranches,
+      branchOptions,
+      branchPopoverVisible,
       switchResult,
       removingBranch,
       switchBranch,

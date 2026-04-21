@@ -50,7 +50,7 @@
 
           <!-- ④ 分支标签（仅测试环境） -->
           <template v-if="env === 'test'">
-            <el-popover trigger="click" width="400" placement="bottom-start">
+            <el-popover v-model:visible="branchPopoverVisible" trigger="click" width="400" placement="bottom-start">
               <template #reference>
                 <el-tag :type="currentBranch ? 'success' : 'warning'"
                         :effect="currentBranch ? 'light' : 'dark'"
@@ -64,7 +64,7 @@
                 <el-select v-model="selectedBranch" filterable allow-create default-first-option
                            placeholder="选择或输入分支名" style="flex: 1;" clearable
                            :teleported="false" @clear="clearBranch">
-                  <el-option v-for="b in savedBranches" :key="b" :label="b" :value="b"></el-option>
+                  <el-option v-for="b in branchOptions" :key="b" :label="b" :value="b"></el-option>
                 </el-select>
                 <el-button type="primary" size="default" @click="switchBranch"
                            :loading="switchingBranch" :disabled="!selectedBranch || !currentPath">
