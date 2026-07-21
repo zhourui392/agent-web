@@ -13,8 +13,9 @@ agent:
       exec: echo
       stdin: true
       timeout-seconds: 0
-
 spring:
+  main:
+    banner-mode: "off"
   datasource:
     url: "jdbc:sqlite:file:testdb?mode=memory&cache=shared"
     driver-class-name: org.sqlite.JDBC

@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>工作流 · Agent Q&A 管理后台</title>
+  <link rel="stylesheet" href="../vendor/element-plus.css">
+  <link rel="stylesheet" href="../css/admin.css?v=2026061101">
+</head>
+<body>
+  <div id="app" v-cloak>
+    <admin-shell active="workflows" @ready="loadAll">
+      <template #header-actions>
+        <el-button text @click="loadAll" :loading="loading">刷新</el-button>
+      </template>
+
+      <div class="view-wrap">
+        <div class="conv-toolbar">
+          <el-button type="primary" size="small" @click="openCreate">新建</el-button>
+          <el-button size="small" @click="loadAll" :loading="loading">刷新</el-button>
+        </div>
+
+        <el-table :data="workflows" v-loading="loading" size="small" empty-text="暂无工作流"
+                  @row-click="selectWorkflow">
+          <el-table-column label="名称" min-width="220">
+            <template #default="{ row }">
+              <div data-test="workflow-row" :data-name="row.name"
+                   style="font-weight: 600; color: #303133; word-break: break-word;">{{ row.name }}</div>
+              <div class="muted" style="font-size: 12px; word-break: break-all;">{{ row.workingDir }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column label="Agent" width="90" prop="agentType"></el-table-column>
+          <el-table-column label="步骤" width="70">
+            <template #default="{ row }">{{ row.steps ? row.steps.length : 0 }}</template>
+          </el-table-column>
+          <el-table-column label="状态" width="90">
+            <template #default="{ row }">
+              <el-tag size="small" :type="row.enabled ? 'success' : 'info'">{{ row.enabled ? '启用' : '停用' }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="更新时间" width="160">
+            <template #default="{ row }">{{ fmtTime(row.updatedAt) }}</template>
+          </el-table-column>
+          <el-table-column label="操作" width="250" fixed="right">
+            <template #default="{ row }">
+              <el-button size="small" type="primary" text @click.stop="openRun(row)">运行</el-button>
+              <el-button size="small" text @click.stop="openEdit(row)">编辑</el-button>
+              <el-button size="small" text @click.stop="selectWorkflow(row)">历史</el-button>
+              <el-button size="small" type="danger" text @click.stop="deleteWorkflow(row)">删除</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <div style="margin-top: 14px;">
+          <div class="section-title">执行历史</div>
+          <el-table :data="executions" v-loading="executionLoading" size="small" empty-text="请选择工作流或暂无执行记录"
+                    @row-click="openExecution">
+            <el-table-column label="执行 ID" min-width="220">
+              <template #default="{ row }">
+                <span data-test="workflow-execution-row" :data-id="row.id">{{ row.id }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="状态" width="110">
+              <template #default="{ row }">
+                <el-tag size="small" :type="statusType(row.status)">{{ row.status }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="开始时间" width="170">
+              <template #default="{ row }">{{ fmtTime(row.startedAt) }}</template>
+            </el-table-column>
+            <el-table-column label="结束时间" width="170">
+              <template #default="{ row }">{{ fmtTime(row.finishedAt) }}</template>
+            </el-table-column>
+            <el-table-column prop="errorMessage" label="错误" min-width="220" show-overflow-tooltip></el-table-column>
+            <el-table-column label="操作" width="90" fixed="right">
+              <template #default="{ row }">
+                <el-button size="small" type="primary" text @click.stop="openExecution(row)">详情</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
+      </div>
+
+      <el-dialog v-model="editOpen" :title="editForm.id ? '编辑工作流' : '新建工作流'"
+                 :width="isMobile ? '96%' : '860px'" :close-on-click-modal="false">
+        <el-form label-position="top" :model="editForm" size="small">
+          <el-form-item label="名称">
+            <el-input v-model="editForm.name" maxlength="120" show-word-limit></el-input>
+          </el-form-item>
+          <el-form-item label="描述">
+            <el-input v-model="editForm.description" type="textarea" :autosize="{ minRows: 2, maxRows: 4 }"></el-input>
+          </el-form-item>
+          <el-form-item label="Agent 类型">
+            <el-select v-model="editForm.agentType" style="width: 180px;">
+              <el-option label="Codex" value="CODEX"></el-option>
+              <el-option label="Claude" value="CLAUDE"></el-option>
+            </el-select>
+            <el-switch v-model="editForm.enabled" style="margin-left: 16px;" active-text="启用" inactive-text="停用"></el-switch>
+          </el-form-item>
+          <el-form-item label="工作目录">
+            <el-input v-model="editForm.workingDir" placeholder="E:/ai_workspace/agent-web"></el-input>
+          </el-form-item>
+          <div class="conv-toolbar" style="padding-left: 0;">
+            <span class="section-title" style="margin: 0;">步骤</span>
+            <el-button size="small" @click="addStep">添加步骤</el-button>
+          </div>
+          <div v-for="(step, index) in editForm.steps" :key="index" style="border-top: 1px solid #ebeef5; padding-top: 10px; margin-top: 10px;">
+            <el-row :gutter="10">
+              <el-col :span="isMobile ? 24 : 8">
+                <el-form-item label="步骤名">
+                  <el-input v-model="step.name" placeholder="review"></el-input>
+                </el-form-item>
+              </el-col>
+              <el-col :span="isMobile ? 24 : 8">
+                <el-form-item label="超时秒数">
+                  <el-input-number v-model="step.timeoutSeconds" :min="0" :step="60" style="width: 100%;"></el-input-number>
+                </el-form-item>
+              </el-col>
+              <el-col :span="isMobile ? 24 : 8" style="display: flex; align-items: center;">
+                <el-button size="small" type="danger" text @click="removeStep(index)" :disabled="editForm.steps.length <= 1">删除步骤</el-button>
+              </el-col>
+            </el-row>
+            <el-form-item label="Prompt 模板">
+              <el-input v-model="step.promptTemplate" type="textarea" :autosize="{ minRows: 4, maxRows: 12 }"></el-input>
+            </el-form-item>
+          </div>
+        </el-form>
+        <template #footer>
+          <el-button @click="editOpen = false" :disabled="saving">取消</el-button>
+          <el-button type="primary" :loading="saving" @click="saveWorkflow">保存</el-button>
+        </template>
+      </el-dialog>
+
+      <el-dialog v-model="runOpen" title="运行工作流" :width="isMobile ? '96%' : '620px'" :close-on-click-modal="false">
+        <div v-if="runTarget" style="font-weight: 600; margin-bottom: 10px;">{{ runTarget.name }}</div>
+        <el-input v-model="runInputs" type="textarea" :autosize="{ minRows: 8, maxRows: 18 }"></el-input>
+        <template #footer>
+          <el-button @click="runOpen = false" :disabled="running">取消</el-button>
+          <el-button type="primary" :loading="running" @click="submitRun">运行</el-button>
+        </template>
+      </el-dialog>
+
+      <el-drawer v-model="detailOpen" title="执行详情" :size="isMobile ? '100%' : '760px'">
+        <div v-if="detail">
+          <div class="drawer-meta">
+            <div>执行 ID：{{ detail.id }}</div>
+            <div>状态：{{ detail.status }}</div>
+            <div>开始：{{ fmtTime(detail.startedAt) }}</div>
+            <div v-if="detail.finishedAt">结束：{{ fmtTime(detail.finishedAt) }}</div>
+            <div v-if="detail.errorMessage">错误：{{ detail.errorMessage }}</div>
+          </div>
+          <el-collapse>
+            <el-collapse-item v-for="step in detail.steps" :key="step.id"
+                              :title="(step.stepIndex + 1) + '. ' + step.stepName + ' · ' + step.status"
+                              :name="step.id">
+              <div class="section-title">Prompt</div>
+              <pre style="white-space: pre-wrap; word-break: break-word;">{{ step.prompt }}</pre>
+              <div class="section-title">Output</div>
+              <pre style="white-space: pre-wrap; word-break: break-word;">{{ step.output || '' }}</pre>
+              <template v-if="step.errorMessage">
+                <div class="section-title">Error</div>
+                <pre style="white-space: pre-wrap; word-break: break-word; color: #f56c6c;">{{ step.errorMessage }}</pre>
+              </template>
+            </el-collapse-item>
+          </el-collapse>
+        </div>
+      </el-drawer>
+    </admin-shell>
+  </div>
+
+  <script src="../js/base.js?v=20260611"></script>
+  <script src="../vendor/marked.min.js"></script>
+  <script src="../vendor/vue.global.js"></script>
+  <script src="../vendor/element-plus.full.min.js"></script>
+  <script src="../vendor/element-plus-icons-vue.iife.min.js"></script>
+  <script src="../js/lib/formatters.js"></script>
+  <script src="../js/admin/shell.js?v=2026070401"></script>
+  <script src="../js/admin/pages/workflows.js?v=20260612"></script>
+</body>
+</html>

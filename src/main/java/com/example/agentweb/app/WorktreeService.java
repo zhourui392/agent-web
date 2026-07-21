@@ -1,7 +1,14 @@
 package com.example.agentweb.app;
 
+import com.example.agentweb.domain.worktree.UserBranchRef;
+import com.example.agentweb.domain.worktree.UserSlug;
+import com.example.agentweb.domain.worktree.WorkspaceUploadRoot;
+import com.example.agentweb.infra.WorktreeProperties;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import jakarta.annotation.PostConstruct;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
@@ -12,23 +19,66 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.stream.Collectors;
 
 /**
  * Manages git worktrees for branch-level isolation across a workspace
  * containing multiple independent git repositories.
+ *
+ * <p>多租户隔离: 每个用户的 worktree 落在私有桶 {@code .worktrees/u-{userSlug}/{safeBranch}},
+ * 并 checkout 私有 ref {@code wt/{userSlug}/{logicalBranch}} —— 共享对象库下同名逻辑分支被命名空间化,
+ * 多用户各持私有 ref, 互不冲突。</p>
+ *
+ * @author zhourui(V33215020)
  */
+@Slf4j
 @Service
 public class WorktreeService {
 
-    private static final String WORKTREE_DIR = ".worktrees";
+    /** worktree 子树目录名,与 {@link WorkspaceUploadRoot#WORKTREE_DIR} 同源,避免约定在两处漂移。 */
+    private static final String WORKTREE_DIR = WorkspaceUploadRoot.WORKTREE_DIR;
+    /** 每用户隔离桶目录前缀: {@code .worktrees/u-{userSlug}/{safeBranch}}。 */
+    private static final String USER_BUCKET_PREFIX = "u-";
+    private static final String AGENT_GUIDANCE_FILE = "AGENTS.md";
     private static final int FETCH_TIMEOUT_SECONDS = 30;
     private static final int THREAD_POOL_SIZE = 8;
-    // Depth relative to workspace root: root=0, direct child=1. A value of 4
-    // lets us find repos at workspace/a/b/c/repo.
+    /**
+     * Depth relative to workspace root: root=0, direct child=1. A value of 4
+     * lets us find repos at workspace/a/b/c/repo.
+     */
     private static final int MAX_SCAN_DEPTH = 4;
+
+    private static final String CURRENT_DIR = ".";
+    private static final String GIT_DIR = ".git";
+    private static final String ORIGIN_REF_PREFIX = "origin/";
+    private static final String LF = "\n";
+
+    /** 允许作为 workspace 根的绝对路径(已归一化); 空表示不限制。 */
+    private final List<Path> allowedRoots;
+
+    /** 无参构造仅供单测: 不限制 workspace 根。 */
+    public WorktreeService() {
+        this.allowedRoots = Collections.emptyList();
+    }
+
+    @Autowired
+    public WorktreeService(WorktreeProperties properties) {
+        this.allowedRoots = properties.getAllowedRoots().stream()
+                .map(r -> Paths.get(r).toAbsolutePath().normalize())
+                .collect(Collectors.toList());
+    }
+
+    @PostConstruct
+    void warnIfUnrestricted() {
+        if (allowedRoots.isEmpty()) {
+            log.warn("worktree-workspace-unrestricted reason=agent.worktree.allowed-roots-empty "
+                    + "hint=配置该项可限制 workspace 根, 加固越权访问");
+        }
+    }
 
     /**
      * Switch a workspace to a given branch by creating worktrees for every
@@ -36,30 +86,35 @@ public class WorktreeService {
      * get a real worktree on it; repos that don't fall back to the default
      * branch (origin/HEAD, else current HEAD) via a symlink to the main repo.
      */
-    public Map<String, Object> switchBranch(String workspacePath, String branch)
+    public Map<String, Object> switchBranch(String userId, String workspacePath, String branch)
             throws IOException, InterruptedException {
 
         Path workspace = Paths.get(workspacePath).normalize();
+        assertWorkspaceAllowed(workspace);
         if (!Files.isDirectory(workspace)) {
             throw new IllegalArgumentException("Workspace not found: " + workspacePath);
         }
 
+        String userSlug = UserSlug.slug(userId);
         String safeBranch = safeBranchName(branch);
-        Path worktreeBase = workspace.resolve(WORKTREE_DIR).resolve(safeBranch);
+        Path worktreeBase = resolveWithinBucket(userBucket(workspace, userSlug), safeBranch);
         Files.createDirectories(worktreeBase);
+        syncAgentGuidance(workspace, worktreeBase);
 
         List<RepoEntry> gitRepos = collectGitRepos(workspace);
 
         List<File> repoDirs = new ArrayList<>();
-        for (RepoEntry e : gitRepos) repoDirs.add(e.dir);
+        for (RepoEntry e : gitRepos) {
+            repoDirs.add(e.dir);
+        }
         parallelFetch(repoDirs);
 
         List<Map<String, Object>> repos = new ArrayList<>();
         for (RepoEntry entry : gitRepos) {
-            repos.add(createWorktreeForRepo(entry, branch, worktreeBase));
+            repos.add(createWorktreeForRepo(entry, branch, worktreeBase, userSlug));
         }
 
-        Map<String, Object> result = new HashMap<>();
+        Map<String, Object> result = new HashMap<>(16);
         result.put("worktreePath", worktreeBase.toString());
         result.put("branch", branch);
         result.put("repos", repos);
@@ -76,10 +131,10 @@ public class WorktreeService {
                     return FileVisitResult.CONTINUE;
                 }
                 // Skip hidden dirs (.git, .worktrees, .idea, ...).
-                if (dir.getFileName().toString().startsWith(".")) {
+                if (dir.getFileName().toString().startsWith(CURRENT_DIR)) {
                     return FileVisitResult.SKIP_SUBTREE;
                 }
-                if (Files.exists(dir.resolve(".git"))) {
+                if (Files.exists(dir.resolve(GIT_DIR))) {
                     repos.add(new RepoEntry(dir.toFile(), workspace.relativize(dir)));
                     return FileVisitResult.SKIP_SUBTREE;
                 }
@@ -90,13 +145,27 @@ public class WorktreeService {
         return repos;
     }
 
+    private void syncAgentGuidance(Path workspace, Path worktreeBase) throws IOException {
+        Path source = workspace.resolve(AGENT_GUIDANCE_FILE);
+        if (!Files.isRegularFile(source)) {
+            return;
+        }
+        Files.copy(source, worktreeBase.resolve(AGENT_GUIDANCE_FILE),
+                StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.COPY_ATTRIBUTES);
+    }
+
     private void parallelFetch(List<File> repos) throws InterruptedException {
-        if (repos.isEmpty()) return;
+        if (repos.isEmpty()) {
+            return;
+        }
         ExecutorService pool = Executors.newFixedThreadPool(
                 Math.min(THREAD_POOL_SIZE, repos.size()));
         try {
             List<Future<?>> futures = new ArrayList<>();
             for (File repo : repos) {
+                if (!hasConfiguredRemote(repo)) {
+                    continue;
+                }
                 futures.add(pool.submit(() -> {
                     try {
                         execWithTimeout(repo, FETCH_TIMEOUT_SECONDS,
@@ -116,57 +185,48 @@ public class WorktreeService {
         }
     }
 
+    private boolean hasConfiguredRemote(File repoDir) {
+        Path gitPath = repoDir.toPath().resolve(GIT_DIR);
+        if (!Files.isDirectory(gitPath)) {
+            return true;
+        }
+        Path config = gitPath.resolve("config");
+        if (!Files.isRegularFile(config)) {
+            return true;
+        }
+        try {
+            return Files.readAllLines(config).stream()
+                    .anyMatch(line -> line.trim().startsWith("[remote "));
+        } catch (IOException ex) {
+            return true;
+        }
+    }
+
     /**
      * Pull latest commits into every real worktree of {@code branch}. Symlink /
      * junction leaves point into the main repo checkout; pulling those would
      * move the user's in-progress HEAD, so skip them with a clear reason.
      */
-    public Map<String, Object> updateBranch(String workspacePath, String branch)
+    public Map<String, Object> updateBranch(String userId, String workspacePath, String branch)
             throws IOException, InterruptedException {
 
         Path workspace = Paths.get(workspacePath).normalize();
+        assertWorkspaceAllowed(workspace);
         if (!Files.isDirectory(workspace)) {
             throw new IllegalArgumentException("Workspace not found: " + workspacePath);
         }
+        String userSlug = UserSlug.slug(userId);
         String safeBranch = safeBranchName(branch);
-        Path worktreeBase = workspace.resolve(WORKTREE_DIR).resolve(safeBranch);
+        Path worktreeBase = resolveWithinBucket(userBucket(workspace, userSlug), safeBranch);
         if (!Files.isDirectory(worktreeBase)) {
             throw new IllegalArgumentException("Branch worktree not found: " + branch);
         }
 
-        List<Path> realWorktrees = new ArrayList<>();
-        List<String> skippedLinks = new ArrayList<>();
-        Files.walkFileTree(worktreeBase, EnumSet.noneOf(java.nio.file.FileVisitOption.class),
-                MAX_SCAN_DEPTH, new SimpleFileVisitor<Path>() {
-            @Override
-            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
-                if (dir.equals(worktreeBase)) {
-                    return FileVisitResult.CONTINUE;
-                }
-                if (isDirectoryLink(dir)) {
-                    skippedLinks.add(worktreeBase.relativize(dir).toString());
-                    return FileVisitResult.SKIP_SUBTREE;
-                }
-                if (Files.exists(dir.resolve(".git"))) {
-                    realWorktrees.add(dir);
-                    return FileVisitResult.SKIP_SUBTREE;
-                }
-                return FileVisitResult.CONTINUE;
-            }
-
-            @Override
-            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
-                if (attrs.isSymbolicLink()) {
-                    skippedLinks.add(worktreeBase.relativize(file).toString());
-                }
-                return FileVisitResult.CONTINUE;
-            }
-        });
-
-        List<Map<String, Object>> repos = parallelPull(worktreeBase, realWorktrees);
-        for (String name : skippedLinks) {
-            Map<String, Object> r = new HashMap<>();
-            r.put("name", name);
+        LeafScan scan = classifyLeaves(worktreeBase);
+        List<Map<String, Object>> repos = parallelPull(worktreeBase, scan.realWorktrees);
+        for (Path link : scan.links) {
+            Map<String, Object> r = new HashMap<>(16);
+            r.put("name", worktreeBase.relativize(link).toString());
             r.put("updated", false);
             r.put("skipped", true);
             r.put("reason", "回退分支，跳过");
@@ -174,7 +234,7 @@ public class WorktreeService {
         }
         repos.sort(Comparator.comparing(m -> String.valueOf(m.get("name"))));
 
-        Map<String, Object> result = new HashMap<>();
+        Map<String, Object> result = new HashMap<>(16);
         result.put("branch", branch);
         result.put("repos", repos);
         return result;
@@ -183,7 +243,9 @@ public class WorktreeService {
     private List<Map<String, Object>> parallelPull(Path worktreeBase, List<Path> repos)
             throws InterruptedException {
         List<Map<String, Object>> results = new ArrayList<>();
-        if (repos.isEmpty()) return results;
+        if (repos.isEmpty()) {
+            return results;
+        }
 
         ExecutorService pool = Executors.newFixedThreadPool(
                 Math.min(THREAD_POOL_SIZE, repos.size()));
@@ -198,7 +260,7 @@ public class WorktreeService {
                 try {
                     results.add(futures.get(i).get(FETCH_TIMEOUT_SECONDS + 5, TimeUnit.SECONDS));
                 } catch (ExecutionException | TimeoutException ex) {
-                    Map<String, Object> r = new HashMap<>();
+                    Map<String, Object> r = new HashMap<>(16);
                     r.put("name", name);
                     r.put("updated", false);
                     r.put("reason", ex instanceof TimeoutException ? "超时" : "执行异常");
@@ -216,9 +278,16 @@ public class WorktreeService {
      * before/after — locale-independent, works regardless of git's language.
      */
     private Map<String, Object> pullOne(String name, File repoDir) {
-        Map<String, Object> r = new HashMap<>();
+        Map<String, Object> r = new HashMap<>(16);
         r.put("name", name);
         try {
+            if (!hasUpstream(repoDir)) {
+                // 本地私有分支(从未 push 到 origin)无 upstream, pull --ff-only 会报错; 按良性跳过, 不泄漏英文报错
+                r.put("updated", false);
+                r.put("skipped", true);
+                r.put("reason", "本地分支，无远端可更新");
+                return r;
+            }
             String before = execCapture(repoDir, "git", "rev-parse", "HEAD").output.trim();
             ExecResult pull = execCapture(repoDir, "git", "pull", "--ff-only");
             if (pull.exitCode != 0) {
@@ -229,7 +298,7 @@ public class WorktreeService {
             }
             String after = execCapture(repoDir, "git", "rev-parse", "HEAD").output.trim();
             r.put("updated", true);
-            r.put("reason", before.equals(after) ? "已是最新" : "已更新");
+            r.put("reason", pullSuccessReason(before, after));
         } catch (Exception ex) {
             r.put("updated", false);
             r.put("reason", ex.getMessage() == null ? "异常" : ex.getMessage());
@@ -237,40 +306,99 @@ public class WorktreeService {
         return r;
     }
 
-    /**
-     * List all worktree branch directories under the workspace.
-     */
-    public List<Map<String, Object>> listWorktrees(String workspacePath) throws IOException {
-        Path worktreeBase = Paths.get(workspacePath).normalize().resolve(WORKTREE_DIR);
-        List<Map<String, Object>> result = new ArrayList<>();
+    private String pullSuccessReason(String before, String after) {
+        return before.equals(after) ? "已是最新" : "已更新";
+    }
 
-        if (!Files.isDirectory(worktreeBase)) {
+    /**
+     * List the current user's worktree branch directories under {@code .worktrees/u-{slug}}.
+     * The public bucket ({@code _local}) additionally exposes legacy flat directories
+     * ({@code .worktrees/{branch}}) created before per-user isolation existed.
+     */
+    public List<Map<String, Object>> listWorktrees(String userId, String workspacePath) throws IOException {
+        Path workspace = Paths.get(workspacePath).normalize();
+        assertWorkspaceAllowed(workspace);
+        Path worktreeRoot = workspace.resolve(WORKTREE_DIR);
+        List<Map<String, Object>> result = new ArrayList<>();
+        if (!Files.isDirectory(worktreeRoot)) {
             return result;
         }
 
-        File[] branches = worktreeBase.toFile().listFiles();
-        if (branches != null) {
-            Arrays.sort(branches);
-            for (File branchDir : branches) {
-                if (!branchDir.isDirectory()) {
-                    continue;
-                }
-                Map<String, Object> item = new HashMap<>();
-                item.put("branch", branchDir.getName());
-                item.put("path", branchDir.getAbsolutePath());
-                item.put("repoCount", countRepoLeaves(branchDir.toPath()));
-                result.add(item);
+        String userSlug = UserSlug.slug(userId);
+        collectBranchDirs(worktreeRoot.resolve(USER_BUCKET_PREFIX + userSlug), result);
+        if (UserSlug.LOCAL_BUCKET.equals(userSlug)) {
+            // 老布局与同名 sanitized 桶目录可能撞名, 以桶目录为准去重, 避免前端按 branch 名误删
+            Set<String> seenBranches = new HashSet<>();
+            for (Map<String, Object> item : result) {
+                seenBranches.add(String.valueOf(item.get("branch")));
             }
+            collectLegacyBranchDirs(worktreeRoot, result, seenBranches);
         }
         return result;
     }
 
+    private void collectBranchDirs(Path bucketDir, List<Map<String, Object>> result) throws IOException {
+        if (!Files.isDirectory(bucketDir)) {
+            return;
+        }
+        File[] branches = bucketDir.toFile().listFiles();
+        if (branches == null) {
+            return;
+        }
+        Arrays.sort(branches);
+        for (File branchDir : branches) {
+            if (branchDir.isDirectory()) {
+                result.add(branchItem(branchDir));
+            }
+        }
+    }
+
+    /** 老布局裸分支目录(无 {@code u-} 前缀), 仅公共桶可见, 兼容 P1 之前创建的 worktree; 与桶内同名项去重。 */
+    private void collectLegacyBranchDirs(Path worktreeRoot, List<Map<String, Object>> result,
+                                         Set<String> seenBranches) throws IOException {
+        File[] entries = worktreeRoot.toFile().listFiles();
+        if (entries == null) {
+            return;
+        }
+        Arrays.sort(entries);
+        for (File entry : entries) {
+            if (entry.isDirectory()
+                    && !entry.getName().startsWith(USER_BUCKET_PREFIX)
+                    && !seenBranches.contains(entry.getName())) {
+                result.add(branchItem(entry));
+            }
+        }
+    }
+
+    private Map<String, Object> branchItem(File branchDir) throws IOException {
+        Map<String, Object> item = new HashMap<>(16);
+        item.put("branch", branchDir.getName());
+        item.put("path", branchDir.getAbsolutePath());
+        item.put("repoCount", countRepoLeaves(branchDir.toPath()));
+        return item;
+    }
+
     /**
      * Count repo leaves under a branch worktree root. A leaf is either a
-     * symlink (fallback path) or a directory containing {@code .git}.
+     * symlink/junction (fallback path) or a directory containing {@code .git}.
      */
     private int countRepoLeaves(Path base) throws IOException {
-        int[] count = {0};
+        LeafScan scan = classifyLeaves(base);
+        return scan.links.size() + scan.realWorktrees.size();
+    }
+
+    /** worktree base 下一次遍历的分类结果: 链接叶子(fallback) 与 真实 worktree(含 .git)。 */
+    private static final class LeafScan {
+        final List<Path> links = new ArrayList<>();
+        final List<Path> realWorktrees = new ArrayList<>();
+    }
+
+    /**
+     * 遍历 worktree base, 把叶子分为链接(symlink/NTFS junction, fallback 复用)与真实 worktree。
+     * updateBranch / removeWorktree / countRepoLeaves 共用, 消除三份逐字相同的匿名 visitor。
+     */
+    private LeafScan classifyLeaves(Path base) throws IOException {
+        LeafScan scan = new LeafScan();
         Files.walkFileTree(base, EnumSet.noneOf(java.nio.file.FileVisitOption.class),
                 MAX_SCAN_DEPTH, new SimpleFileVisitor<Path>() {
             @Override
@@ -278,13 +406,14 @@ public class WorktreeService {
                 if (dir.equals(base)) {
                     return FileVisitResult.CONTINUE;
                 }
-                // NTFS junction: counts as a link leaf, do not descend.
+                // NTFS junctions masquerade as regular directories to walkFileTree;
+                // detect them here so we don't descend into the target checkout.
                 if (isDirectoryLink(dir)) {
-                    count[0]++;
+                    scan.links.add(dir);
                     return FileVisitResult.SKIP_SUBTREE;
                 }
-                if (Files.exists(dir.resolve(".git"))) {
-                    count[0]++;
+                if (Files.exists(dir.resolve(GIT_DIR))) {
+                    scan.realWorktrees.add(dir);
                     return FileVisitResult.SKIP_SUBTREE;
                 }
                 return FileVisitResult.CONTINUE;
@@ -293,81 +422,97 @@ public class WorktreeService {
             @Override
             public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
                 if (attrs.isSymbolicLink()) {
-                    count[0]++;
+                    scan.links.add(file);
                 }
                 return FileVisitResult.CONTINUE;
             }
         });
-        return count[0];
+        return scan;
     }
 
     /**
-     * Remove all worktrees for a branch and clean up the directory.
+     * Remove all worktrees for a branch and clean up the directory, then recycle the
+     * user's private refs so {@code wt/{slug}/*} does not accumulate unboundedly.
      */
-    public void removeWorktree(String workspacePath, String branch)
+    public void removeWorktree(String userId, String workspacePath, String branch)
             throws IOException, InterruptedException {
 
         Path workspace = Paths.get(workspacePath).normalize();
+        assertWorkspaceAllowed(workspace);
+        String userSlug = UserSlug.slug(userId);
         String safeBranch = safeBranchName(branch);
-        Path worktreeBase = workspace.resolve(WORKTREE_DIR).resolve(safeBranch);
-
+        Path userBase = resolveWithinBucket(userBucket(workspace, userSlug), safeBranch);
+        // 新布局缺失时回退老布局 .worktrees/{branch}, 兼容 P1 之前创建的 worktree
+        Path legacyBase = resolveWithinBucket(workspace.resolve(WORKTREE_DIR), safeBranch);
+        final Path worktreeBase = Files.isDirectory(userBase) ? userBase : legacyBase;
         if (!Files.isDirectory(worktreeBase)) {
             return;
         }
 
-        List<Path> links = new ArrayList<>();
-        List<Path> realWorktrees = new ArrayList<>();
-        Files.walkFileTree(worktreeBase, EnumSet.noneOf(java.nio.file.FileVisitOption.class),
-                MAX_SCAN_DEPTH, new SimpleFileVisitor<Path>() {
-            @Override
-            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
-                if (dir.equals(worktreeBase)) {
-                    return FileVisitResult.CONTINUE;
-                }
-                // NTFS junctions masquerade as regular directories to walkFileTree;
-                // detect them here so we don't descend into the target checkout.
-                if (isDirectoryLink(dir)) {
-                    links.add(dir);
-                    return FileVisitResult.SKIP_SUBTREE;
-                }
-                if (Files.exists(dir.resolve(".git"))) {
-                    realWorktrees.add(dir);
-                    return FileVisitResult.SKIP_SUBTREE;
-                }
-                return FileVisitResult.CONTINUE;
-            }
-
-            @Override
-            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
-                if (attrs.isSymbolicLink()) {
-                    links.add(file);
-                }
-                return FileVisitResult.CONTINUE;
-            }
-        });
-
-        for (Path link : links) {
+        LeafScan scan = classifyLeaves(worktreeBase);
+        for (Path link : scan.links) {
             Files.delete(link);
         }
-        for (Path wt : realWorktrees) {
-            Path rel = worktreeBase.relativize(wt);
-            Path originalRepo = workspace.resolve(rel);
-            if (Files.isDirectory(originalRepo) && Files.exists(originalRepo.resolve(".git"))) {
-                exec(originalRepo.toFile(), "git", "worktree", "remove", "--force",
-                        wt.toString());
+        for (Path wt : scan.realWorktrees) {
+            Path originalRepo = workspace.resolve(worktreeBase.relativize(wt));
+            if (Files.isDirectory(originalRepo) && Files.exists(originalRepo.resolve(GIT_DIR))) {
+                // 删除前取该 worktree 实际检出的分支, 才能精确回收私有 ref(覆盖 fallback 默认分支)
+                String checkedOutRef = currentBranchRef(wt);
+                exec(originalRepo.toFile(), "git", "worktree", "remove", "--force", wt.toString());
+                recyclePrivateRef(originalRepo.toFile(), checkedOutRef);
             }
         }
 
         deleteRecursive(worktreeBase);
     }
 
+    /** worktree 当前检出的分支名 (git rev-parse --abbrev-ref HEAD); 失败/分离头返回 null。 */
+    private String currentBranchRef(Path worktree) throws IOException, InterruptedException {
+        ExecResult r = execCapture(worktree.toFile(), "git", "rev-parse", "--abbrev-ref", "HEAD");
+        return r.exitCode == 0 ? r.output.trim() : null;
+    }
+
+    /**
+     * 回收私有 ref, best-effort。仅删 {@code wt/} 前缀的私有分支, 绝不误删真实业务分支;
+     * {@code git branch -D} 失败(如 fallback 仓为 symlink 无私有 ref)无害忽略。
+     */
+    private void recyclePrivateRef(File repoDir, String checkedOutRef)
+            throws IOException, InterruptedException {
+        if (checkedOutRef != null && checkedOutRef.startsWith(UserBranchRef.PREFIX)) {
+            exec(repoDir, "git", "branch", "-D", checkedOutRef);
+        }
+    }
+
     // ---- internal helpers ----
 
-    private Map<String, Object> createWorktreeForRepo(RepoEntry entry, String branch, Path worktreeBase)
+    private Path userBucket(Path workspace, String userSlug) {
+        return workspace.resolve(WORKTREE_DIR).resolve(USER_BUCKET_PREFIX + userSlug);
+    }
+
+    /**
+     * 校验 workspace 是否落在配置的根白名单下。白名单为空时不限制(启动已 WARN)。
+     *
+     * @throws IllegalArgumentException workspace 不在任何允许根之下时
+     */
+    private void assertWorkspaceAllowed(Path workspace) {
+        if (allowedRoots.isEmpty()) {
+            return;
+        }
+        Path normalized = workspace.toAbsolutePath().normalize();
+        for (Path root : allowedRoots) {
+            if (normalized.startsWith(root)) {
+                return;
+            }
+        }
+        throw new IllegalArgumentException("Workspace not under an allowed root: " + workspace);
+    }
+
+    private Map<String, Object> createWorktreeForRepo(RepoEntry entry, String branch,
+                                                      Path worktreeBase, String userSlug)
             throws IOException, InterruptedException {
 
         File repoDir = entry.dir;
-        Map<String, Object> repoResult = new HashMap<>();
+        Map<String, Object> repoResult = new HashMap<>(16);
         // Use relative path as the logical name — disambiguates repos that share
         // the same leaf name under different parent directories.
         repoResult.put("name", entry.relativePath.toString());
@@ -375,16 +520,16 @@ public class WorktreeService {
         boolean localExists = localBranchExists(repoDir, branch);
         boolean remoteExists = remoteBranchExists(repoDir, branch);
 
-        String actualBranch;
+        String logicalBranch;
         boolean isFallback;
         if (localExists || remoteExists) {
-            actualBranch = branch;
+            logicalBranch = branch;
             isFallback = false;
         } else {
-            actualBranch = defaultBranch(repoDir);
+            logicalBranch = defaultBranch(repoDir);
             isFallback = true;
         }
-        repoResult.put("actualBranch", actualBranch);
+        repoResult.put("actualBranch", logicalBranch);
 
         Path repoWorktree = worktreeBase.resolve(entry.relativePath);
         if (Files.exists(repoWorktree, LinkOption.NOFOLLOW_LINKS)) {
@@ -397,42 +542,85 @@ public class WorktreeService {
             Files.createDirectories(parent);
         }
 
-        // If the target branch is already checked out somewhere (including the main
-        // repo), git refuses to add another worktree for it. Symlink to that path
-        // instead — this handles both the "repo has no such branch, fallback to
-        // master currently checked out in main repo" case and the "user picks the
-        // branch already in use" case, and avoids detached-HEAD fallbacks.
-        String existingCheckout = findCheckoutPath(repoDir, actualBranch);
-        if (existingCheckout != null) {
-            createDirectoryLink(repoWorktree, Paths.get(existingCheckout));
+        // Fallback 仓(无业务分支): 有远端默认分支 → 也建私有 worktree 隔离, 否则多用户 symlink 到同一主仓
+        // 检出会被 agent 跨用户写污染。仅"纯本地无远端"的退化测试库保留 symlink 复用(无可隔离的远端真相源)。
+        if (isFallback && !hasConfiguredRemote(repoDir)) {
+            createDirectoryLink(repoWorktree, repoDir.toPath());
             repoResult.put("created", true);
-            repoResult.put("reason", isFallback ? "无此分支，复用默认分支路径" : "复用已检出路径");
+            repoResult.put("reason", "无此分支，复用默认分支路径");
             return repoResult;
         }
 
+        return addPrivateWorktree(repoDir, repoWorktree, userSlug, logicalBranch,
+                remoteExists, isFallback, repoResult);
+    }
+
+    /**
+     * 为当前用户建私有 ref {@code wt/{slug}/{logical}} 的 worktree。共享对象库下同名逻辑分支被
+     * 命名空间化, 多用户各持私有 ref, checkout 互不冲突。二次进入(ref 残留)时复用而非重复 -b。
+     */
+    private Map<String, Object> addPrivateWorktree(File repoDir, Path repoWorktree, String userSlug,
+                                                   String logicalBranch, boolean remoteExists, boolean isFallback,
+                                                   Map<String, Object> repoResult)
+            throws IOException, InterruptedException {
+
+        String privateRef = UserBranchRef.of(userSlug, logicalBranch).namespacedRef();
         String[] cmd;
-        if (localBranchExists(repoDir, actualBranch)) {
-            cmd = new String[]{"git", "worktree", "add",
-                    repoWorktree.toString(), actualBranch};
-        } else if (remoteBranchExists(repoDir, actualBranch)) {
-            // Create a new local tracking branch from origin/<branch>.
-            cmd = new String[]{"git", "worktree", "add", "-b", actualBranch,
-                    repoWorktree.toString(), "origin/" + actualBranch};
+        if (localBranchExists(repoDir, privateRef)) {
+            String existingPrivate = findCheckoutPath(repoDir, privateRef);
+            if (existingPrivate != null && Files.isDirectory(Paths.get(existingPrivate))) {
+                createDirectoryLink(repoWorktree, Paths.get(existingPrivate));
+                repoResult.put("created", true);
+                repoResult.put("reason", "复用已检出路径");
+                return repoResult;
+            }
+            if (existingPrivate != null) {
+                pruneStaleWorktrees(repoDir);
+            }
+            cmd = new String[]{"git", "worktree", "add", repoWorktree.toString(), privateRef};
         } else {
-            repoResult.put("created", false);
-            repoResult.put("reason", "分支不存在");
-            return repoResult;
+            String startPoint = remoteExists
+                    ? ORIGIN_REF_PREFIX + logicalBranch
+                    : logicalBranch;
+            cmd = new String[]{"git", "worktree", "add", "-b", privateRef,
+                    repoWorktree.toString(), startPoint};
         }
 
         ExecResult er = execCapture(repoDir, cmd);
+        if (er.exitCode != 0 && isStaleWorktreeError(er.output)) {
+            pruneStaleWorktrees(repoDir);
+            er = execCapture(repoDir, cmd);
+        }
         repoResult.put("created", er.exitCode == 0);
         if (er.exitCode != 0) {
             String msg = er.output.trim();
             repoResult.put("reason", msg.isEmpty() ? "创建失败" : msg);
-        } else if (isFallback) {
+            return repoResult;
+        }
+        if (isFallback) {
             repoResult.put("reason", "无此分支，已回退到默认分支");
         }
         return repoResult;
+    }
+
+    private void pruneStaleWorktrees(File repoDir) throws IOException, InterruptedException {
+        exec(repoDir, "git", "worktree", "prune");
+    }
+
+    private boolean isStaleWorktreeError(String output) {
+        if (output == null) {
+            return false;
+        }
+        String lower = output.toLowerCase(Locale.ROOT);
+        return lower.contains("is already checked out")
+                || lower.contains("is a missing but already registered worktree")
+                || lower.contains("already registered worktree");
+    }
+
+    /** 当前分支是否配置了 upstream; 无 upstream 的本地分支 pull --ff-only 会失败, 应按良性跳过。 */
+    private boolean hasUpstream(File repoDir) throws IOException, InterruptedException {
+        return execCapture(repoDir, "git", "rev-parse", "--abbrev-ref",
+                "--symbolic-full-name", "@{u}").exitCode == 0;
     }
 
     private boolean localBranchExists(File repoDir, String branch)
@@ -459,8 +647,8 @@ public class WorktreeService {
                 "refs/remotes/origin/HEAD");
         if (r.exitCode == 0) {
             String out = r.output.trim();
-            if (out.startsWith("origin/")) {
-                return out.substring("origin/".length());
+            if (out.startsWith(ORIGIN_REF_PREFIX)) {
+                return out.substring(ORIGIN_REF_PREFIX.length());
             }
         }
         ExecResult head = execCapture(repoDir, "git", "rev-parse",
@@ -476,11 +664,13 @@ public class WorktreeService {
     private String findCheckoutPath(File repoDir, String branch)
             throws IOException, InterruptedException {
         ExecResult r = execCapture(repoDir, "git", "worktree", "list", "--porcelain");
-        if (r.exitCode != 0) return null;
+        if (r.exitCode != 0) {
+            return null;
+        }
 
         String targetRef = "refs/heads/" + branch;
         String currentPath = null;
-        for (String line : r.output.split("\n")) {
+        for (String line : r.output.split(LF)) {
             if (line.startsWith("worktree ")) {
                 currentPath = line.substring("worktree ".length()).trim();
             } else if (line.startsWith("branch ")) {
@@ -526,9 +716,16 @@ public class WorktreeService {
         // Junction points are not detected by isSymbolicLink on Windows
         if (isWindows() && Files.isDirectory(path)) {
             try {
-                Path realPath = path.toRealPath();
-                Path absolutePath = path.toAbsolutePath().normalize();
-                return !realPath.equals(absolutePath);
+                Path parent = path.toAbsolutePath().getParent();
+                if (parent == null) {
+                    return false;
+                }
+                // 父目录规范化后拼回叶子名 = path 若为普通目录时应有的真实路径；
+                // toRealPath 会跟随 junction，二者不同即说明 path 是 junction。
+                // 不能直接拿 path.toAbsolutePath().normalize() 比较：toRealPath 会把
+                // 8.3 短名（如 V33215~1）展开为长名而 normalize 不会，会令普通目录被误判为链接。
+                Path expectedReal = parent.toRealPath().resolve(path.getFileName());
+                return !path.toRealPath().equals(expectedReal);
             } catch (IOException e) {
                 return false;
             }
@@ -542,22 +739,29 @@ public class WorktreeService {
         pb.directory(dir);
         pb.redirectErrorStream(true);
         Process p = pb.start();
-        consumeOutput(p);
+        Thread outputDrainer = new Thread(() -> {
+            try {
+                consumeOutput(p);
+            } catch (IOException ex) {
+                // 超时强杀进程时 stdout 管道可能被关闭,fetch 输出本身不参与业务判断。
+            }
+        }, "worktree-git-output-drainer");
+        outputDrainer.setDaemon(true);
+        outputDrainer.start();
+
         boolean finished = p.waitFor(timeoutSeconds, TimeUnit.SECONDS);
         if (!finished) {
             p.destroyForcibly();
+            p.waitFor(1, TimeUnit.SECONDS);
+            outputDrainer.join(1000L);
             return -1;
         }
+        outputDrainer.join();
         return p.exitValue();
     }
 
     private int exec(File dir, String... cmd) throws IOException, InterruptedException {
         return execCapture(dir, cmd).exitCode;
-    }
-
-    private String execOutput(File dir, String... cmd)
-            throws IOException, InterruptedException {
-        return execCapture(dir, cmd).output;
     }
 
     private ExecResult execCapture(File dir, String... cmd)
@@ -597,7 +801,26 @@ public class WorktreeService {
     }
 
     private String safeBranchName(String branch) {
-        return branch.replaceAll("[^a-zA-Z0-9._-]", "-");
+        String safe = branch.replaceAll("[^a-zA-Z0-9._-]", "-");
+        // 防目录穿越: 整段为 "." / ".." 会让 resolve 跳出用户桶, 直接拒绝(分隔符已被替换为 -, 故只需挡这两种)
+        if (safe.isEmpty() || ".".equals(safe) || "..".equals(safe)) {
+            throw new IllegalArgumentException("Illegal branch name: " + branch);
+        }
+        return safe;
+    }
+
+    /**
+     * 在桶目录下解析分支目录并断言不逃逸出桶(纵深防御, 即便 safeBranchName 有漏网也兜住)。
+     *
+     * @throws IllegalArgumentException 解析结果跳出桶时
+     */
+    private Path resolveWithinBucket(Path bucket, String safeBranch) {
+        Path bucketRoot = bucket.normalize();
+        Path resolved = bucketRoot.resolve(safeBranch).normalize();
+        if (!resolved.startsWith(bucketRoot)) {
+            throw new IllegalArgumentException("Branch path escapes bucket: " + safeBranch);
+        }
+        return resolved;
     }
 
     private static final class ExecResult {

@@ -3,134 +3,135 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>登录 - Agent Web</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/element-plus/dist/index.css">
+  <title>登录 · Agent Q&A</title>
+  <link rel="stylesheet" href="vendor/element-plus.css">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    html, body { height: 100%; margin: 0; }
     body {
-      display: flex;
-      align-items: center;
-      justify-content: center;
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      min-height: 100vh;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
     }
+    #app { height: 100%; display: flex; align-items: center; justify-content: center; padding: 16px; }
     .login-card {
-      background: #fff;
-      border-radius: 12px;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-      padding: 40px;
-      width: 380px;
+      width: 100%; max-width: 380px;
+      background: #fff; border-radius: 12px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.18);
+      padding: 32px;
     }
-    .login-title {
-      text-align: center;
-      font-size: 24px;
-      font-weight: 700;
-      color: #303133;
-      margin-bottom: 8px;
-    }
-    .login-subtitle {
-      text-align: center;
-      font-size: 13px;
-      color: #909399;
-      margin-bottom: 32px;
-    }
-    .el-input { margin-bottom: 20px; }
-    .login-btn { width: 100%; margin-top: 8px; }
+    .login-title { font-size: 22px; font-weight: 600; color: #303133; margin: 0 0 4px 0; }
+    .login-subtitle { font-size: 13px; color: #909399; margin: 0 0 24px 0; }
+    .error-tip { color: #f56c6c; font-size: 13px; margin-top: 8px; }
   </style>
 </head>
 <body>
-  <div id="loginApp">
+  <div id="app">
     <div class="login-card">
-      <div class="login-title">Agent Web</div>
-      <div class="login-subtitle">请登录以继续</div>
+      <h2 class="login-title">Agent Q&A</h2>
+      <p class="login-subtitle">使用工号和用户名登录 · 会话保留 7 天</p>
 
-      <el-form @submit.prevent="doLogin">
-        <el-input
-          v-model="username"
-          placeholder="用户名"
-          prefix-icon="User"
-          size="large"
-          @keydown.enter="doLogin"
-          :disabled="loading"
-        ></el-input>
-        <el-input
-          v-model="password"
-          type="password"
-          placeholder="密码"
-          prefix-icon="Lock"
-          size="large"
-          show-password
-          @keydown.enter="doLogin"
-          :disabled="loading"
-        ></el-input>
-        <el-button
-          type="primary"
-          size="large"
-          class="login-btn"
-          :loading="loading"
-          @click="doLogin"
-        >登 录</el-button>
+      <el-form @submit.prevent="onManualLogin" label-position="top">
+        <el-form-item label="工号">
+          <el-input v-model="employeeId" placeholder="例如 E10001，对话记录通过工号隔离" clearable></el-input>
+        </el-form-item>
+        <el-form-item label="用户名">
+          <el-input v-model="userName" placeholder="例如 张三" clearable
+                    @keyup.enter="onManualLogin"></el-input>
+        </el-form-item>
+        <el-button :loading="submitting" @click="onManualLogin"
+                   style="width: 100%;">登录</el-button>
       </el-form>
 
-      <el-alert
-        v-if="errorMsg"
-        :title="errorMsg"
-        type="error"
-        show-icon
-        :closable="false"
-        style="margin-top: 16px;"
-      ></el-alert>
+      <div v-if="errorMessage" class="error-tip">{{ errorMessage }}</div>
     </div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/element-plus/dist/index.full.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@element-plus/icons-vue/dist/index.iife.min.js"></script>
+  <script src="js/base.js?v=20260611"></script>
+  <script src="vendor/vue.global.js"></script>
+  <script src="vendor/element-plus.full.min.js"></script>
+  <script src="vendor/element-plus-icons-vue.iife.min.js"></script>
   <script>
-    const { createApp, ref } = Vue;
+    const { createApp, ref, onMounted } = Vue;
+
     const app = createApp({
       setup() {
-        const username = ref('');
-        const password = ref('');
-        const loading = ref(false);
-        const errorMsg = ref('');
+        const employeeId = ref('');
+        const userName = ref('');
+        const submitting = ref(false);
+        const errorMessage = ref('');
 
-        async function doLogin() {
-          if (!username.value || !password.value) {
-            errorMsg.value = '请输入用户名和密码';
+        // 取登录后跳回地址。URL 上 ?redirect=... 优先;无则默认首页。
+        // sanitizeRedirect 兜底: /api/ 路径(如脏链接里的 /api/auth/logout, GET 过去 405
+        // ErrorPage)与站外地址一律回退首页。
+        function getRedirect() {
+          const params = new URLSearchParams(window.location.search);
+          return window.AppBase.sanitizeRedirect(
+              params.get('redirect'), window.__APP_BASE__ || '');
+        }
+
+        // 记住上次登录成功的工号+用户名(localStorage 按 origin 隔离,/qa 与根域共享),
+        // 下次进入登录页自动回显,省去重复输入。仅存非敏感的工号/用户名,不涉密码。
+        const LOGIN_MEMORY_KEY = 'agentweb.manualLogin';
+        function saveLoginMemory() {
+          try {
+            localStorage.setItem(LOGIN_MEMORY_KEY, JSON.stringify({
+              employeeId: employeeId.value.trim(),
+              userName: userName.value.trim()
+            }));
+          } catch (e) { /* 隐私模式 / 禁用 localStorage 时静默 */ }
+        }
+        function restoreLoginMemory() {
+          try {
+            const saved = JSON.parse(localStorage.getItem(LOGIN_MEMORY_KEY) || 'null');
+            if (saved && typeof saved === 'object') {
+              employeeId.value = saved.employeeId || '';
+              userName.value = saved.userName || '';
+            }
+          } catch (e) { /* 解析失败(脏数据)静默,按空表单处理 */ }
+        }
+
+        async function onManualLogin() {
+          if (!employeeId.value.trim() || !userName.value.trim()) {
+            errorMessage.value = '工号与用户名都不能为空';
             return;
           }
-          loading.value = true;
-          errorMsg.value = '';
+          submitting.value = true;
+          errorMessage.value = '';
           try {
-            const res = await fetch('/api/auth/login', {
+            const resp = await fetch('/api/auth/manual-login', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ username: username.value, password: password.value })
+              body: JSON.stringify({
+                employeeId: employeeId.value.trim(),
+                userName: userName.value.trim()
+              })
             });
-            const data = await res.json();
-            if (data.success) {
-              window.location.href = '/';
-            } else {
-              errorMsg.value = data.message || '登录失败';
+            if (!resp.ok) {
+              const text = await resp.text();
+              errorMessage.value = '登录失败: ' + text;
+              return;
             }
+            // 登录成功:记住工号+用户名,下次进入登录页自动回显
+            saveLoginMemory();
+            window.location.href = window.withBase(getRedirect());
           } catch (e) {
-            errorMsg.value = '网络错误，请稍后重试';
+            errorMessage.value = '网络错误: ' + e.message;
           } finally {
-            loading.value = false;
+            submitting.value = false;
           }
         }
 
-        return { username, password, loading, errorMsg, doLogin };
+        onMounted(() => {
+          restoreLoginMemory();
+        });
+
+        return { employeeId, userName, submitting, errorMessage, onManualLogin };
       }
     });
-    // Register all Element Plus icons
-    for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
-      app.component(key, component);
-    }
     app.use(ElementPlus);
-    app.mount('#loginApp');
+    for (const [k, v] of Object.entries(ElementPlusIconsVue)) {
+      app.component(k, v);
+    }
+    app.mount('#app');
   </script>
 </body>
 </html>

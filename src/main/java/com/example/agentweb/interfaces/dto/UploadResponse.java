@@ -1,5 +1,13 @@
 package com.example.agentweb.interfaces.dto;
 
+import lombok.Getter;
+import lombok.Setter;
+
+/**
+ * @author zhourui(V33215020)
+ */
+@Getter
+@Setter
 public class UploadResponse {
     private boolean success;
     private String path;
@@ -10,13 +18,4 @@ public class UploadResponse {
         this.path = path;
         this.size = size;
     }
-
-    public boolean isSuccess() { return success; }
-    public void setSuccess(boolean success) { this.success = success; }
-
-    public String getPath() { return path; }
-    public void setPath(String path) { this.path = path; }
-
-    public long getSize() { return size; }
-    public void setSize(long size) { this.size = size; }
 }

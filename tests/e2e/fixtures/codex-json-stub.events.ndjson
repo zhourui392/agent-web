@@ -1,0 +1,3 @@
+{"type":"thread.started","thread_id":"stub-thread-e2e-001"}
+{"type":"item.completed","item":{"type":"agent_message","text":"诊断结论: stub 模拟的诊断结果。下游服务 ServiceA 限流过紧 (100 QPS),建议调到 200 QPS 或接 Sentinel 做动态限流。\n\n[CONCLUSION]: Downstream rate limit too strict / 下游限流过紧导致超时"}}
+{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":50}}

@@ -1,7 +1,14 @@
 package com.example.agentweb.interfaces.dto;
 
-import com.example.agentweb.domain.ScheduledTask;
+import lombok.Getter;
+import lombok.Setter;
+import com.example.agentweb.domain.schedule.ScheduledTask;
 
+/**
+ * @author zhourui(V33215020)
+ */
+@Getter
+@Setter
 public class ScheduledTaskDto {
     private String id;
     private String name;
@@ -34,34 +41,4 @@ public class ScheduledTaskDto {
         dto.lastSessionId = task.getLastSessionId();
         return dto;
     }
-
-    public String getId() { return id; }
-    public void setId(String id) { this.id = id; }
-
-    public String getName() { return name; }
-    public void setName(String name) { this.name = name; }
-
-    public String getCronExpr() { return cronExpr; }
-    public void setCronExpr(String cronExpr) { this.cronExpr = cronExpr; }
-
-    public String getPrompt() { return prompt; }
-    public void setPrompt(String prompt) { this.prompt = prompt; }
-
-    public String getWorkingDir() { return workingDir; }
-    public void setWorkingDir(String workingDir) { this.workingDir = workingDir; }
-
-    public boolean isEnabled() { return enabled; }
-    public void setEnabled(boolean enabled) { this.enabled = enabled; }
-
-    public String getCreatedAt() { return createdAt; }
-    public void setCreatedAt(String createdAt) { this.createdAt = createdAt; }
-
-    public String getUpdatedAt() { return updatedAt; }
-    public void setUpdatedAt(String updatedAt) { this.updatedAt = updatedAt; }
-
-    public String getLastRunAt() { return lastRunAt; }
-    public void setLastRunAt(String lastRunAt) { this.lastRunAt = lastRunAt; }
-
-    public String getLastSessionId() { return lastSessionId; }
-    public void setLastSessionId(String lastSessionId) { this.lastSessionId = lastSessionId; }
 }

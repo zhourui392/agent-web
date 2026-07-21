@@ -1,7 +1,7 @@
 package com.example.agentweb.infra;
 
-import com.example.agentweb.domain.SlashCommand;
-import com.example.agentweb.domain.SlashCommandScanner;
+import com.example.agentweb.domain.slashcommand.SlashCommand;
+import com.example.agentweb.domain.slashcommand.SlashCommandScanner;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -12,55 +12,105 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
- * 基于文件系统的 {@link SlashCommandScanner} 实现。
- * <p>扫描 {@code .claude/commands/} 和 {@code .claude/skills/} 目录下的 Markdown 命令定义文件，
- * 解析 YAML frontmatter 并读取模板内容。</p>
+ * 基于文件系统的 {@link SlashCommandScanner} 实现.
+ * <p>扫描路径分两类:
+ * <ul>
+ *   <li><b>commandDirs</b>: 目录下的 {@code *.md} 文件 (支持子目录, 用 {@code :} 拼前缀)</li>
+ *   <li><b>skillDirs</b>: 目录下的子目录, 每个子目录里的 {@code SKILL.md} 解析为单个命令</li>
+ * </ul>
+ * <p>默认值同时覆盖 Claude ({@code .claude/commands}, {@code .claude/skills}) 与
+ * Codex ({@code .codex/skills}), 通过 {@link SlashCommandProperties} 可在 yml 覆盖。</p>
+ * <p>每个目录路径会被拼接到 {@code workingDir} (项目级, 优先) 与 {@code userHome} (主目录级, 同名 fallback)。</p>
+ *
+ * @author zhourui(V33215020)
+ * @since 2026-05-14
  */
 @Component
+@Slf4j
 public class FileSlashCommandScanner implements SlashCommandScanner {
+
+    static final List<String> DEFAULT_COMMAND_DIRS =
+            Collections.unmodifiableList(Collections.singletonList(".claude/commands"));
+    static final List<String> DEFAULT_SKILL_DIRS =
+            Collections.unmodifiableList(Arrays.asList(".claude/skills", ".codex/skills"));
 
     private static final String FRONTMATTER_DELIMITER = "---";
     private static final String FRONTMATTER_END_MARKER = "\n---";
 
     private final String userHome;
+    private final List<String> commandDirs;
+    private final List<String> skillDirs;
 
-    public FileSlashCommandScanner() {
-        this(System.getProperty("user.home"));
+    /** Spring 注入路径: 从 yml 读 {@link SlashCommandProperties}, 缺省走内置默认. */
+    @Autowired
+    public FileSlashCommandScanner(SlashCommandProperties props) {
+        this(System.getProperty("user.home"),
+                props.resolveCommandDirs(DEFAULT_COMMAND_DIRS),
+                props.resolveSkillDirs(DEFAULT_SKILL_DIRS));
     }
 
+    /** 无参构造: 用 system user.home + 默认路径 (测试 / 独立实例化场景). */
+    public FileSlashCommandScanner() {
+        this(System.getProperty("user.home"), DEFAULT_COMMAND_DIRS, DEFAULT_SKILL_DIRS);
+    }
+
+    /** 单参构造: 指定 userHome 但走默认路径 (测试现有用法兼容). */
     public FileSlashCommandScanner(String userHome) {
+        this(userHome, DEFAULT_COMMAND_DIRS, DEFAULT_SKILL_DIRS);
+    }
+
+    /** 完整构造: 全部参数显式注入 (新增测试 + Spring 注入复用). */
+    public FileSlashCommandScanner(String userHome, List<String> commandDirs, List<String> skillDirs) {
         this.userHome = userHome;
+        this.commandDirs = (commandDirs == null || commandDirs.isEmpty()) ? DEFAULT_COMMAND_DIRS : commandDirs;
+        this.skillDirs = (skillDirs == null || skillDirs.isEmpty()) ? DEFAULT_SKILL_DIRS : skillDirs;
     }
 
     @Override
     public List<SlashCommand> scan(String workingDir) {
+        long startMs = System.currentTimeMillis();
         List<SlashCommand> commands = new ArrayList<SlashCommand>();
 
         // 项目级别（优先）
-        scanCommandsDirectory(Paths.get(workingDir, ".claude", "commands"), "", commands);
-        scanSkillsDirectory(Paths.get(workingDir, ".claude", "skills"), commands);
+        scanAllRoots(commands, workingDir);
+        int projectCount = commands.size();
 
         // 主目录级别（去重，项目级别同名命令优先）
         Set<String> projectNames = collectNames(commands);
         List<SlashCommand> homeCommands = new ArrayList<SlashCommand>();
-        scanCommandsDirectory(Paths.get(userHome, ".claude", "commands"), "", homeCommands);
-        scanSkillsDirectory(Paths.get(userHome, ".claude", "skills"), homeCommands);
+        scanAllRoots(homeCommands, userHome);
 
         for (SlashCommand cmd : homeCommands) {
             if (!projectNames.contains(cmd.getName())) {
                 commands.add(cmd);
             }
         }
+        log.debug("slash-command-scan workingDir={} projectCount={} homeCount={} total={} elapsedMs={}",
+                workingDir, projectCount, homeCommands.size(), commands.size(),
+                System.currentTimeMillis() - startMs);
         return commands;
+    }
+
+    private void scanAllRoots(List<SlashCommand> out, String rootDir) {
+        for (String dir : commandDirs) {
+            scanCommandsDirectory(Paths.get(rootDir, dir), "", out);
+        }
+        for (String dir : skillDirs) {
+            scanSkillsDirectory(Paths.get(rootDir, dir), out);
+        }
     }
 
     private Set<String> collectNames(List<SlashCommand> commands) {
@@ -143,18 +193,18 @@ public class FileSlashCommandScanner implements SlashCommandScanner {
     }
 
     private Map<String, String> parseFrontmatter(File file) {
-        Map<String, String> result = new HashMap<String, String>();
+        Map<String, String> result = new HashMap<>(16);
         try {
             BufferedReader reader = new BufferedReader(
                     new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8));
             try {
                 String firstLine = reader.readLine();
-                if (firstLine == null || !"---".equals(firstLine.trim())) {
+                if (firstLine == null || !FRONTMATTER_DELIMITER.equals(firstLine.trim())) {
                     return result;
                 }
                 String line;
                 while ((line = reader.readLine()) != null) {
-                    if ("---".equals(line.trim())) {
+                    if (FRONTMATTER_DELIMITER.equals(line.trim())) {
                         break;
                     }
                     int colonIndex = line.indexOf(':');
@@ -169,6 +219,8 @@ public class FileSlashCommandScanner implements SlashCommandScanner {
             }
         } catch (Exception e) {
             // 解析失败时返回空 map，使用 fallback 值
+            log.warn("slash-command-frontmatter-parse-failed file={} reason={}",
+                    file.getAbsolutePath(), e.getMessage());
         }
         return result;
     }

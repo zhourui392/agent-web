@@ -1,0 +1,16 @@
+# 各机器易变的主机路径，单独拆出便于按环境(Linux 服务器 / 各人 dev 机)区分。
+# 被 application.yml 的 spring.config.import 加载，导入值覆盖 application.yml 同名默认值。
+#
+# 仓库提交的是 Linux 服务器路径。本机(dev)按需改这里；不想把本机改动 push 回去，可执行一次：
+#   git update-index --skip-worktree src/main/resources/agent-paths.yml
+# 之后本地修改不再进入 git 暂存区(恢复跟踪: git update-index --no-skip-worktree ...)。
+#
+# 注意：list 是整体替换不是合并，roots 要写全本环境要用的全部条目。
+
+agent:
+  fs:
+    roots:
+      - "/home/service/workspace"
+      - "/home/service/.claude/skills"
+    upload-roots:
+      - "/home/service/.agent-web"

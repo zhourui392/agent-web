@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>大盘 · Agent Q&A 管理后台</title>
+  <link rel="stylesheet" href="../vendor/element-plus.css">
+  <link rel="stylesheet" href="../css/admin.css?v=2026061101">
+</head>
+<body>
+  <div id="app" v-cloak>
+    <admin-shell active="dashboard" @ready="onReady">
+      <template #header-actions>
+        <el-button text @click="loadAll" :loading="loading">刷新</el-button>
+      </template>
+
+      <div class="view-wrap" v-loading="loading">
+        <el-row :gutter="16">
+          <el-col :span="6" v-for="kpi in kpis" :key="kpi.label">
+            <el-card class="kpi-card" shadow="hover">
+              <div class="kpi-value">{{ kpi.value }}</div>
+              <div class="kpi-label">{{ kpi.label }}</div>
+            </el-card>
+          </el-col>
+        </el-row>
+
+        <el-card class="mt16" shadow="never">
+          <div class="section-title">近 {{ trend.length }} 天趋势</div>
+          <div class="trend-legend">
+            <span class="dot" style="background:#409eff;"></span>会话
+          </div>
+          <svg v-if="trendChart" :viewBox="'0 0 ' + chartW + ' ' + chartH" width="100%" :height="chartH" preserveAspectRatio="none">
+            <line :x1="padL" :y1="chartH - padB" :x2="chartW - 8" :y2="chartH - padB" stroke="#ebeef5" />
+            <polyline :points="trendChart.chatPts" fill="none" stroke="#409eff" stroke-width="2" />
+            <text :x="padL" :y="chartH - 4" font-size="10" fill="#909399">{{ trendChart.firstDate }}</text>
+            <text :x="chartW - 8" :y="chartH - 4" font-size="10" fill="#909399" text-anchor="end">{{ trendChart.lastDate }}</text>
+            <text :x="padL - 4" :y="padT + 8" font-size="10" fill="#909399" text-anchor="end">{{ trendChart.maxV }}</text>
+          </svg>
+          <div v-else class="muted">暂无数据</div>
+        </el-card>
+
+        <el-row :gutter="16" class="mt16">
+          <el-col :span="8" v-for="dist in distributions" :key="dist.title">
+            <el-card shadow="never">
+              <div class="section-title">{{ dist.title }}</div>
+              <el-table :data="dist.rows" size="small" :show-header="false" empty-text="无数据">
+                <el-table-column prop="key"></el-table-column>
+                <el-table-column prop="count" align="right" width="80"></el-table-column>
+              </el-table>
+            </el-card>
+          </el-col>
+        </el-row>
+      </div>
+    </admin-shell>
+  </div>
+
+  <script src="../js/base.js?v=20260611"></script>
+  <script src="../vendor/marked.min.js"></script>
+  <script src="../vendor/vue.global.js"></script>
+  <script src="../vendor/element-plus.full.min.js"></script>
+  <script src="../vendor/element-plus-icons-vue.iife.min.js"></script>
+  <script src="../js/lib/formatters.js"></script>
+  <script src="../js/admin/shell.js?v=2026070401"></script>
+  <script src="../js/admin/pages/dashboard.js?v=20260608"></script>
+</body>
+</html>

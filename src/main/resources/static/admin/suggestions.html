@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>用户建议 · Agent Q&A 管理后台</title>
+  <link rel="stylesheet" href="../vendor/element-plus.css">
+  <link rel="stylesheet" href="../css/admin.css?v=2026061101">
+</head>
+<body>
+  <div id="app" v-cloak>
+    <admin-shell active="suggestions" @ready="loadSuggestions">
+      <template #header-actions>
+        <el-button text @click="loadSuggestions" :loading="loading">刷新</el-button>
+      </template>
+
+      <div class="view-wrap">
+        <div class="conv-toolbar">
+          <el-select v-model="status" size="small" style="width: 140px;" @change="search">
+            <el-option label="全部状态" value=""></el-option>
+            <el-option v-for="s in statusOptions" :key="s.value" :label="s.label" :value="s.value"></el-option>
+          </el-select>
+          <el-input v-model="keyword" size="small" clearable placeholder="搜索标题、内容、用户"
+                    @keyup.enter="search" @clear="search"></el-input>
+          <el-button size="small" type="primary" @click="search">搜索</el-button>
+          <el-button size="small" @click="loadSuggestions" :loading="loading">刷新</el-button>
+        </div>
+
+        <el-table :data="rows" v-loading="loading" size="small" empty-text="暂无建议"
+                  @row-click="openDetail">
+          <el-table-column label="建议" min-width="320">
+            <template #default="{ row }">
+              <div data-test="admin-suggestion-row" :data-title="row.title || ''"
+                   style="font-weight: 600; color: #303133; word-break: break-word;">{{ row.title || '(无标题)' }}</div>
+              <div class="suggestion-admin-excerpt">{{ row.content }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column label="用户" width="150">
+            <template #default="{ row }">
+              <div>{{ row.userName || '-' }}</div>
+              <div class="muted" style="font-size: 12px;">{{ row.userId || '-' }}</div>
+            </template>
+          </el-table-column>
+          <el-table-column label="状态" width="100">
+            <template #default="{ row }">
+              <el-tag size="small" :type="statusType(row.status)">{{ row.statusLabel || row.status }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="提交时间" width="160">
+            <template #default="{ row }">{{ fmtTime(row.createdAt) }}</template>
+          </el-table-column>
+          <el-table-column label="操作" width="90" fixed="right">
+            <template #default="{ row }">
+              <el-button size="small" type="primary" text @click.stop="openDetail(row)">处理</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <div class="conv-pager">
+          <el-pagination background layout="prev, pager, next, total"
+                         :current-page="page" :page-size="size" :total="total"
+                         @current-change="onPageChange"></el-pagination>
+        </div>
+      </div>
+
+      <el-drawer v-model="detailOpen" title="处理用户建议" :size="isMobile ? '100%' : '520px'">
+        <div v-if="current" class="suggestion-admin-detail">
+          <div class="drawer-meta">
+            <div>用户：{{ current.userName || '-' }} / {{ current.userId || '-' }}</div>
+            <div>提交：{{ fmtTime(current.createdAt) }}</div>
+            <div v-if="current.contact">联系方式：{{ current.contact }}</div>
+          </div>
+          <div class="section-title">{{ current.title || '(无标题)' }}</div>
+          <div class="suggestion-admin-content">{{ current.content }}</div>
+          <el-form label-position="top" size="default" style="margin-top: 16px;">
+            <el-form-item label="处理状态">
+              <el-select v-model="editForm.status" style="width: 100%;">
+                <el-option v-for="s in statusOptions" :key="s.value" :label="s.label" :value="s.value"></el-option>
+              </el-select>
+            </el-form-item>
+            <el-form-item label="回复">
+              <el-input v-model="editForm.adminReply" type="textarea"
+                        :autosize="{ minRows: 5, maxRows: 12 }" maxlength="2000" show-word-limit
+                        placeholder="填写给用户看的处理回复"></el-input>
+            </el-form-item>
+          </el-form>
+        </div>
+        <template #footer>
+          <el-button @click="detailOpen = false">取消</el-button>
+          <el-button type="primary" :loading="saving" @click="saveCurrent">保存</el-button>
+        </template>
+      </el-drawer>
+    </admin-shell>
+  </div>
+
+  <script src="../js/base.js?v=20260611"></script>
+  <script src="../vendor/marked.min.js"></script>
+  <script src="../vendor/vue.global.js"></script>
+  <script src="../vendor/element-plus.full.min.js"></script>
+  <script src="../vendor/element-plus-icons-vue.iife.min.js"></script>
+  <script src="../js/lib/formatters.js"></script>
+  <script src="../js/admin/shell.js?v=2026070401"></script>
+  <script src="../js/admin/pages/suggestions.js?v=20260611"></script>
+</body>
+</html>

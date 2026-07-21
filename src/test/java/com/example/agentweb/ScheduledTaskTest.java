@@ -1,16 +1,19 @@
 package com.example.agentweb;
 
-import com.example.agentweb.domain.AgentType;
-import com.example.agentweb.domain.ChatSession;
-import com.example.agentweb.domain.ScheduledTask;
-import com.example.agentweb.domain.ScheduledTaskRepository;
-import com.example.agentweb.domain.SessionRepository;
+import com.example.agentweb.domain.shared.AgentType;
+import com.example.agentweb.domain.chat.ChatSession;
+import com.example.agentweb.domain.schedule.ScheduledTask;
+import com.example.agentweb.domain.schedule.ScheduledTaskRepository;
+import com.example.agentweb.domain.chat.SessionRepository;
 import com.example.agentweb.infra.InMemorySessionRepo;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.ResourceLock;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.dao.DataAccessException;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -43,6 +46,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "agent.cli.codex.stdin=false"
 })
 @AutoConfigureMockMvc
+@Tag("spring-flow")
+@ResourceLock("spring-flow-sqlite")
 public class ScheduledTaskTest {
 
     @DynamicPropertySource
@@ -60,6 +65,9 @@ public class ScheduledTaskTest {
     private SessionRepository sessionRepository;
 
     @Autowired
+    private com.example.agentweb.app.ChatSessionQueryService sessionQueryService;
+
+    @Autowired
     private InMemorySessionRepo inMemoryRepo;
 
     @Autowired
@@ -67,9 +75,31 @@ public class ScheduledTaskTest {
 
     @AfterEach
     void cleanup() {
-        jdbc.update("DELETE FROM chat_message");
-        jdbc.update("DELETE FROM chat_session");
-        jdbc.update("DELETE FROM scheduled_task");
+        // run_task_should_return_success 触发的异步任务执行(agentExecutor)可能仍在写库,
+        // 与下面的 DELETE 在 shared-cache 内存库上撞表级锁(SQLITE_LOCKED_SHAREDCACHE,
+        // busy_timeout 对该错误码无效)。重试退避以等在途写入落定 —— teardown 本就该等。
+        deleteWithRetry("DELETE FROM chat_message");
+        deleteWithRetry("DELETE FROM chat_session");
+        deleteWithRetry("DELETE FROM scheduled_task");
+    }
+
+    private void deleteWithRetry(String sql) {
+        DataAccessException last = null;
+        for (int attempt = 0; attempt < 30; attempt++) {
+            try {
+                jdbc.update(sql);
+                return;
+            } catch (DataAccessException e) {
+                last = e;
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw e;
+                }
+            }
+        }
+        throw last;
     }
 
     // ── 1. Domain: ScheduledTask entity ──
@@ -182,13 +212,12 @@ public class ScheduledTaskTest {
         ChatSession session = ChatSession.forTask("my-task", AgentType.CODEX, "/tmp");
         sessionRepository.saveSession(session);
 
-        List<Map<String, Object>> summaries = sessionRepository.findSummaryPaged(0, 200);
-        Map<String, Object> found = summaries.stream()
-                .filter(m -> session.getId().equals(m.get("sessionId")))
+        com.example.agentweb.app.ChatSessionSummary found = sessionQueryService.findSummaryPaged(0, 200).stream()
+                .filter(m -> session.getId().equals(m.getSessionId()))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Task session not found in summaries"));
 
-        assertEquals("Task-my-task", found.get("title"));
+        assertEquals("Task-my-task", found.getTitle());
     }
 
     @Test
@@ -196,15 +225,14 @@ public class ScheduledTaskTest {
         ChatSession session = new ChatSession(AgentType.CODEX, "/tmp");
         sessionRepository.saveSession(session);
         sessionRepository.addMessage(session.getId(),
-                new com.example.agentweb.domain.ChatMessage("user", "这是首条消息"));
+                new com.example.agentweb.domain.chat.ChatMessage("user", "这是首条消息"));
 
-        List<Map<String, Object>> summaries = sessionRepository.findSummaryPaged(0, 200);
-        Map<String, Object> found = summaries.stream()
-                .filter(m -> session.getId().equals(m.get("sessionId")))
+        com.example.agentweb.app.ChatSessionSummary found = sessionQueryService.findSummaryPaged(0, 200).stream()
+                .filter(m -> session.getId().equals(m.getSessionId()))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Session not found"));
 
-        assertEquals("这是首条消息", found.get("title"));
+        assertEquals("这是首条消息", found.getTitle());
     }
 
     @Test

@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>召回观测 · Agent Q&A 管理后台</title>
+  <link rel="stylesheet" href="../vendor/element-plus.css">
+  <link rel="stylesheet" href="../css/admin.css?v=2026061501">
+</head>
+<body>
+  <div id="app" v-cloak>
+    <admin-shell active="recall" @ready="onReady">
+      <template #header-actions>
+        <el-button text @click="loadAll" :loading="loading">刷新</el-button>
+      </template>
+
+      <div class="view-wrap recall-view" v-loading="loading">
+        <el-collapse class="recall-help">
+          <el-collapse-item name="help">
+            <template #title>
+              <span class="recall-help-title">📖 指标口径说明 —— 数据看不懂先点这里</span>
+            </template>
+            <div class="recall-help-body">
+              <p class="recall-help-lead">
+                开启「RAG 召回」开关后,每发一条消息都会拿它去历史结论向量库里捞相似的过往经验,
+                命中就把「历史参考」拼到发给 CLI 的消息前面。本页观测的就是这个「捞」的过程跑得好不好——
+                哪些消息捞到了、捞得准不准、链路有没有报错。
+              </p>
+
+              <div class="recall-help-section">
+                <div class="recall-help-h">顶部 KPI</div>
+                <dl class="recall-help-dl">
+                  <dt>召回尝试</dt><dd>开关开着时每条消息触发一次;空消息 / 斜杠命令会算「跳过」,不去检索。</dd>
+                  <dt>有效执行</dt><dd>真正跑完向量检索的次数(命中 + 0命中 + 异常),不含跳过 / 处理中。下面几个率多以它为分母。</dd>
+                  <dt>质量命中率</dt><dd>命中 ÷ (命中 + 0命中)。真去检索时多大比例能捞到可用历史参考——<b>最该盯的指标</b>。低 = 库里没相关内容或阈值太严。</dd>
+                  <dt>0 命中率</dt><dd>检索跑通但没有一条 chunk 过阈值,消息按原样发。</dd>
+                  <dt>异常率</dt><dd>embedding 接口 / 向量计算报错的比例。已降级,不影响消息正常发送。</dd>
+                  <dt>服务可用率</dt><dd>(命中 + 0命中) ÷ 有效执行 = 1 − 异常率,检索链路本身没崩的比例。</dd>
+                  <dt>平均命中数</dt><dd>命中的那些尝试里,平均拼进去几条历史参考。</dd>
+                  <dt>平均耗时</dt><dd>有效执行的平均墙钟耗时(含 embedding 往返)。</dd>
+                </dl>
+              </div>
+
+              <div class="recall-help-section">
+                <div class="recall-help-h">状态(每条尝试的最终态,即表格「状态」列)</div>
+                <dl class="recall-help-dl">
+                  <dt>命中</dt><dd>至少 1 条历史 chunk 过了所有阈值,已拼进 prompt。</dd>
+                  <dt>0 命中</dt><dd>检索跑通但没 chunk 过阈值,prompt 不变。</dd>
+                  <dt>异常</dt><dd>检索过程报错、已降级;消息照常发出,只是没注入历史参考。</dd>
+                  <dt>跳过</dt><dd>没真去检索——空消息、斜杠命令,或召回开关关着。</dd>
+                  <dt>处理中</dt><dd>终态还没写回,一般一闪而过。</dd>
+                </dl>
+              </div>
+
+              <div class="recall-help-section">
+                <div class="recall-help-h">分数与计数(表格「Top / 过滤」列、Score 样本、详情)</div>
+                <dl class="recall-help-dl">
+                  <dt>vector / topVector</dt><dd>query 与 chunk 的余弦相似度(0~1),越高语义越近。须先过「余弦硬闸」(约 0.6) 才进入打分。</dd>
+                  <dt>final / topFinal</dt><dd>融合分 = 0.7·余弦 + 0.2·关键词重合 + 0.1·时间衰减·原始分。排序和最终去留看它。</dd>
+                  <dt>below</dt><dd>被余弦硬闸刷掉的 chunk 数(语义不够近)。</dd>
+                  <dt>ranked</dt><dd>过了余弦硬闸、参与融合排序的候选数。</dd>
+                  <dt>active / filtered</dt><dd>active=库里活跃 chunk 总数;filtered=按来源 / tier 过滤后进入打分的候选数。</dd>
+                  <dt>topK</dt><dd>最多注入几条(取融合分最高的前 K)。</dd>
+                  <dt>badVector</dt><dd>向量损坏 / 计算报错被跳过的 chunk 数,正常应为 0。</dd>
+                </dl>
+              </div>
+
+              <div class="recall-help-section">
+                <div class="recall-help-h">三个面板 & 筛选</div>
+                <dl class="recall-help-dl">
+                  <dt>质量分桶</dt><dd>按 环境 / 模型 / 来源(CHAT·DIAGNOSE) / tier 分组各自的命中率,横向比较哪个维度召回质量差。</dd>
+                  <dt>Score 样本</dt><dd>最近若干条尝试的 topVector / topFinal 实际分,用来校准阈值设得合不合理。</dd>
+                  <dt>Top chunks</dt><dd>被召回次数最多的历史结论,看哪些经验最常被复用。</dd>
+                  <dt>sourceType</dt><dd>历史来源:<code>CHAT</code> 普通会话沉淀 / <code>DIAGNOSE</code> 诊断结论。</dd>
+                  <dt>tier</dt><dd>可信级别:<code>VERIFIED</code> 已验证 / <code>PENDING</code> 待定 / <code>EXPLORATORY</code> 探索性。</dd>
+                </dl>
+              </div>
+            </div>
+          </el-collapse-item>
+        </el-collapse>
+
+        <el-row :gutter="16" class="mt16">
+          <el-col :span="6" v-for="kpi in kpis" :key="kpi.label">
+            <el-card class="kpi-card" shadow="never">
+              <div class="kpi-value">{{ kpi.value }}</div>
+              <div class="kpi-label">{{ kpi.label }}</div>
+            </el-card>
+          </el-col>
+        </el-row>
+
+        <el-card class="mt16" shadow="never">
+          <div class="recall-filter-grid">
+            <el-select v-model="filters.status" clearable placeholder="状态" @change="reloadFirstPage">
+              <el-option label="命中" value="HIT"></el-option>
+              <el-option label="0 命中" value="NO_HIT"></el-option>
+              <el-option label="异常" value="ERROR"></el-option>
+              <el-option label="跳过" value="SKIPPED"></el-option>
+              <el-option label="处理中" value="PENDING"></el-option>
+            </el-select>
+            <el-input v-model="filters.sessionId" clearable placeholder="sessionId" @keyup.enter="reloadFirstPage"></el-input>
+            <el-input v-model="filters.embeddingModel" clearable placeholder="embeddingModel" @keyup.enter="reloadFirstPage"></el-input>
+            <el-input v-model="filters.env" clearable placeholder="env" @keyup.enter="reloadFirstPage"></el-input>
+            <el-select v-model="filters.sourceType" clearable placeholder="sourceType" @change="reloadFirstPage">
+              <el-option label="CHAT" value="CHAT"></el-option>
+              <el-option label="DIAGNOSE" value="DIAGNOSE"></el-option>
+            </el-select>
+            <el-select v-model="filters.tier" clearable placeholder="tier" @change="reloadFirstPage">
+              <el-option label="VERIFIED" value="VERIFIED"></el-option>
+              <el-option label="PENDING" value="PENDING"></el-option>
+              <el-option label="EXPLORATORY" value="EXPLORATORY"></el-option>
+            </el-select>
+            <el-date-picker v-model="dateRange" type="datetimerange" range-separator="至"
+                            start-placeholder="开始时间" end-placeholder="结束时间"
+                            value-format="x" @change="onDateRangeChange"></el-date-picker>
+            <div class="recall-filter-actions">
+              <el-button type="primary" @click="reloadFirstPage">查询</el-button>
+              <el-button @click="resetFilters">重置</el-button>
+            </div>
+          </div>
+        </el-card>
+
+        <el-row :gutter="16" class="mt16">
+          <el-col :span="10">
+            <el-card shadow="never">
+              <div class="section-title">质量分桶</div>
+              <div v-if="bucketRows.length" class="recall-bucket-list">
+                <div v-for="row in bucketRows" :key="row.group + ':' + row.key" class="recall-bucket-row">
+                  <div>
+                    <div class="recall-query">{{ bucketDisplayKey(row.group, row.key) }}</div>
+                    <div class="muted recall-meta">
+                      HIT {{ row.hitCount || 0 }} · NO_HIT {{ row.noHitCount || 0 }} · ERROR {{ row.errorCount || 0 }}
+                    </div>
+                  </div>
+                  <div class="recall-bucket-rate">{{ pct(row.qualityHitRate) }}</div>
+                </div>
+              </div>
+              <el-empty v-else description="暂无分桶数据" :image-size="64"></el-empty>
+            </el-card>
+          </el-col>
+          <el-col :span="7">
+            <el-card shadow="never">
+              <div class="section-title">Score 样本</div>
+              <div v-if="scoreSamples.length" class="recall-sample-list">
+                <div v-for="row in scoreSamples.slice(0, 8)" :key="row.attemptId" class="recall-sample-row">
+                  <div class="recall-query">{{ row.attemptId }}</div>
+                  <div class="muted recall-meta">
+                    {{ statusLabel(row.status) }} · topVector {{ score(row.topVectorScore) }}
+                  </div>
+                  <div class="muted recall-meta">
+                    topFinal {{ score(row.topFinalScore) }} · below {{ valueOrDash(row.belowVectorFloor) }} / filtered {{ valueOrDash(row.filteredCount) }}
+                  </div>
+                </div>
+              </div>
+              <el-empty v-else description="暂无 score 样本" :image-size="64"></el-empty>
+            </el-card>
+          </el-col>
+          <el-col :span="7">
+            <el-card shadow="never">
+              <div class="section-title">Top chunks</div>
+              <div v-if="chunks.length" class="recall-sample-list">
+                <div v-for="row in chunks.slice(0, 8)" :key="row.chunkId" class="recall-sample-row">
+                  <div class="recall-query">{{ row.chunkId }}</div>
+                  <div class="muted recall-meta">{{ compactText(row.title, 48) || '-' }}</div>
+                  <div class="muted recall-meta">
+                    召回 {{ row.recalledTimes || 0 }} 次 · vector {{ score(row.avgVectorScore) }} · final {{ score(row.avgFinalScore) }}
+                  </div>
+                  <div class="muted recall-meta">{{ row.sourceType || '-' }} / {{ row.tier || '-' }}</div>
+                </div>
+              </div>
+              <el-empty v-else description="暂无 chunk 数据" :image-size="64"></el-empty>
+            </el-card>
+          </el-col>
+        </el-row>
+
+        <el-card class="mt16" shadow="never">
+          <el-table :data="attempts" empty-text="暂无召回尝试" border size="small">
+            <el-table-column label="时间" width="170">
+              <template #default="{ row }">{{ epochTime(row.createdAt) }}</template>
+            </el-table-column>
+            <el-table-column label="状态" width="90">
+              <template #default="{ row }">
+                <el-tag size="small" :type="statusTagType(row.status)" disable-transitions>
+                  {{ statusLabel(row.status) }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="命中" prop="hitCount" width="70" align="right"></el-table-column>
+            <el-table-column label="Query" min-width="260">
+              <template #default="{ row }">
+                <div class="recall-query">{{ compactText(row.querySummary, 80) || '-' }}</div>
+                <div class="muted recall-meta">{{ row.sessionId }}</div>
+              </template>
+            </el-table-column>
+            <el-table-column label="模型 / 环境" width="180">
+              <template #default="{ row }">
+                <div>{{ row.embeddingModel || '-' }}</div>
+                <div class="muted recall-meta">{{ row.env || '-' }}</div>
+              </template>
+            </el-table-column>
+            <el-table-column label="Top" width="150">
+              <template #default="{ row }">
+                <div>vector {{ score(row.topVectorScore) }}</div>
+                <div class="muted recall-meta">final {{ score(row.topFinalScore) }}</div>
+              </template>
+            </el-table-column>
+            <el-table-column label="过滤" width="160">
+              <template #default="{ row }">
+                <div>below {{ row.belowVectorFloor == null ? '-' : row.belowVectorFloor }}</div>
+                <div class="muted recall-meta">ranked {{ row.rankedCount == null ? '-' : row.rankedCount }}</div>
+              </template>
+            </el-table-column>
+            <el-table-column label="耗时" width="90" align="right">
+              <template #default="{ row }">{{ millis(row.latencyMs) }}</template>
+            </el-table-column>
+            <el-table-column label="操作" width="90" fixed="right">
+              <template #default="{ row }">
+                <el-button text type="primary" size="small" @click="openDetail(row.id)">详情</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+
+          <div class="conv-pager">
+            <el-pagination background layout="total, sizes, prev, pager, next, jumper"
+                           :total="total" :page-size="pageSize" :current-page="page"
+                           :page-sizes="[10, 20, 50, 100]"
+                           @current-change="onPageChange" @size-change="onSizeChange"></el-pagination>
+          </div>
+        </el-card>
+      </div>
+
+      <el-drawer v-model="detailOpen" title="召回详情" size="52%" direction="rtl">
+        <div v-loading="detailLoading">
+          <template v-if="detail">
+            <div class="drawer-meta">
+              <div>Attempt: {{ detail.id }}</div>
+              <div>Session: {{ detail.sessionId }}</div>
+              <div>User Message: {{ detail.userMessageId || '-' }} · Assistant Message: {{ detail.assistantMessageId || '-' }}</div>
+              <div>Created: {{ epochTime(detail.createdAt) }} · Updated: {{ epochTime(detail.updatedAt) }}</div>
+            </div>
+
+            <el-descriptions :column="2" size="small" border>
+              <el-descriptions-item label="状态">{{ statusLabel(detail.status) }}</el-descriptions-item>
+              <el-descriptions-item label="命中">{{ detail.hitCount }}</el-descriptions-item>
+              <el-descriptions-item label="耗时">{{ millis(detail.latencyMs) }}</el-descriptions-item>
+              <el-descriptions-item label="模型">{{ detail.embeddingModel || '-' }}</el-descriptions-item>
+              <el-descriptions-item label="active">{{ valueOrDash(detail.activeCount) }}</el-descriptions-item>
+              <el-descriptions-item label="filtered">{{ valueOrDash(detail.filteredCount) }}</el-descriptions-item>
+              <el-descriptions-item label="belowVectorFloor">{{ valueOrDash(detail.belowVectorFloor) }}</el-descriptions-item>
+              <el-descriptions-item label="badVector">{{ valueOrDash(detail.badVectorCount) }}</el-descriptions-item>
+              <el-descriptions-item label="ranked">{{ valueOrDash(detail.rankedCount) }}</el-descriptions-item>
+              <el-descriptions-item label="topK">{{ valueOrDash(detail.topK) }}</el-descriptions-item>
+              <el-descriptions-item label="topVector">{{ score(detail.topVectorScore) }}</el-descriptions-item>
+              <el-descriptions-item label="topFinal">{{ score(detail.topFinalScore) }}</el-descriptions-item>
+              <el-descriptions-item label="skipReason">{{ detail.skipReason || '-' }}</el-descriptions-item>
+              <el-descriptions-item label="errorType">{{ detail.errorType || '-' }}</el-descriptions-item>
+            </el-descriptions>
+
+            <div class="section-title mt16">Query</div>
+            <div class="recall-detail-block">{{ detail.query }}</div>
+
+            <div v-if="detail.errorMessage" class="section-title mt16">Error</div>
+            <div v-if="detail.errorMessage" class="recall-detail-block">{{ detail.errorMessage }}</div>
+
+            <div class="section-title mt16">参数快照</div>
+            <pre class="recall-json">{{ prettyJson(detail.paramsJson) }}</pre>
+
+            <div class="section-title mt16">命中明细</div>
+            <el-table :data="detail.hits || []" empty-text="无命中明细" border size="small">
+              <el-table-column label="#" prop="rankNo" width="52" align="right"></el-table-column>
+              <el-table-column label="Chunk" min-width="180">
+                <template #default="{ row }">
+                  <div>{{ row.chunkId }}</div>
+                  <div class="muted recall-meta">{{ row.sourceType || '-' }} / {{ row.tier || '-' }}</div>
+                </template>
+              </el-table-column>
+              <el-table-column label="标题 / 结论" min-width="240">
+                <template #default="{ row }">
+                  <div class="recall-query">{{ compactText(row.title, 60) || '-' }}</div>
+                  <div class="muted recall-meta">{{ compactText(row.conclusion, 80) || '-' }}</div>
+                </template>
+              </el-table-column>
+              <el-table-column label="分数" width="150">
+                <template #default="{ row }">
+                  <div>final {{ score(row.finalScore) }}</div>
+                  <div class="muted recall-meta">vector {{ score(row.vectorScore) }}</div>
+                </template>
+              </el-table-column>
+              <el-table-column label="来源" width="160">
+                <template #default="{ row }">
+                  <div>{{ row.sourceSessionId || '-' }}</div>
+                  <div class="muted recall-meta">{{ row.sourceMsgRange || '-' }}</div>
+                </template>
+              </el-table-column>
+            </el-table>
+          </template>
+        </div>
+      </el-drawer>
+    </admin-shell>
+  </div>
+
+  <script src="../js/base.js?v=20260611"></script>
+  <script src="../vendor/vue.global.js"></script>
+  <script src="../vendor/element-plus.full.min.js"></script>
+  <script src="../vendor/element-plus-icons-vue.iife.min.js"></script>
+  <script src="../js/admin/shell.js?v=2026070401"></script>
+  <script src="../js/admin/recall-utils.js?v=2026061202"></script>
+  <script src="../js/admin/pages/recall.js?v=2026061202"></script>
+</body>
+</html>

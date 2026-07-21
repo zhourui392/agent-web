@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agent Q&A · Git 设置</title>
+  <link rel="stylesheet" href="vendor/element-plus.css">
+  <style>
+    [v-cloak] { display: none; }
+    body { margin: 0; background: #f5f7fa; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; }
+    #app { min-height: 100vh; }
+    .page-header { display: flex; align-items: center; height: 56px; padding: 0 24px; background: #fff; border-bottom: 1px solid #ebeef5; }
+    .page-header .title { font-size: 17px; font-weight: 700; color: #303133; }
+    .page-header .spacer { flex: 1; }
+    .wrap { max-width: 640px; margin: 28px auto; padding: 0 16px; }
+    .who { font-size: 13px; color: #606266; margin-bottom: 16px; }
+    .who .uid { color: #909399; }
+    .hint { font-size: 12px; color: #909399; margin-top: 4px; line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <div id="app" v-cloak>
+    <div class="page-header">
+      <span class="title">Agent Q&A · Git 设置</span>
+      <span class="spacer"></span>
+      <el-button text @click="goBack">返回控制台</el-button>
+    </div>
+
+    <div class="wrap" v-loading="loading">
+      <el-card shadow="never">
+        <template #header>
+          <div style="font-weight:700;">每用户 Git 提交身份与凭证</div>
+        </template>
+
+        <div class="who">
+          当前用户：<strong>{{ username || '(未知)' }}</strong>
+          <span class="uid">（工号 {{ userId || '-' }}）</span>
+        </div>
+
+        <el-alert v-if="form.readOnly" type="info" :closable="false" show-icon
+                  title="当前为系统默认用户，使用机器默认 git 配置，不可修改"
+                  description="IP 直连入口绑定的默认用户继承机器全局 ~/.gitconfig 与机器凭证。"
+                  style="margin-bottom: 16px;"></el-alert>
+
+        <el-form label-width="110px" :disabled="form.readOnly" @submit.prevent>
+          <el-form-item label="提交者姓名">
+            <el-input v-model="form.name" placeholder="git config user.name，例如：周锐" maxlength="80"></el-input>
+          </el-form-item>
+          <el-form-item label="提交者邮箱">
+            <el-input v-model="form.email" placeholder="git config user.email，例如：zhourui@example.com" maxlength="120"></el-input>
+          </el-form-item>
+
+          <el-divider content-position="left">GitLab 凭证（可选）</el-divider>
+
+          <el-form-item label="GitLab 用户名">
+            <el-input v-model="form.credUsername" placeholder="GitLab 用户名" maxlength="120"></el-input>
+          </el-form-item>
+          <el-form-item label="GitLab 密码">
+            <el-input v-model="form.credPassword" type="password" show-password
+                      :placeholder="credentialConfigured ? '已配置（••••），留空保持不变' : 'GitLab 密码'" />
+            <div class="hint">
+              凭证以 AES-256-GCM 加密落库，绝不明文存储 / 回显。
+              修改凭证需同时填写用户名与新密码；留空密码则保留既有凭证。
+            </div>
+          </el-form-item>
+
+          <el-form-item>
+            <el-button type="primary" :loading="saving" @click="save" :disabled="form.readOnly">保存</el-button>
+          </el-form-item>
+        </el-form>
+      </el-card>
+    </div>
+  </div>
+
+  <script src="js/base.js?v=20260611"></script>
+  <script src="vendor/vue.global.js"></script>
+  <script src="vendor/element-plus.full.min.js"></script>
+  <script>
+    const { createApp, reactive, ref } = Vue;
+    const { ElMessage } = ElementPlus;
+
+    createApp({
+      setup() {
+        const loading = ref(true);
+        const saving = ref(false);
+        const userId = ref('');
+        const username = ref('');
+        const credentialConfigured = ref(false);
+        const form = reactive({ name: '', email: '', credUsername: '', credPassword: '', readOnly: false });
+
+        async function loadStatus() {
+          try {
+            const res = await fetch('/api/auth/status');
+            if (res.ok) {
+              const s = await res.json();
+              userId.value = s.userId || '';
+              username.value = s.username || '';
+            }
+          } catch (e) { /* 状态拿不到不阻断配置读取 */ }
+        }
+
+        async function loadConfig() {
+          const res = await fetch('/api/user/git-config');
+          if (!res.ok) {
+            throw new Error('加载配置失败 (' + res.status + ')');
+          }
+          const c = await res.json();
+          form.name = c.name || '';
+          form.email = c.email || '';
+          form.readOnly = !!c.readOnly;
+          credentialConfigured.value = !!c.credentialConfigured;
+        }
+
+        async function init() {
+          loading.value = true;
+          try {
+            await loadStatus();
+            await loadConfig();
+          } catch (e) {
+            ElMessage.error(e.message || '加载失败');
+          } finally {
+            loading.value = false;
+          }
+        }
+
+        async function save() {
+          if (form.readOnly) { return; }
+          saving.value = true;
+          try {
+            const payload = {
+              name: form.name,
+              email: form.email,
+              credUsername: form.credUsername || null
+            };
+            // 仅在用户输入了新密码时才提交凭证，留空表示保留既有
+            if (form.credPassword && form.credPassword.length > 0) {
+              payload.credPassword = form.credPassword;
+            }
+            const res = await fetch('/api/user/git-config', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+            if (res.ok) {
+              ElMessage.success('已保存');
+              form.credPassword = '';
+              await loadConfig();
+            } else {
+              let msg = '保存失败 (' + res.status + ')';
+              try { const b = await res.json(); if (b && b.error) { msg = b.error; } } catch (e) { /* ignore */ }
+              ElMessage.error(msg);
+            }
+          } catch (e) {
+            ElMessage.error(e.message || '保存失败');
+          } finally {
+            saving.value = false;
+          }
+        }
+
+        function goBack() { window.location.href = 'index.html'; }
+
+        init();
+        return { loading, saving, userId, username, credentialConfigured, form, save, goBack };
+      }
+    }).use(ElementPlus).mount('#app');
+  </script>
+</body>
+</html>

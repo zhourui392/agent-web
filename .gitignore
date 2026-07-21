@@ -10,6 +10,9 @@ buildNumber.properties
 .mvn/timing.properties
 .mvn/wrapper/maven-wrapper.jar
 
+# Spring Boot fat jar 解压副产物 (历史误提交过 BOOT-INF/classes/*.class)
+/BOOT-INF/
+
 # IDE
 .idea/
 *.iml
@@ -33,9 +36,36 @@ logs/
 
 # Application specific
 *.jar.original
+# 运行时 jar 副本目录, 由 service.sh 从 target/ 复制而来 (前导 / 锚定仓库根, 避免误伤 src/.../app/ 源码包)
+/app/
 
 # Data
 data/
 
+# Chat uploads (E2E / 本地运行副产物)
+upload_pic/
+upload_file/
+
+# Local secrets / env overrides (chat-rag embedding key 等), 切勿提交
+env.local
+
 # Node
 node_modules/
+
+# Playwright / E2E 跑出来的产物 (无前导 / : 匹配仓库根与 tests/ 下任意层级)
+test-results/
+playwright-report/
+.playwright-mcp/
+
+diagnosis-skills
+
+# Claude Code 本地配置/缓存
+.claude/
+
+# Python 字节码缓存
+__pycache__/
+*.py[cod]
+
+# 本地分析脚本与其产物
+tools/
+out/

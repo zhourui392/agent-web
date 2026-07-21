@@ -1,52 +1,83 @@
 package com.example.agentweb.infra;
 
 import com.example.agentweb.adapter.AgentGateway;
-import com.example.agentweb.domain.AgentType;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import com.example.agentweb.domain.shared.AgentType;
+import com.example.agentweb.infra.cli.BuildContext;
+import com.example.agentweb.infra.cli.CliDialect;
+import com.example.agentweb.infra.log.LogSafe;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * CLI-based implementation: spawn a process per message.
- * Notes:
- * - Works only if the CLI can run non-interactively (read from stdin or args).
- * - Merges stdout/stderr to preserve context.
+ * <p>命令拼装、resume 处理、session id 抽取等 CLI 相关差异已下沉到 {@link CliDialect}。
+ * 本类只负责通用的进程编排：stdin 写入、watchdog kill、按行读 stdout。</p>
+ * @author zhourui(V33215020)
  */
 @Component
+@Slf4j
 public class AgentCliGateway implements AgentGateway {
 
-    private static final Logger log = LoggerFactory.getLogger(AgentCliGateway.class);
+    private static final String SLASH_PREFIX = "/";
+
     private final AgentCliProperties props;
     private final EnvProperties envProperties;
+    private final com.example.agentweb.infra.git.GitProcessEnvCustomizer gitEnvCustomizer;
+    private final Map<AgentType, CliDialect> dialects;
     private final ConcurrentHashMap<String, Process> runningProcesses = new ConcurrentHashMap<String, Process>();
     private final ScheduledExecutorService watchdogScheduler;
     private final ExecutorService readExecutor;
 
-    public AgentCliGateway(AgentCliProperties props, EnvProperties envProperties) {
+    public AgentCliGateway(AgentCliProperties props, EnvProperties envProperties,
+                           com.example.agentweb.infra.git.GitProcessEnvCustomizer gitEnvCustomizer,
+                           List<CliDialect> dialectBeans) {
         this.props = props;
         this.envProperties = envProperties;
-        ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1);
+        this.gitEnvCustomizer = gitEnvCustomizer;
+        this.dialects = new EnumMap<AgentType, CliDialect>(AgentType.class);
+        for (CliDialect d : dialectBeans) {
+            this.dialects.put(d.type(), d);
+        }
+        ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(1, namedFactory("agent-cli-watchdog"));
         scheduler.setRemoveOnCancelPolicy(true);
         this.watchdogScheduler = scheduler;
-        this.readExecutor = Executors.newCachedThreadPool();
+        this.readExecutor = Executors.newCachedThreadPool(namedFactory("agent-cli-reader"));
+    }
+
+    private static ThreadFactory namedFactory(String prefix) {
+        AtomicInteger counter = new AtomicInteger(0);
+        return r -> new Thread(r, prefix + "-" + counter.incrementAndGet());
     }
 
     @Override
-    public String runOnce(AgentType type, String workingDir, String userMessage) throws IOException, InterruptedException {
+    public String runOnce(AgentType type, String workingDir, String userMessage, String userId)
+            throws IOException, InterruptedException {
         AgentCliProperties.Client cfg = resolve(type);
-        List<String> cmd = buildCommand(cfg, userMessage);
+        List<String> cmd = resolveDialect(type).buildCommand(BuildContext.builder()
+                .config(cfg)
+                .userMessage(userMessage)
+                .workingDir(workingDir)
+                .build());
 
         ProcessBuilder pb = new ProcessBuilder(cmd);
         pb.directory(new File(workingDir));
         pb.redirectErrorStream(true);
+        gitEnvCustomizer.apply(pb, userId);
 
+        long startNanos = System.nanoTime();
+        log.debug("cli-runonce-build agentType={} cwd={} cmd={}",
+                type, workingDir, LogSafe.summarizeCmd(cmd));
         Process p = pb.start();
+        log.info("cli-runonce-spawn agentType={} pid={} cwd={}", type, processId(p), workingDir);
         // Optionally write message to stdin
         if (cfg.isStdin()) {
             OutputStream os = p.getOutputStream();
@@ -59,8 +90,10 @@ public class AgentCliGateway implements AgentGateway {
             } catch (IOException ignore) { /* no-op */ }
         }
 
-        String output = readWithTimeout(p, cfg.getTimeoutSeconds());
+        String output = readWithTimeout(p, cfg.getTimeoutSeconds(), cfg.getStdoutDrainGraceMs());
         int code = p.waitFor();
+        log.info("cli-runonce-exit agentType={} exitCode={} outputLen={} elapsedMs={}",
+                type, code, LogSafe.safeLen(output), elapsedMs(startNanos));
         // Keep output even on non-zero exit to help debugging
         return "[exit=" + code + "]\n" + output;
     }
@@ -72,81 +105,214 @@ public class AgentCliGateway implements AgentGateway {
                           String sessionId,
                           String resumeId,
                           String env,
+                          long timeoutSeconds,
                           java.util.function.Consumer<String> onChunk,
-                          java.util.function.IntConsumer onExit) throws IOException, InterruptedException {
+                          java.util.function.IntConsumer onExit,
+                          String userId,
+                          java.util.Map<String, String> extraEnv) throws IOException, InterruptedException {
         AgentCliProperties.Client cfg = resolve(type);
-        List<String> cmd = buildCommand(cfg, userMessage);
-
-        // Add --resume flag for Claude if resumeId is provided
-        if (type == AgentType.CLAUDE && resumeId != null && !resumeId.trim().isEmpty()) {
-            cmd.add("--resume");
-            cmd.add(resumeId.trim());
-        }
+        List<String> cmd = resolveDialect(type).buildCommand(BuildContext.builder()
+                .config(cfg)
+                .userMessage(userMessage)
+                .resumeId(resumeId)
+                .workingDir(workingDir)
+                .build());
 
         ProcessBuilder pb = new ProcessBuilder(cmd);
         pb.directory(new File(workingDir));
         pb.redirectErrorStream(true);
+        gitEnvCustomizer.apply(pb, userId);
+        if (extraEnv != null && !extraEnv.isEmpty()) {
+            pb.environment().putAll(extraEnv);
+        }
+
+        final long startNanos = System.nanoTime();
+        log.debug("cli-stream-build agentType={} sessionId={} resumeId={} cwd={} cmd={}",
+                type, sessionId, resumeId, workingDir, LogSafe.summarizeCmd(cmd));
 
         final Process p = pb.start();
         if (sessionId != null) {
             runningProcesses.put(sessionId, p);
         }
-        // stdin behavior
-        if (cfg.isStdin()) {
-            String envPrefix = "";
-            if (env != null && !env.trim().isEmpty()) {
-                EnvProperties.EnvEntry entry = envProperties.findByKey(env.trim());
-                if (entry != null && entry.getPrompt() != null) {
-                    envPrefix = entry.getPrompt();
-                }
-            }
-            OutputStream os = p.getOutputStream();
-            String fullMessage = envPrefix + userMessage;
-            log.info("stdin message (env={}): {}", env, fullMessage.length() > 200 ? fullMessage.substring(0, 200) + "..." : fullMessage);
-            os.write(fullMessage.getBytes(StandardCharsets.UTF_8));
-            os.flush();
-            os.close();
-        } else {
-            try { p.getOutputStream().close(); } catch (IOException ignore) { /* no-op */ }
-        }
+        log.info("cli-stream-spawn agentType={} sessionId={} resumeId={} pid={}",
+                type, sessionId, resumeId, processId(p));
+        writeStdin(p, cfg, userMessage, env);
 
-        // timeout watchdog
-        Future<?> killer = null;
-        if (cfg.getTimeoutSeconds() > 0) {
-            killer = watchdogScheduler.schedule(() -> {
-                try {
-                    onChunk.accept("[timeout]\n");
-                } catch (Exception ignore) { /* ignore */ }
-                p.destroyForcibly();
-            }, cfg.getTimeoutSeconds(), TimeUnit.SECONDS);
-        }
+        // per-call 超时 >0 时优先（诊断侧据此强制 30 分钟超时）；否则回退到 agent.cli.* 配置
+        long effectiveTimeout = timeoutSeconds > 0 ? timeoutSeconds : cfg.getTimeoutSeconds();
+        Future<?> killer = scheduleTimeoutKill(p, effectiveTimeout, onChunk);
+        // 读 stdout 独立成线程: 读到方言的 turn-end 标记即收掉进程、唤醒下面的 waitFor 立即收尾;
+        // 否则退化为等进程自然退出。二者都不依赖 stdout 管道 EOF, 不会被 codex 孤儿子进程拖死。
+        AtomicBoolean turnEnded = new AtomicBoolean(false);
+        final CliDialect dialect = resolveDialect(type);
+        Future<?> readDone = startStdoutReader(p, type, sessionId, startNanos, onChunk, dialect, turnEnded);
 
-        // stream reading loop: read line-by-line to ensure each SSE chunk is a complete JSON line
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                if (!line.trim().isEmpty()) {
-                    onChunk.accept(line);
-                }
-            }
-        } catch (IOException ioe) {
-            onChunk.accept("[error] " + ioe.getMessage());
-        } finally {
-            if (killer != null) { killer.cancel(false); }
-        }
         int code = p.waitFor();
+        log.info("cli-stream-exit agentType={} sessionId={} elapsedMs={} turnEnded={} exitCode={}",
+                type, sessionId, elapsedMs(startNanos), turnEnded.get(), code);
+        if (killer != null) { killer.cancel(false); }
+        if (turnEnded.get()) {
+            readDone.cancel(true);
+        } else {
+            // 进程自然退出但未见 turn-end 标记(异常退出/非 codex/被 stop): 残余缓冲给读线程宽限期排空
+            awaitStdoutDrain(readDone, cfg.getStdoutDrainGraceMs());
+        }
+
         if (sessionId != null) {
             runningProcesses.remove(sessionId);
         }
-        onExit.accept(code);
+        // turn-end 收尾时进程是被读线程强杀的, waitFor 拿到的 code 无意义; 回合既已正常结束, 报 0
+        onExit.accept(turnEnded.get() ? 0 : code);
+    }
+
+    /** 按配置把 user message（含环境约束前缀）写入子进程 stdin；非 stdin 模式直接关闭输出流。 */
+    private void writeStdin(Process p, AgentCliProperties.Client cfg, String userMessage, String env)
+            throws IOException {
+        if (!cfg.isStdin()) {
+            try { p.getOutputStream().close(); } catch (IOException ignore) { /* no-op */ }
+            return;
+        }
+        String fullMessage = composeMessage(userMessage, env);
+        log.debug("cli-stream-stdin env={} messageLen={} preview={}",
+                env, fullMessage.length(), LogSafe.truncate(fullMessage));
+        OutputStream os = p.getOutputStream();
+        os.write(fullMessage.getBytes(StandardCharsets.UTF_8));
+        os.flush();
+        os.close();
+    }
+
+    /**
+     * 拼装最终发给 agent 的消息：环境约束前缀 + 用户消息。
+     * <p>slash command 必须以 "/" 开头才能被 CLI 识别(MCP prompt / 内置命令),
+     * 因此对 slash command 把环境约束追加到末尾,而不是顶头拼接。</p>
+     */
+    private String composeMessage(String userMessage, String env) {
+        String envPrefix = resolveEnvPrefix(env);
+        if (userMessage != null && userMessage.startsWith(SLASH_PREFIX)) {
+            return envPrefix.isEmpty() ? userMessage : userMessage + "\n\n" + envPrefix;
+        }
+        return envPrefix + (userMessage == null ? "" : userMessage);
+    }
+
+    /** 取环境约束前缀；env 为空或未配置对应 entry 时返回空串。 */
+    private String resolveEnvPrefix(String env) {
+        if (env == null || env.trim().isEmpty()) {
+            return "";
+        }
+        EnvProperties.EnvEntry entry = envProperties.findByKey(env.trim());
+        return (entry != null && entry.getPrompt() != null) ? entry.getPrompt() : "";
+    }
+
+    /** 注册超时看门狗；timeoutSeconds ≤0 时返回 null（不限时）。 */
+    private Future<?> scheduleTimeoutKill(final Process p, long timeoutSeconds,
+                                          final java.util.function.Consumer<String> onChunk) {
+        if (timeoutSeconds <= 0) {
+            return null;
+        }
+        return watchdogScheduler.schedule(() -> {
+            log.warn("cli-stream-timeout-kill pid={} timeoutSec={}", processId(p), timeoutSeconds);
+            try {
+                onChunk.accept("[timeout]\n");
+            } catch (Exception ignore) { /* ignore */ }
+            p.destroyForcibly();
+        }, timeoutSeconds, TimeUnit.SECONDS);
+    }
+
+    /**
+     * 在 readExecutor 上启动 stdout 按行读取线程。
+     * <p>读到方言判定的 turn-end 标记时：置 {@code turnEnded}、强收子进程（唤醒主线程的 waitFor）、
+     * 停止读取 —— turn-end 是终结事件，之后无有效输出，停读可让本线程干净退出而不被孤儿管道阻塞。</p>
+     */
+    private Future<?> startStdoutReader(final Process p,
+                                        final AgentType agentType,
+                                        final String sessionId,
+                                        final long startNanos,
+                                        final java.util.function.Consumer<String> onChunk,
+                                        final CliDialect dialect,
+                                        final AtomicBoolean turnEnded) {
+        final AtomicBoolean firstStdoutLogged = new AtomicBoolean(false);
+        return readExecutor.submit(new Runnable() {
+            @Override
+            public void run() {
+                try (BufferedReader reader = new BufferedReader(
+                        new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        if (line.trim().isEmpty()) {
+                            continue;
+                        }
+                        if (firstStdoutLogged.compareAndSet(false, true)) {
+                            log.debug("cli-stream-first-stdout agentType={} sessionId={} elapsedMs={} preview={}",
+                                    agentType, sessionId, elapsedMs(startNanos), previewLine(line));
+                        }
+                        onChunk.accept(line);
+                        if (dialect.isTurnEnd(line)) {
+                            turnEnded.set(true);
+                            log.info("cli-stream-turn-end agentType={} sessionId={} elapsedMs={}",
+                                    agentType, sessionId, elapsedMs(startNanos));
+                            p.destroyForcibly();
+                            break;
+                        }
+                    }
+                } catch (IOException ioe) {
+                    log.warn("cli-stream-read-error agentType={} sessionId={} reason={}",
+                            agentType, sessionId, ioe.getMessage());
+                    onChunk.accept("[error] " + ioe.getMessage());
+                }
+            }
+        });
+    }
+
+    private long elapsedMs(long startNanos) {
+        return (System.nanoTime() - startNanos) / 1_000_000L;
+    }
+
+    /** 兼容旧调用点；新代码请直接用 {@link LogSafe#summarizeCmd}。 */
+    private String summarizeCommand(List<String> cmd) {
+        return LogSafe.summarizeCmd(cmd);
+    }
+
+    /** 取进程 PID，反射失败回退到 hashCode（仅供日志使用）。 */
+    private String processId(Process p) {
+        if (p == null) {
+            return "?";
+        }
+        try {
+            // JDK 9+ 才有 Process.pid()；JDK 8 走反射降级
+            return String.valueOf(p.getClass().getMethod("pid").invoke(p));
+        } catch (Exception ignore) {
+            return String.valueOf(p.hashCode());
+        }
+    }
+
+    private String previewLine(String line) {
+        if (line == null) {
+            return "";
+        }
+        String trimmed = line.trim();
+        return trimmed.length() > 200 ? trimmed.substring(0, 200) + "..." : trimmed;
+    }
+
+    /** 进程退出后给读线程宽限期排空残余缓冲；超时即判定管道被孤儿子进程持有，放弃等待。 */
+    private void awaitStdoutDrain(Future<?> readDone, long graceMs) throws InterruptedException {
+        try {
+            readDone.get(normalizeDrainGraceMs(graceMs), TimeUnit.MILLISECONDS);
+        } catch (TimeoutException te) {
+            readDone.cancel(true);
+        } catch (ExecutionException ignore) {
+            // 读线程内部异常已通过 onChunk 上报
+        }
     }
 
     @Override
     public void stopStream(String sessionId) {
         Process p = runningProcesses.remove(sessionId);
         if (p != null && p.isAlive()) {
+            log.info("cli-stream-destroy sessionId={} pid={} reason=manual-stop", sessionId, processId(p));
             p.destroyForcibly();
+        } else {
+            log.debug("cli-stream-destroy-noop sessionId={} reason={}",
+                    sessionId, p == null ? "no-process" : "already-exited");
         }
     }
 
@@ -156,53 +322,78 @@ public class AgentCliGateway implements AgentGateway {
         return p != null && p.isAlive();
     }
 
-    private String readWithTimeout(Process p, int timeoutSeconds) throws InterruptedException {
-        Future<String> fut = readExecutor.submit(() -> {
-            try (InputStream is = p.getInputStream();
-                 ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
-                byte[] buf = new byte[4096];
-                int r;
-                while ((r = is.read(buf)) != -1) {
-                    bos.write(buf, 0, r);
+    @Override
+    public String extractResumeId(AgentType type, String stdoutLine) {
+        return resolveDialect(type).extractResumeId(stdoutLine);
+    }
+
+    @Override
+    public List<String> normalizeChunk(AgentType type, String stdoutLine) {
+        return resolveDialect(type).normalizeChunk(stdoutLine);
+    }
+
+    private String readWithTimeout(Process p, int timeoutSeconds, long drainGraceMs) throws InterruptedException {
+        // collected 由读线程写入、收尾后由本线程读取；用其自身做锁保证可见性。
+        // 取共享缓冲而非 Future<String>，是为了在读线程被孤儿管道阻塞、需放弃等待时，
+        // 仍能拿回进程退出前已排空的部分输出。
+        final ByteArrayOutputStream collected = new ByteArrayOutputStream();
+        Future<?> reader = readExecutor.submit(new Runnable() {
+            @Override
+            public void run() {
+                try (InputStream is = p.getInputStream()) {
+                    byte[] buf = new byte[4096];
+                    int r;
+                    while ((r = is.read(buf)) != -1) {
+                        synchronized (collected) {
+                            collected.write(buf, 0, r);
+                        }
+                    }
+                } catch (IOException ignore) {
+                    // 已读部分保留在 collected 中
                 }
-                return bos.toString("UTF-8");
-            } catch (IOException e) {
-                return "";
             }
         });
         try {
-            if (timeoutSeconds <= 0) {
-                return fut.get();
+            if (timeoutSeconds > 0) {
+                reader.get(timeoutSeconds, TimeUnit.SECONDS);
+            } else {
+                // 无总超时：仍须独立等进程退出，退出后给读线程宽限期排空缓冲，
+                // 避免被 codex 孤儿子进程持有的 stdout 管道久阻
+                p.waitFor();
+                reader.get(normalizeDrainGraceMs(drainGraceMs), TimeUnit.MILLISECONDS);
             }
-            return fut.get(timeoutSeconds, TimeUnit.SECONDS);
         } catch (TimeoutException te) {
             p.destroyForcibly();
-            return "[timeout]";
+            reader.cancel(true);
+            if (timeoutSeconds > 0) {
+                return "[timeout]";
+            }
+            // timeoutSeconds<=0 超时：进程已退出，返回已排空的部分输出
         } catch (ExecutionException ee) {
             return "[error] " + ee.getCause();
         }
+        synchronized (collected) {
+            return new String(collected.toByteArray(), StandardCharsets.UTF_8);
+        }
     }
 
-    private List<String> buildCommand(AgentCliProperties.Client cfg, String userMessage) {
-        if (cfg.getExec() == null || cfg.getExec().trim().isEmpty()) {
-            throw new IllegalStateException("Executable not configured");
+    private long normalizeDrainGraceMs(long drainGraceMs) {
+        return Math.max(1L, drainGraceMs);
+    }
+
+    private CliDialect resolveDialect(AgentType type) {
+        CliDialect dialect = dialects.get(type);
+        if (dialect == null) {
+            throw new IllegalArgumentException("No CliDialect registered for type: " + type);
         }
-        List<String> cmd = new ArrayList<String>();
-        cmd.add(cfg.getExec());
-        for (String a : cfg.getArgs()) {
-            if (a.contains("${MESSAGE}")) {
-                cmd.add(a.replace("${MESSAGE}", userMessage));
-            } else {
-                cmd.add(a);
-            }
-        }
-        return cmd;
+        return dialect;
     }
 
     private AgentCliProperties.Client resolve(AgentType type) {
         if (type == AgentType.CODEX) {
             return props.getCodex();
-        } else if (type == AgentType.CLAUDE) {
+        }
+        if (type == AgentType.CLAUDE) {
             return props.getClaude();
         }
         throw new IllegalArgumentException("Unsupported type: " + type);

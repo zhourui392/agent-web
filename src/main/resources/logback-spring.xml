@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  agent-web 日志配置：
+  - 统一 pattern：时间 级别 [traceId/sessionId/taskId] logger - msg
+  - 按链路拆 appender：chat / cli / app
+  - 滚动：按天 + 单文件 100MB，保留 14 天
+  - 默认级别：root=INFO，com.example.agentweb=DEBUG
+  - dev profile：控制台彩色；prod profile：仅文件
+-->
+<configuration scan="true" scanPeriod="30 seconds">
+
+    <!-- 引入 Spring Boot 默认的 conversionRule（%clr 颜色转换器、%wEx 等） -->
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+    <property name="LOG_HOME" value="${LOG_HOME:-logs}"/>
+    <property name="LOG_PATTERN"
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%X{traceId:-},%X{sessionId:-},%X{taskId:-}] [%thread] %logger{36} - %msg%n"/>
+    <property name="LOG_PATTERN_COLOR"
+              value="%clr(%d{yyyy-MM-dd HH:mm:ss.SSS}){faint} %clr(%-5level) %clr([%X{traceId:-},%X{sessionId:-},%X{taskId:-}]){faint} %clr([%thread]){faint} %clr(%logger{36}){cyan} - %msg%n"/>
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${LOG_PATTERN_COLOR}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <appender name="APP_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_HOME}/app.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_HOME}/app.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <maxFileSize>100MB</maxFileSize>
+            <maxHistory>14</maxHistory>
+            <totalSizeCap>5GB</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <appender name="CHAT_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_HOME}/chat.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_HOME}/chat.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <maxFileSize>100MB</maxFileSize>
+            <maxHistory>14</maxHistory>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <appender name="CLI_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_HOME}/cli.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_HOME}/cli.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <maxFileSize>100MB</maxFileSize>
+            <maxHistory>14</maxHistory>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <appender name="ERROR_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_HOME}/error.log</file>
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>WARN</level>
+        </filter>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_HOME}/error.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <maxFileSize>100MB</maxFileSize>
+            <maxHistory>30</maxHistory>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- 链路分流：按 logger 名称（包路径）落到不同文件，additivity=false 避免重复进 app.log -->
+    <logger name="com.example.agentweb.interfaces.ChatController" level="DEBUG" additivity="false">
+        <appender-ref ref="CHAT_FILE"/>
+        <appender-ref ref="ERROR_FILE"/>
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+    <logger name="com.example.agentweb.app.ChatAppServiceImpl" level="DEBUG" additivity="false">
+        <appender-ref ref="CHAT_FILE"/>
+        <appender-ref ref="ERROR_FILE"/>
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+    <logger name="com.example.agentweb.app.StreamChunkHandler" level="DEBUG" additivity="false">
+        <appender-ref ref="CHAT_FILE"/>
+        <appender-ref ref="ERROR_FILE"/>
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+    <logger name="com.example.agentweb.domain.slashcommand.SlashCommandExpander" level="DEBUG" additivity="false">
+        <appender-ref ref="CHAT_FILE"/>
+        <appender-ref ref="ERROR_FILE"/>
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+    <logger name="com.example.agentweb.infra.FileSlashCommandScanner" level="DEBUG" additivity="false">
+        <appender-ref ref="CHAT_FILE"/>
+        <appender-ref ref="ERROR_FILE"/>
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+
+    <!-- CLI 子进程 -->
+    <logger name="com.example.agentweb.infra.AgentCliGateway" level="DEBUG" additivity="false">
+        <appender-ref ref="CLI_FILE"/>
+        <appender-ref ref="ERROR_FILE"/>
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+    <logger name="com.example.agentweb.infra.cli" level="DEBUG" additivity="false">
+        <appender-ref ref="CLI_FILE"/>
+        <appender-ref ref="ERROR_FILE"/>
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+
+    <!-- 项目内默认 DEBUG -->
+    <logger name="com.example.agentweb" level="DEBUG"/>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="APP_FILE"/>
+        <appender-ref ref="ERROR_FILE"/>
+    </root>
+
+</configuration>

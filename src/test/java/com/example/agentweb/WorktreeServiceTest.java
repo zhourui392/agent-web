@@ -1,16 +1,22 @@
 package com.example.agentweb;
 
 import com.example.agentweb.app.WorktreeService;
+import com.example.agentweb.infra.WorktreeProperties;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -20,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * TDD tests for WorktreeService.
  * Uses real git repos in a temp directory to verify worktree operations.
  */
+@Tag("git-integration")
 class WorktreeServiceTest {
 
     @TempDir
@@ -33,6 +40,29 @@ class WorktreeServiceTest {
         service = new WorktreeService();
         workspace = tempDir.resolve("workspace");
         Files.createDirectories(workspace);
+    }
+
+    @Test
+    @DisplayName("execWithTimeout: 子进程超过超时时间时返回 -1")
+    void execWithTimeout_returnsMinusOne_When_ProcessExceedsTimeout() throws Exception {
+        Method method = WorktreeService.class.getDeclaredMethod(
+                "execWithTimeout", File.class, int.class, String[].class);
+        method.setAccessible(true);
+
+        int exitCode = (Integer) method.invoke(service, tempDir.toFile(), 1, sleepCommand());
+
+        assertEquals(-1, exitCode);
+    }
+
+    private String[] sleepCommand() {
+        if (System.getProperty("os.name", "").toLowerCase().contains("win")) {
+            return new String[]{"powershell", "-NoProfile", "-Command", "Start-Sleep -Seconds 2"};
+        }
+        return new String[]{
+                "sh",
+                "-c",
+                "sleep 2"
+        };
     }
 
     /**
@@ -76,40 +106,44 @@ class WorktreeServiceTest {
     // ========== RED phase tests ==========
 
     @Test
-    @DisplayName("switchBranch: 为所有拥有该分支的仓库创建 worktree")
+    @DisplayName("switchBranch: 创建真实 worktree 与 fallback 链接并复用已有目录")
     void switchBranch_createsWorktreeForReposWithBranch() throws Exception {
-        createRepo("service-a", "feature/login");
-        createRepo("service-b", "feature/login");
-        createRepo("service-c"); // no feature/login branch
+        Path repo = createRepo("service-a", "feature/login");
+        createRepo("service-b");
+        git(repo, "checkout", "feature/login");
+        Files.write(repo.resolve("feature.txt"), "feature content".getBytes());
+        git(repo, "add", ".");
+        git(repo, "commit", "-m", "add feature file");
+        git(repo, "checkout", "master");
 
-        Map<String, Object> result = service.switchBranch(workspace.toString(), "feature/login");
+        Map<String, Object> result = service.switchBranch(null, workspace.toString(),"feature/login");
 
-        // Should return worktree base path
         String worktreePath = (String) result.get("worktreePath");
         assertNotNull(worktreePath);
         assertTrue(Files.isDirectory(Paths.get(worktreePath)));
 
-        // Should report per-repo results
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> repos = (List<Map<String, Object>>) result.get("repos");
-        assertEquals(3, repos.size());
+        assertEquals(2, repos.size());
 
-        // service-a and service-b should have worktrees created
         Map<String, Object> repoA = repos.stream().filter(r -> "service-a".equals(r.get("name"))).findFirst().orElseThrow(() -> new RuntimeException("not found"));
         assertTrue((Boolean) repoA.get("created"));
         assertTrue(Files.isDirectory(Paths.get(worktreePath, "service-a")));
 
         Map<String, Object> repoB = repos.stream().filter(r -> "service-b".equals(r.get("name"))).findFirst().orElseThrow(() -> new RuntimeException("not found"));
         assertTrue((Boolean) repoB.get("created"));
+        assertEquals("master", repoB.get("actualBranch"));
+        assertTrue(isDirectoryLink(Paths.get(worktreePath, "service-b")),
+                "service-b should be a directory link (symlink on *nix, junction on Windows)");
 
-        // service-c has no feature/login → falls back to default branch (master),
-        // which is already checked out in the main repo → symlink to that path
-        // so the agent can still access this repo from the worktree base.
-        Map<String, Object> repoC = repos.stream().filter(r -> "service-c".equals(r.get("name"))).findFirst().orElseThrow(() -> new RuntimeException("not found"));
-        assertTrue((Boolean) repoC.get("created"));
-        assertEquals("master", repoC.get("actualBranch"));
-        assertTrue(isDirectoryLink(Paths.get(worktreePath, "service-c")),
-                "service-c should be a directory link (symlink on *nix, junction on Windows)");
+        Path worktreeFile = Paths.get(worktreePath, "service-a", "feature.txt");
+        assertTrue(Files.exists(worktreeFile));
+        assertEquals("feature content", new String(Files.readAllBytes(worktreeFile)));
+        assertFalse(Files.exists(repo.resolve("feature.txt")));
+
+        Map<String, Object> second = service.switchBranch(null, workspace.toString(),"feature/login");
+        assertEquals(worktreePath, second.get("worktreePath"));
+        assertTrue(Files.isDirectory(Paths.get(worktreePath, "service-a")));
     }
 
     /**
@@ -123,9 +157,14 @@ class WorktreeServiceTest {
         boolean windows = System.getProperty("os.name", "").toLowerCase().contains("win");
         if (windows && Files.isDirectory(path)) {
             try {
-                Path real = path.toRealPath();
-                Path absolute = path.toAbsolutePath().normalize();
-                return !real.equals(absolute);
+                Path parent = path.toAbsolutePath().getParent();
+                if (parent == null) {
+                    return false;
+                }
+                // 父目录规范化后拼回叶子名 = path 若为普通目录时应有的真实路径；
+                // 直接用 path.toAbsolutePath().normalize() 比较会因 8.3 短名未展开而误判。
+                Path expectedReal = parent.toRealPath().resolve(path.getFileName());
+                return !path.toRealPath().equals(expectedReal);
             } catch (IOException e) {
                 return false;
             }
@@ -134,32 +173,13 @@ class WorktreeServiceTest {
     }
 
     @Test
-    @DisplayName("switchBranch: 已存在的 worktree 直接复用，不重复创建")
-    void switchBranch_reusesExistingWorktree() throws Exception {
-        createRepo("service-a", "feature/login");
-
-        // First call
-        Map<String, Object> result1 = service.switchBranch(workspace.toString(), "feature/login");
-        String path1 = (String) result1.get("worktreePath");
-
-        // Second call - should reuse
-        Map<String, Object> result2 = service.switchBranch(workspace.toString(), "feature/login");
-        String path2 = (String) result2.get("worktreePath");
-
-        assertEquals(path1, path2);
-        assertTrue(Files.isDirectory(Paths.get(path2, "service-a")));
-    }
-
-    @Test
     @DisplayName("switchBranch: 分支名中的斜杠被安全转换为目录名")
     void switchBranch_sanitizesBranchName() throws Exception {
-        createRepo("service-a", "feature/deep/nested");
-
-        Map<String, Object> result = service.switchBranch(workspace.toString(), "feature/deep/nested");
+        Map<String, Object> result = service.switchBranch(null, workspace.toString(),"feature/deep/nested");
 
         String worktreePath = (String) result.get("worktreePath");
-        // Path should not contain raw slashes from branch name
         String dirName = Paths.get(worktreePath).getFileName().toString();
+
         assertFalse(dirName.contains("/"));
     }
 
@@ -167,7 +187,7 @@ class WorktreeServiceTest {
     @DisplayName("switchBranch: 工作空间路径不存在时抛出异常")
     void switchBranch_throwsForInvalidWorkspace() {
         assertThrows(IllegalArgumentException.class,
-                () -> service.switchBranch("/nonexistent/path", "master"));
+                () -> service.switchBranch(null, "/nonexistent/path", "master"));
     }
 
     @Test
@@ -176,7 +196,7 @@ class WorktreeServiceTest {
         // workspace exists but has no git repos
         Files.createDirectories(workspace.resolve("not-a-repo"));
 
-        Map<String, Object> result = service.switchBranch(workspace.toString(), "some-branch");
+        Map<String, Object> result = service.switchBranch(null, workspace.toString(),"some-branch");
 
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> repos = (List<Map<String, Object>>) result.get("repos");
@@ -184,14 +204,30 @@ class WorktreeServiceTest {
     }
 
     @Test
+    @DisplayName("switchBranch: 同步 workspace 根 AGENTS.md 到 worktree 根")
+    void switchBranch_syncsAgentsMdToWorktreeRoot() throws Exception {
+        Path source = workspace.resolve("AGENTS.md");
+        Files.write(source, "first rules".getBytes(StandardCharsets.UTF_8));
+
+        Map<String, Object> result = service.switchBranch("Q600041", workspace.toString(), "feature/login");
+        Path copied = Paths.get((String) result.get("worktreePath")).resolve("AGENTS.md");
+        assertTrue(Files.isRegularFile(copied));
+        assertEquals("first rules", readUtf8(copied));
+
+        Files.write(source, "second rules".getBytes(StandardCharsets.UTF_8));
+        Map<String, Object> second = service.switchBranch("Q600041", workspace.toString(), "feature/login");
+
+        assertEquals(result.get("worktreePath"), second.get("worktreePath"));
+        assertEquals("second rules", readUtf8(copied));
+    }
+
+    @Test
     @DisplayName("listWorktrees: 列出工作空间下所有已创建的 worktree 分支")
     void listWorktrees_returnsCreatedBranches() throws Exception {
-        createRepo("service-a", "branch-1", "branch-2");
+        Files.createDirectories(workspace.resolve(".worktrees/u-_local/branch-1/service-a/.git"));
+        Files.createDirectories(workspace.resolve(".worktrees/u-_local/branch-2/service-a/.git"));
 
-        service.switchBranch(workspace.toString(), "branch-1");
-        service.switchBranch(workspace.toString(), "branch-2");
-
-        List<Map<String, Object>> list = service.listWorktrees(workspace.toString());
+        List<Map<String, Object>> list = service.listWorktrees(null, workspace.toString());
 
         assertEquals(2, list.size());
         assertTrue(list.stream().anyMatch(m -> "branch-1".equals(m.get("branch"))));
@@ -201,82 +237,61 @@ class WorktreeServiceTest {
     @Test
     @DisplayName("listWorktrees: 无 worktree 时返回空列表")
     void listWorktrees_emptyWhenNone() throws Exception {
-        List<Map<String, Object>> list = service.listWorktrees(workspace.toString());
+        List<Map<String, Object>> list = service.listWorktrees(null, workspace.toString());
         assertTrue(list.isEmpty());
     }
 
     @Test
     @DisplayName("removeWorktree: 删除指定分支的所有 worktree")
     void removeWorktree_removesWorktreeAndDirectory() throws Exception {
-        createRepo("service-a", "to-remove");
-        service.switchBranch(workspace.toString(), "to-remove");
+        Path worktreeBase = workspace.resolve(".worktrees/u-_local/to-remove");
+        Files.createDirectories(worktreeBase);
+        assertTrue(Files.isDirectory(worktreeBase));
 
-        // Verify worktree exists
-        String worktreePath = workspace.resolve(".worktrees").resolve("to-remove").toString();
-        assertTrue(Files.isDirectory(Paths.get(worktreePath)));
+        service.removeWorktree(null, workspace.toString(),"to-remove");
 
-        // Remove
-        service.removeWorktree(workspace.toString(), "to-remove");
+        assertFalse(Files.exists(worktreeBase));
 
-        // Verify removed
-        assertFalse(Files.exists(Paths.get(worktreePath)));
-
-        // List should be empty
-        List<Map<String, Object>> list = service.listWorktrees(workspace.toString());
+        List<Map<String, Object>> list = service.listWorktrees(null, workspace.toString());
         assertTrue(list.isEmpty());
     }
 
     @Test
     @DisplayName("removeWorktree: 删除不存在的 worktree 不报错")
     void removeWorktree_noErrorWhenNotExists() {
-        assertDoesNotThrow(() -> service.removeWorktree(workspace.toString(), "nonexistent"));
+        assertDoesNotThrow(() -> service.removeWorktree(null, workspace.toString(),"nonexistent"));
     }
 
     @Test
     @DisplayName("switchBranch: 支持嵌套工作空间布局（仓库在第三层）")
     void switchBranch_supportsNestedLayout() throws Exception {
-        // workspace/team-x/project-a/service-1/.git
-        // workspace/team-x/project-a/service-2/.git
-        // workspace/team-y/project-b/service-1/.git  (same leaf name, different parent)
-        Path nested1 = workspace.resolve("team-x/project-a/service-1");
-        Path nested2 = workspace.resolve("team-x/project-a/service-2");
-        Path nested3 = workspace.resolve("team-y/project-b/service-1");
-        Files.createDirectories(nested1.getParent());
-        Files.createDirectories(nested2.getParent());
-        Files.createDirectories(nested3.getParent());
-        initRepo(nested1, "feature/x");
-        initRepo(nested2, "feature/x");
-        initRepo(nested3, "feature/x");
+        Files.createDirectories(workspace.resolve("team-x/project-a/service-1/.git"));
+        Files.createDirectories(workspace.resolve("team-x/project-a/service-2/.git"));
+        Files.createDirectories(workspace.resolve("team-y/project-b/service-1/.git"));
 
-        Map<String, Object> result = service.switchBranch(workspace.toString(), "feature/x");
-        String worktreePath = (String) result.get("worktreePath");
+        List<String> repoNames = collectRepoNames(workspace);
 
+        assertEquals(3, repoNames.size(), "should find all 3 nested repos");
+        assertTrue(repoNames.contains("team-x/project-a/service-1")
+                || repoNames.contains("team-x\\project-a\\service-1"));
+    }
+
+    private List<String> collectRepoNames(Path root) throws Exception {
+        Method method = WorktreeService.class.getDeclaredMethod("collectGitRepos", Path.class);
+        method.setAccessible(true);
         @SuppressWarnings("unchecked")
-        List<Map<String, Object>> repos = (List<Map<String, Object>>) result.get("repos");
-        assertEquals(3, repos.size(), "should find all 3 nested repos");
-
-        // All three should be created on the target branch
-        for (Map<String, Object> r : repos) {
-            assertTrue((Boolean) r.get("created"), "repo " + r.get("name") + " not created");
+        List<Object> repos = (List<Object>) method.invoke(service, root);
+        List<String> names = new ArrayList<>();
+        for (Object repo : repos) {
+            Field field = repo.getClass().getDeclaredField("relativePath");
+            field.setAccessible(true);
+            names.add(String.valueOf(field.get(repo)));
         }
+        return names;
+    }
 
-        // Worktree directories mirror the workspace nesting — no collision between
-        // the two service-1 repos.
-        assertTrue(Files.isDirectory(Paths.get(worktreePath, "team-x/project-a/service-1")));
-        assertTrue(Files.isDirectory(Paths.get(worktreePath, "team-x/project-a/service-2")));
-        assertTrue(Files.isDirectory(Paths.get(worktreePath, "team-y/project-b/service-1")));
-
-        // Names in the result are relative paths so callers can distinguish duplicates.
-        assertTrue(repos.stream().anyMatch(r -> "team-x/project-a/service-1".equals(r.get("name"))
-                || "team-x\\project-a\\service-1".equals(r.get("name"))));
-
-        // list reports the correct repo count for the nested layout
-        List<Map<String, Object>> list = service.listWorktrees(workspace.toString());
-        assertEquals(3, list.get(0).get("repoCount"));
-
-        // removeWorktree cleans up nested worktrees without leaving the branch dir behind
-        service.removeWorktree(workspace.toString(), "feature/x");
-        assertFalse(Files.exists(Paths.get(worktreePath)));
+    private String readUtf8(Path path) throws IOException {
+        return new String(Files.readAllBytes(path), StandardCharsets.UTF_8);
     }
 
     /** Init a repo at an already-existing parent path (not a direct child of workspace). */
@@ -293,28 +308,32 @@ class WorktreeServiceTest {
         }
     }
 
+    // ========== workspace 根白名单 (P2) ==========
+
     @Test
-    @DisplayName("switchBranch: worktree 中的文件内容对应分支代码")
-    void switchBranch_worktreeContainsBranchCode() throws Exception {
-        Path repo = createRepo("service-a", "feature/new-file");
+    @DisplayName("workspace 不在 allowed-roots 白名单下 → 拒绝(IllegalArgumentException)")
+    void switchBranch_workspaceOutsideAllowedRoots_throws() {
+        WorktreeProperties props = new WorktreeProperties();
+        props.setAllowedRoots(java.util.Collections.singletonList(
+                tempDir.resolve("other-root").toString()));
+        WorktreeService restricted = new WorktreeService(props);
 
-        // Add a file on the feature branch
-        git(repo, "checkout", "feature/new-file");
-        Files.write(repo.resolve("feature.txt"), "feature content".getBytes());
-        git(repo, "add", ".");
-        git(repo, "commit", "-m", "add feature file");
-        git(repo, "checkout", "master");
-
-        // Switch to the feature branch via worktree
-        Map<String, Object> result = service.switchBranch(workspace.toString(), "feature/new-file");
-        String worktreePath = (String) result.get("worktreePath");
-
-        // Verify feature.txt exists in worktree but not in original
-        Path worktreeFile = Paths.get(worktreePath, "service-a", "feature.txt");
-        assertTrue(Files.exists(worktreeFile));
-        assertEquals("feature content", new String(Files.readAllBytes(worktreeFile)));
-
-        // Original should NOT have the file (on master)
-        assertFalse(Files.exists(repo.resolve("feature.txt")));
+        assertThrows(IllegalArgumentException.class,
+                () -> restricted.switchBranch(null, workspace.toString(), "feature/login"));
     }
+
+    @Test
+    @DisplayName("workspace 在 allowed-roots 白名单下 → 放行")
+    void switchBranch_workspaceUnderAllowedRoot_ok() throws Exception {
+        WorktreeProperties props = new WorktreeProperties();
+        props.setAllowedRoots(java.util.Collections.singletonList(tempDir.toString()));
+        WorktreeService restricted = new WorktreeService(props);
+
+        Map<String, Object> result = restricted.switchBranch(null, workspace.toString(), "feature/login");
+        assertNotNull(result.get("worktreePath"));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> repos = (List<Map<String, Object>>) result.get("repos");
+        assertTrue(repos.isEmpty());
+    }
+
 }

@@ -1,0 +1,75 @@
+# E2E profile: 用 echo stub 替换 Claude CLI,关闭飞书轮询/issue-log LLM 精炼,独立 db。
+# 激活方式 (Windows): -Dspring-boot.run.profiles=e2e
+# 激活方式 (Linux/Mac): -Dspring-boot.run.profiles=e2e,e2e-linux (叠加 application-e2e-linux.yml 覆盖 cli exec/args)
+# Playwright 的 webServer 已按 process.platform 自动拼好 profile, 手动启动 mvn 时才需要关心
+server:
+  port: 18099            # 独立端口避开生产 18092
+  servlet:
+    context-path: ""     # 覆盖主配置的 /qa 挂载,e2e 仍走根路径,Playwright baseURL 不带前缀
+
+agent:
+  # e2e 的 chat 链路依赖 Codex JSON stub(输出"诊断结论"); 前端现会「强制全员跟随」服务端
+  # 对话默认模型(/api/chat/agent-default → 此 default-type), 故 e2e 默认须为 CODEX,
+  # 否则 UI 走 Claude=echo 路径, chat/share/conversations 等 UI 用例拿不到 stub 结论。
+  default-type: CODEX
+  # 需求线 M0: e2e 打开总开关走看板主链路; 生产 yml 保持 false 直到里程碑放行。
+  requirement:
+    enabled: true
+  # 管理口令固定为已知值,供诊断/回填纯 API spec 以 admin 身份登录拿 cookie。
+  # Phase 2 admin 迁移:诊断/回填前缀已纳入 admin 保护,protection 随 UI 原子上线。
+  # 旧 diagnose.spec/issue-log.spec(走主控台 UI,无 admin cookie)随之失效,由 Phase 3 改写到 /admin。
+  admin:
+    enabled: true
+    password: e2e-admin-pass
+    protected-prefixes:
+      - /api/metrics
+      - /api/issue-log-backfill
+      - /api/admin-workflows
+      - /api/admin-workflow-executions
+      - /api/admin-requirement-events
+  # 斜杠命令固定指向仓库内 fixtures, 让 e2e 命令补全确定可复现, 不受开发机 ~/.claude 影响。
+  # 相对路径会同时拼到 workingDir(=仓库根)与 user.home; 仓库根下命中 3 个占位命令。
+  slash-command:
+    command-dirs:
+      - tests/e2e/fixtures/commands
+    skill-dirs:
+      - tests/e2e/fixtures/skills
+  fs:
+    roots:
+      - "${user.dir}"
+      - "${java.io.tmpdir}"
+  cli:
+    claude:
+      # Windows: cmd /c echo
+      exec: cmd
+      args:
+        - /c
+        - echo
+        - Echo ${MESSAGE}
+      stdin: false           # 关键: 走 args 占位符替换,不走 stdin
+      timeout-seconds: 0
+    codex:
+      # JSON stub: 输出固定 NDJSON 事件序列, 供 diagnose E2E 走通 CodexEventNormalizer
+      exec: cmd
+      args:
+        - /c
+        - ${user.dir}\tests\e2e\fixtures\codex-json-stub.cmd
+      stdin: false
+      timeout-seconds: 0
+  auth:
+    cookie-name: local_session
+    login-page-url: ""
+  issue-log:
+    refine:
+      enabled: false         # 关闭 LLM 精炼,issue-log 走启发式 fallback
+    backfill:
+      enabled: false         # 关闭定时回填
+    dedup:
+      enabled: false         # 关闭保存前查重(避免 stub CLI 参与判重,保持 e2e 确定性)
+spring:
+  datasource:
+    url: jdbc:sqlite:data/agent-web-e2e.db   # 独立 db,跑前可删
+
+logging:
+  level:
+    com.example.agentweb: INFO

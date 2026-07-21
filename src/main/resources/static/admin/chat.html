@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>对话 · Agent Q&A 管理后台</title>
+  <link rel="stylesheet" href="../vendor/element-plus.css">
+  <link rel="stylesheet" href="../css/admin.css?v=2026061101">
+  <link rel="stylesheet" href="../css/chat-panel.css?v=20260607">
+</head>
+<body>
+  <div id="app" v-cloak>
+    <admin-shell active="chat">
+      <!-- continue-as-chat 内嵌续聊;无交接数据时空态提示 -->
+      <div class="chat-view-wrap">
+        <el-empty v-if="!chatSessionId" description="从「诊断历史」详情点「继续对话」即可在此续聊" :image-size="120"></el-empty>
+        <chat-panel v-else
+          :working-dir="chatWorkingDir"
+          :agent-type="chatAgentType"
+          env=""
+          :initial-session-id="chatSessionId"
+          :initial-resume-id="chatResumeId"
+          :rag-enabled="false"></chat-panel>
+      </div>
+    </admin-shell>
+  </div>
+
+  <script src="../js/base.js?v=20260611"></script>
+  <script src="../vendor/marked.min.js"></script>
+  <script src="../vendor/vue.global.js"></script>
+  <script src="../vendor/element-plus.full.min.js"></script>
+  <script src="../vendor/element-plus-icons-vue.iife.min.js"></script>
+  <script src="../js/lib/formatters.js?v=20260703"></script>
+  <script src="../js/admin/shell.js?v=2026070401"></script>
+  <script src="../js/components/chat-panel.js?v=20260703"></script>
+  <script src="../js/admin/pages/chat.js?v=20260608"></script>
+</body>
+</html>

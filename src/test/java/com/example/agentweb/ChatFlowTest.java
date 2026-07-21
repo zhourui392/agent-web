@@ -1,6 +1,8 @@
 package com.example.agentweb;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.parallel.ResourceLock;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -24,6 +26,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 })
 @AutoConfigureMockMvc
 @Transactional
+@Tag("spring-flow")
+@ResourceLock("spring-flow-sqlite")
 public class ChatFlowTest {
 
     /**

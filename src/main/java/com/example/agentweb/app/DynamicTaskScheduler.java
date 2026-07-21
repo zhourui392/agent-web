@@ -1,10 +1,9 @@
 package com.example.agentweb.app;
 
-import com.example.agentweb.domain.ScheduledTask;
-import com.example.agentweb.domain.ScheduledTaskRepository;
+import com.example.agentweb.domain.schedule.ScheduledTask;
+import com.example.agentweb.domain.schedule.ScheduledTaskRepository;
 import com.example.agentweb.infra.SqliteInitializer;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.event.ContextRefreshedEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.TaskScheduler;
@@ -16,10 +15,12 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledFuture;
 
+/**
+ * @author zhourui(V33215020)
+ */
 @Component
+@Slf4j
 public class DynamicTaskScheduler {
-
-    private static final Logger log = LoggerFactory.getLogger(DynamicTaskScheduler.class);
 
     private final ScheduledTaskRepository taskRepo;
     private final ScheduledTaskServiceImpl taskService;

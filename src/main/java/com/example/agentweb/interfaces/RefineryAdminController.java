@@ -1,0 +1,188 @@
+package com.example.agentweb.interfaces;
+
+import com.example.agentweb.app.refinery.RefineryRebuildService;
+import com.example.agentweb.app.refinery.RebuildResult;
+import com.example.agentweb.domain.refinery.DiscardedRefineRepository;
+import com.example.agentweb.domain.refinery.RagChunkRepository;
+import com.example.agentweb.interfaces.dto.ChatRagChunkPageResponse;
+import com.example.agentweb.interfaces.dto.ChatRagChunkResponse;
+import com.example.agentweb.interfaces.dto.DiscardedRecordPageResponse;
+import com.example.agentweb.interfaces.dto.DiscardedRecordResponse;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.time.Instant;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+/**
+ * Knowledge Refinery 管理接口(仅供 Web 前端使用)。
+ *
+ * <p>路径前缀 {@code /api/refinery} 不命中 {@code ApiKeyAuthFilter}(它只拦 {@code /api/diagnose/}),
+ * 因此走普通用户会话鉴权。仅在 {@code agent.refinery.enabled=true} 时装配，
+ * 否则依赖 {@link RefineryRebuildService} 缺失会导致启动失败。</p>
+ *
+ * @author zhourui(V33215020)
+ * @since 2026-05-31
+ */
+@RestController
+@RequestMapping(path = "/api/refinery", produces = MediaType.APPLICATION_JSON_VALUE)
+@ConditionalOnProperty(prefix = "agent.refinery", name = "enabled", havingValue = "true")
+@Slf4j
+public class RefineryAdminController {
+
+    private static final int DEFAULT_DAYS = 7;
+    private static final int MIN_DAYS = 1;
+    private static final int MAX_DAYS = 90;
+    private static final int DEFAULT_PAGE_SIZE = 20;
+    private static final int MAX_PAGE_SIZE = 100;
+    private static final String STATUS_ACTIVE = "active";
+
+    private final RefineryRebuildService rebuildService;
+    private final RagChunkRepository chunkRepo;
+    private final DiscardedRefineRepository discardedRepo;
+    private final com.example.agentweb.app.refinery.RefineryAppService refineryAppService;
+
+    public RefineryAdminController(RefineryRebuildService rebuildService,
+                                   RagChunkRepository chunkRepo,
+                                   DiscardedRefineRepository discardedRepo,
+                                   com.example.agentweb.app.refinery.RefineryAppService refineryAppService) {
+        this.rebuildService = rebuildService;
+        this.chunkRepo = chunkRepo;
+        this.discardedRepo = discardedRepo;
+        this.refineryAppService = refineryAppService;
+    }
+
+    /**
+     * 存量 chunk 重嵌入（M4 triggerDescription 迁移）：按批刷新活跃 chunk 向量，管理台手动分批触发。
+     *
+     * @param limit 本批上限, 默认 100, 范围 [1,1000]
+     */
+    @PostMapping("/reembed")
+    public ResponseEntity<Object> reembed(
+            @RequestParam(value = "limit", defaultValue = "100") int limit) {
+        if (limit < 1 || limit > 1000) {
+            Map<String, Object> err = new HashMap<>(2);
+            err.put("error", "validation_failed");
+            err.put("message", "limit 必须在 [1,1000] 范围内");
+            return ResponseEntity.status(422).body(err);
+        }
+        int refreshed = refineryAppService.reembedActive(limit);
+        Map<String, Object> body = new HashMap<>(2);
+        body.put("refreshed", refreshed);
+        return ResponseEntity.ok(body);
+    }
+
+    /**
+     * 清空 last_message_at 在最近 {@code days} 天内的会话的 RAG 数据(chunk + 幂等 state),
+     * 并后台串行重跑 refine+ingest。只清 RAG 数据, 不动会话本体与消息。
+     *
+     * @param days 回溯天数, 默认 7, 范围 [1,90]
+     */
+    @PostMapping("/rebuild-recent")
+    public ResponseEntity<Object> rebuildRecent(
+            @RequestParam(value = "days", defaultValue = "" + DEFAULT_DAYS) int days) {
+        if (days < MIN_DAYS || days > MAX_DAYS) {
+            Map<String, Object> err = new HashMap<>(3);
+            err.put("error", "validation_failed");
+            err.put("message", "days 必须在 [" + MIN_DAYS + "," + MAX_DAYS + "] 范围内");
+            err.put("days", days);
+            return ResponseEntity.status(422).body(err);
+        }
+        log.info("refinery-rebuild-request days={}", days);
+        RebuildResult result = rebuildService.rebuildRecent(days);
+        if (!result.isStarted()) {
+            return ResponseEntity.status(409).body(result);
+        }
+        return ResponseEntity.ok(result);
+    }
+
+    /**
+     * 分页列出召回库存. {@code status=active} 只看可召回 (未归档未过期), 其余值看全部;
+     * 每项另带实时算出的 {@code status} (ACTIVE/ARCHIVED) 供前端"状态"列展示。
+     *
+     * @param page   页码, 从 1 起, 越界归一到 1
+     * @param size   每页条数, clamp 到 [1,{@value #MAX_PAGE_SIZE}]
+     * @param status {@code active}=仅可召回; 其余 (默认 all)=全部
+     */
+    @GetMapping("/chunks")
+    public ResponseEntity<ChatRagChunkPageResponse> listChunks(
+            @RequestParam(value = "page", defaultValue = "1") int page,
+            @RequestParam(value = "size", defaultValue = "" + DEFAULT_PAGE_SIZE) int size,
+            @RequestParam(value = "status", defaultValue = "all") String status) {
+        int safePage = Math.max(1, page);
+        int safeSize = Math.min(Math.max(1, size), MAX_PAGE_SIZE);
+        boolean activeOnly = STATUS_ACTIVE.equalsIgnoreCase(status);
+        Instant now = Instant.now();
+        int offset = (safePage - 1) * safeSize;
+        List<ChatRagChunkResponse> items = chunkRepo.findPage(activeOnly, now, offset, safeSize)
+                .stream()
+                .map(c -> ChatRagChunkResponse.from(c, now))
+                .collect(Collectors.toList());
+        long total = chunkRepo.count(activeOnly, now);
+        return ResponseEntity.ok(new ChatRagChunkPageResponse(items, total, safePage, safeSize));
+    }
+
+    /**
+     * 硬删除单条召回 chunk(管理台"召回历史"逐条删除)。命中返回 200, 未找到返回 404。
+     *
+     * @param id chunk 主键
+     */
+    @DeleteMapping("/chunks/{id}")
+    public ResponseEntity<Object> deleteChunk(@PathVariable("id") String id) {
+        boolean deleted = chunkRepo.deleteById(id);
+        log.info("refinery-chunk-delete-request id={} deleted={}", id, deleted);
+        Map<String, Object> body = new HashMap<>(2);
+        body.put("id", id);
+        body.put("deleted", deleted);
+        return deleted ? ResponseEntity.ok(body) : ResponseEntity.status(404).body(body);
+    }
+
+    /**
+     * 分页列出 below-threshold(评分 &lt; score-threshold) 被丢弃的会话留痕,
+     * 供管理台"已丢弃(低分)"展示与阈值校准。按 created_at 倒序。
+     *
+     * @param page 页码, 从 1 起, 越界归一到 1
+     * @param size 每页条数, clamp 到 [1,{@value #MAX_PAGE_SIZE}]
+     */
+    @GetMapping("/discarded")
+    public ResponseEntity<DiscardedRecordPageResponse> listDiscarded(
+            @RequestParam(value = "page", defaultValue = "1") int page,
+            @RequestParam(value = "size", defaultValue = "" + DEFAULT_PAGE_SIZE) int size) {
+        int safePage = Math.max(1, page);
+        int safeSize = Math.min(Math.max(1, size), MAX_PAGE_SIZE);
+        int offset = (safePage - 1) * safeSize;
+        List<DiscardedRecordResponse> items = discardedRepo.findPage(offset, safeSize)
+                .stream()
+                .map(DiscardedRecordResponse::from)
+                .collect(Collectors.toList());
+        long total = discardedRepo.count();
+        return ResponseEntity.ok(new DiscardedRecordPageResponse(items, total, safePage, safeSize));
+    }
+
+    /**
+     * 硬删除单条丢弃记录。命中返回 200, 未找到返回 404。
+     *
+     * @param id 丢弃记录主键
+     */
+    @DeleteMapping("/discarded/{id}")
+    public ResponseEntity<Object> deleteDiscarded(@PathVariable("id") String id) {
+        boolean deleted = discardedRepo.deleteById(id);
+        log.info("refinery-discarded-delete-request id={} deleted={}", id, deleted);
+        Map<String, Object> body = new HashMap<>(2);
+        body.put("id", id);
+        body.put("deleted", deleted);
+        return deleted ? ResponseEntity.ok(body) : ResponseEntity.status(404).body(body);
+    }
+}

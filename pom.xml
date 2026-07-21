@@ -7,22 +7,21 @@
     <artifactId>agent-web</artifactId>
     <version>0.1.0-SNAPSHOT</version>
     <name>agent-web</name>
-    <description>Java 8 web service to drive local CLI agents (Codex/Claude) on selected folders</description>
+    <description>Java 21 web service to drive local CLI agents (Codex/Claude) on selected folders</description>
     <packaging>jar</packaging>
 
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
-        <version>2.7.18</version>
+        <version>3.3.13</version>
         <relativePath/>
     </parent>
 
     <properties>
-        <java.version>1.8</java.version>
-        <maven.compiler.source>1.8</maven.compiler.source>
-        <maven.compiler.target>1.8</maven.compiler.target>
+        <java.version>21</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <p3c.version>2.1.1</p3c.version>
+        <test.excludedGroups>live,git-integration,spring-flow,process-integration</test.excludedGroups>
     </properties>
 
     <dependencies>
@@ -44,10 +43,29 @@
             <artifactId>sqlite-jdbc</artifactId>
             <version>3.45.1.0</version>
         </dependency>
+        <dependency>
+            <groupId>com.larksuite.oapi</groupId>
+            <artifactId>oapi-sdk</artifactId>
+            <version>2.4.23</version>
+        </dependency>
+        <!-- Lombok: 编译期样板代码生成；optional 防传递泄漏，spring-boot-maven-plugin 默认已将其排出 repackage jar -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- ArchUnit: DDD 分层护栏 -->
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+            <version>1.3.0</version>
             <scope>test</scope>
         </dependency>
 
@@ -59,6 +77,54 @@
             <optional>true</optional>
         </dependency>
     </dependencies>
+
+    <profiles>
+        <profile>
+            <id>native-diagnose</id>
+            <dependencies>
+                <dependency>
+                    <groupId>com.anthropic</groupId>
+                    <artifactId>cclc-agent-diagnosis</artifactId>
+                    <version>0.1.0-SNAPSHOT</version>
+                </dependency>
+            </dependencies>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>build-helper-maven-plugin</artifactId>
+                        <version>3.6.0</version>
+                        <executions>
+                            <execution>
+                                <id>add-native-diagnose-sources</id>
+                                <phase>generate-sources</phase>
+                                <goals>
+                                    <goal>add-source</goal>
+                                </goals>
+                                <configuration>
+                                    <sources>
+                                        <source>src/native-diagnose/java</source>
+                                    </sources>
+                                </configuration>
+                            </execution>
+                            <execution>
+                                <id>add-native-diagnose-test-sources</id>
+                                <phase>generate-test-sources</phase>
+                                <goals>
+                                    <goal>add-test-source</goal>
+                                </goals>
+                                <configuration>
+                                    <sources>
+                                        <source>src/native-diagnose/test</source>
+                                    </sources>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 
     <build>
         <plugins>
@@ -72,7 +138,129 @@
                 <version>3.2.5</version>
                 <configuration>
                     <useSystemClassLoader>true</useSystemClassLoader>
+                    <!--
+                        默认 mvn test 只跑快速单测 / MVC slice。
+                        下列高耗时测试需显式打开:
+                        - live: 依赖外部 CLI + 登录态
+                        - git-integration: 真实 git/worktree
+                        - spring-flow: SpringBootTest 全链路
+                        - process-integration: 真实子进程编排
+                    -->
+                    <excludedGroups>${test.excludedGroups}</excludedGroups>
+                    <systemPropertyVariables>
+                        <spring.test.context.cache.maxSize>128</spring.test.context.cache.maxSize>
+                    </systemPropertyVariables>
                 </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
+                <!-- plugin 级 excludes: report / check 共享, 直跑 jacoco:report 也生效 -->
+                <configuration>
+                    <excludes>
+                        <exclude>com/example/agentweb/interfaces/dto/**</exclude>
+                        <exclude>com/example/agentweb/AgentWebApplication.class</exclude>
+                    </excludes>
+                </configuration>
+                <executions>
+                    <!-- 把 jacoco-agent 挂到 surefire 的 JVM, 才能采集覆盖率数据 -->
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <!-- mvn verify 自动出 target/site/jacoco/index.html -->
+                    <execution>
+                        <id>report</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                    <!--
+                        覆盖率门禁 (实测 2026-06 mvn verify, 各闸 13~25pt 余量, 非擦边):
+                        - BUNDLE 整体     LINE ≥ 70 / BRANCH ≥ 50 (实测 89 / 75)
+                        - 每个 domain.*   PACKAGE LINE ≥ 80 (仅卡 line, branch 不卡)
+                        - 每个 app.*      PACKAGE LINE ≥ 65 (实测最低 app 根包 89%; 仅卡 line, branch 不卡)
+                        - interfaces      PACKAGE LINE ≥ 70 (实测 Controller 包 94%; dto 不卡)
+                        report/check 时排除 (BUNDLE 数字干净, 不影响 jacoco.exec):
+                        - interfaces.dto.** : 纯 POJO/record, Lombok 自动 getter, 无业务分支
+                        - AgentWebApplication : main() 启动入口
+                        JaCoCo 0.8 文档: BUNDLE element 不支持 includes/excludes,
+                        必须用 PACKAGE/CLASS element 才能按包过滤; 全局 exclude 由 report+check excludes 完成。
+                    -->
+                    <execution>
+                        <id>check</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <!-- 1. 全包聚合 -->
+                                <rule>
+                                    <element>BUNDLE</element>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.70</minimum>
+                                        </limit>
+                                        <limit>
+                                            <counter>BRANCH</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.50</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                                <!-- 2. domain.*: 每个包独立达标 -->
+                                <rule>
+                                    <element>PACKAGE</element>
+                                    <includes>
+                                        <include>com.example.agentweb.domain*</include>
+                                    </includes>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.80</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                                <!-- 3. app.*: 编排, 每个包独立达标 -->
+                                <rule>
+                                    <element>PACKAGE</element>
+                                    <includes>
+                                        <include>com.example.agentweb.app*</include>
+                                    </includes>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.65</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                                <!-- 4. interfaces: Controller 包 (排 dto) -->
+                                <rule>
+                                    <element>PACKAGE</element>
+                                    <includes>
+                                        <include>com.example.agentweb.interfaces</include>
+                                    </includes>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.70</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

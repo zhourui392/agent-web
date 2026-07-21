@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>对话记录 · Agent Q&A 管理后台</title>
+  <link rel="stylesheet" href="../vendor/element-plus.css">
+  <link rel="stylesheet" href="../css/admin.css?v=2026061101">
+</head>
+<body>
+  <div id="app" v-cloak>
+    <admin-shell active="conversations" @ready="onReady">
+      <template #header-actions>
+        <el-button text @click="loadConversations" :loading="convLoading">刷新</el-button>
+      </template>
+
+      <div class="view-wrap">
+        <div class="conv-toolbar">
+          <el-input v-model="convKeyword" placeholder="搜索标题 / 用户名 / 工号" clearable
+                    @keyup.enter="searchConversations" @clear="searchConversations"></el-input>
+          <el-button type="primary" @click="searchConversations" :loading="convLoading">搜索</el-button>
+        </div>
+
+        <el-table :data="conversations" v-loading="convLoading" empty-text="暂无对话记录" border size="small">
+          <el-table-column label="用户" min-width="120">
+            <template #default="{ row }">
+              <div class="user-cell">
+                <div class="name">{{ row.userName || '—' }}</div>
+                <div class="uid">{{ row.userId || '匿名/系统' }}</div>
+              </div>
+            </template>
+          </el-table-column>
+          <el-table-column label="Agent" width="90">
+            <template #default="{ row }">
+              <el-tag size="small" :type="row.agentType === 'CODEX' ? 'warning' : 'primary'" disable-transitions>
+                {{ row.agentType }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="标题" min-width="240" show-overflow-tooltip>
+            <template #default="{ row }">{{ row.title || '新对话' }}</template>
+          </el-table-column>
+          <el-table-column label="消息数" width="80" align="right" prop="messageCount"></el-table-column>
+          <el-table-column label="反馈" width="90">
+            <template #default="{ row }">
+              <el-tag v-if="row.feedbackRating" size="small" disable-transitions
+                      :type="feedbackTagType(row.feedbackRating)">{{ feedbackLabel(row.feedbackRating) }}</el-tag>
+              <span v-else class="muted">—</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="创建时间" width="160">
+            <template #default="{ row }">{{ fmtTime(row.createdAt) }}</template>
+          </el-table-column>
+          <el-table-column label="操作" width="80" fixed="right">
+            <template #default="{ row }">
+              <el-button text type="primary" size="small" @click="openDetail(row.sessionId)">查看</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <div class="conv-pager">
+          <el-pagination background layout="total, prev, pager, next"
+                         :total="convTotal" :page-size="convSize" :current-page="convPage"
+                         @current-change="onPageChange"></el-pagination>
+        </div>
+      </div>
+
+      <!-- 详情抽屉 -->
+      <el-drawer v-model="detailOpen" :title="detailTitle" size="48%" direction="rtl">
+        <div v-loading="detailLoading">
+          <div v-if="detail" class="drawer-meta">
+            <div>会话 ID:{{ detail.record.sessionId }}</div>
+            <div>用户:{{ detail.record.userName || '—' }}({{ detail.record.userId || '匿名/系统' }})· IP {{ detail.record.clientIp || '—' }}</div>
+            <div>Agent:{{ detail.record.agentType }} · 创建:{{ fmtTime(detail.record.createdAt) }} · 消息 {{ detail.record.messageCount }} 条</div>
+          </div>
+          <div v-if="detail && detail.messages.length">
+            <div v-for="(msg, i) in detail.messages" :key="i" class="history-msg">
+              <div class="history-msg-role" :style="{ color: msg.role === 'user' ? '#409eff' : '#67c23a' }">
+                {{ roleLabel(msg.role) }}
+                <span style="font-weight: normal; color: #c0c4cc; margin-left: 8px;">{{ formatTime(msg.timestamp) }}</span>
+              </div>
+              <!-- 用户消息:正文 + 图片 -->
+              <div v-if="msg.role === 'user'" class="history-msg-content">
+                <div v-if="msg.bodyText" class="history-msg-text">{{ msg.bodyText }}</div>
+                <div v-if="msg.images && msg.images.length" class="message-image-grid">
+                  <el-image v-for="(img, ii) in msg.images" :key="ii" :src="imageUrl(img)"
+                            :preview-src-list="msg.images.map(imageUrl)" :initial-index="ii"
+                            fit="cover" hide-on-click-modal preview-teleported class="history-image">
+                    <template #error><div class="history-image-broken">图片不可用</div></template>
+                  </el-image>
+                </div>
+              </div>
+              <!-- 助手消息:解析后的文本/工具分段 -->
+              <div v-else-if="msg.parsedSegments" class="history-msg-content">
+                <template v-for="(seg, si) in msg.parsedSegments" :key="si">
+                  <div v-if="seg.type === 'text' || seg.type === 'result'" class="text-segment-wrap">
+                    <button class="copy-btn" type="button" title="复制 Markdown" @click="copySegment(seg.content)">📋</button>
+                    <div class="text-segment" v-html="renderMarkdown(seg.content)"></div>
+                  </div>
+                  <div v-else-if="seg.type === 'tool'" class="tool-block">
+                    <div class="tool-header" @click="seg._expanded = !seg._expanded">
+                      <span class="tool-toggle" :class="{expanded: seg._expanded}">▶</span>
+                      <span class="tool-label">{{ seg.name }}</span>
+                    </div>
+                    <div v-show="seg._expanded" class="tool-content">{{ seg.content }}</div>
+                  </div>
+                </template>
+              </div>
+              <!-- 兜底:直接 markdown 渲染 -->
+              <div v-else class="history-msg-content" v-html="renderMarkdown(msg.content)"></div>
+            </div>
+          </div>
+          <el-empty v-else-if="detail" description="暂无消息" :image-size="60"></el-empty>
+        </div>
+      </el-drawer>
+    </admin-shell>
+  </div>
+
+  <script src="../js/base.js?v=20260611"></script>
+  <script src="../vendor/marked.min.js"></script>
+  <script src="../vendor/vue.global.js"></script>
+  <script src="../vendor/element-plus.full.min.js"></script>
+  <script src="../vendor/element-plus-icons-vue.iife.min.js"></script>
+  <script src="../js/lib/formatters.js?v=20260703"></script>
+  <script src="../js/admin/shell.js?v=2026070401"></script>
+  <script src="../js/admin/pages/conversations.js?v=20260703"></script>
+</body>
+</html>

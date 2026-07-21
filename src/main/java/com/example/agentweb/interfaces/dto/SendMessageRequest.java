@@ -1,16 +1,15 @@
 package com.example.agentweb.interfaces.dto;
 
-import javax.validation.constraints.NotBlank;
+import lombok.Getter;
+import lombok.Setter;
+import jakarta.validation.constraints.NotBlank;
 
+/**
+ * @author zhourui(V33215020)
+ */
+@Getter
+@Setter
 public class SendMessageRequest {
     @NotBlank
     private String message;
-
-    public String getMessage() {
-        return message;
-    }
-
-    public void setMessage(String message) {
-        this.message = message;
-    }
 }

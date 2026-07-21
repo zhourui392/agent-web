@@ -1,5 +1,13 @@
 package com.example.agentweb.interfaces.dto;
 
+import lombok.Getter;
+import lombok.Setter;
+
+/**
+ * @author zhourui(V33215020)
+ */
+@Getter
+@Setter
 public class RunTaskResponse {
     private boolean success;
     private String message;
@@ -8,10 +16,4 @@ public class RunTaskResponse {
         this.success = success;
         this.message = message;
     }
-
-    public boolean isSuccess() { return success; }
-    public void setSuccess(boolean success) { this.success = success; }
-
-    public String getMessage() { return message; }
-    public void setMessage(String message) { this.message = message; }
 }

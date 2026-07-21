@@ -1,4 +1,35 @@
-const { createApp, ref, reactive, onMounted, nextTick, watch } = Vue;
+// ===== 全局 401 拦截 =====
+// 任何 API 响应 401 且 body 带 loginUrl 时，自动跳本站 /login.html。
+// loginUrl 由后端 SessionAuthFilter / AuthController 提供，已带 ?redirect=<原路径>。
+// 覆盖所有经 window.fetch 的调用；SSE(EventSource) 不走 fetch，单独在错误处理里兜底。
+(function installAuthInterceptor() {
+  const rawFetch = window.fetch.bind(window);
+  let redirecting = false;
+  window.fetch = async function (...args) {
+    const res = await rawFetch(...args);
+    if (res.status === 401 && !redirecting) {
+      try {
+        const data = await res.clone().json();
+        if (data && data.loginUrl) {
+          redirecting = true;
+          window.location.href = window.withBase(data.loginUrl);
+        } else {
+          // 401 但响应没带 loginUrl(老接口/非 JSON 兜底): 直接跳本站登录页, 带回当前路径。
+          redirecting = true;
+          const redirect = encodeURIComponent(window.location.pathname + window.location.search);
+          window.location.href = window.withBase('/login.html?redirect=' + redirect);
+        }
+      } catch (e) {
+        redirecting = true;
+        const redirect = encodeURIComponent(window.location.pathname + window.location.search);
+        window.location.href = window.withBase('/login.html?redirect=' + redirect);
+      }
+    }
+    return res;
+  };
+})();
+
+const { createApp, ref, reactive, computed, onMounted, nextTick, watch } = Vue;
 
 const app = createApp({
   setup() {
@@ -7,18 +38,26 @@ const app = createApp({
     const selectedRoot = ref('');
     const currentPath = ref('');
     const folderList = ref([]);
-    const agentType = ref('CLAUDE');
-    const sessionId = ref('');
-    const workingDir = ref('');
-    const resumeId = ref('');
+    // 对话默认模型由管理后台控制: GET /api/chat/agent-default 返回 {agentType, version}。
+    // 「强制全员跟随」: 本地记录的版本(agent_type_force_version)与服务端不一致时, 覆盖本地选择
+    // (agent_type)并切到服务端默认、写回新版本; 一致则尊重用户后续手动选择。
+    // 同步初始化先用本地缓存(或 CLAUDE 兜底), 服务端版本回来后由 applyServerAgentDefault 再按需强制。
+    const readPreferredAgentType = () => {
+      const stored = localStorage.getItem('agent_type');
+      return stored || 'CLAUDE';
+    };
+    const agentType = ref(readPreferredAgentType());
+    // 当前 ChatPanel 的会话标识:由组件 session-created 回填 / 宿主点历史时设置,
+    // 驱动顶栏 env/agent 选择器锁定,并作为 initialSessionId/initialResumeId 传给组件触发 resume。
+    const activeSessionId = ref('');
+    const activeResumeId = ref('');
     const username = ref('admin');
+    const currentUserId = ref('');
+    // 登录用户均可管理自己的定时任务
+    const canUseScheduledTask = computed(() => Boolean(currentUserId.value));
     const env = ref('');
     const envList = ref([]);
-    const messages = ref([]);
-    const userInput = ref('');
     const starting = ref(false);
-    const sending = ref(false);
-    const chatContainer = ref(null);
     const historyList = ref([]);
     const historyPage = ref(1);
     const historyPageSize = 20;
@@ -27,10 +66,6 @@ const app = createApp({
     const historyMessages = ref([]);
     const historyDrawerVisible = ref(false);
     const currentHistorySessionId = ref('');
-    const summarizing = ref(false);
-    const slashCommands = ref([]);
-    const showCommandPopup = ref(false);
-    const selectedCommandIdx = ref(0);
     const selectedBranch = ref('');
     const currentBranch = ref('');
     const switchingBranch = ref(false);
@@ -56,8 +91,24 @@ const app = createApp({
     const taskLoading = ref(false);
     const workspaceDialogVisible = ref(false);
     const taskManagerVisible = ref(false);
+
+    // --- chat-rag 召回开关探测 (召回历史浏览已迁至管理后台 /admin/refinery.html) ---
+    const chatRagEnabled = ref(false);
+
+    // --- 用户建议 / 反馈 ---
+    const suggestionDialogVisible = ref(false);
+    const suggestionTab = ref('submit');
+    const suggestionSubmitting = ref(false);
+    const suggestionLoading = ref(false);
+    const suggestions = ref([]);
+    const suggestionForm = reactive({
+      title: '',
+      content: ''
+    });
+
     const sidebarVisible = ref(false);
     const isMobile = ref(window.innerWidth <= 768);
+    const authEnabled = ref(true);
 
     window.addEventListener('resize', () => {
       isMobile.value = window.innerWidth <= 768;
@@ -84,14 +135,6 @@ const app = createApp({
       return result;
     });
 
-    const filteredCommands = Vue.computed(() => {
-      const input = userInput.value;
-      if (!input.startsWith('/')) return [];
-      const query = input.indexOf(' ') > 0 ? input.substring(1, input.indexOf(' ')) : input.substring(1);
-      if (!query) return slashCommands.value;
-      return slashCommands.value.filter(c => c.name.toLowerCase().includes(query.toLowerCase()));
-    });
-
     // 下拉选项 = 本地已有 worktree 分支 + localStorage 保存过的分支，去重后保留 worktree 优先顺序
     const branchOptions = Vue.computed(() => {
       const seen = new Set();
@@ -105,10 +148,47 @@ const app = createApp({
       return result;
     });
 
-    let currentES = null;
-
     // ========== 初始化 ==========
     const init = async () => {
+      try {
+        const authStatus = await fetch('/api/auth/status').then(r => r.json());
+        authEnabled.value = !!authStatus.authEnabled;
+        if (!authStatus.authenticated && authStatus.loginUrl) {
+          window.location.href = window.withBase(authStatus.loginUrl);
+          return;
+        }
+        if (authStatus.username) {
+          username.value = authStatus.username;
+        }
+        if (authStatus.userId) {
+          currentUserId.value = authStatus.userId;
+        }
+      } catch (e) {
+        // 忽略，保留默认值
+      }
+      // 探测 chat-rag 是否启用: enabled=false 时 controller 不装配, /chunks 返回 404 → 隐藏入口
+      try {
+        const probe = await fetch('/api/refinery/chunks?page=1&size=1');
+        chatRagEnabled.value = probe.ok;
+      } catch (e) {
+        // 忽略，保留 false
+      }
+      // 对话默认模型「强制全员跟随」: 服务端版本与本地不一致即覆盖本地选择并切换(仅在无进行中会话时切)。
+      try {
+        const def = await fetch('/api/chat/agent-default').then(r => r.json());
+        if (def && def.agentType) {
+          const appliedVer = localStorage.getItem('agent_type_force_version');
+          if (appliedVer !== String(def.version)) {
+            localStorage.setItem('agent_type', def.agentType);
+            localStorage.setItem('agent_type_force_version', String(def.version));
+            if (!activeSessionId.value) {
+              agentType.value = def.agentType;
+            }
+          }
+        }
+      } catch (e) {
+        // 忽略: 取不到默认值就保留本地选择
+      }
       try {
         const envData = await fetch('/api/chat/envs').then(r => r.json());
         envList.value = envData;
@@ -164,16 +244,22 @@ const app = createApp({
       }
     };
 
-    const formatSize = (bytes) => {
-      if (bytes == null) return '';
-      if (bytes < 1024) return bytes + ' B';
-      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-      return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-    };
+    // 纯函数工具从 lib 引入 (避免内嵌定义,便于独立单测);保持原变量名,调用点无需改动
+    const {
+      formatSize,
+      renderMarkdown,
+      parseUserMessage,
+      imageUrl,
+      formatTime,
+      escapeHtml,
+      parseStreamJson,
+      isStreamJson,
+      IMAGE_PATH_RE
+    } = window.AgentFormatters;
 
     const handleFileCommand = (command, item) => {
       if (command === 'download') {
-        window.open('/api/fs/download?path=' + encodeURIComponent(item.path), '_blank');
+        window.open(window.withBase('/api/fs/download?path=' + encodeURIComponent(item.path)), '_blank');
       } else if (command === 'delete') {
         ElementPlus.ElMessageBox.confirm('确定要删除 ' + item.name + ' 吗？', '确认删除', {
           confirmButtonText: '删除',
@@ -203,128 +289,42 @@ const app = createApp({
       ElementPlus.ElMessage.error('上传失败');
     };
 
-    // ========== 会话管理 ==========
-    const ensureSession = async () => {
-      if (sessionId.value) return;
-      const req = { agentType: agentType.value, workingDir: currentPath.value };
-      const res = await fetch('/api/chat/session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(req)
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text);
-      }
-      const data = await res.json();
-      sessionId.value = data.sessionId;
-      workingDir.value = data.workingDir;
-      resumeId.value = '';
-    };
-
-    const loadSlashCommands = async () => {
-      if (!currentPath.value) return;
-      try {
-        const cmds = await fetch('/api/chat/commands?workingDir=' + encodeURIComponent(currentPath.value)).then(r => r.json());
-        slashCommands.value = cmds;
-      } catch (e) {
-        slashCommands.value = [];
-      }
-    };
-
+    // ========== 会话管理(宿主侧) ==========
+    // 聊天闭环已迁入 ChatPanel 组件;宿主只管「开新对话」:置空 active*,
+    // 组件经 initialSessionId='' 自行清空,顶栏 agent 恢复用户偏好。
     const newConversation = async () => {
-      sessionId.value = '';
-      messages.value = [];
-      resumeId.value = '';
-      addMessage('system', '新对话已就绪，工作目录：' + currentPath.value);
+      activeSessionId.value = '';
+      activeResumeId.value = '';
+      agentType.value = readPreferredAgentType();
       ElementPlus.ElMessage.success('新对话已就绪');
     };
 
-    const clearContext = () => {
-      resumeId.value = '';
-      addMessage('system', '上下文已清除');
-      ElementPlus.ElMessage.success('上下文已清除');
-    };
-
-    const stopSession = async () => {
-      if (!sessionId.value || !sending.value) return;
+    // copySegment 供历史详情抽屉的 assistant 段落复制按钮使用(聊天区复制在组件内自带)
+    const copySegment = async (text) => {
+      if (!text) return;
       try {
-        await fetch('/api/chat/session/' + encodeURIComponent(sessionId.value) + '/stop', { method: 'POST' });
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+        }
+        ElementPlus.ElMessage.success('已复制');
       } catch (e) {
-        // best effort
-      }
-      if (currentES) {
-        currentES.close();
-        currentES = null;
-      }
-      sending.value = false;
-      addMessage('system', '已手动停止');
-    };
-
-    // ========== 消息与渲染 ==========
-    const addMessage = (role, text) => {
-      messages.value.push({ role, text });
-      nextTick(() => {
-        if (chatContainer.value) {
-          chatContainer.value.scrollTop = chatContainer.value.scrollHeight;
-        }
-      });
-    };
-
-    const insertNewline = () => {
-      const textarea = document.querySelector('textarea');
-      if (textarea) {
-        const start = textarea.selectionStart;
-        const end = textarea.selectionEnd;
-        const value = userInput.value;
-        userInput.value = value.substring(0, start) + '\n' + value.substring(end);
-        nextTick(() => {
-          textarea.selectionStart = textarea.selectionEnd = start + 1;
-        });
+        ElementPlus.ElMessage.error('复制失败');
       }
     };
 
-    // 工具折叠状态管理
-    const toolStates = reactive({});
-
-    const isToolExpanded = (msgIndex, segIndex) => {
-      const key = msgIndex + '-' + segIndex;
-      if (key in toolStates) {
-        return toolStates[key];
-      }
-      return false;
-    };
-
-    const toggleTool = (msgIndex, segIndex) => {
-      const key = msgIndex + '-' + segIndex;
-      toolStates[key] = !(toolStates[key] === true);
-    };
-
-    const renderMarkdown = (text) => {
-      if (!text) return '';
-      let cleaned = text.replace(/\n{3,}/g, '\n\n');
-      try {
-        if (typeof marked !== 'undefined' && marked.parse) {
-          return marked.parse(cleaned, { breaks: false });
-        }
-      } catch (e) { /* fallback */ }
-      return cleaned.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
-    };
-
-    const formatTime = (isoStr) => {
-      if (!isoStr) return '';
-      try {
-        const d = new Date(isoStr);
-        return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-      } catch (e) { return isoStr; }
-    };
-
-    const escapeHtml = (text) => {
-      if (!text) return '';
-      return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
-    };
+    // formatTime / escapeHtml 由 lib/formatters.js 提供,顶部已解构。
 
     // ========== 环境与分支 ==========
+    // env 一旦会话开始就锁定 (单选 disabled), 这里只处理新建态切换
     const onEnvChange = (val) => {
       const found = envList.value.find(e => e.key === val);
       const label = found ? found.label : '无环境';
@@ -332,6 +332,13 @@ const app = createApp({
       if (val !== 'test') {
         clearBranch();
       }
+    };
+
+    // ========== Agent 类型 ==========
+    const onAgentTypeChange = (val) => {
+      // 会话开始后下拉是 disabled 的, 这里只处理新建态的切换
+      localStorage.setItem('agent_type', val);
+      ElementPlus.ElMessage.info({ message: '已切换到 ' + val, duration: 2000 });
     };
 
     const saveWorktreeState = () => {
@@ -496,6 +503,9 @@ const app = createApp({
       }
     };
 
+    // 仅创建者(或无归属老数据)可删除; 删他人会话的按钮隐藏, 后端再兜底 403
+    const canDelete = (h) => !h.userId || h.userId === currentUserId.value;
+
     const deleteHistory = async (sid) => {
       try {
         await ElementPlus.ElMessageBox.confirm('确定删除该对话记录？', '确认删除', {
@@ -503,87 +513,20 @@ const app = createApp({
           cancelButtonText: '取消',
           type: 'warning'
         });
-        await fetch('/api/chat/session/' + encodeURIComponent(sid), { method: 'DELETE' });
+      } catch (e) {
+        return; // 用户取消
+      }
+      try {
+        const r = await fetch('/api/chat/session/' + encodeURIComponent(sid), { method: 'DELETE' });
+        if (!r.ok) {
+          ElementPlus.ElMessage.error(r.status === 403 ? '只能删除自己创建的对话' : '删除失败');
+          return;
+        }
         historyList.value = historyList.value.filter(function(h) { return h.sessionId !== sid; });
         ElementPlus.ElMessage.success('已删除');
       } catch (e) {
-        // 取消或失败，忽略
+        ElementPlus.ElMessage.error('删除失败');
       }
-    };
-
-    const parseStreamJson = (raw) => {
-      if (!raw) return [];
-      const segments = [];
-
-      function appendText(text) {
-        const last = segments.length > 0 ? segments[segments.length - 1] : null;
-        if (last && last.type === 'text') {
-          last.content += text;
-        } else {
-          segments.push({ type: 'text', content: text });
-        }
-      }
-
-      const lines = raw.split('\n');
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (!line) continue;
-        try {
-          const json = JSON.parse(line);
-          if (json.type === 'stream_event' && json.event) {
-            const evt = json.event;
-            if (evt.type === 'content_block_start' && evt.content_block) {
-              if (evt.content_block.type === 'tool_use') {
-                segments.push({ type: 'tool', name: evt.content_block.name, content: '' });
-              }
-            } else if (evt.type === 'content_block_delta' && evt.delta) {
-              if (evt.delta.type === 'text_delta' && evt.delta.text) {
-                appendText(evt.delta.text);
-              } else if (evt.delta.type === 'input_json_delta' && evt.delta.partial_json) {
-                for (let j = segments.length - 1; j >= 0; j--) {
-                  if (segments[j].type === 'tool') {
-                    segments[j].content += evt.delta.partial_json;
-                    break;
-                  }
-                }
-              }
-            }
-          } else if (json.type === 'user' && json.message && json.message.content) {
-            for (const block of json.message.content) {
-              if (block.type === 'tool_result') {
-                let result = '';
-                if (json.tool_use_result && typeof json.tool_use_result === 'string') {
-                  result = json.tool_use_result;
-                } else if (typeof block.content === 'string') {
-                  result = block.content;
-                }
-                if (result) {
-                  if (result.length > 2000) {
-                    result = result.substring(0, 2000) + '\n... (共 ' + result.length + ' 字符，已截断)';
-                  }
-                  let merged = false;
-                  for (let j = segments.length - 1; j >= 0; j--) {
-                    if (segments[j].type === 'tool') {
-                      segments[j].content = (segments[j].content || '') + '\n' + result;
-                      merged = true;
-                      break;
-                    }
-                  }
-                  if (!merged) {
-                    segments.push({ type: 'tool', name: 'Tool Result', content: result });
-                  }
-                }
-              }
-            }
-          } else if (json.type === 'result' && json.result) {
-            const hasText = segments.some(function(s) { return s.type === 'text' && s.content.trim(); });
-            if (!hasText) {
-              segments.push({ type: 'text', content: json.result });
-            }
-          }
-        } catch (e) { /* skip non-JSON */ }
-      }
-      return segments;
     };
 
     const viewHistory = async (sid) => {
@@ -591,10 +534,18 @@ const app = createApp({
         currentHistorySessionId.value = sid;
         const data = await fetch('/api/chat/session/' + encodeURIComponent(sid) + '/messages').then(r => r.json());
         historyMessages.value = data.map(function(msg) {
-          if (msg.role === 'assistant' && msg.content && msg.content.startsWith('{')) {
-            return Object.assign({}, msg, { parsedSegments: parseStreamJson(msg.content) });
+          let recall = null;
+          if (msg.role === 'assistant' && msg.recall) {
+            try { recall = JSON.parse(msg.recall); } catch (e) { recall = null; }
           }
-          return msg;
+          if (msg.role === 'assistant' && isStreamJson(msg.content)) {
+            return Object.assign({}, msg, { parsedSegments: parseStreamJson(msg.content), recall: recall, recallOpen: false });
+          }
+          if (msg.role === 'user') {
+            const parsed = parseUserMessage(msg.content);
+            return Object.assign({}, msg, { bodyText: parsed.text, images: parsed.images });
+          }
+          return Object.assign({}, msg, { recall: recall, recallOpen: false });
         });
         historyDrawerVisible.value = true;
       } catch (e) {
@@ -602,31 +553,14 @@ const app = createApp({
       }
     };
 
-    const resumeHistory = async (session) => {
-      try {
-        const data = await fetch('/api/chat/session/' + encodeURIComponent(session.sessionId) + '/messages').then(r => r.json());
-        sessionId.value = session.sessionId;
-        resumeId.value = session.resumeId || '';
-        workingDir.value = session.workingDir;
-        agentType.value = session.agentType;
-        messages.value = [];
-        data.forEach(function(msg) {
-          if (msg.role === 'user') {
-            messages.value.push({ role: 'user', text: msg.content });
-          } else if (msg.role === 'assistant') {
-            const segments = msg.content && msg.content.startsWith('{') ? parseStreamJson(msg.content) : [{ type: 'text', content: msg.content }];
-            messages.value.push({ role: 'agent', segments: segments });
-          }
-        });
-        addMessage('system', '已恢复历史会话');
-        fetch('/api/chat/session/' + encodeURIComponent(session.sessionId) + '/commands')
-          .then(r => r.json())
-          .then(cmds => { slashCommands.value = cmds; })
-          .catch(() => {});
-        ElementPlus.ElMessage.success('已恢复历史会话');
-      } catch (e) {
-        ElementPlus.ElMessage.error('恢复会话失败');
-      }
+    // 恢复历史会话:设宿主 agent/env 锁定态与 active*,由 ChatPanel 经 initialSessionId 拉消息续聊。
+    // 先设 resumeId 再设 sessionId,确保组件 watch(initialSessionId) 触发时拿到正确的 initialResumeId。
+    const resumeHistory = (session) => {
+      if (!session || !session.sessionId) return;
+      if (session.agentType) agentType.value = session.agentType;
+      env.value = session.env || '';
+      activeResumeId.value = session.resumeId || '';
+      activeSessionId.value = session.sessionId;
     };
 
     const copyToClipboard = async (text) => {
@@ -651,16 +585,18 @@ const app = createApp({
       }
     };
 
-    const shareSession = async () => {
-      if (!currentHistorySessionId.value) return;
+    const shareSession = async (sid) => {
+      // 头条按钮显式传当前会话 id；历史详情抽屉按钮 @click="shareSession" 传入的是事件对象，回退到 currentHistorySessionId
+      const target = (typeof sid === 'string' && sid) ? sid : currentHistorySessionId.value;
+      if (!target) return;
       try {
-        const res = await fetch('/api/chat/session/' + encodeURIComponent(currentHistorySessionId.value) + '/share', { method: 'POST' });
+        const res = await fetch('/api/chat/session/' + encodeURIComponent(target) + '/share', { method: 'POST' });
         if (!res.ok) {
           const text = await res.text();
           throw new Error(text);
         }
         const data = await res.json();
-        const shareUrl = window.location.origin + '/share.html?token=' + data.shareToken;
+        const shareUrl = window.location.origin + window.withBase('/share.html?token=' + data.shareToken);
         const copied = await copyToClipboard(shareUrl);
         if (copied) {
           ElementPlus.ElMessage.success('分享链接已复制到剪贴板');
@@ -672,24 +608,6 @@ const app = createApp({
         }
       } catch (e) {
         ElementPlus.ElMessage.error('生成分享链接失败: ' + (e.message || '未知错误'));
-      }
-    };
-
-    const summarizeSession = async () => {
-      if (!currentHistorySessionId.value) return;
-      summarizing.value = true;
-      try {
-        const res = await fetch('/api/chat/session/' + encodeURIComponent(currentHistorySessionId.value) + '/summarize', { method: 'POST' });
-        if (!res.ok) {
-          const text = await res.text();
-          throw new Error(text);
-        }
-        const data = await res.json();
-        ElementPlus.ElMessage.success('已生成: ' + data.issueId + ' ' + data.title);
-      } catch (e) {
-        ElementPlus.ElMessage.error('生成总结失败: ' + (e.message || '未知错误'));
-      } finally {
-        summarizing.value = false;
       }
     };
 
@@ -780,292 +698,74 @@ const app = createApp({
       taskForm.cronExpr = expr;
     };
 
-    // ========== 命令弹窗 ==========
-    const handleEnter = () => {
-      if (showCommandPopup.value && filteredCommands.value.length > 0) {
-        selectCommand(filteredCommands.value[selectedCommandIdx.value]);
-      } else {
-        sendMessageStream();
-      }
-    };
-
-    const scrollCommandIntoView = () => {
-      nextTick(() => {
-        const popup = document.querySelector('.command-popup');
-        if (!popup) return;
-        const active = popup.querySelector('.command-item.active');
-        if (active) active.scrollIntoView({ block: 'nearest' });
-      });
-    };
-
-    const handleArrowUp = () => {
-      if (!showCommandPopup.value) return;
-      selectedCommandIdx.value = Math.max(0, selectedCommandIdx.value - 1);
-      scrollCommandIntoView();
-    };
-
-    const handleArrowDown = () => {
-      if (!showCommandPopup.value) return;
-      selectedCommandIdx.value = Math.min(filteredCommands.value.length - 1, selectedCommandIdx.value + 1);
-      scrollCommandIntoView();
-    };
-
-    const handleTab = () => {
-      if (showCommandPopup.value && filteredCommands.value.length > 0) {
-        selectCommand(filteredCommands.value[selectedCommandIdx.value]);
-      }
-    };
-
-    const selectCommand = (cmd) => {
-      userInput.value = '/' + cmd.name + ' ';
-      showCommandPopup.value = false;
-      nextTick(() => {
-        const textarea = document.querySelector('textarea');
-        if (textarea) textarea.focus();
-      });
-    };
-
-    const hideCommandPopup = () => {
-      showCommandPopup.value = false;
-    };
-
-    // ========== 断连恢复 ==========
-    let lastEventTime = 0;
-    let heartbeatTimer = null;
-    let recovering = false;
-
-    function startHeartbeat() {
-      stopHeartbeat();
-      lastEventTime = Date.now();
-      heartbeatTimer = setInterval(function() {
-        if (!sending.value) { stopHeartbeat(); return; }
-        if (currentES && currentES.readyState === EventSource.CLOSED) {
-          recoverSession();
-          return;
-        }
-        if (!currentES && sending.value) {
-          recoverSession();
-          return;
-        }
-        if (Date.now() - lastEventTime > 30000) {
-          recoverSession();
-        }
-      }, 10000);
+    // ========== 用户建议 / 反馈 ==========
+    function openSuggestionDialog() {
+      suggestionDialogVisible.value = true;
+      loadSuggestions();
     }
 
-    function stopHeartbeat() {
-      if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
-    }
-
-    async function recoverSession() {
-      if (recovering || !sessionId.value) return;
-      recovering = true;
-      stopHeartbeat();
-      if (currentES) { currentES.close(); currentES = null; }
-      try {
-        const statusRes = await fetch('/api/chat/session/' + encodeURIComponent(sessionId.value) + '/status').then(r => r.json());
-        if (statusRes.running) {
-          await pollUntilDone();
-        }
-        await reloadMessages();
-      } catch (e) {
-        // fallback: just stop sending state
-      }
-      sending.value = false;
-      recovering = false;
-    }
-
-    async function pollUntilDone() {
-      while (true) {
-        await new Promise(r => setTimeout(r, 3000));
-        try {
-          const res = await fetch('/api/chat/session/' + encodeURIComponent(sessionId.value) + '/status').then(r => r.json());
-          if (!res.running) break;
-        } catch (e) { break; }
-      }
-    }
-
-    async function reloadMessages() {
-      try {
-        const data = await fetch('/api/chat/session/' + encodeURIComponent(sessionId.value) + '/messages').then(r => r.json());
-        messages.value = [];
-        data.forEach(function(msg) {
-          if (msg.role === 'user') {
-            messages.value.push({ role: 'user', text: msg.content });
-          } else if (msg.role === 'assistant') {
-            const segments = msg.content && msg.content.startsWith('{') ? parseStreamJson(msg.content) : [{ type: 'text', content: msg.content }];
-            messages.value.push({ role: 'agent', segments: segments });
-          }
-        });
-        nextTick(() => {
-          if (chatContainer.value) {
-            chatContainer.value.scrollTop = chatContainer.value.scrollHeight;
-          }
-        });
-      } catch (e) {
-        // ignore
-      }
-    }
-
-    // ========== SSE 消息发送 ==========
-    const sendMessageStream = async () => {
-      if (!currentPath.value || !userInput.value.trim() || sending.value) return;
-      try {
-        await ensureSession();
-      } catch (error) {
-        ElementPlus.ElMessage.error('创建会话失败: ' + error.message);
+    async function submitSuggestion() {
+      if (!suggestionForm.content || !suggestionForm.content.trim()) {
+        ElementPlus.ElMessage.warning('请填写建议内容');
         return;
       }
-
-      const message = userInput.value.trim();
-      addMessage('user', message);
-      userInput.value = '';
-      sending.value = true;
-
-      const msgIndex = messages.value.length;
-      messages.value.push({ role: 'agent', segments: [] });
-
-      let url = '/api/chat/session/' + encodeURIComponent(sessionId.value) + '/message/stream?message=' + encodeURIComponent(message);
-      if (env.value) {
-        url += '&env=' + encodeURIComponent(env.value);
-      }
-      if (resumeId.value) {
-        url += '&resumeId=' + encodeURIComponent(resumeId.value);
-      }
-
-      const es = new EventSource(url);
-      currentES = es;
-      startHeartbeat();
-      let segments = [];
-      let inToolUse = false;
-
-      function appendText(text) {
-        const last = segments.length > 0 ? segments[segments.length - 1] : null;
-        if (last && last.type === 'text') {
-          last.content += text;
-        } else {
-          segments.push({ type: 'text', content: text });
-        }
-      }
-
-      function appendToolContent(text) {
-        for (let i = segments.length - 1; i >= 0; i--) {
-          if (segments[i].type === 'tool') {
-            segments[i].content += text;
-            return;
-          }
-        }
-        segments.push({ type: 'tool', name: 'Tool', content: text });
-      }
-
-      function flushSegments() {
-        messages.value[msgIndex].segments = segments.map(function(s) { return { type: s.type, name: s.name, content: s.content }; });
-        nextTick(() => {
-          if (chatContainer.value) {
-            chatContainer.value.scrollTop = chatContainer.value.scrollHeight;
-          }
+      suggestionSubmitting.value = true;
+      try {
+        const res = await fetch('/api/user-suggestions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: suggestionForm.title,
+            content: suggestionForm.content
+          })
         });
-      }
-
-      es.addEventListener('chunk', (e) => {
-        lastEventTime = Date.now();
-        const data = e.data;
-        try {
-          const json = JSON.parse(data);
-          if (json.session_id && !resumeId.value) {
-            resumeId.value = json.session_id;
-          }
-          if (json.type === 'stream_event' && json.event) {
-            const evt = json.event;
-            if (evt.type === 'content_block_start' && evt.content_block) {
-              if (evt.content_block.type === 'tool_use') {
-                inToolUse = true;
-                segments.push({ type: 'tool', name: evt.content_block.name, content: '' });
-              } else {
-                inToolUse = false;
-              }
-            } else if (evt.type === 'content_block_delta' && evt.delta) {
-              if (evt.delta.text) {
-                appendText(evt.delta.text);
-              } else if (evt.delta.partial_json) {
-                appendToolContent(evt.delta.partial_json);
-              }
-            } else if (evt.type === 'content_block_stop') {
-              inToolUse = false;
-            }
-          } else if (json.type === 'assistant' && json.message && json.message.content) {
-            const hasContent = segments.some(function(s) { return s.content && s.content.trim(); });
-            if (!hasContent) {
-              segments = [];
-              for (const block of json.message.content) {
-                if (block.type === 'text' && block.text) {
-                  segments.push({ type: 'text', content: block.text });
-                } else if (block.type === 'tool_use') {
-                  segments.push({ type: 'tool', name: block.name, content: JSON.stringify(block.input, null, 2) });
-                }
-              }
-            }
-          } else if (json.type === 'user' && json.message && json.message.content) {
-            for (const block of json.message.content) {
-              if (block.type === 'tool_result') {
-                let resultText = '';
-                if (json.tool_use_result) {
-                  const tur = json.tool_use_result;
-                  if (tur.file) {
-                    resultText = '[文件: ' + tur.file.filePath + ' (' + tur.file.numLines + '行)]';
-                  } else if (typeof tur === 'string') {
-                    resultText = tur;
-                  } else if (tur.type === 'text' && typeof block.content === 'string') {
-                    resultText = block.content;
-                  }
-                }
-                if (!resultText && typeof block.content === 'string') {
-                  resultText = block.content;
-                }
-                if (resultText) {
-                  if (resultText.length > 2000) {
-                    resultText = resultText.substring(0, 2000) + '\n... (共 ' + resultText.length + ' 字符，已截断)';
-                  }
-                  appendToolContent('\n' + resultText);
-                }
-              }
-            }
-          } else if (json.type === 'result' && json.result) {
-            const hasContent = segments.some(function(s) { return s.content && s.content.trim(); });
-            if (!hasContent) {
-              segments = [{ type: 'text', content: json.result }];
-            }
-          }
-        } catch (err) {
-          if (data && !data.startsWith('{') && !data.startsWith('[')) {
-            appendText(data);
-          }
+        if (!res.ok) {
+          throw new Error(await res.text());
         }
-        flushSegments();
-      });
+        suggestionForm.title = '';
+        suggestionForm.content = '';
+        ElementPlus.ElMessage.success('建议已提交');
+        suggestionTab.value = 'status';
+        await loadSuggestions();
+      } catch (e) {
+        ElementPlus.ElMessage.error('提交失败: ' + (e.message || '未知错误'));
+      } finally {
+        suggestionSubmitting.value = false;
+      }
+    }
 
-      es.addEventListener('exit', (e) => {
-        stopHeartbeat();
-        flushSegments();
-        addMessage('system', e.data === '0' ? '任务已完成' : '进程异常退出，退出码: ' + e.data);
-        es.close();
-        currentES = null;
-        sending.value = false;
-      });
+    async function loadSuggestions() {
+      suggestionLoading.value = true;
+      try {
+        const data = await fetch('/api/user-suggestions?limit=50').then(r => r.json());
+        suggestions.value = Array.isArray(data) ? data : [];
+      } catch (e) {
+        ElementPlus.ElMessage.error('加载建议状态失败');
+      } finally {
+        suggestionLoading.value = false;
+      }
+    }
 
-      es.addEventListener('error', (e) => {
-        stopHeartbeat();
-        addMessage('error', e.data || 'SSE 连接错误');
-        es.close();
-        currentES = null;
-        sending.value = false;
-      });
-
-      es.onerror = () => {
-        // Do not clear sending here — let heartbeat/visibilitychange trigger recovery
-        es.close();
-        currentES = null;
+    function suggestionStatusType(status) {
+      const map = {
+        PENDING: 'warning',
+        PROCESSING: 'primary',
+        REPLIED: 'success',
+        CLOSED: 'info'
       };
+      return map[status] || 'info';
+    }
+
+    // ========== ChatPanel 宿主回调 ==========
+    // 组件新建会话:回填 active* 锁定顶栏 env/agent,并刷新历史列表让新会话显现
+    const onSessionCreated = (payload) => {
+      activeSessionId.value = payload.sessionId;
+      activeResumeId.value = '';
+      loadHistory(true);
+    };
+    // 组件流结束 / 回退后:重拉历史列表,同步标题与消息数
+    const onRefreshHistory = () => {
+      loadHistory(true);
     };
 
     // ========== 生命周期 ==========
@@ -1073,80 +773,57 @@ const app = createApp({
       await init();
       await loadHistory(true);
       await loadTasks();
-
-      document.addEventListener('visibilitychange', function() {
-        if (document.visibilityState === 'visible' && sending.value && !recovering) {
-          if (!currentES || currentES.readyState === EventSource.CLOSED || Date.now() - lastEventTime > 30000) {
-            recoverSession();
-          }
-        }
-      });
     });
 
+    // 切工作目录:置空 active*,ChatPanel 经 workingDir / initialSession 自行清空并重载命令
     watch(currentPath, () => {
-      sessionId.value = '';
-      messages.value = [];
-      resumeId.value = '';
-      loadSlashCommands();
+      activeSessionId.value = '';
+      activeResumeId.value = '';
     });
 
     watch(branchPopoverVisible, (v) => {
       if (v) loadWorktreeBranches();
     });
 
-    watch(userInput, (val) => {
-      if (val && val.startsWith('/') && val.indexOf(' ') < 0 && slashCommands.value.length > 0) {
-        showCommandPopup.value = true;
-        selectedCommandIdx.value = 0;
-      } else {
-        showCommandPopup.value = false;
-      }
-    });
+    // 跳转需求看板页(M0 独立 MPA 页面,与主控台同源共享登录态)
+    function goRequirementBoard() {
+      window.location.href = window.withBase('/requirement-board.html');
+    }
 
     async function doLogout() {
+      // 登出后跳本站 /login.html（loginUrl 由后端返回，已带 ?redirect=）；拿不到则退回首页重新鉴权。
+      let loginUrl = '/';
       try {
-        await fetch('/api/auth/logout', { method: 'POST' });
+        const r = await fetch('/api/auth/logout', { method: 'POST' }).then((x) => x.json());
+        if (r && r.loginUrl) {
+          loginUrl = r.loginUrl;
+        }
       } catch (e) {
         // ignore
       }
-      window.location.href = '/login.html';
+      window.location.href = window.withBase(loginUrl);
     }
 
     return {
+      withBase: window.withBase,
       roots,
       selectedRoot,
       currentPath,
       folderList,
       agentType,
-      sessionId,
-      workingDir,
-      resumeId,
+      activeSessionId,
+      activeResumeId,
       env,
       envList,
       username,
-      messages,
-      userInput,
       starting,
-      sending,
-      chatContainer,
       handleRootChange,
       loadList,
       newConversation,
-      insertNewline,
-      clearContext,
       onEnvChange,
-      stopSession,
-      slashCommands,
-      showCommandPopup,
-      selectedCommandIdx,
-      filteredCommands,
-      handleEnter,
-      handleArrowUp,
-      handleArrowDown,
-      handleTab,
-      selectCommand,
-      hideCommandPopup,
-      sendMessageStream,
+      onAgentTypeChange,
+      onSessionCreated,
+      onRefreshHistory,
       formatSize,
       handleFileCommand,
       selectedBranch,
@@ -1166,8 +843,8 @@ const app = createApp({
       onUploadSuccess,
       onUploadError,
       renderMarkdown,
-      isToolExpanded,
-      toggleTool,
+      imageUrl,
+      copySegment,
       historyList,
       historyLoading,
       historyHasMore,
@@ -1176,11 +853,11 @@ const app = createApp({
       loadHistory,
       onHistoryScroll,
       deleteHistory,
+      canDelete,
+      canUseScheduledTask,
       viewHistory,
       resumeHistory,
       shareSession,
-      summarizeSession,
-      summarizing,
       formatTime,
       escapeHtml,
       taskList,
@@ -1197,15 +874,30 @@ const app = createApp({
       setCronPreset,
       workspaceDialogVisible,
       taskManagerVisible,
+      chatRagEnabled,
       sidebarVisible,
       isMobile,
       groupedHistory,
+      authEnabled,
       doLogout,
+      goRequirementBoard,
+      suggestionDialogVisible,
+      suggestionTab,
+      suggestionForm,
+      suggestionSubmitting,
+      suggestionLoading,
+      suggestions,
+      openSuggestionDialog,
+      submitSuggestion,
+      loadSuggestions,
+      suggestionStatusType,
     };
   }
 });
 
 app.use(ElementPlus);
+// 注册可复用的 ChatPanel 组件(挂在 window.ChatPanel,由 chat-panel.js 提供)
+app.component('chat-panel', window.ChatPanel);
 // 全局注册 Element Plus 图标组件
 for (const [name, comp] of Object.entries(ElementPlusIconsVue)) {
   app.component(name, comp);

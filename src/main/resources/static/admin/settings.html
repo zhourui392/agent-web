@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>系统设置 · Agent Q&A 管理后台</title>
+  <link rel="stylesheet" href="../vendor/element-plus.css">
+  <link rel="stylesheet" href="../css/admin.css?v=2026061101">
+</head>
+<body>
+  <div id="app" v-cloak>
+    <admin-shell active="settings" @ready="loadSettings">
+      <template #header-actions>
+        <el-button text @click="loadSettings" :loading="loading">刷新</el-button>
+      </template>
+
+      <div class="view-wrap">
+        <el-card shadow="never" v-loading="loading" style="max-width: 640px;">
+          <template #header>
+            <div style="font-weight: 700;">默认模型</div>
+          </template>
+
+          <el-form label-position="top" size="default">
+            <el-form-item label="对话默认模型">
+              <el-select v-model="form.chatDefaultAgent" style="width: 100%;" data-test="chat-agent-select">
+                <el-option v-for="o in options" :key="o" :label="o" :value="o"></el-option>
+              </el-select>
+              <div class="muted" style="font-size: 12px; margin-top: 6px; line-height: 1.6;">
+                新对话默认选中的模型。<strong>修改后所有用户下次打开页面会被强制切换到该模型</strong>(覆盖各自浏览器记忆),之后单次会话内仍可临时切换。
+              </div>
+            </el-form-item>
+
+            <el-form-item>
+              <el-button type="primary" :loading="saving" @click="save" data-test="save-settings">保存</el-button>
+            </el-form-item>
+          </el-form>
+        </el-card>
+      </div>
+    </admin-shell>
+  </div>
+
+  <script src="../js/base.js?v=20260611"></script>
+  <script src="../vendor/vue.global.js"></script>
+  <script src="../vendor/element-plus.full.min.js"></script>
+  <script src="../vendor/element-plus-icons-vue.iife.min.js"></script>
+  <script src="../js/admin/shell.js?v=2026070401"></script>
+  <script src="../js/admin/pages/settings.js?v=2026062501"></script>
+</body>
+</html>

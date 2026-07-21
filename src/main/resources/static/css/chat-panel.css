@@ -1,0 +1,503 @@
+/*
+ * ChatPanel 组件样式:聊天容器 / 消息气泡 / 段落渲染 / 工具块 / 召回卡片 / 命令弹窗 /
+ * 输入区 / 待发送图片附件 / 加载动画。从 app.css 移出,供 index、admin、share 三页共享
+ * (各页 <link> 同时引 app.css 外围壳样式 + 本文件)。消息渲染类(text-segment / tool-* /
+ * recall-card / message-image-grid)被主控台历史抽屉、诊断详情、share 只读页复用,故一并归此。
+ */
+.chat-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.chat-header-bar {
+  flex-shrink: 0;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  background: #fff;
+  border-bottom: 1px solid #f0f0f0;
+}
+.chat-header-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #303133;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.feedback-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 12px;
+  flex-shrink: 0;
+}
+.feedback-label {
+  font-size: 12px;
+  color: #909399;
+}
+.feedback-chip {
+  font-size: 12px;
+  line-height: 1;
+  padding: 5px 9px;
+  border-radius: 12px;
+  border: 1px solid #dcdfe6;
+  background: #fff;
+  color: #909399;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+.feedback-chip:hover {
+  border-color: #c0c4cc;
+  color: #606266;
+}
+.feedback-chip.active.feedback-chip--correct {
+  background: #f0f9eb;
+  border-color: #67c23a;
+  color: #67c23a;
+}
+.feedback-chip.active.feedback-chip--partial {
+  background: #fdf6ec;
+  border-color: #e6a23c;
+  color: #e6a23c;
+}
+.feedback-chip.active.feedback-chip--incorrect {
+  background: #fef0f0;
+  border-color: #f56c6c;
+  color: #f56c6c;
+}
+@media (max-width: 768px) {
+  .feedback-label {
+    display: none;
+  }
+  .feedback-bar {
+    gap: 4px;
+    margin-right: 6px;
+  }
+  .feedback-chip {
+    padding: 4px 6px;
+  }
+}
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  background: #f5f7fa;
+}
+.chat-message {
+  margin-bottom: 16px;
+}
+.user-row .rewind-btn {
+  opacity: 0;
+  background: transparent;
+  border: 1px solid #dcdfe6;
+  color: #909399;
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  line-height: 1;
+  font-size: 14px;
+  cursor: pointer;
+  transition: opacity 0.15s, color 0.15s, border-color 0.15s;
+  padding: 0;
+}
+.user-row:hover .rewind-btn {
+  opacity: 1;
+}
+.user-row .rewind-btn:hover {
+  color: #f56c6c;
+  border-color: #f56c6c;
+}
+.message-user {
+  background: #409eff;
+  color: white;
+  padding: 12px 16px;
+  border-radius: 12px 12px 4px 12px;
+  max-width: 70%;
+  margin-left: auto;
+  word-wrap: break-word;
+}
+.message-user-text {
+  white-space: pre-wrap;
+}
+.message-image-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.message-user-text + .message-image-grid {
+  margin-top: 8px;
+}
+.chat-image {
+  width: 140px;
+  height: 140px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  cursor: pointer;
+  background: rgba(255, 255, 255, 0.12);
+}
+.chat-image-broken {
+  width: 140px;
+  height: 140px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.12);
+}
+.message-agent {
+  background: white;
+  padding: 12px 16px;
+  border-radius: 12px 12px 12px 4px;
+  max-width: 85%;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.message-agent .text-segment {
+  white-space: normal;
+}
+.text-segment-wrap {
+  position: relative;
+}
+.text-segment-wrap .copy-btn {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.92);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 20px;
+  color: #606266;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  z-index: 2;
+}
+.text-segment-wrap:hover .copy-btn {
+  opacity: 1;
+}
+.text-segment-wrap .copy-btn:hover {
+  background: #f5f7fa;
+  color: #409eff;
+  border-color: #409eff;
+}
+.message-agent .text-segment p { margin: 0.4em 0; }
+.message-agent .text-segment code {
+  background: #f0f2f5;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 12px;
+}
+.message-agent .text-segment pre {
+  background: #f6f8fa;
+  color: #24292e;
+  padding: 12px;
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 12px;
+}
+.message-agent .text-segment pre code {
+  background: none;
+  padding: 0;
+  color: inherit;
+}
+.message-agent .text-segment ul, .message-agent .text-segment ol {
+  padding-left: 1.5em;
+  margin: 0.4em 0;
+}
+.message-agent .text-segment strong { font-weight: 600; }
+.message-agent .text-segment h1, .message-agent .text-segment h2,
+.message-agent .text-segment h3 { margin: 0.6em 0 0.3em; }
+.message-system {
+  background: #e1f3d8;
+  color: #67c23a;
+  padding: 8px 12px;
+  border-radius: 8px;
+  text-align: center;
+  font-size: 13px;
+}
+.message-error {
+  background: #fef0f0;
+  color: #f56c6c;
+  padding: 8px 12px;
+  border-radius: 8px;
+  text-align: center;
+  font-size: 13px;
+}
+.command-popup {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  max-height: 240px;
+  overflow-y: auto;
+  background: white;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+  z-index: 100;
+  margin-bottom: 4px;
+}
+.command-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.command-item:hover, .command-item.active {
+  background: #f0f7ff;
+}
+.command-name {
+  font-family: monospace;
+  font-weight: bold;
+  color: #409eff;
+  white-space: nowrap;
+}
+.command-desc {
+  color: #909399;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-input-area {
+  padding: 16px;
+  background: white;
+  border-top: 1px solid #ebeef5;
+}
+.pending-image-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.pending-image-card {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  border-radius: 6px;
+  border: 1px solid #dcdfe6;
+  background: #f5f7fa;
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+.pending-image-card img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.pending-image-remove {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  user-select: none;
+}
+.pending-image-remove:hover {
+  background: rgba(245, 108, 108, 0.9);
+}
+.pending-file-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+  border: 1px solid #dcdfe6;
+  border-radius: 6px;
+  background: #f5f7fa;
+  max-width: 100%;
+  font-size: 13px;
+  color: #303133;
+}
+.pending-file-card .pending-file-name {
+  max-width: 260px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+.pending-file-card .pending-file-size {
+  color: #909399;
+  font-size: 12px;
+}
+.pending-file-card .pending-file-remove {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.pending-file-card .pending-file-remove:hover {
+  background: rgba(245, 108, 108, 0.9);
+}
+.tool-block {
+  margin: 4px 0;
+  border: 1px solid #e4e7ed;
+  border-radius: 4px;
+  overflow: hidden;
+}
+.tool-header {
+  display: flex;
+  align-items: center;
+  padding: 6px 10px;
+  background: #f5f7fa;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  color: #606266;
+}
+.tool-header:hover {
+  background: #ebeef5;
+}
+.tool-toggle {
+  margin-right: 6px;
+  font-size: 10px;
+  color: #909399;
+  transition: transform 0.2s;
+}
+.tool-toggle.expanded {
+  transform: rotate(90deg);
+}
+.tool-label {
+  font-weight: 500;
+}
+.tool-content {
+  padding: 8px 10px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  border-top: 1px solid #e4e7ed;
+  background: #fafafa;
+}
+/* /recall 召回卡片: 与 tool-block 同构, 蓝色点缀区分"系统注入的历史参考" */
+.recall-card {
+  margin: 2px 0 8px;
+  border: 1px solid #d3e3fd;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #f4f8ff;
+}
+.recall-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  color: #3a6ea5;
+}
+.recall-card-head:hover {
+  background: #e9f2ff;
+}
+.recall-card-toggle {
+  font-size: 10px;
+  color: #79a3d6;
+  transition: transform 0.2s;
+}
+.recall-card-toggle.expanded {
+  transform: rotate(90deg);
+}
+.recall-card-title {
+  font-weight: 600;
+}
+.recall-card-query {
+  color: #88a;
+  font-style: italic;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recall-card-body {
+  padding: 6px 10px 8px;
+  border-top: 1px solid #d3e3fd;
+  background: #fbfdff;
+}
+.recall-hit {
+  padding: 5px 0;
+  border-bottom: 1px dashed #e4ebf5;
+}
+.recall-hit:last-child {
+  border-bottom: none;
+}
+.recall-hit-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #303133;
+}
+.recall-hit-conclusion {
+  margin-top: 2px;
+  font-size: 12px;
+  color: #606266;
+  white-space: pre-wrap;
+}
+.recall-empty {
+  font-size: 12px;
+  color: #909399;
+}
+.loading-dots {
+  display: flex;
+  align-items: center;
+  padding: 4px 0;
+}
+.loading-dots span {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin: 0 3px;
+  border-radius: 50%;
+  background: #409eff;
+  animation: dotBounce 1.4s infinite ease-in-out both;
+}
+.loading-dots span:nth-child(1) { animation-delay: -0.32s; }
+.loading-dots span:nth-child(2) { animation-delay: -0.16s; }
+.loading-dots span:nth-child(3) { animation-delay: 0s; }
+@keyframes dotBounce {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+  40% { transform: scale(1); opacity: 1; }
+}
+
+/* ========== 移动端适配 (聊天部分) ========== */
+@media (max-width: 768px) {
+  .message-user {
+    max-width: 85%;
+  }
+  .message-agent {
+    max-width: 95%;
+  }
+  .chat-messages {
+    padding: 12px;
+  }
+  .chat-input-area {
+    padding: 10px;
+  }
+}

@@ -1,5 +1,13 @@
 package com.example.agentweb.interfaces.dto;
 
+import lombok.Getter;
+import lombok.Setter;
+
+/**
+ * @author zhourui(V33215020)
+ */
+@Getter
+@Setter
 public class CommandDto {
     private String name;
     private String description;
@@ -10,13 +18,4 @@ public class CommandDto {
         this.description = description;
         this.argumentHint = argumentHint;
     }
-
-    public String getName() { return name; }
-    public void setName(String name) { this.name = name; }
-
-    public String getDescription() { return description; }
-    public void setDescription(String description) { this.description = description; }
-
-    public String getArgumentHint() { return argumentHint; }
-    public void setArgumentHint(String argumentHint) { this.argumentHint = argumentHint; }
 }

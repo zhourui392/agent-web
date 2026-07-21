@@ -1,13 +1,15 @@
 package com.example.agentweb;
 
-import com.example.agentweb.domain.AgentType;
-import com.example.agentweb.domain.ChatMessage;
-import com.example.agentweb.domain.ChatSession;
-import com.example.agentweb.domain.SessionRepository;
+import com.example.agentweb.domain.shared.AgentType;
+import com.example.agentweb.domain.chat.ChatMessage;
+import com.example.agentweb.domain.chat.ChatSession;
+import com.example.agentweb.domain.chat.SessionRepository;
 import com.example.agentweb.infra.InMemorySessionRepo;
 import com.example.agentweb.infra.SqliteSessionRepo;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.ResourceLock;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -42,6 +44,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 })
 @AutoConfigureMockMvc
 @Transactional
+@Tag("spring-flow")
+@ResourceLock("spring-flow-sqlite")
 public class ResumeSessionTest {
 
     @DynamicPropertySource
@@ -54,6 +58,9 @@ public class ResumeSessionTest {
 
     @Autowired
     private SessionRepository sessionRepository;
+
+    @Autowired
+    private com.example.agentweb.app.ChatSessionQueryService sessionQueryService;
 
     @Autowired
     private InMemorySessionRepo inMemoryRepo;
@@ -88,28 +95,12 @@ public class ResumeSessionTest {
         sessionRepository.saveSession(s);
         sessionRepository.updateResumeId(s.getId(), "cli-resume-456");
 
-        List<Map<String, Object>> summaries = sessionRepository.findSummaryPaged(0, 100);
-        Map<String, Object> found = summaries.stream()
-                .filter(m -> s.getId().equals(m.get("sessionId")))
+        com.example.agentweb.app.ChatSessionSummary found = sessionQueryService.findSummaryPaged(0, 100).stream()
+                .filter(m -> s.getId().equals(m.getSessionId()))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Session not found in summaries"));
 
-        assertEquals("cli-resume-456", found.get("resumeId"));
-    }
-
-    @Test
-    public void findAllSummary_should_include_resumeId() {
-        ChatSession s = new ChatSession(AgentType.CLAUDE, "/tmp");
-        sessionRepository.saveSession(s);
-        sessionRepository.updateResumeId(s.getId(), "cli-resume-789");
-
-        List<Map<String, Object>> summaries = sessionRepository.findAllSummary();
-        Map<String, Object> found = summaries.stream()
-                .filter(m -> s.getId().equals(m.get("sessionId")))
-                .findFirst()
-                .orElseThrow(() -> new AssertionError("Session not found in summaries"));
-
-        assertEquals("cli-resume-789", found.get("resumeId"));
+        assertEquals("cli-resume-456", found.getResumeId());
     }
 
     // ── 3. Service: getSession fallback to persistent storage ──

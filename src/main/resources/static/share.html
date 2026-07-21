@@ -4,9 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>共享对话</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/element-plus/dist/index.css">
+  <link rel="stylesheet" href="vendor/element-plus.css">
   <link rel="stylesheet" href="css/app.css">
-  <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+  <link rel="stylesheet" href="css/chat-panel.css">
+  <script src="js/base.js?v=20260611"></script>
+  <script src="vendor/marked.min.js"></script>
   <style>
     .share-header {
       display: flex;
@@ -58,19 +60,30 @@
       color: #909399;
       font-size: 16px;
     }
+    .share-input {
+      display: flex;
+      gap: 8px;
+      align-items: flex-end;
+      padding: 12px 20px;
+      background: #fff;
+      border-top: 1px solid #e4e7ed;
+    }
+    .share-input .el-textarea {
+      flex: 1;
+    }
   </style>
 </head>
 <body>
   <div id="app" style="height: 100%; display: flex; flex-direction: column;">
     <!-- Header -->
     <div class="share-header">
-      <span class="logo">Agent Web</span>
+      <span class="logo">Agent Q&A</span>
       <div style="width: 1px; height: 24px; background: #dcdfe6; flex-shrink: 0;"></div>
       <span class="session-info" v-if="session">
         {{ session.title || '共享对话' }} &middot; {{ formatTime(session.createdAt) }}
       </span>
       <span style="flex: 1;"></span>
-      <el-tag size="small" type="info">只读</el-tag>
+      <el-tag size="small" type="warning">可续聊</el-tag>
     </div>
 
     <!-- Loading -->
@@ -85,17 +98,52 @@
     </div>
 
     <!-- Messages -->
-    <div v-else class="share-body">
+    <div v-else class="share-body" ref="bodyRef">
       <div class="chat-messages" style="padding: 0; background: transparent;">
         <div v-for="(msg, i) in messages" :key="i" class="chat-message">
           <div v-if="msg.role === 'user'" style="display: flex; justify-content: flex-end;">
-            <div class="message-user">{{ msg.content }}</div>
+            <div class="message-user">
+              <div v-if="msg.bodyText" class="message-user-text">{{ msg.bodyText }}</div>
+              <div v-if="msg.images && msg.images.length" class="message-image-grid">
+                <el-image
+                  v-for="(img, ii) in msg.images"
+                  :key="ii"
+                  :src="imageUrl(img)"
+                  :preview-src-list="msg.images.map(imageUrl)"
+                  :initial-index="ii"
+                  fit="cover"
+                  hide-on-click-modal
+                  preview-teleported
+                  class="chat-image">
+                  <template #error>
+                    <div class="chat-image-broken">图片不可用</div>
+                  </template>
+                </el-image>
+              </div>
+            </div>
           </div>
           <div v-else>
             <div class="message-agent">
+              <div v-if="msg.recall" class="recall-card">
+                <div class="recall-card-head" @click="msg.recallOpen = !msg.recallOpen">
+                  <span class="recall-card-toggle" :class="{expanded: msg.recallOpen}">&#9654;</span>
+                  <span class="recall-card-title">🔍 召回了 {{ msg.recall.hits.length }} 条历史参考</span>
+                  <span v-if="msg.recall.query" class="recall-card-query">“{{ msg.recall.query }}”</span>
+                </div>
+                <div v-show="msg.recallOpen" class="recall-card-body">
+                  <div v-for="(h, hi) in msg.recall.hits" :key="hi" class="recall-hit">
+                    <div class="recall-hit-title">{{ hi + 1 }}. {{ h.title }}</div>
+                    <div v-if="h.conclusion" class="recall-hit-conclusion">{{ h.conclusion }}</div>
+                  </div>
+                  <div v-if="!msg.recall.hits.length" class="recall-empty">无匹配历史，已照常发送原消息</div>
+                </div>
+              </div>
               <template v-if="msg.parsedSegments">
                 <template v-for="(seg, si) in msg.parsedSegments" :key="si">
-                  <div v-if="seg.type === 'text'" class="text-segment" v-html="renderMarkdown(seg.content)"></div>
+                  <div v-if="seg.type === 'text'" class="text-segment-wrap">
+                    <button class="copy-btn" type="button" title="复制 Markdown" @click="copySegment(seg.content)">📋</button>
+                    <div class="text-segment" v-html="renderMarkdown(seg.content)"></div>
+                  </div>
                   <div v-else-if="seg.type === 'tool'" class="tool-block">
                     <div class="tool-header" @click="seg._expanded = !seg._expanded">
                       <span class="tool-toggle" :class="{expanded: seg._expanded}">&#9654;</span>
@@ -110,23 +158,43 @@
                     </div>
                     <div v-show="seg._expanded" class="tool-content">{{ seg.content }}</div>
                   </div>
-                  <div v-else-if="seg.type === 'result'" class="text-segment" v-html="renderMarkdown(seg.content)"></div>
+                  <div v-else-if="seg.type === 'result'" class="text-segment-wrap">
+                    <button class="copy-btn" type="button" title="复制 Markdown" @click="copySegment(seg.content)">📋</button>
+                    <div class="text-segment" v-html="renderMarkdown(seg.content)"></div>
+                  </div>
                 </template>
               </template>
-              <div v-else class="text-segment" v-html="renderMarkdown(msg.content)"></div>
+              <div v-else class="text-segment-wrap">
+                <button class="copy-btn" type="button" title="复制 Markdown" @click="copySegment(msg.content)">📋</button>
+                <div class="text-segment" v-html="renderMarkdown(msg.content)"></div>
+              </div>
+              <div v-if="sending && i === messages.length - 1" class="loading-dots"><span></span><span></span><span></span></div>
             </div>
           </div>
         </div>
       </div>
       <div v-if="messages.length === 0" class="share-empty">暂无消息</div>
     </div>
+
+    <!-- Continue-chat input (shown once the shared session loads) -->
+    <div v-if="!loading && !error" class="share-input">
+      <el-input
+        v-model="userInput"
+        type="textarea"
+        :autosize="{ minRows: 1, maxRows: 6 }"
+        :disabled="sending"
+        resize="none"
+        placeholder="继续对话…"
+        @keydown.enter.exact.prevent="send"></el-input>
+      <el-button type="primary" :loading="sending" :disabled="!userInput.trim()" @click="send">发送</el-button>
+    </div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/element-plus/dist/index.full.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@element-plus/icons-vue/dist/index.iife.min.js"></script>
+  <script src="vendor/vue.global.js"></script>
+  <script src="vendor/element-plus.full.min.js"></script>
+  <script src="vendor/element-plus-icons-vue.iife.min.js"></script>
   <script>
-    const { createApp, ref, onMounted } = Vue;
+    const { createApp, ref, onMounted, nextTick } = Vue;
 
     const app = createApp({
       setup() {
@@ -134,6 +202,31 @@
         const error = ref('');
         const session = ref(null);
         const messages = ref([]);
+        const shareToken = ref('');
+        const userInput = ref('');
+        const sending = ref(false);
+        const bodyRef = ref(null);
+
+        const copySegment = async (text) => {
+          if (!text) return;
+          try {
+            if (navigator.clipboard && window.isSecureContext) {
+              await navigator.clipboard.writeText(text);
+            } else {
+              const ta = document.createElement('textarea');
+              ta.value = text;
+              ta.style.position = 'fixed';
+              ta.style.opacity = '0';
+              document.body.appendChild(ta);
+              ta.select();
+              document.execCommand('copy');
+              document.body.removeChild(ta);
+            }
+            ElementPlus.ElMessage.success('已复制');
+          } catch (e) {
+            ElementPlus.ElMessage.error('复制失败');
+          }
+        };
 
         const renderMarkdown = (text) => {
           if (!text) return '';
@@ -145,6 +238,24 @@
           } catch (e) {}
           return cleaned.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
         };
+
+        // 用户消息里以独立行追加的图片绝对路径,渲染时分离出来用 <el-image> 显示缩略图
+        const IMAGE_PATH_RE = /^.+[\/\\][^\/\\]+\.(png|jpe?g|gif|webp|bmp)$/i;
+        const parseUserMessage = (text) => {
+          if (!text) return { text: '', images: [] };
+          const textLines = [];
+          const images = [];
+          for (const line of String(text).split('\n')) {
+            const trimmed = line.trim();
+            if (IMAGE_PATH_RE.test(trimmed)) {
+              images.push(trimmed);
+            } else {
+              textLines.push(line);
+            }
+          }
+          return { text: textLines.join('\n').trim(), images: images };
+        };
+        const imageUrl = (absPath) => window.withBase('/api/fs/image?path=' + encodeURIComponent(absPath));
 
         const formatTime = (isoStr) => {
           if (!isoStr) return '';
@@ -207,6 +318,96 @@
           return segments;
         };
 
+        // 与 js/lib/formatters.js#isStreamJson 同款:CLI stderr 告警会混入 stdout 头部,
+        // 不能只看首字符,要在头部窗口内找第一条带 type 字段的 JSON 行(本页刻意自包含,不引 lib)。
+        const isStreamJson = (content) => {
+          if (!content) return false;
+          const lines = String(content).split('\n');
+          let scanned = 0;
+          for (let i = 0; i < lines.length && scanned < 10; i++) {
+            const line = lines[i].trim();
+            if (!line) continue;
+            scanned++;
+            if (line.charAt(0) !== '{') continue;
+            try { return typeof JSON.parse(line).type === 'string'; } catch (e) {}
+          }
+          return false;
+        };
+
+        // 服务端消息 → 渲染模型 (onMounted 首屏 + 每轮续聊结束后刷新共用)
+        const mapMessages = (rawMsgs) => (rawMsgs || []).map(msg => {
+          let recall = null;
+          if (msg.role === 'assistant' && msg.recall) {
+            try { recall = JSON.parse(msg.recall); } catch (e) { recall = null; }
+          }
+          if (msg.role === 'assistant' && isStreamJson(msg.content)) {
+            return Object.assign({}, msg, { parsedSegments: parseStreamJson(msg.content), recall: recall, recallOpen: false });
+          }
+          if (msg.role === 'user') {
+            const parsed = parseUserMessage(msg.content);
+            return Object.assign({}, msg, { bodyText: parsed.text, images: parsed.images });
+          }
+          return Object.assign({}, msg, { recall: recall, recallOpen: false });
+        });
+
+        const scrollToBottom = () => {
+          nextTick(() => {
+            if (bodyRef.value) bodyRef.value.scrollTop = bodyRef.value.scrollHeight;
+          });
+        };
+
+        const loadShared = async () => {
+          const res = await fetch('/api/share/' + encodeURIComponent(shareToken.value));
+          if (!res.ok) {
+            throw new Error(res.status === 404 ? '分享链接无效或已过期' : '加载失败');
+          }
+          const data = await res.json();
+          if (data.error) { throw new Error(data.error); }
+          session.value = data;
+          document.title = (data.title || '共享对话') + ' - Agent Q&A';
+          messages.value = mapMessages(data.messages);
+        };
+
+        // 续聊: 复用 owner 侧流式管线, 消费 chunk 累加重解析 (复用本页 parseStreamJson)
+        const send = () => {
+          const text = userInput.value.trim();
+          if (!text || sending.value || !shareToken.value) return;
+          messages.value.push({ role: 'user', bodyText: text, images: [] });
+          userInput.value = '';
+          sending.value = true;
+          const idx = messages.value.length;
+          messages.value.push({ role: 'assistant', parsedSegments: [], recall: null, recallOpen: false });
+          scrollToBottom();
+
+          let raw = '';
+          const url = '/api/share/' + encodeURIComponent(shareToken.value)
+            + '/message/stream?message=' + encodeURIComponent(text);
+          const es = new EventSource(url);
+
+          es.addEventListener('recall', (e) => {
+            try { messages.value[idx].recall = JSON.parse(e.data); messages.value[idx].recallOpen = false; } catch (err) {}
+          });
+          es.addEventListener('chunk', (e) => {
+            raw += (raw ? '\n' : '') + e.data;
+            messages.value[idx].parsedSegments = parseStreamJson(raw);
+            scrollToBottom();
+          });
+          es.addEventListener('exit', async () => {
+            es.close();
+            sending.value = false;
+            try { await loadShared(); } catch (err) { /* 保留已渲染的流式内容 */ }
+            scrollToBottom();
+          });
+          es.addEventListener('error', (e) => {
+            es.close();
+            sending.value = false;
+            messages.value[idx].parsedSegments = parseStreamJson(raw)
+              .concat([{ type: 'text', content: '\n\n[连接错误' + (e && e.data ? ': ' + e.data : '') + ']' }]);
+          });
+          // 原生 onerror 也会在正常结束关闭连接时触发, 仅兜底收尾, 不重复报错
+          es.onerror = () => { es.close(); sending.value = false; };
+        };
+
         onMounted(async () => {
           const params = new URLSearchParams(window.location.search);
           const token = params.get('token');
@@ -215,21 +416,9 @@
             error.value = '缺少分享 token';
             return;
           }
+          shareToken.value = token;
           try {
-            const res = await fetch('/api/share/' + encodeURIComponent(token));
-            if (!res.ok) {
-              throw new Error(res.status === 404 ? '分享链接无效或已过期' : '加载失败');
-            }
-            const data = await res.json();
-            if (data.error) { throw new Error(data.error); }
-            session.value = data;
-            document.title = (data.title || '共享对话') + ' - Agent Web';
-            messages.value = (data.messages || []).map(msg => {
-              if (msg.role === 'assistant' && msg.content && msg.content.startsWith('{')) {
-                return Object.assign({}, msg, { parsedSegments: parseStreamJson(msg.content) });
-              }
-              return msg;
-            });
+            await loadShared();
           } catch (e) {
             error.value = e.message || '加载分享对话失败';
           } finally {
@@ -237,7 +426,8 @@
           }
         });
 
-        return { loading, error, session, messages, renderMarkdown, formatTime };
+        return { loading, error, session, messages, userInput, sending, bodyRef,
+                 renderMarkdown, copySegment, imageUrl, formatTime, send };
       }
     });
     app.use(ElementPlus);

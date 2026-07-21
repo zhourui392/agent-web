@@ -1,5 +1,13 @@
 package com.example.agentweb.interfaces.dto;
 
+import lombok.Getter;
+import lombok.Setter;
+
+/**
+ * @author zhourui(V33215020)
+ */
+@Getter
+@Setter
 public class EnvDto {
     private String key;
     private String label;
@@ -10,13 +18,4 @@ public class EnvDto {
         this.label = label;
         this.color = color;
     }
-
-    public String getKey() { return key; }
-    public void setKey(String key) { this.key = key; }
-
-    public String getLabel() { return label; }
-    public void setLabel(String label) { this.label = label; }
-
-    public String getColor() { return color; }
-    public void setColor(String color) { this.color = color; }
 }

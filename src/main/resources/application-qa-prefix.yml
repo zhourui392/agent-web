@@ -1,0 +1,8 @@
+server:
+  port: 18100
+  servlet:
+    context-path: /qa
+
+spring:
+  datasource:
+    url: jdbc:sqlite:data/agent-web-e2e-qa.db

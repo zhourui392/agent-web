@@ -1,7 +1,7 @@
 package com.example.agentweb;
 
-import com.example.agentweb.domain.AgentType;
-import com.example.agentweb.domain.ChatSession;
+import com.example.agentweb.domain.shared.AgentType;
+import com.example.agentweb.domain.chat.ChatSession;
 import com.example.agentweb.infra.JsonFileSessionRepo;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -127,6 +127,36 @@ public class JsonFileSessionRepoTest {
         assertEquals("/path1", loaded1.getWorkingDir());
         assertEquals("/path2", loaded2.getWorkingDir());
         assertEquals("/path3", loaded3.getWorkingDir());
+    }
+
+    @Test
+    public void findCorruptedJsonFile_shouldWrapInRuntimeException() throws Exception {
+        // 在 sessions 目录手工放一个非法 JSON 文件,find 应抛 RuntimeException
+        Path dir = Paths.get(TEST_SESSIONS_DIR);
+        Files.createDirectories(dir);
+        String badId = "corrupted-" + System.nanoTime();
+        Files.write(dir.resolve(badId + ".json"), "not a valid json {{}".getBytes());
+
+        RuntimeException ex = assertThrows(RuntimeException.class, () -> repo.find(badId));
+        assertTrue(ex.getMessage().contains(badId), "异常消息应含 sessionId: " + ex.getMessage());
+    }
+
+    @Test
+    public void saveWithInvalidSessionId_shouldWrapInRuntimeException() {
+        // sessionId 含路径分隔符 → 拼出来的 File 指向不可写位置(Windows 上含 ":" 也会失败)
+        ChatSession session = new ChatSession(AgentType.CODEX, "/tmp") {
+            @Override
+            public String getId() {
+                return "bad/id/with/slashes/and/colons:?*";
+            }
+        };
+        // 部分 OS 下子目录会被自动建,所以 \0 是更可靠的非法名,但 Java 字符串不便处理。
+        // 退而求其次:期望要么成功要么抛 RuntimeException,不应让 IOException 逃出。
+        try {
+            repo.save(session);
+        } catch (RuntimeException e) {
+            assertTrue(e.getMessage().contains("Failed to save"), e.getMessage());
+        }
     }
 
     @Test

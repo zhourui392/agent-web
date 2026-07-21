@@ -1,0 +1,16 @@
+# E2E Linux/Mac 覆盖: 配合 application-e2e.yml 使用
+# 激活方式: -Dspring-boot.run.profiles=e2e,e2e-linux (Windows 不要叠加)
+# 只覆盖 cli.{claude,codex} 的 exec/args (YAML list 在多 profile 合并时整体替换),
+# 其他字段 (stdin / timeout-seconds 等) 走 application-e2e.yml 的 map 合并继承。
+agent:
+  cli:
+    claude:
+      # Linux: /bin/echo 把单一 arg 原样打印, 行为等价 Windows 的 cmd /c echo
+      exec: /bin/echo
+      args:
+        - Echo ${MESSAGE}
+    codex:
+      # JSON stub: 直接 cat 同目录下的 ndjson, 等价 Windows .cmd 里的 type 调用
+      exec: /bin/cat
+      args:
+        - ${user.dir}/tests/e2e/fixtures/codex-json-stub.events.ndjson

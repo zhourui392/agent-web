@@ -1,6 +1,6 @@
 package com.example.agentweb.infra;
 
-import com.example.agentweb.domain.ChatSession;
+import com.example.agentweb.domain.chat.ChatSession;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
@@ -15,6 +15,7 @@ import java.nio.file.Paths;
 /**
  * Repository that persists chat sessions to JSON files.
  * Each session is stored in a separate file named {sessionId}.json
+ * @author zhourui(V33215020)
  */
 @Repository
 public class JsonFileSessionRepo {
