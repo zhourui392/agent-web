@@ -16,7 +16,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 
-import java.util.concurrent.Executor;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -49,13 +48,11 @@ public class ChatAppServiceImplDeleteSessionTest {
         chatRunActivityGuard = mock(ChatRunActivityGuard.class);
 
         AgentGateway gateway = mock(AgentGateway.class);
-        Executor agentExecutor = mock(Executor.class);
         SlashCommandExpander commandExpander = mock(SlashCommandExpander.class);
-        StreamOutputExtractor outputExtractor = mock(StreamOutputExtractor.class);
         AgentTypeResolver agentTypeResolver = mock(AgentTypeResolver.class);
 
-        service = new ChatAppServiceImpl(sessionCache, sessionRepository, gateway, agentExecutor,
-                commandExpander, outputExtractor, agentTypeResolver, uploadPicStore, uploadFileStore,
+        service = new ChatAppServiceImpl(sessionCache, sessionRepository, gateway,
+                commandExpander, agentTypeResolver, uploadPicStore, uploadFileStore,
                 java.util.Optional.empty(),
                 new com.example.agentweb.domain.auth.CurrentUserProvider(() -> java.util.Optional.empty()));
         service.configureChatRunActivityGuard(chatRunActivityGuard);

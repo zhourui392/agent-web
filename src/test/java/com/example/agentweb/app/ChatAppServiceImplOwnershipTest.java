@@ -17,7 +17,6 @@ import org.junit.jupiter.api.Test;
 import java.time.Instant;
 import java.util.Collections;
 import java.util.Optional;
-import java.util.concurrent.Executor;
 
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -32,7 +31,7 @@ import static org.mockito.Mockito.when;
  *
  * <p>进程级 {@link SessionCache} 不做 user_id 过滤, 缓存命中会绕过 {@link SessionRepository}
  * 读侧的 SQL 隔离; 本测试钉死缓存命中也按当前用户归属判定: 非属主返回 null(不可见即不存在),
- * 与 repo 过滤同语义, 堵住 send / stream / listCommands 的越权读。</p>
+ * 与 repo 过滤同语义, 堵住 send / listCommands 的越权读。</p>
  *
  * @author zhourui(V33215020)
  * @since 2026-06-07
@@ -49,9 +48,8 @@ class ChatAppServiceImplOwnershipTest {
         sessionCache = mock(SessionCache.class);
         sessionRepository = mock(SessionRepository.class);
         currentUserProvider = mock(CurrentUserProvider.class);
-        Executor sync = Runnable::run;
-        service = new ChatAppServiceImpl(sessionCache, sessionRepository, mock(AgentGateway.class), sync,
-                mock(SlashCommandExpander.class), mock(StreamOutputExtractor.class), mock(AgentTypeResolver.class),
+        service = new ChatAppServiceImpl(sessionCache, sessionRepository, mock(AgentGateway.class),
+                mock(SlashCommandExpander.class), mock(AgentTypeResolver.class),
                 mock(UploadPicStore.class), mock(UploadFileStore.class), Optional.empty(), currentUserProvider);
     }
 

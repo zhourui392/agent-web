@@ -8,7 +8,7 @@
 
 - **多 CLI 后端** — 支持 Claude CLI、Codex CLI（`codex exec --json`），通过 `CliDialect` 策略路由
 - **Web 化交互 + 实时流式** — 聊天界面直连 CLI 代理，SSE 流式推送，Codex 事件自动归一化到统一前端契约
-- **可恢复聊天流（灰度）** — `ChatRun` 后台执行与浏览器连接解耦，支持 `Last-Event-ID` 回放、刷新恢复、多标签页订阅和显式停止
+- **可恢复聊天流** — 页面统一通过 `ChatRun` 后台执行，和浏览器连接解耦；支持 `Last-Event-ID` 回放、刷新恢复、断网重连、多标签页订阅和显式停止
 - **会话管理** — 多会话隔离，每个会话绑定独立工作目录与 Agent 类型，支持 resume 续接、回退重开
 - **会话持久化** — SQLite 落库 + 内存 L1 缓存，服务重启不丢历史
 - **会话反馈** — 对结果打分 + 评论，作为知识精炼与召回的质量信号
@@ -193,7 +193,6 @@ agent:
 | `AGENT_RUN_WORKSPACE_CONTEXT_ENABLED` | `true` | AgentRun workspace context 注入总开关，紧急止血可关（`agent.run.*`） |
 | `AGENT_RUN_WORKSPACE_KNOWLEDGE_ENABLED` | `true` | AgentRun workspace 知识预召回开关 |
 | `AGENT_RUN_RECALL_TOP_K` | `8` | AgentRun 召回 top-K |
-| `AGENT_CHAT_RESUMABLE_STREAM_ENABLED` | `false` | 启用 ChatRun Submit + 可回放 GET SSE；关闭时前端回退旧 POST SSE |
 | `CODEX_STREAM_IDLE_TIMEOUT_SECONDS` / `CLAUDE_STREAM_IDLE_TIMEOUT_SECONDS` | `900` | 普通流式聊天无 stdout 活动的终止期限；收到活动会续期，`0` 表示禁用 |
 | `CODEX_STREAM_MAX_RUNTIME_SECONDS` / `CLAUDE_STREAM_MAX_RUNTIME_SECONDS` | `7200` | 普通流式聊天绝对运行上限；stdout 活动不会续期，`0` 表示禁用 |
 
@@ -212,7 +211,7 @@ agent:
 
 完整端点以 `interfaces/` 下各 `*Controller` 为准。`/api/auth/login`、`/api/auth/status`、只读分享和静态资源为公开入口；聊天、文件、定时任务、普通 worktree、用户 Git 配置与用户建议等接口要求数据库用户会话；`/api/metrics/*`、`/api/refinery/*` 和 `/api/admin*` 等管理能力还会额外校验 `ADMIN` 角色。
 
-> 可恢复聊天流开启时，前端先 `POST /api/chat/session/{id}/runs`（携带 `Idempotency-Key`）提交，再通过 `GET /api/chat/runs/{runId}/events` 订阅；断线后使用 `Last-Event-ID` 回放。生产默认关闭该 feature flag，并回退到 `POST /api/chat/session/{id}/message/stream`。两种提交方式的用户正文都只放 JSON body，不放 URL 查询串。
+> 页面聊天统一先 `POST /api/chat/session/{id}/runs`（携带 `Idempotency-Key`）提交，再通过 `GET /api/chat/runs/{runId}/events` 订阅；断线后客户端指数退避重连，并使用 `Last-Event-ID` 回放未确认事件。旧 POST SSE、session status/stop 入口已移除。
 
 ## 项目结构
 

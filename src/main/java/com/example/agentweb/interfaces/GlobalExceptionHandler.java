@@ -2,7 +2,6 @@ package com.example.agentweb.interfaces;
 
 import com.example.agentweb.app.chatrun.EventCursorExpiredException;
 import com.example.agentweb.app.chatrun.InvalidIdempotencyKeyException;
-import com.example.agentweb.app.chatrun.ResumableChatStreamDisabledException;
 import com.example.agentweb.app.chatrun.RunCapacityExceededException;
 import com.example.agentweb.domain.auth.UsernameAlreadyExistsException;
 import com.example.agentweb.domain.chat.ChatSessionNotFoundException;
@@ -75,15 +74,6 @@ public class GlobalExceptionHandler {
         body.put("lastEventSeq", ex.getLastEventSeq());
         body.put("message", ex.getMessage());
         return ResponseEntity.status(HttpStatus.GONE).body(body);
-    }
-
-    @ExceptionHandler(ResumableChatStreamDisabledException.class)
-    public ResponseEntity<Map<String, Object>> handleResumableDisabled(
-            ResumableChatStreamDisabledException ex) {
-        Map<String, Object> body = new HashMap<String, Object>();
-        body.put("code", "RESUMABLE_CHAT_STREAM_DISABLED");
-        body.put("message", ex.getMessage());
-        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
     }
 
     @ExceptionHandler(RunCapacityExceededException.class)

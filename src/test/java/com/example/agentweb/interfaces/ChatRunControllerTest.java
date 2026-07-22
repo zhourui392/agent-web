@@ -11,7 +11,6 @@ import com.example.agentweb.app.chatrun.EventCursorExpiredException;
 import com.example.agentweb.domain.chatrun.ChatRun;
 import com.example.agentweb.domain.chatrun.ChatRunId;
 import com.example.agentweb.domain.chatrun.ChatRunStatus;
-import com.example.agentweb.infra.ResumableChatStreamProperties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -57,14 +56,10 @@ class ChatRunControllerTest {
     @MockBean
     private ChatRunSubscriptionService subscriptionService;
 
-    @MockBean
-    private ResumableChatStreamProperties properties;
-
     @Test
     void submit_should_return_202_location_and_contract() throws Exception {
         ChatRun run = ChatRun.submit(ChatRunId.of("run-1"), "session-1", 11L,
                 "key-1", Instant.parse("2026-07-22T10:00:00Z"));
-        when(properties.isEnabled()).thenReturn(true);
         when(appService.submit(any())).thenReturn(ChatRunSubmission.from(run, false));
 
         mvc.perform(post("/api/chat/session/session-1/runs")
@@ -80,8 +75,6 @@ class ChatRunControllerTest {
 
     @Test
     void submit_without_idempotency_key_should_return_400_code() throws Exception {
-        when(properties.isEnabled()).thenReturn(true);
-
         mvc.perform(post("/api/chat/session/session-1/runs")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"message\":\"question\"}"))
@@ -91,7 +84,6 @@ class ChatRunControllerTest {
 
     @Test
     void active_and_stop_should_expose_application_views() throws Exception {
-        when(properties.isEnabled()).thenReturn(true);
         when(appService.findActive()).thenReturn(Collections.singletonList(
                 new ActiveChatRunView("run-1", "session-1", ChatRunStatus.RUNNING,
                         "CODEX", "/workspace", 3L, 1000L, 900L)));
@@ -106,7 +98,6 @@ class ChatRunControllerTest {
 
     @Test
     void events_should_prefer_last_event_id_header_over_query_cursor() throws Exception {
-        when(properties.isEnabled()).thenReturn(true);
         ChatRunStreamHandle handle = mock(ChatRunStreamHandle.class);
         when(subscriptionService.subscribe(eq("run-1"), eq(12L), any(ChatRunStreamSink.class)))
                 .thenReturn(handle);
@@ -124,7 +115,6 @@ class ChatRunControllerTest {
 
     @Test
     void expired_cursor_should_return_410_snapshot_metadata() throws Exception {
-        when(properties.isEnabled()).thenReturn(true);
         when(subscriptionService.subscribe(eq("run-1"), eq(12L), any(ChatRunStreamSink.class)))
                 .thenThrow(new EventCursorExpiredException("run-1", 500L, 900L));
 

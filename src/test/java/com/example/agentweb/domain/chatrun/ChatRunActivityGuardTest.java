@@ -33,16 +33,6 @@ class ChatRunActivityGuardTest {
         assertDoesNotThrow(() -> guard.requireInactive("session-1"));
     }
 
-    @Test
-    void requireInactive_should_reject_legacy_execution_not_yet_representedByChatRun() {
-        ChatExecutionActivityProbe legacyExecution = sessionId -> true;
-        ChatRunActivityGuard guard = new RepositoryChatRunActivityGuard(
-                new StubChatRunRepository(Optional.<ChatRun>empty()), legacyExecution);
-
-        assertThrows(ActiveChatRunExistsException.class,
-                () -> guard.requireInactive("session-1"));
-    }
-
     private static final class StubChatRunRepository implements ChatRunRepository {
 
         private final Optional<ChatRun> active;

@@ -174,9 +174,8 @@ public class FsControllerTest {
 
     @Test
     public void uploadImage_outside_roots_should_be_rejected() throws Exception {
-        // agent.fs.roots 之外的目录(建在 OS 用户目录下)不允许上传
-        Path outside = Files.createTempDirectory(
-                Paths.get(System.getProperty("user.home")), "agentweb-outside-");
+        // agent.fs.roots 之外、但仍位于 JUnit 可写临时区域的目录不允许上传
+        Path outside = Files.createTempDirectory(fsRoot.getParent(), "agentweb-outside-");
         try {
             MockMultipartFile file = new MockMultipartFile("file", "shot.png", "image/png", pngBytes());
 
@@ -207,8 +206,7 @@ public class FsControllerTest {
 
     @Test
     public void image_outside_roots_should_be_rejected() throws Exception {
-        Path outside = Files.createTempDirectory(
-                Paths.get(System.getProperty("user.home")), "agentweb-outside-");
+        Path outside = Files.createTempDirectory(fsRoot.getParent(), "agentweb-outside-");
         try {
             Path img = outside.resolve("pic.png");
             Files.write(img, pngBytes());
@@ -294,8 +292,7 @@ public class FsControllerTest {
 
     @Test
     public void list_outside_roots_should_be_rejected() throws Exception {
-        Path outside = Files.createTempDirectory(
-                Paths.get(System.getProperty("user.home")), "agentweb-list-outside-");
+        Path outside = Files.createTempDirectory(fsRoot.getParent(), "agentweb-list-outside-");
         try {
             mvc.perform(get("/api/fs/list").param("path", outside.toString()))
                     .andExpect(status().is4xxClientError());
@@ -336,8 +333,7 @@ public class FsControllerTest {
 
     @Test
     public void upload_outside_allowed_roots_should_be_rejected() throws Exception {
-        Path outside = Files.createTempDirectory(
-                Paths.get(System.getProperty("user.home")), "agentweb-upload-outside-");
+        Path outside = Files.createTempDirectory(fsRoot.getParent(), "agentweb-upload-outside-");
         try {
             MockMultipartFile file = new MockMultipartFile("file", "x.txt", "text/plain", "x".getBytes());
 
@@ -407,8 +403,7 @@ public class FsControllerTest {
     @Test
     public void filesystemEndpoints_should_reject_symlinkEscape() throws Exception {
         Path workDir = Files.createTempDirectory(fsRoot, "symlink-root-");
-        Path outside = Files.createTempDirectory(
-                Paths.get(System.getProperty("user.home")), "agentweb-symlink-outside-");
+        Path outside = Files.createTempDirectory(fsRoot.getParent(), "agentweb-symlink-outside-");
         Path outsideFile = outside.resolve("secret.txt");
         Files.write(outsideFile, "secret".getBytes());
         Path link = workDir.resolve("outside-link");
@@ -480,8 +475,7 @@ public class FsControllerTest {
 
     @Test
     public void uploadFile_outside_roots_should_be_rejected() throws Exception {
-        Path outside = Files.createTempDirectory(
-                Paths.get(System.getProperty("user.home")), "agentweb-upfile-outside-");
+        Path outside = Files.createTempDirectory(fsRoot.getParent(), "agentweb-upfile-outside-");
         try {
             MockMultipartFile file = new MockMultipartFile("file", "x.log", "text/plain", "x".getBytes());
 
@@ -551,8 +545,7 @@ public class FsControllerTest {
 
     @Test
     public void download_outside_roots_should_be_rejected() throws Exception {
-        Path outside = Files.createTempDirectory(
-                Paths.get(System.getProperty("user.home")), "agentweb-dl-outside-");
+        Path outside = Files.createTempDirectory(fsRoot.getParent(), "agentweb-dl-outside-");
         try {
             Path file = outside.resolve("x.txt");
             Files.write(file, "x".getBytes());
@@ -620,8 +613,7 @@ public class FsControllerTest {
 
     @Test
     public void delete_outside_roots_should_be_rejected() throws Exception {
-        Path outside = Files.createTempDirectory(
-                Paths.get(System.getProperty("user.home")), "agentweb-del-outside-");
+        Path outside = Files.createTempDirectory(fsRoot.getParent(), "agentweb-del-outside-");
         try {
             Path file = outside.resolve("x.txt");
             Files.write(file, "x".getBytes());

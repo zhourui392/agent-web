@@ -116,7 +116,7 @@ public class SqliteSessionRepo implements SessionRepository {
     @Override
     public ChatSession findById(String id) {
         // 数据隔离：普通用户仅能查自己的会话 + 老数据(user_id IS NULL)；admin / 无上下文(后台线程)不过滤。
-        // 注意：本方法必须在请求线程的 fork 之前调用(streamMessage 已保证)，否则后台线程 uid=null 走 bypass 看全部。
+        // 注意：本方法必须在请求线程提交 ChatRun 前调用，否则后台线程 uid=null 会绕过用户过滤。
         String filtered = filterUserId();
         String sql = "SELECT " + SESSION_COLUMNS + " FROM chat_session WHERE id = ?";
         Object[] args = filtered == NO_FILTER

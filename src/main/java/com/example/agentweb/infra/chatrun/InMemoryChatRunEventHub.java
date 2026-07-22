@@ -19,6 +19,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * In-memory live fan-out hub. Each subscriber owns a bounded asynchronous queue,
@@ -33,6 +34,7 @@ public class InMemoryChatRunEventHub implements ChatRunEventHub {
 
     private final Map<ChatRunId, Set<Subscriber>> subscribers =
             new ConcurrentHashMap<ChatRunId, Set<Subscriber>>();
+    private final AtomicLong slowConsumerClosed = new AtomicLong();
     private final int maxEvents;
     private final int maxBytes;
     private final Executor executor;
@@ -72,6 +74,20 @@ public class InMemoryChatRunEventHub implements ChatRunEventHub {
     public int subscriberCount(ChatRunId runId) {
         Set<Subscriber> found = subscribers.get(runId);
         return found == null ? 0 : found.size();
+    }
+
+    @Override
+    public int totalSubscriberCount() {
+        int total = 0;
+        for (Set<Subscriber> runSubscribers : subscribers.values()) {
+            total += runSubscribers.size();
+        }
+        return total;
+    }
+
+    @Override
+    public long slowConsumerClosedTotal() {
+        return slowConsumerClosed.get();
     }
 
     private final class Subscriber implements ChatRunEventSubscription {
@@ -130,6 +146,7 @@ public class InMemoryChatRunEventHub implements ChatRunEventHub {
         private void closeForOverflow() {
             log.warn("chat-run-subscriber-closed runId={} reason=SLOW_CONSUMER", runId.getValue());
             if (closeInternal(true)) {
+                slowConsumerClosed.incrementAndGet();
                 executor.execute(new Runnable() {
                     @Override
                     public void run() {

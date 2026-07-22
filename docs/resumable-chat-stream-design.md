@@ -37,12 +37,17 @@
 
 尚未完成：
 
-- 生产 feature flag 灰度、Caddy 公网 30 分钟以上连续运行验证；
-- ChatRun 专用 metrics / 管理诊断视图；
+- Caddy 公网 30 分钟以上连续运行验证；
 - Spring Flow 级 Replay → Live、断连不取消、terminal 恰好一次测试；
-- 稳定一个发布周期后收口旧 POST SSE 实现。
 
-生产配置仍默认 `agent.chat.resumable-stream.enabled=false`，E2E profile 开启。本文档对应代码尚未部署或重启生产服务；生产仍可能表现为旧链路行为。
+补充完成（2026-07-22）：
+
+- ChatRun 只读指标 / 管理诊断视图：`ChatRunMetricsQueryService`（SQLite 聚合 + 内存 gauge）
+  + `/api/metrics/chat-run/{overview,runs,runs/{id}}` 管理端点，复用 `AdminAuthFilter` 口令；
+  覆盖 §19.3 六问与 §19.2 中 SQL 可派生指标 + 实时订阅者 / 慢消费者 gauge。运行时直方图
+  （reconnect / replay lag / flush 耗时）待接入独立 metrics backend 后再补。
+
+页面已统一切换为 ChatRun Submit + GET SSE，旧 POST SSE、session status/stop 入口和 feature flag 已删除。本文档对应代码尚未部署或重启生产服务。
 
 ## 2. 目标与非目标
 
@@ -853,9 +858,9 @@ sequenceDiagram
 - submit 由数据库 Active Run 唯一索引防重复；
 - localStorage 的 `storage` 事件可同步 run 终态，但不是正确性的依赖。
 
-### 14.5 POST SSE 客户端演进
+### 14.5 GET SSE 客户端
 
-新增 GET SSE 客户端，或把当前 `AgentPostSse` 提炼为通用 `AgentSseClient`：
+`AgentResumableSse` 已实现以下恢复契约：
 
 - 解析 `id/event/data/retry`；
 - 暴露 `readyState` 或明确的 `state`；
@@ -968,7 +973,6 @@ agent:
       stream-max-runtime-seconds: 7200
   chat:
     resumable-stream:
-      enabled: false
       heartbeat-seconds: 15
       reconnect-timeout-seconds: 35
       event-retention-hours: 24
@@ -1050,7 +1054,7 @@ subscriberId
 - CLI 完成后 assistant 仍落库；
 - 同一 session 并发启动被拒绝；
 - status / stop 必须校验 session owner；
-- 当前 POST SSE 正常完成。
+- ChatRun Submit + GET SSE 正常完成。
 
 ### 21.2 阶段 1：模型与存储
 
@@ -1064,8 +1068,7 @@ subscriberId
 - 新增 Submit / status / active / stop / events API；
 - `ChatRunExecutor` 复用现有 AgentGateway、normalizer、recall 和 final-answer instruction；
 - 新增 EventWriter / EventHub；
-- 通过 `agent.chat.resumable-stream.enabled` 灰度；
-- 原 `/message/stream` 保持可用。
+- 首期通过 `agent.chat.resumable-stream.enabled` 灰度验证。
 
 ### 21.4 阶段 3：前端切换
 
@@ -1279,7 +1282,7 @@ Caddyfile / docs/public-deployment.md        SSE flush 与验证项
 - [x] 后台执行与浏览器连接解耦。
 - [x] terminal assistant 与成功终态同事务，并由 `assistant_message_id` 唯一约束兜底。
 - [x] 普通聊天空闲超时可续期，保留独立绝对运行上限；显式 per-call 硬超时语义不变。
-- [x] 灰度期旧执行与 ChatRun 双向互斥。
+- [x] 页面只保留 ChatRun 执行链路，旧 POST SSE 和 session status/stop API 已删除。
 
 ### P1：完整恢复体验
 
@@ -1290,11 +1293,11 @@ Caddyfile / docs/public-deployment.md        SSE flush 与验证项
 
 ### P2：运维能力
 
-- [ ] ChatRun 专用指标与管理查询。
+- [x] ChatRun 专用指标与管理查询（只读 `ChatRunMetricsQueryService` + `/api/metrics/chat-run/*`；运行时直方图待 metrics backend）。
 - [x] retention。
 - [x] orphan recovery。
 - [ ] Caddy 长时间公网验证。
-- [ ] 稳定一个发布周期后清理旧 POST SSE 实现。
+- [x] 清理旧 POST SSE 实现与 feature flag。
 
 ## 29. 评审问题
 

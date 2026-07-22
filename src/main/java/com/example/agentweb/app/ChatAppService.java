@@ -6,7 +6,6 @@ import com.example.agentweb.domain.slashcommand.SlashCommand;
 import com.example.agentweb.interfaces.dto.SendMessageRequest;
 import com.example.agentweb.interfaces.dto.StartSessionRequest;
 import com.example.agentweb.interfaces.dto.TruncateResult;
-import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.util.List;
@@ -42,30 +41,6 @@ public interface ChatAppService {
      * @return 会话聚合根,不存在则返回 null
      */
     ChatSession getSession(String sessionId);
-
-    /**
-     * Stream output using Server-Sent Events.
-     * @param sessionId 会话 ID
-     * @param message 用户输入文本
-     * @param resumeId Optional resume ID for continuing a conversation
-     * @param env 环境约束 key,空表示无约束
-     * @param recallEnabled 前端"RAG 召回"开关; true 时整条消息自动召回历史参考拼到送 CLI 文本前 (chat-rag 未启用则无效)
-     * @return 注册到响应的 SseEmitter,生命周期由调用方维持
-     */
-    SseEmitter streamMessage(String sessionId, String message, String resumeId, String env, boolean recallEnabled);
-
-    /**
-     * Stop a running stream for the given session.
-     * @param sessionId 会话 ID
-     */
-    void stopSession(String sessionId);
-
-    /**
-     * Check if the agent process is still running for the given session.
-     * @param sessionId 会话 ID
-     * @return true 表示该会话有正在运行的 CLI 进程
-     */
-    boolean isSessionRunning(String sessionId);
 
     /**
      * 列出指定会话工作目录可用的 slash 命令.

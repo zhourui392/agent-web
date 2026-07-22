@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-web.local/schemas/harness-artifact-1.0.0.json",
+  "title": "Harness Artifact Descriptor",
+  "type": "object",
+  "properties": {
+    "artifactId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "artifactType": {
+      "type": "string",
+      "enum": [
+        "ORIGINAL_REQUIREMENT",
+        "REQUIREMENT",
+        "ACCEPTANCE_CRITERIA",
+        "IMPACT_ANALYSIS",
+        "OPEN_QUESTIONS",
+        "SOLUTION",
+        "CHANGE_PLAN",
+        "TEST_STRATEGY",
+        "DEPLOYMENT_PLAN",
+        "ROLLBACK_PLAN",
+        "CHANGED_FILES",
+        "TEST_EVIDENCE",
+        "IMPLEMENTATION_SUMMARY",
+        "TRACEABILITY",
+        "PREFLIGHT",
+        "BUILD_EVIDENCE",
+        "DEPLOYMENT_RECORD",
+        "ACCEPTANCE_RESULT",
+        "FINAL_REPORT"
+      ]
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "runId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "stage": {
+      "type": "string",
+      "enum": [
+        "ANALYSIS",
+        "DESIGN",
+        "IMPLEMENTATION",
+        "DEPLOYMENT"
+      ]
+    },
+    "attempt": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "contentType": {
+      "type": "string",
+      "enum": [
+        "text/markdown",
+        "application/json",
+        "text/plain",
+        "application/octet-stream"
+      ]
+    },
+    "sizeBytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "classification": {
+      "type": "string",
+      "enum": [
+        "INTERNAL",
+        "SENSITIVE"
+      ]
+    },
+    "createdBy": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "sourceArtifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "artifactId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          }
+        },
+        "required": [
+          "artifactId",
+          "version",
+          "sha256"
+        ],
+        "additionalProperties": false
+      },
+      "uniqueItems": true
+    }
+  },
+  "required": [
+    "artifactId",
+    "artifactType",
+    "version",
+    "runId",
+    "stage",
+    "attempt",
+    "contentType",
+    "sizeBytes",
+    "sha256",
+    "classification",
+    "createdBy",
+    "createdAt",
+    "sourceArtifacts"
+  ],
+  "additionalProperties": false
+}

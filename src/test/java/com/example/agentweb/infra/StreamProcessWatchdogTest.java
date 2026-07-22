@@ -54,19 +54,21 @@ class StreamProcessWatchdogTest {
         AtomicReference<StreamProcessWatchdog.TimeoutReason> reason =
                 new AtomicReference<StreamProcessWatchdog.TimeoutReason>();
         StreamProcessWatchdog watchdog = new StreamProcessWatchdog(
-                scheduler, Duration.ofMillis(140L), Duration.ofMillis(320L),
+                scheduler, Duration.ofMillis(700L), Duration.ofMillis(800L),
                 StreamProcessWatchdog.TimeoutReason.MAX_RUNTIME,
                 value -> {
                     reason.set(value);
                     timedOut.countDown();
                 });
 
-        for (int i = 0; i < 4; i++) {
-            assertFalse(timedOut.await(70L, TimeUnit.MILLISECONDS));
+        // 并行测试负载下给绝对期限保留充足余量；最后一次活动后的 idle 期限仍晚于绝对期限。
+        // 若实现错误地续期绝对期限，则会先收到 IDLE，下面的原因断言仍能识别该回归。
+        for (int i = 0; i < 3; i++) {
+            assertFalse(timedOut.await(50L, TimeUnit.MILLISECONDS));
             watchdog.recordActivity();
         }
 
-        assertTrue(timedOut.await(140L, TimeUnit.MILLISECONDS));
+        assertTrue(timedOut.await(900L, TimeUnit.MILLISECONDS));
         assertEquals(StreamProcessWatchdog.TimeoutReason.MAX_RUNTIME, reason.get());
         watchdog.close();
     }

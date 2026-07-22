@@ -15,7 +15,6 @@ import org.mockito.ArgumentCaptor;
 
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.concurrent.Executor;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -45,14 +44,12 @@ public class ChatAppServiceImplShareTest {
         sessionRepository = mock(SessionRepository.class);
         SessionCache sessionCache = mock(SessionCache.class);
         AgentGateway gateway = mock(AgentGateway.class);
-        Executor agentExecutor = mock(Executor.class);
         SlashCommandExpander commandExpander = mock(SlashCommandExpander.class);
-        StreamOutputExtractor outputExtractor = mock(StreamOutputExtractor.class);
         AgentTypeResolver agentTypeResolver = mock(AgentTypeResolver.class);
         UploadPicStore uploadPicStore = mock(UploadPicStore.class);
         UploadFileStore uploadFileStore = mock(UploadFileStore.class);
-        service = new ChatAppServiceImpl(sessionCache, sessionRepository, gateway, agentExecutor,
-                commandExpander, outputExtractor, agentTypeResolver, uploadPicStore, uploadFileStore,
+        service = new ChatAppServiceImpl(sessionCache, sessionRepository, gateway,
+                commandExpander, agentTypeResolver, uploadPicStore, uploadFileStore,
                 java.util.Optional.empty(),
                 new com.example.agentweb.domain.auth.CurrentUserProvider(() -> java.util.Optional.empty()));
     }

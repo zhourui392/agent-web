@@ -1,7 +1,6 @@
 package com.example.agentweb.adapter;
 
 import com.example.agentweb.domain.shared.AgentType;
-import com.example.agentweb.domain.chatrun.ChatExecutionActivityProbe;
 
 import java.io.IOException;
 import java.util.List;
@@ -10,7 +9,7 @@ import java.util.List;
  * Port for sending a prompt to a specific CLI agent implementation.
  * @author zhourui(V33215020)
  */
-public interface AgentGateway extends ChatExecutionActivityProbe {
+public interface AgentGateway {
 
     /**
      * Execute one prompt against the selected agent in the given working directory.
@@ -174,18 +173,6 @@ public interface AgentGateway extends ChatExecutionActivityProbe {
      * @param sessionId 会话 ID,无对应运行进程时静默返回
      */
     void stopStream(String sessionId);
-
-    /**
-     * Check if a stream process is still running for the given session.
-     * @param sessionId 会话 ID
-     * @return true 表示该会话有正在运行的进程
-     */
-    boolean isRunning(String sessionId);
-
-    @Override
-    default boolean isExecutionActive(String sessionId) {
-        return isRunning(sessionId);
-    }
 
     /**
      * Extract the CLI-internal session id (used for subsequent resume) from one line of stdout.

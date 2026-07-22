@@ -1,0 +1,186 @@
+{
+  "contractVersion": "1.0.0",
+  "stageOrder": [
+    "ANALYSIS",
+    "DESIGN",
+    "IMPLEMENTATION",
+    "DEPLOYMENT"
+  ],
+  "stages": [
+    {
+      "stage": "ANALYSIS",
+      "promptPack": "analysis@1.0.0",
+      "requiredInputArtifacts": [
+        "ORIGINAL_REQUIREMENT"
+      ],
+      "defaultSkills": [
+        "requirement-analysis@1.0.0"
+      ],
+      "mcpCapabilities": [
+        "requirement.read",
+        "documentation.read"
+      ],
+      "filesystem": {
+        "workspace": "READ",
+        "artifactStore": "WRITE",
+        "other": "DENY"
+      },
+      "commands": [
+        "repository.search",
+        "git.status",
+        "git.log",
+        "git.diff.read"
+      ],
+      "requiredOutputArtifacts": [
+        "REQUIREMENT",
+        "ACCEPTANCE_CRITERIA",
+        "IMPACT_ANALYSIS",
+        "OPEN_QUESTIONS"
+      ],
+      "deterministicGates": [
+        "required-artifacts-present",
+        "artifact-schema-valid",
+        "requirement-ids-unique",
+        "acceptance-criteria-observable",
+        "no-blocking-open-question"
+      ],
+      "approval": "REQUIREMENT_BASELINE"
+    },
+    {
+      "stage": "DESIGN",
+      "promptPack": "design@1.0.0",
+      "requiredInputArtifacts": [
+        "REQUIREMENT",
+        "ACCEPTANCE_CRITERIA",
+        "IMPACT_ANALYSIS"
+      ],
+      "defaultSkills": [
+        "java-ddd-design@1.0.0",
+        "test-strategy@1.0.0"
+      ],
+      "mcpCapabilities": [
+        "documentation.read"
+      ],
+      "filesystem": {
+        "workspace": "READ",
+        "artifactStore": "WRITE",
+        "other": "DENY"
+      },
+      "commands": [
+        "repository.search",
+        "git.status",
+        "git.diff.read"
+      ],
+      "requiredOutputArtifacts": [
+        "SOLUTION",
+        "CHANGE_PLAN",
+        "TEST_STRATEGY",
+        "DEPLOYMENT_PLAN",
+        "ROLLBACK_PLAN",
+        "TRACEABILITY"
+      ],
+      "deterministicGates": [
+        "required-artifacts-present",
+        "artifact-schema-valid",
+        "requirement-design-coverage-complete",
+        "requirement-test-coverage-complete",
+        "layering-decision-present",
+        "rollback-plan-present"
+      ],
+      "approval": "DESIGN_BASELINE"
+    },
+    {
+      "stage": "IMPLEMENTATION",
+      "promptPack": "implementation@1.0.0",
+      "requiredInputArtifacts": [
+        "REQUIREMENT",
+        "ACCEPTANCE_CRITERIA",
+        "SOLUTION",
+        "CHANGE_PLAN",
+        "TEST_STRATEGY"
+      ],
+      "defaultSkills": [
+        "java-tdd@1.0.0"
+      ],
+      "mcpCapabilities": [
+        "documentation.read"
+      ],
+      "filesystem": {
+        "workspace": "WRITE",
+        "artifactStore": "WRITE",
+        "other": "DENY"
+      },
+      "commands": [
+        "repository.search",
+        "git.status",
+        "git.diff.read",
+        "test.focused",
+        "quality.focused"
+      ],
+      "requiredOutputArtifacts": [
+        "CHANGED_FILES",
+        "TEST_EVIDENCE",
+        "IMPLEMENTATION_SUMMARY",
+        "TRACEABILITY"
+      ],
+      "deterministicGates": [
+        "required-artifacts-present",
+        "artifact-schema-valid",
+        "git-baseline-unchanged-or-explained",
+        "tdd-evidence-present-for-business-branches",
+        "focused-tests-passed",
+        "traceability-complete",
+        "no-sensitive-file-change"
+      ],
+      "approval": "DEPLOYABLE_BASELINE"
+    },
+    {
+      "stage": "DEPLOYMENT",
+      "promptPack": "deployment@1.0.0",
+      "requiredInputArtifacts": [
+        "ACCEPTANCE_CRITERIA",
+        "DEPLOYMENT_PLAN",
+        "ROLLBACK_PLAN",
+        "CHANGED_FILES",
+        "TEST_EVIDENCE",
+        "TRACEABILITY"
+      ],
+      "defaultSkills": [
+        "agent-web-local-deployment@1.0.0"
+      ],
+      "mcpCapabilities": [],
+      "filesystem": {
+        "workspace": "READ",
+        "artifactStore": "WRITE",
+        "other": "DENY"
+      },
+      "commands": [
+        "build.local",
+        "deploy.local",
+        "health.local",
+        "acceptance.local",
+        "rollback.local"
+      ],
+      "environmentAllowlist": [
+        "local"
+      ],
+      "requiredOutputArtifacts": [
+        "PREFLIGHT",
+        "BUILD_EVIDENCE",
+        "DEPLOYMENT_RECORD",
+        "ACCEPTANCE_RESULT",
+        "FINAL_REPORT"
+      ],
+      "deterministicGates": [
+        "required-artifacts-present",
+        "artifact-schema-valid",
+        "approved-git-baseline-matches",
+        "build-passed",
+        "local-health-check-passed",
+        "acceptance-criteria-passed"
+      ],
+      "actionApproval": "LOCAL_DEPLOY",
+      "approval": "DELIVERY_COMPLETE"
+    }
+  ]
+}

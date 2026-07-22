@@ -51,8 +51,11 @@ class InMemoryChatRunEventHubTest {
         assertTrue(deliveredSecond.await(2, TimeUnit.SECONDS));
         assertEquals(Collections.singletonList(Long.valueOf(2L)), delivered);
         assertEquals(1, hub.subscriberCount(runId));
+        assertEquals(1, hub.totalSubscriberCount());
         subscription.close();
         assertEquals(0, hub.subscriberCount(runId));
+        assertEquals(0, hub.totalSubscriberCount());
+        assertEquals(0L, hub.slowConsumerClosedTotal());
     }
 
     @Test
@@ -90,7 +93,31 @@ class InMemoryChatRunEventHubTest {
         assertTrue(elapsedMillis < 200L, "publisher must not block behind subscriber IO");
         assertTrue(overflow.await(2, TimeUnit.SECONDS));
         assertEquals(0, hub.subscriberCount(runId));
+        assertEquals(0, hub.totalSubscriberCount());
+        assertEquals(1L, hub.slowConsumerClosedTotal());
+        subscription.close();
+        assertEquals(1L, hub.slowConsumerClosedTotal());
         block.countDown();
+    }
+
+    @Test
+    void total_subscriber_count_should_span_runs_and_follow_explicit_close() {
+        InMemoryChatRunEventHub hub = hub(10, 1024);
+        ChatRunId firstRun = ChatRunId.of("run-1");
+        ChatRunId secondRun = ChatRunId.of("run-2");
+        ChatRunEventSubscription first = hub.open(firstRun,
+                consumer(new CopyOnWriteArrayList<Long>(), new CountDownLatch(0)));
+        ChatRunEventSubscription second = hub.open(secondRun,
+                consumer(new CopyOnWriteArrayList<Long>(), new CountDownLatch(0)));
+
+        assertEquals(1, hub.subscriberCount(firstRun));
+        assertEquals(1, hub.subscriberCount(secondRun));
+        assertEquals(2, hub.totalSubscriberCount());
+
+        first.close();
+        assertEquals(1, hub.totalSubscriberCount());
+        second.close();
+        assertEquals(0, hub.totalSubscriberCount());
     }
 
     private InMemoryChatRunEventHub hub(int maxEvents, int maxBytes) {

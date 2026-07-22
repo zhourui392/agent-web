@@ -1,6 +1,5 @@
 package com.example.agentweb.config;
 
-import com.example.agentweb.adapter.AgentGateway;
 import com.example.agentweb.domain.auth.CurrentUserProvider;
 import com.example.agentweb.domain.auth.UserContext;
 import com.example.agentweb.domain.git.GitConfigPolicy;
@@ -40,8 +39,7 @@ public class DomainServiceConfig {
     }
 
     @Bean
-    public ChatRunActivityGuard chatRunActivityGuard(ChatRunRepository runRepository,
-                                                     AgentGateway agentGateway) {
-        return new RepositoryChatRunActivityGuard(runRepository, agentGateway);
+    public ChatRunActivityGuard chatRunActivityGuard(ChatRunRepository runRepository) {
+        return new RepositoryChatRunActivityGuard(runRepository);
     }
 }

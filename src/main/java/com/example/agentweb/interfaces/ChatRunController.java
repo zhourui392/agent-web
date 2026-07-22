@@ -4,14 +4,12 @@ import com.example.agentweb.app.chatrun.ActiveChatRunView;
 import com.example.agentweb.app.chatrun.ChatRunAppService;
 import com.example.agentweb.app.chatrun.ChatRunEvent;
 import com.example.agentweb.app.chatrun.ChatRunStreamHandle;
-import com.example.agentweb.app.chatrun.ChatRunStreamSettings;
 import com.example.agentweb.app.chatrun.ChatRunStreamSink;
 import com.example.agentweb.app.chatrun.ChatRunSubmission;
 import com.example.agentweb.app.chatrun.ChatRunSubscriptionService;
 import com.example.agentweb.app.chatrun.ChatRunView;
 import com.example.agentweb.app.chatrun.EventCursorExpiredException;
 import com.example.agentweb.app.chatrun.InvalidIdempotencyKeyException;
-import com.example.agentweb.app.chatrun.ResumableChatStreamDisabledException;
 import com.example.agentweb.app.chatrun.SubmitChatRunCommand;
 import com.example.agentweb.interfaces.dto.ChatRunSubmitRequest;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -52,14 +50,11 @@ public class ChatRunController {
 
     private final ChatRunAppService appService;
     private final ChatRunSubscriptionService subscriptionService;
-    private final ChatRunStreamSettings settings;
 
     public ChatRunController(ChatRunAppService appService,
-                             ChatRunSubscriptionService subscriptionService,
-                             ChatRunStreamSettings settings) {
+                             ChatRunSubscriptionService subscriptionService) {
         this.appService = appService;
         this.subscriptionService = subscriptionService;
-        this.settings = settings;
     }
 
     @PostMapping("/session/{sessionId}/runs")
@@ -67,7 +62,6 @@ public class ChatRunController {
             @PathVariable("sessionId") String sessionId,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody ChatRunSubmitRequest request) {
-        requireEnabled();
         if (idempotencyKey == null || idempotencyKey.trim().isEmpty()
                 || idempotencyKey.trim().length() > 128) {
             throw new InvalidIdempotencyKeyException();
@@ -82,19 +76,16 @@ public class ChatRunController {
 
     @GetMapping("/runs/active")
     public List<ActiveChatRunView> active() {
-        requireEnabled();
         return appService.findActive();
     }
 
     @GetMapping("/runs/{runId}")
     public ChatRunView find(@PathVariable("runId") String runId) {
-        requireEnabled();
         return appService.find(runId);
     }
 
     @PostMapping("/runs/{runId}/stop")
     public ResponseEntity<ChatRunView> stop(@PathVariable("runId") String runId) {
-        requireEnabled();
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(appService.stop(runId));
     }
 
@@ -104,7 +95,6 @@ public class ChatRunController {
             @RequestHeader(value = "Last-Event-ID", required = false) String lastEventId,
             @RequestParam(value = "after", required = false) Long after,
             HttpServletResponse response) {
-        requireEnabled();
         final long cursor = resolveCursor(lastEventId, after);
         response.setHeader(HttpHeaders.CACHE_CONTROL, "no-cache, no-transform");
         response.setHeader("X-Accel-Buffering", "no");
@@ -151,12 +141,6 @@ public class ChatRunController {
             }
         }
         return after == null ? 0L : after.longValue();
-    }
-
-    private void requireEnabled() {
-        if (!settings.isEnabled()) {
-            throw new ResumableChatStreamDisabledException();
-        }
     }
 
     private void close(AtomicReference<ChatRunStreamHandle> reference) {

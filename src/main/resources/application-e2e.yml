@@ -12,9 +12,6 @@ agent:
   # 对话默认模型(/api/chat/agent-default → 此 default-type), 故 e2e 默认须为 CODEX,
   # 否则 UI 走 Claude=echo 路径, chat/share/conversations 等 UI 用例拿不到 stub 结论。
   default-type: CODEX
-  chat:
-    resumable-stream:
-      enabled: true
   # 管理数据接口复用 user_account 会话，再校验 ADMIN 角色。
   admin:
     protected-prefixes:

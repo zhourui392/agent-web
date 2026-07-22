@@ -18,9 +18,7 @@ import com.example.agentweb.interfaces.dto.FeedbackRequest;
 import com.example.agentweb.interfaces.dto.FeedbackResponse;
 import com.example.agentweb.interfaces.dto.SendMessageRequest;
 import com.example.agentweb.interfaces.dto.SendMessageResponse;
-import com.example.agentweb.interfaces.dto.SessionStatusResponse;
 import com.example.agentweb.interfaces.dto.StartSessionRequest;
-import com.example.agentweb.interfaces.dto.StreamMessageRequest;
 import com.example.agentweb.interfaces.dto.StartSessionResponse;
 import com.example.agentweb.interfaces.dto.SuccessResponse;
 import com.example.agentweb.interfaces.dto.TruncateResult;
@@ -28,7 +26,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -82,17 +79,6 @@ public class ChatController {
         String out = appService.sendMessage(id, req);
         log.info("chat-message-response sessionId={} outputLen={}", id, LogSafe.safeLen(out));
         return new SendMessageResponse(out);
-    }
-
-    @PostMapping(value = "/session/{id}/message/stream", produces = "text/event-stream;charset=UTF-8")
-    public SseEmitter stream(@PathVariable("id") String id,
-                             @Valid @RequestBody StreamMessageRequest request) {
-        MdcContext.putSessionId(id);
-        log.info("chat-stream-request sessionId={} resumeId={} env={} recall={} messageLen={}",
-                id, request.getResumeId(), request.getEnv(), request.isRecall(),
-                LogSafe.safeLen(request.getMessage()));
-        return appService.streamMessage(id, request.getMessage(), request.getResumeId(),
-                request.getEnv(), request.isRecall());
     }
 
     @GetMapping("/session/{id}/commands")
@@ -165,19 +151,6 @@ public class ChatController {
         body.put("agentType", runtimeAgentSettings.getChatDefaultAgent().name());
         body.put("version", runtimeAgentSettings.getChatDefaultAgentVersion());
         return body;
-    }
-
-    @GetMapping("/session/{id}/status")
-    public SessionStatusResponse sessionStatus(@PathVariable("id") String id) {
-        return new SessionStatusResponse(appService.isSessionRunning(id));
-    }
-
-    @PostMapping("/session/{id}/stop")
-    public SuccessResponse stop(@PathVariable("id") String id) {
-        MdcContext.putSessionId(id);
-        log.info("chat-stop-request sessionId={}", id);
-        appService.stopSession(id);
-        return new SuccessResponse(true);
     }
 
     @PutMapping("/session/{id}/feedback")

@@ -77,6 +77,13 @@
             <scope>test</scope>
         </dependency>
 
+        <!-- Mockito inline mock maker 在 JDK 21 上通过 premain agent 工作，避免依赖受限环境中的运行期自附加。 -->
+        <dependency>
+            <groupId>net.bytebuddy</groupId>
+            <artifactId>byte-buddy-agent</artifactId>
+            <scope>test</scope>
+        </dependency>
+
         <!-- ArchUnit: DDD 分层护栏 -->
         <dependency>
             <groupId>com.tngtech.archunit</groupId>
@@ -154,6 +161,8 @@
                 <version>3.2.5</version>
                 <configuration>
                     <useSystemClassLoader>true</useSystemClassLoader>
+                    <!-- @{argLine} 保留 JaCoCo prepare-agent 写入的参数，再显式挂载 Mockito 所需 agent。 -->
+                    <argLine>@{argLine} -javaagent:"${settings.localRepository}/net/bytebuddy/byte-buddy-agent/${byte-buddy.version}/byte-buddy-agent-${byte-buddy.version}.jar"</argLine>
                     <!--
                         默认 mvn test 只跑快速单测 / MVC slice。
                         下列高耗时测试需显式打开:

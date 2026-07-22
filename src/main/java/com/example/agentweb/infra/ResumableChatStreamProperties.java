@@ -7,7 +7,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 /**
- * Technical limits and feature switch for resumable chat streaming.
+ * Technical limits for resumable chat streaming.
  *
  * @author zhourui(V33215020)
  * @since 2026-07-22
@@ -18,7 +18,6 @@ import org.springframework.stereotype.Component;
 @Setter
 public class ResumableChatStreamProperties implements ChatRunStreamSettings {
 
-    private boolean enabled;
     private int heartbeatSeconds = 15;
     private int reconnectTimeoutSeconds = 35;
     private int eventRetentionHours = 24;

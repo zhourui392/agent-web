@@ -17,4 +17,10 @@ public interface ChatRunEventHub {
     void publish(List<ChatRunEvent> events);
 
     int subscriberCount(ChatRunId runId);
+
+    /** Live gauge: total open subscribers across every run on this instance. */
+    int totalSubscriberCount();
+
+    /** Monotonic counter: subscribers closed because their bounded queue overflowed. */
+    long slowConsumerClosedTotal();
 }

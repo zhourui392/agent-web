@@ -1,12 +1,11 @@
 /*
  * ChatPanel: 可复用的「一次对话」全局组件(window.ChatPanel)。
  *
- * 承载完整聊天闭环:SSE 收流 / 斜杠命令 / 图片附件 / RAG 召回开关 / 停止 / 断连重连 /
+ * 承载完整聊天闭环:可恢复 SSE 收流 / 斜杠命令 / 图片附件 / RAG 召回开关 / 停止 / 断连重连 /
  * 消息回退 / 清空上下文 / 分析评价。主控台(index)与管理台(admin)共享同一份实现,
  * admin 内嵌本组件即可闭环 continue-as-chat 续聊。
  *
- * ⚠️ 关键:原 app.js 文件级闭包变量 currentES / lastEventTime / heartbeatTimer / recovering
- * 全部迁进 setup() 闭包 —— 迁入后天然每实例独立。漏迁会让 SSE / 心跳 / 断连重连失效。
+ * ⚠️ 关键:currentES 与 ChatRun 恢复状态全部放在 setup() 闭包中，保证组件实例之间互不干扰。
  *
  * 与宿主的契约见 §4.2:workingDir/agentType 等作 props 传入;新建会话 / 刷新历史
  * 通过 emits 通知宿主。组件自洽直调 /api/chat、/api/fs、/api/refinery 等,不依赖宿主方法。
@@ -231,7 +230,6 @@
       const runStatus = ref('');
       const lastAppliedEventSeq = ref(0);
       const reconnecting = ref(false);
-      const resumableEnabled = ref(null);
       const chatContainer = ref(null);
       const feedback = ref({ rating: null, comment: null });
       const feedbackDialogVisible = ref(false);
@@ -256,13 +254,9 @@
       const onResize = () => { isMobile.value = window.innerWidth <= 768; };
       window.addEventListener('resize', onResize);
 
-      // ⚠️ 原文件级闭包变量,迁进 setup 闭包 → 每实例独立(SSE / 心跳 / 断连重连)
+      // 每实例独立的可恢复 SSE 与运行标记状态。
       let currentES = null;
-      let lastEventTime = 0;
-      let heartbeatTimer = null;
-      let recovering = false;
       let restoringActiveRun = false;
-      let resumableProbe = null;
       let runStore = null;
 
       // ===== computed =====
@@ -388,32 +382,26 @@
 
       const stopSession = async () => {
         if (!sessionId.value || !sending.value) return;
-        if (activeRunId.value) {
-          try {
-            const res = await fetch('/api/chat/runs/' + encodeURIComponent(activeRunId.value) + '/stop', {
-              method: 'POST',
-            });
-            if (!res.ok) throw new Error(await res.text());
-            const result = await res.json();
-            runStatus.value = result.status || 'CANCEL_REQUESTED';
-            addMessage('system', '已请求停止，等待任务退出');
-          } catch (e) {
-            ElementPlus.ElMessage.error('停止失败: ' + (e.message || e));
-          }
+        if (!activeRunId.value) {
+          ElementPlus.ElMessage.warning('运行任务标识尚未返回，请稍后重试或刷新页面恢复');
           return;
         }
         try {
-          await fetch('/api/chat/session/' + encodeURIComponent(sessionId.value) + '/stop', { method: 'POST' });
-        } catch (e) { /* best effort */ }
-        if (currentES) { currentES.close(); currentES = null; }
-        sending.value = false;
-        addMessage('system', '已手动停止');
+          const res = await fetch('/api/chat/runs/' + encodeURIComponent(activeRunId.value) + '/stop', {
+            method: 'POST',
+          });
+          if (!res.ok) throw new Error(await res.text());
+          const result = await res.json();
+          runStatus.value = result.status || 'CANCEL_REQUESTED';
+          addMessage('system', '已请求停止，等待任务退出');
+        } catch (e) {
+          ElementPlus.ElMessage.error('停止失败: ' + (e.message || e));
+        }
       };
 
       // 清空当前对话(切目录 / 新对话),不留系统消息——与原 watch(currentPath) 行为一致
       const clearConversation = () => {
         if (currentES) { currentES.close(); currentES = null; }
-        stopHeartbeat();
         sending.value = false;
         sessionId.value = '';
         resumeId.value = '';
@@ -663,42 +651,6 @@
       };
       const hideCommandPopup = () => { showCommandPopup.value = false; };
 
-      // ===== 断连恢复 =====
-      function startHeartbeat() {
-        stopHeartbeat();
-        lastEventTime = Date.now();
-        heartbeatTimer = setInterval(function () {
-          if (!sending.value) { stopHeartbeat(); return; }
-          if (currentES && currentES.readyState === EventSource.CLOSED) { recoverSession(); return; }
-          if (!currentES && sending.value) { recoverSession(); return; }
-          if (Date.now() - lastEventTime > 30000) { recoverSession(); }
-        }, 10000);
-      }
-      function stopHeartbeat() {
-        if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
-      }
-      async function recoverSession() {
-        if (recovering || !sessionId.value) return;
-        recovering = true;
-        stopHeartbeat();
-        if (currentES) { currentES.close(); currentES = null; }
-        try {
-          const statusRes = await fetch('/api/chat/session/' + encodeURIComponent(sessionId.value) + '/status').then(r => r.json());
-          if (statusRes.running) { await pollUntilDone(); }
-          await reloadMessages();
-        } catch (e) { /* fallback */ }
-        sending.value = false;
-        recovering = false;
-      }
-      async function pollUntilDone() {
-        while (true) {
-          await new Promise(r => setTimeout(r, 3000));
-          try {
-            const res = await fetch('/api/chat/session/' + encodeURIComponent(sessionId.value) + '/status').then(r => r.json());
-            if (!res.running) break;
-          } catch (e) { break; }
-        }
-      }
       async function reloadMessages() {
         try {
           const prevRecalls = messages.value
@@ -743,24 +695,9 @@
 
       async function queryActiveRuns() {
         const response = await fetch('/api/chat/runs/active');
-        if (response.status === 404) {
-          resumableEnabled.value = false;
-          return [];
-        }
         if (!response.ok) throw new Error('HTTP ' + response.status);
-        resumableEnabled.value = true;
         const runs = await response.json();
         return Array.isArray(runs) ? runs : [];
-      }
-
-      async function ensureResumableCapability() {
-        if (resumableEnabled.value !== null) return resumableEnabled.value;
-        if (!resumableProbe) {
-          resumableProbe = queryActiveRuns()
-            .then(() => resumableEnabled.value === true)
-            .finally(() => { resumableProbe = null; });
-        }
-        return resumableProbe;
       }
 
       async function saveRunMarker(extra) {
@@ -913,7 +850,6 @@
         restoringActiveRun = true;
         try {
           const activeRuns = await queryActiveRuns();
-          if (!resumableEnabled.value) return;
           const store = await ensureRunStore();
           const localRuns = store.list();
           const activeIds = {};
@@ -952,9 +888,7 @@
           // 新页面没有旧的局部渲染状态，必须从 0 回放完整保留窗口；同页断线由客户端按 cursor 续传。
           subscribeResumableRun(selected.runId, 0, msgIndex);
         } catch (e) {
-          if (resumableEnabled.value !== false) {
-            ElementPlus.ElMessage.warning('恢复运行中任务失败: ' + (e.message || e));
-          }
+          ElementPlus.ElMessage.warning('恢复运行中任务失败: ' + (e.message || e));
         } finally {
           restoringActiveRun = false;
         }
@@ -988,168 +922,6 @@
         } catch (e) {
           ElementPlus.ElMessage.error('回退失败: ' + (e.message || e));
         }
-      };
-
-      // ===== SSE 发送 =====
-      const sendMessageLegacy = async () => {
-        if (!props.workingDir || !userInput.value.trim() || sending.value) return;
-        try {
-          await ensureSession();
-        } catch (error) {
-          ElementPlus.ElMessage.error('创建会话失败: ' + error.message);
-          return;
-        }
-
-        const baseText = userInput.value.trim();
-        const imagePaths = pendingImages.value.map(img => img.path);
-        const filePath = pendingFile.value ? pendingFile.value.path : null;
-        let message = baseText;
-        if (imagePaths.length) { message += '\n' + imagePaths.join('\n'); }
-        if (filePath) { message += '\n\n[附件清单]\n- ' + filePath; }
-        messages.value.push(userMessageEntry(null, message));
-        userInput.value = '';
-        pendingImages.value = [];
-        pendingFile.value = null;
-        sending.value = true;
-
-        const msgIndex = messages.value.length;
-        messages.value.push({ id: null, role: 'agent', segments: [], recall: null, recallOpen: false });
-
-        const url = '/api/chat/session/' + encodeURIComponent(sessionId.value) + '/message/stream';
-        const es = window.AgentPostSse.open(url, {
-          message: message,
-          resumeId: resumeId.value || null,
-          recall: !!ragRecall.value
-        });
-        currentES = es;
-        startHeartbeat();
-        let segments = [];
-        let inToolUse = false;
-        let flushTimer = null;
-        let flushPending = false;
-
-        function appendText(text) {
-          const last = segments.length > 0 ? segments[segments.length - 1] : null;
-          if (last && last.type === 'text') { last.content += text; }
-          else { segments.push({ type: 'text', content: text }); }
-        }
-        function appendToolContent(text) {
-          for (let i = segments.length - 1; i >= 0; i--) {
-            if (segments[i].type === 'tool') { segments[i].content += text; return; }
-          }
-          segments.push({ type: 'tool', name: 'Tool', content: text });
-        }
-        function flushSegmentsNow() {
-          if (flushTimer) {
-            clearTimeout(flushTimer);
-            flushTimer = null;
-          }
-          flushPending = false;
-          messages.value[msgIndex].segments = segments.map(function (s) { return { type: s.type, name: s.name, content: s.content }; });
-          nextTick(() => {
-            if (chatContainer.value) chatContainer.value.scrollTop = chatContainer.value.scrollHeight;
-          });
-        }
-        function scheduleFlushSegments() {
-          if (flushPending) return;
-          flushPending = true;
-          flushTimer = setTimeout(flushSegmentsNow, 150);
-        }
-
-        es.addEventListener('recall', (e) => {
-          lastEventTime = Date.now();
-          try {
-            const payload = JSON.parse(e.data);
-            messages.value[msgIndex].recall = payload;
-            messages.value[msgIndex].recallOpen = false;
-          } catch (err) { /* ignore */ }
-        });
-
-        es.addEventListener('chunk', (e) => {
-          lastEventTime = Date.now();
-          const data = e.data;
-          try {
-            const json = JSON.parse(data);
-            if (json.session_id) { resumeId.value = json.session_id; }
-            if (json.type === 'stream_event' && json.event) {
-              const evt = json.event;
-              if (evt.type === 'content_block_start' && evt.content_block) {
-                if (evt.content_block.type === 'tool_use') {
-                  inToolUse = true;
-                  segments.push({ type: 'tool', name: evt.content_block.name, content: '' });
-                } else { inToolUse = false; }
-              } else if (evt.type === 'content_block_delta' && evt.delta) {
-                if (evt.delta.text) { appendText(evt.delta.text); }
-                else if (evt.delta.partial_json) { appendToolContent(evt.delta.partial_json); }
-              } else if (evt.type === 'content_block_stop') { inToolUse = false; }
-            } else if (json.type === 'assistant' && json.message && json.message.content) {
-              const hasContent = segments.some(function (s) { return s.content && s.content.trim(); });
-              if (!hasContent) {
-                segments = [];
-                for (const block of json.message.content) {
-                  if (block.type === 'text' && block.text) {
-                    segments.push({ type: 'text', content: block.text });
-                  } else if (block.type === 'tool_use') {
-                    segments.push({ type: 'tool', name: block.name, content: JSON.stringify(block.input, null, 2) });
-                  }
-                }
-              }
-            } else if (json.type === 'user' && json.message && json.message.content) {
-              for (const block of json.message.content) {
-                if (block.type === 'tool_result') {
-                  let resultText = '';
-                  if (json.tool_use_result) {
-                    const tur = json.tool_use_result;
-                    if (tur.file) { resultText = '[文件: ' + tur.file.filePath + ' (' + tur.file.numLines + '行)]'; }
-                    else if (typeof tur === 'string') { resultText = tur; }
-                    else if (tur.type === 'text' && typeof block.content === 'string') { resultText = block.content; }
-                  }
-                  if (!resultText && typeof block.content === 'string') { resultText = block.content; }
-                  if (resultText) {
-                    if (resultText.length > 2000) { resultText = resultText.substring(0, 2000) + '\n... (共 ' + resultText.length + ' 字符，已截断)'; }
-                    appendToolContent('\n' + resultText);
-                  }
-                }
-              }
-            } else if (json.type === 'result' && json.result) {
-              const hasContent = segments.some(function (s) { return s.content && s.content.trim(); });
-              if (!hasContent) { segments = [{ type: 'text', content: json.result }]; }
-            }
-          } catch (err) {
-            if (data && !data.startsWith('{') && !data.startsWith('[')) { appendText(data); }
-          }
-          scheduleFlushSegments();
-        });
-
-        es.addEventListener('ping', () => { lastEventTime = Date.now(); });
-
-        es.addEventListener('exit', (e) => {
-          stopHeartbeat();
-          flushSegmentsNow();
-          addMessage('system', e.data === '0' ? '任务已完成' : '进程异常退出，退出码: ' + e.data);
-          es.close();
-          currentES = null;
-          sending.value = false;
-          reloadMessages();
-          emit('refresh-history');
-        });
-
-        es.addEventListener('error', (e) => {
-          stopHeartbeat();
-          flushSegmentsNow();
-          addMessage('error', e.data || 'SSE 连接错误');
-          es.close();
-          currentES = null;
-          sending.value = false;
-        });
-
-        es.onerror = () => {
-          es.close();
-          currentES = null;
-          fetch('/api/auth/status').then(r => r.json()).then(s => {
-            if (!s.authenticated && s.loginUrl) { window.location.href = s.loginUrl; }
-          }).catch(() => {});
-        };
       };
 
       function newIdempotencyKey() {
@@ -1231,15 +1003,7 @@
         }
       };
 
-      const sendMessageStream = async () => {
-        try {
-          const enabled = await ensureResumableCapability();
-          if (enabled) return sendMessageResumable();
-          return sendMessageLegacy();
-        } catch (e) {
-          ElementPlus.ElMessage.error('聊天服务暂不可用: ' + (e.message || e));
-        }
-      };
+      const sendMessageStream = () => sendMessageResumable();
 
       // ===== 恢复历史会话(宿主通过 initialSessionId 触发) =====
       const applyResume = async (sid, rid) => {
@@ -1303,16 +1067,7 @@
         if (props.initialSessionId) {
           applyResume(props.initialSessionId, props.initialResumeId);
         }
-        ensureResumableCapability().then(enabled => {
-          if (enabled && !props.initialSessionId) restoreActiveRun('');
-        }).catch(() => {});
-        document.addEventListener('visibilitychange', function () {
-          if (document.visibilityState === 'visible' && sending.value && !activeRunId.value && !recovering) {
-            if (!currentES || currentES.readyState === EventSource.CLOSED || Date.now() - lastEventTime > 30000) {
-              recoverSession();
-            }
-          }
-        });
+        if (!props.initialSessionId) restoreActiveRun('');
       });
 
       return {

@@ -43,13 +43,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.handler;
 
 /**
  * MVC slice test for {@link ChatController}.
  *
- * <p>聚焦 HTTP 边界:DTO 校验、状态码、{@code @PathVariable} 路由、{@code SseEmitter} 的 Content-Type、
- * 异常映射(session 不存在 → 400)。CLI 子进程、SSE 真实时序见 {@code ChatFlowTest}。</p>
+ * <p>聚焦 HTTP 边界:DTO 校验、状态码、{@code @PathVariable} 路由以及旧流式入口的删除契约。
+ * CLI 子进程与可恢复 SSE 时序由 ChatRun 相关测试覆盖。</p>
  *
  * @author zhourui(V33215020)
  * @since 2026-05-26
@@ -178,38 +177,18 @@ class ChatControllerTest {
     }
 
     @Test
-    void stream_should_invoke_appservice_and_return_async_emitter() throws Exception {
-        // SseEmitter 是异步响应,Spring 把控制权交回容器再 dispatch,
-        // MockMvc 初次返回时 Content-Type / async result 都未设置。
-        // 这里只校验 async 已启动 + controller 命中 + appService.streamMessage 收到了正确参数。
-        org.springframework.web.servlet.mvc.method.annotation.SseEmitter emitter =
-                new org.springframework.web.servlet.mvc.method.annotation.SseEmitter(0L);
-        when(appService.streamMessage(eq("sess-1"), eq("hi"), eq(null), eq("test"), eq(true)))
-                .thenReturn(emitter);
-
+    void legacyStreamPost_should_not_be_exposed() throws Exception {
         mvc.perform(post("/api/chat/session/sess-1/message/stream")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"message\":\"hi\",\"env\":\"test\"}"))
-                .andExpect(request().asyncStarted())
-                .andExpect(handler().methodName("stream"));
-
-        // recall 未传 → 默认 true
-        verify(appService, times(1)).streamMessage("sess-1", "hi", null, "test", true);
+                .andExpect(status().isNotFound());
     }
 
     @Test
-    void stream_should_rejectLegacyGetWithMessageInUrl() throws Exception {
+    void legacyStreamGet_should_not_be_exposed() throws Exception {
         mvc.perform(get("/api/chat/session/sess-1/message/stream")
                         .param("message", "secret in URL"))
-                .andExpect(status().isMethodNotAllowed());
-    }
-
-    @Test
-    void stream_should_validatePostBody() throws Exception {
-        mvc.perform(post("/api/chat/session/sess-1/message/stream")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"message\":\"\"}"))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isNotFound());
     }
 
     @Test
@@ -268,21 +247,15 @@ class ChatControllerTest {
     }
 
     @Test
-    void sessionStatus_should_expose_running_flag() throws Exception {
-        when(appService.isSessionRunning("sess-1")).thenReturn(true);
-
+    void legacySessionStatus_should_not_be_exposed() throws Exception {
         mvc.perform(get("/api/chat/session/sess-1/status"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.running").value(true));
+                .andExpect(status().isNotFound());
     }
 
     @Test
-    void stop_should_return_success_and_invoke_appservice() throws Exception {
+    void legacySessionStop_should_not_be_exposed() throws Exception {
         mvc.perform(post("/api/chat/session/sess-1/stop"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.success").value(true));
-
-        verify(appService, times(1)).stopSession("sess-1");
+                .andExpect(status().isNotFound());
     }
 
     @Test

@@ -27,7 +27,6 @@ agent:
     user-isolation-enabled: ${AGENT_CHAT_USER_ISOLATION_ENABLED:true}
     session-cache-max-entries: ${AGENT_CHAT_SESSION_CACHE_MAX_ENTRIES:1000}
     resumable-stream:
-      enabled: ${AGENT_CHAT_RESUMABLE_STREAM_ENABLED:false}
       heartbeat-seconds: ${AGENT_CHAT_RESUMABLE_HEARTBEAT_SECONDS:15}
       reconnect-timeout-seconds: ${AGENT_CHAT_RESUMABLE_RECONNECT_TIMEOUT_SECONDS:35}
       event-retention-hours: ${AGENT_CHAT_RUN_EVENT_RETENTION_HOURS:24}
@@ -100,11 +99,10 @@ agent:
         - --include-partial-messages
         - --permission-mode
         - acceptEdits
-        # 钉死 1M 上下文变体: 续聊(--resume)不带 --model 时 CLI 会退回基础版 claude-opus-4-8(200K),
-        # 只有全新会话才自动选 [1m]; 显式带上保证全新+续聊都跑 1M。refinery 评分若另传 --model,
-        # 因追加在更后面、CLI 取最后一个 --model, 不受影响。换模型/换区域改这里即可。
-        - --model
-        - ${CLAUDE_CLI_MODEL:claude-opus-4-8[1m]}
+        # 不传 --model: 走 Claude CLI 自身默认模型(含 settings/环境配置)。
+        # 注意: 续聊(--resume)时 CLI 可能回退到基础版(非 1M); 若要钉死模型再加回:
+        #   - --model
+        #   - ${CLAUDE_CLI_MODEL:claude-opus-4-8[1m]}
       stdin: true
       # 同步 runOnce 硬上限；流式聊天由 idle + max-runtime 双期限控制
       timeout-seconds: ${CLAUDE_TIMEOUT_SECONDS:1800}

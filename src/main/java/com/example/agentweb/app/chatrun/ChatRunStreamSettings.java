@@ -8,8 +8,6 @@ package com.example.agentweb.app.chatrun;
  */
 public interface ChatRunStreamSettings {
 
-    boolean isEnabled();
-
     int getHeartbeatSeconds();
 
     int getReconnectTimeoutSeconds();

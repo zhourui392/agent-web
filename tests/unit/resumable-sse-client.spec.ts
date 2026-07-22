@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createRequire } from 'node:module';
 
 const requireCjs = createRequire(import.meta.url);
@@ -7,11 +7,20 @@ const sse = requireCjs('../../src/main/resources/static/js/lib/resumable-sse-cli
   shouldApply: (lastSequence: number, event: SseFrame) => boolean;
   nextDelay: (attempt: number, baseMs: number, maxMs: number, jitter: number) => number;
   classifyResponse: (status: number) => string;
+  open: (url: string, options: Record<string, unknown>) => {
+    addEventListener: (type: string, listener: (event: { data: string }) => void) => void;
+    close: () => void;
+  };
 };
 
 type SseFrame = { type: string; data: string; id: string | null; retry: number | null };
 
 describe('resumable GET SSE protocol', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
   it('parses id event multiline data and retry while retaining incomplete input', () => {
     const events: SseFrame[] = [];
 
@@ -46,5 +55,45 @@ describe('resumable GET SSE protocol', () => {
     expect(sse.classifyResponse(410)).toBe('cursor_expired');
     expect(sse.classifyResponse(503)).toBe('retry');
     expect(sse.classifyResponse(404)).toBe('fatal');
+  });
+
+  it('reconnects after a transient network failure and continues consuming events', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    const terminalFrame = new TextEncoder().encode(
+      'id: 7\nevent: terminal\ndata: {"status":"SUCCEEDED"}\n\n',
+    );
+    const fetchFn = vi.fn()
+      .mockRejectedValueOnce(new Error('network disconnected'))
+      .mockResolvedValueOnce({
+        status: 200,
+        body: {
+          getReader: () => ({
+            read: vi.fn().mockResolvedValueOnce({ done: false, value: terminalFrame }),
+          }),
+        },
+      });
+    const reconnecting = vi.fn();
+    const terminal = vi.fn();
+
+    const client = sse.open('/api/chat/runs/run-1/events', {
+      fetch: fetchFn,
+      retryBaseMs: 1000,
+      retryMaxMs: 1000,
+    });
+    client.addEventListener('reconnecting', reconnecting);
+    client.addEventListener('terminal', terminal);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(reconnecting).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+    expect(terminal).toHaveBeenCalledWith(expect.objectContaining({
+      data: '{"status":"SUCCEEDED"}',
+    }));
+    client.close();
   });
 });

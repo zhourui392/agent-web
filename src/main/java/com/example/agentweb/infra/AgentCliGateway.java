@@ -471,8 +471,7 @@ public class AgentCliGateway implements AgentGateway {
         }
     }
 
-    @Override
-    public boolean isRunning(String sessionId) {
+    boolean isRunning(String sessionId) {
         Process p = runningProcesses.get(sessionId);
         return p != null && p.isAlive();
     }

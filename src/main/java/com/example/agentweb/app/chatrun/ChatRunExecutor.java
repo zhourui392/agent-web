@@ -149,7 +149,12 @@ public class ChatRunExecutor implements ChatRunLauncher {
         }
         RecallTrace trace = recaller.get().traceForChat(context.getMessage(), context.getWorkingDir());
         if (attemptId.isPresent() && recallRecorder.isPresent()) {
-            recallRecorder.get().tryRecordTrace(attemptId.get(), trace);
+            try {
+                recallRecorder.get().tryRecordTrace(attemptId.get(), trace);
+            } catch (RuntimeException ex) {
+                log.warn("chat-run-recall-trace-record-failed attemptId={} reason={}",
+                        attemptId.get(), ex.getMessage());
+            }
         }
         return trace.toOutcome();
     }
@@ -167,14 +172,26 @@ public class ChatRunExecutor implements ChatRunLauncher {
             status = RecallStatus.SKIPPED;
             skipReason = "REFINERY_UNAVAILABLE";
         }
-        return recallRecorder.get().tryCreateStart(new RecallObservationStart(
-                context.getSessionId(), context.getUserMessageId(), context.getMessage(),
-                context.isRecallEnabled(), context.getEnv(), status, skipReason));
+        try {
+            return recallRecorder.get().tryCreateStart(new RecallObservationStart(
+                    context.getSessionId(), context.getUserMessageId(), context.getMessage(),
+                    context.isRecallEnabled(), context.getEnv(), status, skipReason));
+        } catch (RuntimeException ex) {
+            log.warn("chat-run-recall-attempt-create-failed sessionId={} userMessageId={} reason={}",
+                    context.getSessionId(), context.getUserMessageId(), ex.getMessage());
+            return Optional.empty();
+        }
     }
 
     private void attachAssistant(Optional<String> attemptId, Long assistantMessageId) {
         if (attemptId.isPresent() && assistantMessageId != null && recallRecorder.isPresent()) {
-            recallRecorder.get().tryAttachAssistantMessage(attemptId.get(), assistantMessageId.longValue());
+            try {
+                recallRecorder.get().tryAttachAssistantMessage(
+                        attemptId.get(), assistantMessageId.longValue());
+            } catch (RuntimeException ex) {
+                log.warn("chat-run-recall-assistant-attach-failed attemptId={} messageId={} reason={}",
+                        attemptId.get(), assistantMessageId, ex.getMessage());
+            }
         }
     }
 

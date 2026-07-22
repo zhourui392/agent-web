@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "skill_marker": {
+      "type": "string",
+      "const": "M0_SKILL_LOADED_V1"
+    },
+    "mcp_marker": {
+      "type": "string",
+      "const": "M0_MCP_READ_OK"
+    }
+  },
+  "required": [
+    "skill_marker",
+    "mcp_marker"
+  ],
+  "additionalProperties": false
+}
