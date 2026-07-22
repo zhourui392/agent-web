@@ -1,5 +1,6 @@
 package com.example.agentweb.infra;
 
+import com.example.agentweb.app.chatrun.ChatPromptSettings;
 import lombok.Getter;
 import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -15,7 +16,7 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "agent.chat")
 @Getter
 @Setter
-public class ChatProperties {
+public class ChatProperties implements ChatPromptSettings {
 
     /** 进程内活跃会话 LRU 最大条数，超出仍可从 SQLite 回源。 */
     private int sessionCacheMaxEntries = 1000;

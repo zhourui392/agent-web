@@ -2,7 +2,6 @@ package com.example.agentweb.app.chatrun;
 
 import com.example.agentweb.app.StreamOutputExtractor;
 import com.example.agentweb.domain.slashcommand.SlashCommandExpander;
-import com.example.agentweb.infra.ChatProperties;
 import org.springframework.stereotype.Component;
 
 /**
@@ -17,14 +16,14 @@ public class ChatRunPromptBuilder {
 
     private final SlashCommandExpander commandExpander;
     private final StreamOutputExtractor outputExtractor;
-    private final ChatProperties chatProperties;
+    private final ChatPromptSettings chatPromptSettings;
 
     public ChatRunPromptBuilder(SlashCommandExpander commandExpander,
                                 StreamOutputExtractor outputExtractor,
-                                ChatProperties chatProperties) {
+                                ChatPromptSettings chatPromptSettings) {
         this.commandExpander = commandExpander;
         this.outputExtractor = outputExtractor;
-        this.chatProperties = chatProperties;
+        this.chatPromptSettings = chatPromptSettings;
     }
 
     public String prepare(ChatRunExecutionContext context, String input) {
@@ -64,10 +63,10 @@ public class ChatRunPromptBuilder {
     }
 
     private String appendFinalAnswerInstruction(String message) {
-        if (!chatProperties.isFinalAnswerInstructionEnabled()) {
+        if (!chatPromptSettings.isFinalAnswerInstructionEnabled()) {
             return message;
         }
-        String instruction = chatProperties.getFinalAnswerInstruction();
+        String instruction = chatPromptSettings.getFinalAnswerInstruction();
         if (instruction == null || instruction.trim().isEmpty()) {
             return message;
         }
