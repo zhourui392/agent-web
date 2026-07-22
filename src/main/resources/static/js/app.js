@@ -36,6 +36,8 @@ const app = createApp({
     // 数据
     const roots = ref([]);
     const selectedRoot = ref('');
+    // 弹窗内浏览路径与已生效工作目录分离，避免浏览目录时提前切换对话。
+    const workspaceCandidatePath = ref('');
     const currentPath = ref('');
     const folderList = ref([]);
     // 对话默认模型由管理后台控制: GET /api/chat/agent-default 返回 {agentType, version}。
@@ -219,14 +221,14 @@ const app = createApp({
 
     // ========== 文件系统 ==========
     const handleRootChange = async () => {
-      currentPath.value = selectedRoot.value;
       await loadList(selectedRoot.value);
     };
 
     const loadList = async (path) => {
-      if (path) currentPath.value = path;
+      if (path) workspaceCandidatePath.value = path;
+      if (!workspaceCandidatePath.value) return;
       try {
-        const data = await fetch('/api/fs/list?path=' + encodeURIComponent(currentPath.value))
+        const data = await fetch('/api/fs/list?path=' + encodeURIComponent(workspaceCandidatePath.value))
           .then(r => {
             if (!r.ok) throw new Error('加载失败');
             return r.json();
@@ -235,6 +237,18 @@ const app = createApp({
       } catch (error) {
         ElementPlus.ElMessage.error('加载目录失败: ' + error.message);
       }
+    };
+
+    const openWorkspaceDialog = async () => {
+      workspaceCandidatePath.value = currentPath.value || selectedRoot.value;
+      workspaceDialogVisible.value = true;
+      await loadList(workspaceCandidatePath.value);
+    };
+
+    const confirmWorkspace = () => {
+      if (!workspaceCandidatePath.value) return;
+      currentPath.value = workspaceCandidatePath.value;
+      workspaceDialogVisible.value = false;
     };
 
     // 纯函数工具从 lib 引入 (避免内嵌定义,便于独立单测);保持原变量名,调用点无需改动
@@ -266,7 +280,7 @@ const app = createApp({
             })
             .then(() => {
               ElementPlus.ElMessage.success('已删除');
-              loadList(currentPath.value);
+              loadList(workspaceCandidatePath.value);
             })
             .catch(e => ElementPlus.ElMessage.error(e.message));
         }).catch(() => {});
@@ -275,7 +289,7 @@ const app = createApp({
 
     const onUploadSuccess = () => {
       ElementPlus.ElMessage.success('上传成功');
-      loadList(currentPath.value);
+      loadList(workspaceCandidatePath.value);
     };
 
     const onUploadError = () => {
@@ -784,6 +798,7 @@ const app = createApp({
       withBase: window.withBase,
       roots,
       selectedRoot,
+      workspaceCandidatePath,
       currentPath,
       folderList,
       agentType,
@@ -793,6 +808,8 @@ const app = createApp({
       starting,
       handleRootChange,
       loadList,
+      openWorkspaceDialog,
+      confirmWorkspace,
       newConversation,
       onAgentTypeChange,
       onSessionCreated,

@@ -42,7 +42,7 @@
           <div class="divider hidden-mobile"></div>
 
           <!-- ③ 工作目录选择器 -->
-          <div class="workspace-selector" @click="workspaceDialogVisible = true">
+          <div class="workspace-selector" @click="openWorkspaceDialog">
             <el-icon><folder-opened /></el-icon>
             <span class="path">{{ currentPath || '选择工作目录' }}</span>
             <el-icon><arrow-down /></el-icon>
@@ -295,7 +295,7 @@
             </el-select>
           </el-form-item>
           <el-form-item label="当前路径">
-            <el-input v-model="currentPath" readonly>
+            <el-input v-model="workspaceCandidatePath" readonly data-test="workspace-candidate-path">
               <template #prefix>
                 <el-icon><folder-opened /></el-icon>
               </template>
@@ -331,7 +331,7 @@
         <div style="margin-top: 12px;">
           <el-upload
             data-test="fs-upload"
-            :action="withBase('/api/fs/upload?path=' + encodeURIComponent(currentPath))"
+            :action="withBase('/api/fs/upload?path=' + encodeURIComponent(workspaceCandidatePath))"
             name="file"
             :show-file-list="false"
             :on-success="onUploadSuccess"
@@ -343,6 +343,11 @@
             </el-button>
           </el-upload>
         </div>
+
+        <template #footer>
+          <el-button @click="workspaceDialogVisible = false">取消</el-button>
+          <el-button type="primary" data-test="workspace-confirm" @click="confirmWorkspace">确认</el-button>
+        </template>
       </el-dialog>
 
       <!-- ========== 定时任务管理弹窗 ========== -->
@@ -586,6 +591,6 @@
   <!-- ChatPanel 组件(挂 window.ChatPanel),须在 app.js 之前加载 -->
   <script src="js/components/chat-panel.js?v=2026072202"></script>
   <!-- App JS -->
-  <script src="js/app.js?v=2026072202"></script>
+  <script src="js/app.js?v=2026072203"></script>
 </body>
 </html>
