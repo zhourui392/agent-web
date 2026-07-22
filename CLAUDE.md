@@ -19,7 +19,7 @@ mvn pmd:check                    # Code quality check (Alibaba P3C)
 
 > **端口 / 路径**：`application.yml` 里 `server.address=127.0.0.1`、`server.port=18092`、`server.servlet.context-path` 为空；公网由同机 Caddy 把 `https://agent.mokatu.shop/` 反代到该 loopback 端口。
 
-> **Claude 行为约束**：代码改动后**不要自动 `mvn package` / 重启服务**。除非用户明确说"编译"/"打包"/"重启"/"部署"，否则停在改完代码 + 跑测试这一步，让用户自己控制何时重启服务。（原 `scripts/service.sh` 已随重构移除，部署脚本由运维侧维护。）
+> **Claude 行为约束**：代码改动后**不要自动 `mvn package` / 重启服务**。除非用户明确说"编译"/"打包"/"重启"/"部署"，否则停在改完代码 + 跑测试这一步，让用户自己控制何时重启服务。Linux / Windows 服务脚本分别为 `scripts/service.sh`、`scripts/service.ps1`，两者的 `start` / `restart` 都会先执行 Maven 编译，同样不得在未经用户明确要求时调用。
 
 ## Tech Stack
 

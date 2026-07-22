@@ -56,8 +56,42 @@
 
 ### 启动
 
+Linux：
+
 ```bash
-# 构建
+# 自动查找 JDK 21+，编译成功后在后台启动
+./scripts/service.sh start
+
+# 可用子命令：build、stop、restart、status、logs
+./scripts/service.sh status
+```
+
+Windows PowerShell：
+
+```powershell
+# 自动查找 JDK 21+，编译成功后在后台启动
+.\scripts\service.ps1 start
+
+# 可用子命令：build、stop、restart、status、logs
+.\scripts\service.ps1 status
+```
+
+执行 `build`、`start` 或 `restart` 时，脚本第一步会优先使用 `JAVA_BIN` 指定的 Java，再检查 `JAVA_HOME`、`PATH`、系统注册表（Windows）和常见 JDK 安装目录；找到完整的 JDK 21 或更高版本后会设置当前进程的 `JAVA_HOME` / `PATH`，执行 `mvn clean package`，并仅在编译成功后启动 `app/agent-web.jar`。若自动探测失败，可显式指定：
+
+```bash
+JAVA_BIN=/usr/local/jdk-21/bin/java ./scripts/service.sh start
+```
+
+```powershell
+$env:JAVA_BIN='C:\Program Files\Java\jdk-21\bin\java.exe'
+.\scripts\service.ps1 start
+```
+
+脚本要求 Maven 3.6+ 已加入 `PATH`。JVM 参数可通过 `JAVA_OPTS` 传入，Spring Boot 参数可追加到 `start` / `restart` 后，例如 `./scripts/service.sh start --spring.profiles.active=local`。运行日志位于 `logs/service.log`（Windows 的标准错误另写入 `logs/service-error.log`）。
+
+也可以不使用服务脚本，手工构建和前台启动：
+
+```bash
 mvn clean package
 
 # 首次公网启动必须设置一个不同于仓库种子密码的新管理员密码

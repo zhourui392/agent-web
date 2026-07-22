@@ -36,7 +36,7 @@ logs/
 
 # Application specific
 *.jar.original
-# 运行时 jar 副本目录, 由 service.sh 从 target/ 复制而来 (前导 / 锚定仓库根, 避免误伤 src/.../app/ 源码包)
+# 运行时 jar 副本目录, 由服务脚本从 target/ 复制而来 (前导 / 锚定仓库根, 避免误伤 src/.../app/ 源码包)
 /app/
 
 # Data
