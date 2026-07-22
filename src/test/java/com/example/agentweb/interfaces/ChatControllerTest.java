@@ -11,7 +11,6 @@ import com.example.agentweb.domain.slashcommand.SlashCommand;
 import com.example.agentweb.domain.slashcommand.SlashCommandExpander;
 import com.example.agentweb.infra.auth.AuthProperties;
 import com.example.agentweb.infra.EnvProperties;
-import com.example.agentweb.infra.auth.ApiKeyProperties;
 import com.example.agentweb.interfaces.dto.SendMessageRequest;
 import com.example.agentweb.interfaces.dto.StartSessionRequest;
 import com.example.agentweb.interfaces.dto.TruncateResult;
@@ -76,10 +75,6 @@ class ChatControllerTest {
 
     @MockBean
     private com.example.agentweb.infra.setting.RuntimeAgentSettings runtimeAgentSettings;
-
-    /** ApiKeyAuthFilter / AuthFilter 是 @Component,@WebMvcTest 会装配,需补构造依赖。 */
-    @MockBean
-    private ApiKeyProperties apiKeyProperties;
 
     @MockBean
     private AuthProperties authProperties;
@@ -192,14 +187,29 @@ class ChatControllerTest {
         when(appService.streamMessage(eq("sess-1"), eq("hi"), eq(null), eq("test"), eq(true)))
                 .thenReturn(emitter);
 
-        mvc.perform(get("/api/chat/session/sess-1/message/stream")
-                        .param("message", "hi")
-                        .param("env", "test"))
+        mvc.perform(post("/api/chat/session/sess-1/message/stream")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"hi\",\"env\":\"test\"}"))
                 .andExpect(request().asyncStarted())
                 .andExpect(handler().methodName("stream"));
 
         // recall 未传 → 默认 true
         verify(appService, times(1)).streamMessage("sess-1", "hi", null, "test", true);
+    }
+
+    @Test
+    void stream_should_rejectLegacyGetWithMessageInUrl() throws Exception {
+        mvc.perform(get("/api/chat/session/sess-1/message/stream")
+                        .param("message", "secret in URL"))
+                .andExpect(status().isMethodNotAllowed());
+    }
+
+    @Test
+    void stream_should_validatePostBody() throws Exception {
+        mvc.perform(post("/api/chat/session/sess-1/message/stream")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"\"}"))
+                .andExpect(status().isBadRequest());
     }
 
     @Test

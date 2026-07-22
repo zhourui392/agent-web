@@ -1,5 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect } from 'vitest';
 import { createRequire } from 'node:module';
+import createDOMPurify from 'dompurify';
+import { JSDOM } from 'jsdom';
 
 const requireCjs = createRequire(import.meta.url);
 const formatters = requireCjs('../../src/main/resources/static/js/lib/formatters.js') as {
@@ -14,6 +16,11 @@ const formatters = requireCjs('../../src/main/resources/static/js/lib/formatters
   parseStreamJson: (raw: string | null | undefined) => Array<{ type: string; name?: string; content: string }>;
   isStreamJson: (content: string | null | undefined) => boolean;
 };
+
+afterEach(() => {
+  delete (globalThis as Record<string, unknown>).marked;
+  delete (globalThis as Record<string, unknown>).DOMPurify;
+});
 
 describe('formatSize', () => {
   it('null returns empty string', () => {
@@ -81,6 +88,32 @@ describe('renderMarkdown', () => {
   it('two newlines pass through as <br><br>', () => {
     const out = formatters.renderMarkdown('a\n\nb');
     expect(out).toBe('a<br><br>b');
+  });
+
+  it('sanitizes raw HTML, event handlers, and javascript URLs emitted by marked', () => {
+    const dangerous = '<img src="x" onerror="alert(1)">'
+      + '<a href="javascript:alert(2)">click</a><script>alert(3)</script>';
+    (globalThis as Record<string, unknown>).marked = { parse: () => dangerous };
+    const window = new JSDOM('').window;
+    (globalThis as Record<string, unknown>).DOMPurify = createDOMPurify(window);
+
+    const out = formatters.renderMarkdown('untrusted markdown');
+
+    expect(out).not.toContain('onerror');
+    expect(out).not.toContain('javascript:');
+    expect(out).not.toContain('<script');
+    expect(out).toContain('<img src="x">');
+    expect(out).toContain('click');
+  });
+
+  it('fails closed by escaping markdown when DOMPurify is unavailable', () => {
+    (globalThis as Record<string, unknown>).marked = {
+      parse: () => '<img src="x" onerror="alert(1)">',
+    };
+
+    const out = formatters.renderMarkdown('<b>untrusted</b>');
+
+    expect(out).toBe('&lt;b&gt;untrusted&lt;/b&gt;');
   });
 });
 

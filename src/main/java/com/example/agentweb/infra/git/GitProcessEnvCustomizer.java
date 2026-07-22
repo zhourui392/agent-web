@@ -54,6 +54,16 @@ public class GitProcessEnvCustomizer {
                 userId, !spec.getIdentityEnv().isEmpty(), spec.hasCredential());
     }
 
+    /**
+     * 仅注入提交身份，不把 push 密码/token 暴露给可执行任意命令的 Agent 进程。
+     */
+    public void applyIdentityOnly(ProcessBuilder processBuilder, String userId) {
+        GitEnvSpec spec = resolver.resolve(userId);
+        processBuilder.environment().putAll(spec.getIdentityEnv());
+        log.debug("git-identity-env-injected userId={} identity={}",
+                userId, !spec.getIdentityEnv().isEmpty());
+    }
+
     /** 写一次性 askpass 脚本并把凭证放进 env；脚本写失败仅告警，回落到无凭证（身份仍生效）。 */
     private void applyCredential(Map<String, String> env, GitEnvSpec spec) {
         try {

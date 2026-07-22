@@ -20,6 +20,7 @@ import com.example.agentweb.interfaces.dto.SendMessageRequest;
 import com.example.agentweb.interfaces.dto.SendMessageResponse;
 import com.example.agentweb.interfaces.dto.SessionStatusResponse;
 import com.example.agentweb.interfaces.dto.StartSessionRequest;
+import com.example.agentweb.interfaces.dto.StreamMessageRequest;
 import com.example.agentweb.interfaces.dto.StartSessionResponse;
 import com.example.agentweb.interfaces.dto.SuccessResponse;
 import com.example.agentweb.interfaces.dto.TruncateResult;
@@ -83,16 +84,15 @@ public class ChatController {
         return new SendMessageResponse(out);
     }
 
-    @GetMapping(value = "/session/{id}/message/stream", produces = "text/event-stream;charset=UTF-8")
+    @PostMapping(value = "/session/{id}/message/stream", produces = "text/event-stream;charset=UTF-8")
     public SseEmitter stream(@PathVariable("id") String id,
-                            @RequestParam("message") String message,
-                            @RequestParam(value = "resumeId", required = false) String resumeId,
-                            @RequestParam(value = "env", required = false) String env,
-                            @RequestParam(value = "recall", required = false, defaultValue = "true") boolean recall) {
+                             @Valid @RequestBody StreamMessageRequest request) {
         MdcContext.putSessionId(id);
         log.info("chat-stream-request sessionId={} resumeId={} env={} recall={} messageLen={}",
-                id, resumeId, env, recall, LogSafe.safeLen(message));
-        return appService.streamMessage(id, message, resumeId, env, recall);
+                id, request.getResumeId(), request.getEnv(), request.isRecall(),
+                LogSafe.safeLen(request.getMessage()));
+        return appService.streamMessage(id, request.getMessage(), request.getResumeId(),
+                request.getEnv(), request.isRecall());
     }
 
     @GetMapping("/session/{id}/commands")

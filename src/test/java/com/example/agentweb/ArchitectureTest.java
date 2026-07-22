@@ -10,7 +10,7 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
 /**
- * DDD 分层护栏 A1—A5（detailed-design §0.2）。A4 用 FreezingArchRule 冻结存量
+ * DDD 分层护栏 A1—A4。A4 用 FreezingArchRule 冻结存量
  * app→infra 违例（WorkflowRunner→AgentCliInvoker 等 33 处），增量零容忍。
  *
  * @author zhourui(V33215020)
@@ -49,17 +49,4 @@ public class ArchitectureTest {
     static final ArchRule A4_APP_NOT_DEPEND_ON_INFRA_FROZEN = FreezingArchRule.freeze(noClasses()
             .that().resideInAPackage("com.example.agentweb.app..")
             .should().dependOnClassesThat().resideInAPackage("com.example.agentweb.infra.."));
-
-    @ArchTest
-    static final ArchRule A5_NEW_DOMAINS_PERSISTENCE_IGNORANT = noClasses()
-            .that().resideInAnyPackage(
-                    "com.example.agentweb.domain.requirement..",
-                    "com.example.agentweb.domain.verification..",
-                    "com.example.agentweb.domain.workspace..",
-                    "com.example.agentweb.domain.delivery..")
-            .should().dependOnClassesThat().resideInAnyPackage(
-                    "org.springframework..",
-                    "jakarta.persistence..",
-                    "org.hibernate..",
-                    "com.fasterxml.jackson..");
 }

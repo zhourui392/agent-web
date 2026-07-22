@@ -19,6 +19,11 @@ import java.time.Instant;
 import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 /**
  * 快照缓存装饰器 (设计方案 §B4): 召回读路径零 SQL, 写路径失效重载,
@@ -69,7 +74,7 @@ class CachingRagChunkRepoTest {
                 + "trigger_description TEXT,"
                 + "inject_count INTEGER NOT NULL DEFAULT 0,"
                 + "adopt_count INTEGER NOT NULL DEFAULT 0)");
-        delegate = new SqliteRagChunkRepo(jdbc);
+        delegate = spy(new SqliteRagChunkRepo(jdbc));
         props = new RefineryProperties();
         repo = new CachingRagChunkRepo(delegate, props);
     }
@@ -135,6 +140,8 @@ class CachingRagChunkRepoTest {
 
         assertEquals(3, repo.findActive(NOW).size(),
                 "超软上限不缓存, 绕过写立即可见 = 已回落直查");
+        verify(delegate, times(2)).findActiveLimited(eq(NOW), eq(2));
+        verify(delegate, times(2)).findActive(NOW);
     }
 
     @Test

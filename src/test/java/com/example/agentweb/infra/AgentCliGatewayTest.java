@@ -20,9 +20,14 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -120,6 +125,53 @@ class AgentCliGatewayTest {
                 "应返回进程退出前排空的输出，实际：" + output[0]);
     }
 
+    @Test
+    void runStream_rejectsSecondLiveProcessForSameSession() throws Exception {
+        List<String> cmd = writeLongRunningStub();
+        AgentCliGateway gateway = newGateway(cmd, null);
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        Future<?> first = executor.submit(() -> {
+            try {
+                gateway.runStream(AgentType.CODEX, WORKING_DIR, "ignored",
+                        "same-session", null, null, 0L, chunk -> { }, code -> { });
+            } catch (Exception ex) {
+                throw new RuntimeException(ex);
+            }
+        });
+        try {
+            long deadline = System.currentTimeMillis() + 3000L;
+            while (!gateway.isRunning("same-session") && System.currentTimeMillis() < deadline) {
+                Thread.yield();
+            }
+            assertTrue(gateway.isRunning("same-session"), "first process should be registered");
+
+            assertThrows(IllegalStateException.class, () ->
+                    gateway.runStream(AgentType.CODEX, WORKING_DIR, "ignored",
+                            "same-session", null, null, 0L, chunk -> { }, code -> { }));
+        } finally {
+            gateway.stopStream("same-session");
+            first.get(3, TimeUnit.SECONDS);
+            executor.shutdownNow();
+            deleteQuietly(cmd);
+        }
+    }
+
+    @Test
+    void runStream_killsProcessWhenOutputExceedsConfiguredLimit() throws Exception {
+        List<String> cmd = writeOutputFloodStub();
+        AgentCliGateway gateway = newGateway(cmd, null, 128L);
+        List<String> chunks = new CopyOnWriteArrayList<>();
+        try {
+            long elapsed = timed(() -> gateway.runStream(AgentType.CODEX, WORKING_DIR, "ignored",
+                    "output-limit", null, null, 0L, chunks::add, code -> { }));
+
+            assertTrue(elapsed < 3000L, "output limit should terminate process promptly");
+            assertTrue(chunks.contains("[output-limit]"), "client should receive explicit output-limit event");
+        } finally {
+            deleteQuietly(cmd);
+        }
+    }
+
     // ── helpers ──
 
     private interface ThrowingRunnable {
@@ -134,12 +186,17 @@ class AgentCliGatewayTest {
 
     /** {@code timeout-seconds=0}：复现生产配置，正是这条无总超时路径会被孤儿管道久阻。 */
     private AgentCliGateway newGateway(List<String> cmd, String turnEndMarker) {
+        return newGateway(cmd, turnEndMarker, 10L * 1024L * 1024L);
+    }
+
+    private AgentCliGateway newGateway(List<String> cmd, String turnEndMarker, long maxOutputBytes) {
         AgentCliProperties props = new AgentCliProperties();
         AgentCliProperties.Client codex = props.getCodex();
         codex.setExec(cmd.get(0));
         codex.setStdin(false);
         codex.setTimeoutSeconds(0);
         codex.setStdoutDrainGraceMs(200L);
+        codex.setMaxOutputBytes(maxOutputBytes);
         return new AgentCliGateway(props, new EnvProperties(), noopGitCustomizer(),
                 Collections.singletonList(passthroughDialect(cmd, turnEndMarker)));
     }
@@ -187,6 +244,31 @@ class AgentCliGatewayTest {
                 "#!/bin/sh",
                 "echo TURN_END",
                 "sleep " + TURN_END_ALIVE_SECONDS));
+    }
+
+    private List<String> writeLongRunningStub() {
+        if (isWindows()) {
+            return writeStub(".cmd", Arrays.asList(
+                    "@echo off",
+                    "ping -n 10 127.0.0.1 >nul"));
+        }
+        return writeStub(".sh", Arrays.asList(
+                "#!/bin/sh",
+                "sleep 9"));
+    }
+
+    private List<String> writeOutputFloodStub() {
+        if (isWindows()) {
+            return writeStub(".cmd", Arrays.asList(
+                    "@echo off",
+                    "for /L %%i in (1,1,200) do @echo 012345678901234567890123456789",
+                    "ping -n 6 127.0.0.1 >nul"));
+        }
+        return writeStub(".sh", Arrays.asList(
+                "#!/bin/sh",
+                "i=0",
+                "while [ $i -lt 200 ]; do echo 012345678901234567890123456789; i=$((i + 1)); done",
+                "sleep 5"));
     }
 
     private List<String> writeStub(String suffix, List<String> lines) {

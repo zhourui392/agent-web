@@ -6,7 +6,7 @@ import java.util.Optional;
 /**
  * {@link ManualSession} 的持久化端口 (Repository,写侧)。实现落 infra,domain 仅依赖此接口。
  *
- * <p>方法集刻意保持小:聚合根 lifecycle 三件套 + 过期清理。读模型若有页面查询需求请另开
+ * <p>方法集刻意保持小:聚合根 lifecycle、账户级作废与过期清理。读模型若有页面查询需求请另开
  * {@code ManualSessionQueryService},不要塞进此接口 (CQRS 边界)。</p>
  *
  * @author zhourui(V33215020)
@@ -28,6 +28,11 @@ public interface ManualSessionRepository {
      * 登出 / 主动作废时调用。不存在的 sessionId 静默忽略。
      */
     void deleteById(String sessionId);
+
+    /**
+     * 密码变更或账户停用时，注销该用户的全部会话。
+     */
+    int deleteByUserId(String userId);
 
     /**
      * 批量清理 expiresAt < threshold 的会话。返回受影响行数,供后台 tick 监控。

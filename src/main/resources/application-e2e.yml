@@ -5,28 +5,24 @@
 server:
   port: 18099            # 独立端口避开生产 18092
   servlet:
-    context-path: ""     # 覆盖主配置的 /qa 挂载,e2e 仍走根路径,Playwright baseURL 不带前缀
+    context-path: ""     # e2e 走根路径，Playwright baseURL 不带前缀
 
 agent:
   # e2e 的 chat 链路依赖 Codex JSON stub(输出"诊断结论"); 前端现会「强制全员跟随」服务端
   # 对话默认模型(/api/chat/agent-default → 此 default-type), 故 e2e 默认须为 CODEX,
   # 否则 UI 走 Claude=echo 路径, chat/share/conversations 等 UI 用例拿不到 stub 结论。
   default-type: CODEX
-  # 需求线 M0: e2e 打开总开关走看板主链路; 生产 yml 保持 false 直到里程碑放行。
-  requirement:
-    enabled: true
-  # 管理口令固定为已知值,供诊断/回填纯 API spec 以 admin 身份登录拿 cookie。
-  # Phase 2 admin 迁移:诊断/回填前缀已纳入 admin 保护,protection 随 UI 原子上线。
-  # 旧 diagnose.spec/issue-log.spec(走主控台 UI,无 admin cookie)随之失效,由 Phase 3 改写到 /admin。
+  # 管理数据接口复用 user_account 会话，再校验 ADMIN 角色。
   admin:
-    enabled: true
-    password: e2e-admin-pass
     protected-prefixes:
       - /api/metrics
+      - /api/admin-user-suggestions
       - /api/issue-log-backfill
       - /api/admin-workflows
       - /api/admin-workflow-executions
-      - /api/admin-requirement-events
+      - /api/admin-settings
+      - /api/refinery
+      - /api/diagnose-history
   # 斜杠命令固定指向仓库内 fixtures, 让 e2e 命令补全确定可复现, 不受开发机 ~/.claude 影响。
   # 相对路径会同时拼到 workingDir(=仓库根)与 user.home; 仓库根下命中 3 个占位命令。
   slash-command:
@@ -36,6 +32,10 @@ agent:
       - tests/e2e/fixtures/skills
   fs:
     roots:
+      - "${user.dir}"
+      - "${java.io.tmpdir}"
+  worktree:
+    allowed-roots:
       - "${user.dir}"
       - "${java.io.tmpdir}"
   cli:
@@ -58,7 +58,10 @@ agent:
       timeout-seconds: 0
   auth:
     cookie-name: local_session
+    cookie-secure: false
     login-page-url: ""
+  public-access:
+    enabled: false
   issue-log:
     refine:
       enabled: false         # 关闭 LLM 精炼,issue-log 走启发式 fallback

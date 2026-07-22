@@ -10,12 +10,11 @@ import { test, expect, APIRequestContext } from '@playwright/test';
  * 但手动 /run 端点仍可调,异步立即返回,这里只断言同步响应契约。
  */
 
-const ADMIN_PASSWORD = 'e2e-admin-pass';
-
 async function loginAsAdmin(request: APIRequestContext): Promise<void> {
-  const res = await request.post('/api/admin/login', { data: { password: ADMIN_PASSWORD } });
+  const res = await request.post('/api/auth/login', {
+    data: { username: 'admin', password: process.env.AGENT_E2E_ADMIN_PASSWORD }
+  });
   expect(res.ok(), 'admin login should succeed').toBeTruthy();
-  expect((await res.json()).authenticated).toBe(true);
 }
 
 test('backfill API: candidates 列表响应结构', async ({ request }) => {

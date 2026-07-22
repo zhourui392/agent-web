@@ -8,6 +8,7 @@ import com.example.agentweb.domain.chat.SessionCache;
 import com.example.agentweb.domain.chat.SessionRepository;
 import com.example.agentweb.domain.slashcommand.SlashCommand;
 import com.example.agentweb.domain.slashcommand.SlashCommandExpander;
+import com.example.agentweb.domain.worktree.WorkspacePathPolicy;
 import com.example.agentweb.infra.AgentTypeResolver;
 import com.example.agentweb.infra.ChatProperties;
 import com.example.agentweb.infra.UploadFileStore;
@@ -37,6 +38,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
@@ -62,6 +64,7 @@ public class ChatAppServiceImplBranchesTest {
     private AgentTypeResolver agentTypeResolver;
     private UploadPicStore uploadPicStore;
     private UploadFileStore uploadFileStore;
+    private WorkspacePathPolicy workspacePathPolicy;
     private ChatAppServiceImpl service;
 
     @TempDir
@@ -77,11 +80,11 @@ public class ChatAppServiceImplBranchesTest {
         agentTypeResolver = mock(AgentTypeResolver.class);
         uploadPicStore = mock(UploadPicStore.class);
         uploadFileStore = mock(UploadFileStore.class);
+        workspacePathPolicy = mock(WorkspacePathPolicy.class);
+        when(workspacePathPolicy.requireExistingDirectory(anyString()))
+                .thenAnswer(invocation -> invocation.getArgument(0));
         Executor sync = Runnable::run;
-        service = new ChatAppServiceImpl(sessionCache, sessionRepository, gateway, sync,
-                commandExpander, outputExtractor, agentTypeResolver, uploadPicStore, uploadFileStore,
-                java.util.Optional.empty(),
-                new com.example.agentweb.domain.auth.CurrentUserProvider(() -> java.util.Optional.empty()));
+        rebuildService(new ChatProperties());
     }
 
     private void rebuildService(ChatProperties chatProperties) {
@@ -91,6 +94,7 @@ public class ChatAppServiceImplBranchesTest {
                 java.util.Optional.empty(), java.util.Optional.empty(),
                 new com.example.agentweb.domain.auth.CurrentUserProvider(() -> java.util.Optional.empty()),
                 chatProperties);
+        service.configureWorkspacePathPolicy(workspacePathPolicy);
     }
 
     // ============ stopSession / isSessionRunning ============
@@ -190,8 +194,23 @@ public class ChatAppServiceImplBranchesTest {
         req.setAgentType("CLAUDE");
         req.setWorkingDir(tempDir.resolve("nonexistent").toString());
         when(agentTypeResolver.resolve("CLAUDE")).thenReturn(AgentType.CLAUDE);
+        when(workspacePathPolicy.requireExistingDirectory(req.getWorkingDir()))
+                .thenThrow(new IllegalArgumentException("Path out of allowed roots"));
 
         assertThrows(IllegalArgumentException.class, () -> service.startSession(req, "1.2.3.4"));
+    }
+
+    @Test
+    public void startSession_should_use_canonicalAllowedWorkingDirectory() {
+        StartSessionRequest req = new StartSessionRequest();
+        req.setAgentType("CLAUDE");
+        req.setWorkingDir(tempDir.resolve("alias").toString());
+        when(agentTypeResolver.resolve("CLAUDE")).thenReturn(AgentType.CLAUDE);
+        when(workspacePathPolicy.requireExistingDirectory(req.getWorkingDir())).thenReturn(tempDir.toString());
+
+        ChatSession session = service.startSession(req, null);
+
+        assertEquals(tempDir.toString(), session.getWorkingDir());
     }
 
     @Test

@@ -21,11 +21,21 @@ public class ManualSessionFactory {
     /**
      * 创建本地登录会话。
      *
-     * @param employeeId 工号
+     * @param employeeId 用户标识
      * @param userName 用户名
      * @return 新会话
      */
     public ManualSession create(String employeeId, String userName) {
         return ManualSession.create(employeeId, userName, sessionTtlSeconds, clock);
+    }
+
+    /**
+     * 为已认证账户创建会话。
+     *
+     * @param account 已认证账户
+     * @return 新会话
+     */
+    public ManualSession create(UserAccount account) {
+        return ManualSession.create(account, sessionTtlSeconds, clock);
     }
 }

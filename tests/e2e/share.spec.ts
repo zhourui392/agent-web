@@ -6,7 +6,7 @@ import { test, expect } from '@playwright/test';
  * 2. 截获 SSE 请求 URL 拿 sessionId (URL 里带 sessionId, 比 sessions 列表更稳)
  * 3. POST /api/chat/session/{sid}/share 拿 token (ShareController 生成 16 位)
  * 4. page.goto('/share.html?token=...') → 分享页渲染
- * 5. 断言 header "可续聊" tag (0e509bc 起分享页支持续聊), user/assistant 消息正确渲染
+ * 5. 断言 header "只读" tag，user/assistant 消息正确渲染
  *
  * 关键依赖:
  * - 走 chat 主链路落库, 不调底层 repo
@@ -51,8 +51,7 @@ test('share: 生成 token → /share.html 分享页渲染', async ({ page, reque
   await page.goto(`/share.html?token=${encodeURIComponent(shareToken)}`);
 
   // ===== 5. 断言分享页渲染 =====
-  // "可续聊" tag (header 里硬编码, 0e509bc 分享页续聊)
-  await expect(page.getByText('可续聊', { exact: true })).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText('只读', { exact: true })).toBeVisible({ timeout: 10_000 });
 
   // user 消息含 marker
   await expect(page.locator('.message-user-text').filter({ hasText: SHARE_MARKER }))

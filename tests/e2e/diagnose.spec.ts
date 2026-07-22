@@ -7,14 +7,14 @@ import { gotoAdminMenu, loginAdminUI } from './_admin';
 /**
  * 诊断历史 admin UI 主链路 E2E(ChatPanel 组件化方案 Phase 3 改写)。
  *
- * 诊断历史已从主控台迁到管理后台 /admin(管理口令鉴权 + protected-prefixes 把关),
- * 故 UI 断言走 /admin:管理口令登录 → 诊断历史菜单 → 列表 → 详情抽屉渲染结论;
+ * 诊断历史已从主控台迁到管理后台 /admin(数据库 ADMIN 角色 + protected-prefixes 把关),
+ * 故 UI 断言走 /admin:复用 ADMIN 用户会话 → 诊断历史菜单 → 列表 → 详情抽屉渲染结论;
  * 「继续对话」走内嵌 <chat-panel> 续聊(无跳转),断言 resume 后看到原提问气泡。
  *
  * 纯 API 链路(提交/列表/详情/continue-as-chat 契约)由 diagnose-api.spec.ts 覆盖,这里只验 UI。
  *
  * 关键依赖:
- * - application-e2e.yml: agent.cli.codex 指向 codex-json-stub.cmd, agent.admin.password=e2e-admin-pass
+ * - application-e2e.yml: agent.cli.codex 指向 codex-json-stub.cmd，测试密码由 AGENT_E2E_ADMIN_PASSWORD 注入
  * - /api/diagnose 走 X-API-Key(非 admin 保护);/api/diagnose/{id} 轮询同样走 X-API-Key
  */
 
@@ -114,7 +114,7 @@ test('admin deep-link: ?taskId 进页自动弹出对应诊断详情抽屉', asyn
   const { taskId, marker } = await submitDiagnose(request);
   await waitTaskFinished(request, taskId);
 
-  // 先登录拿到 admin_session cookie,再直达 deep-link;同页 emit('ready') → onReady 读 taskId 自动弹抽屉
+  // 复用 global setup 建立的 ADMIN 数据库用户会话，再直达 deep-link。
   await loginAdminUI(page);
   await page.goto('/admin/diagnose.html?taskId=' + encodeURIComponent(taskId));
 

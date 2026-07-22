@@ -1,13 +1,13 @@
 import { test, expect } from '@playwright/test';
 
-test('Git 设置: 非默认用户保存后刷新回显,凭证只返回脱敏状态', async ({ page }) => {
+test('Git 设置: 登录用户保存后刷新回显,凭证只返回脱敏状态', async ({ page }) => {
   const marker = 'E2E-GIT-' + Date.now();
-  const userId = marker;
+  const userId = 'admin';
   const name = marker + ' User';
   const email = marker.toLowerCase() + '@example.com';
 
-  const login = await page.request.post('/api/auth/manual-login', {
-    data: { employeeId: userId, userName: 'Git E2E User' },
+  const login = await page.request.post('/api/auth/login', {
+    data: { username: 'admin', password: process.env.AGENT_E2E_ADMIN_PASSWORD },
   });
   expect(login.ok()).toBeTruthy();
 

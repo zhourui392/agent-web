@@ -162,7 +162,6 @@ public class SqliteChatSessionQueryServiceTest {
 
         assertEquals("debug session", view.getTitle());
         assertEquals("CLAUDE", view.getAgentType());
-        assertEquals("/tmp/wd", view.getWorkingDir());
         assertEquals("2026-05-26T08:00:00Z", view.getCreatedAt());
         assertEquals(1, view.getMessages().size());
         assertEquals("{\"hits\":[]}", view.getMessages().get(0).getRecall());
@@ -171,6 +170,21 @@ public class SqliteChatSessionQueryServiceTest {
     @Test
     public void findSharedView_should_return_null_for_unknown_token() {
         assertNull(query.findSharedView("nope"));
+    }
+
+    @Test
+    public void isSharedImageReferenced_should_require_validTokenAndExactMessageReference() {
+        ChatSession session = newSession("sess-1", Instant.parse("2026-05-26T08:00:00Z"));
+        repo.saveSession(session);
+        jdbc.update("UPDATE chat_session SET share_token = ? WHERE id = ?", "tok-img", "sess-1");
+        repo.addMessage("sess-1", new ChatMessage("user",
+                "question\n/tmp/wd/upload_pic/s/a.png", Instant.parse("2026-05-26T08:01:00Z")));
+
+        assertTrue(query.isSharedImageReferenced("tok-img", "/tmp/wd/upload_pic/s/a.png"));
+        org.junit.jupiter.api.Assertions.assertFalse(
+                query.isSharedImageReferenced("tok-img", "/tmp/wd/secret.png"));
+        org.junit.jupiter.api.Assertions.assertFalse(
+                query.isSharedImageReferenced("wrong-token", "/tmp/wd/upload_pic/s/a.png"));
     }
 
     private static String repeat(char c, int times) {

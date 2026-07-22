@@ -43,6 +43,11 @@ class CodexCliDialectTest {
         assertEquals(AgentType.CODEX, dialect.type());
     }
 
+    @Test
+    void clientDefaults_should_notBypassSandbox() {
+        assertFalse(new AgentCliProperties.Client().isSandboxBypass());
+    }
+
     // ── 真实 codex exec 拼装路径 ──
 
     @Test

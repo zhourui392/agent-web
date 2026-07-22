@@ -22,10 +22,6 @@ public class AgentRunContext {
     private final String outputInstruction;
     private final WorkspaceContext workspaceContext;
     private final RunRecallPolicy recallPolicy;
-    /**
-     * 挂靠需求 ID(可空, 仅需求线 run 有值, 用于 run 回链需求).
-     */
-    private final String requirementId;
 
     private AgentRunContext(Builder builder) {
         this.originalInput = builder.originalInput;
@@ -39,7 +35,6 @@ public class AgentRunContext {
         this.recallPolicy = builder.recallPolicy == null
                 ? RunRecallPolicy.disabled()
                 : builder.recallPolicy;
-        this.requirementId = builder.requirementId;
     }
 
     public AgentRunContext withWorkspaceContext(WorkspaceContext context) {
@@ -53,7 +48,6 @@ public class AgentRunContext {
                 .outputInstruction(outputInstruction)
                 .workspaceContext(context)
                 .recallPolicy(recallPolicy)
-                .requirementId(requirementId)
                 .build();
     }
 
@@ -75,7 +69,6 @@ public class AgentRunContext {
         private String outputInstruction;
         private WorkspaceContext workspaceContext;
         private RunRecallPolicy recallPolicy;
-        private String requirementId;
 
         public Builder originalInput(String originalInput) {
             this.originalInput = originalInput;
@@ -119,11 +112,6 @@ public class AgentRunContext {
 
         public Builder recallPolicy(RunRecallPolicy recallPolicy) {
             this.recallPolicy = recallPolicy;
-            return this;
-        }
-
-        public Builder requirementId(String requirementId) {
-            this.requirementId = requirementId;
             return this;
         }
 

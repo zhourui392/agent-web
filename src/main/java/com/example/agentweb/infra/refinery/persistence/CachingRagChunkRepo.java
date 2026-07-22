@@ -61,8 +61,10 @@ public class CachingRagChunkRepo implements RagChunkRepository {
 
     /** 全量重载快照; 超软上限时返回 null 表示回落直查 (不缓存). */
     private List<RagChunk> reload(Instant now) {
-        List<RagChunk> loaded = delegate.findActive(now);
         int maxChunks = props.getRecall().getCacheMaxChunks();
+        List<RagChunk> loaded = maxChunks > 0
+                ? delegate.findActiveLimited(now, maxChunks + 1)
+                : delegate.findActive(now);
         if (maxChunks > 0 && loaded.size() > maxChunks) {
             log.warn("rag-chunk-cache-bypass activeCount={} exceeds cacheMaxChunks={}, fallback to direct query",
                     loaded.size(), maxChunks);

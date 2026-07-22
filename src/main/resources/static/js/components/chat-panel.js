@@ -8,7 +8,7 @@
  * ⚠️ 关键:原 app.js 文件级闭包变量 currentES / lastEventTime / heartbeatTimer / recovering
  * 全部迁进 setup() 闭包 —— 迁入后天然每实例独立。漏迁会让 SSE / 心跳 / 断连重连失效。
  *
- * 与宿主的契约见 §4.2:workingDir/agentType/env 等作 props 传入;新建会话 / 刷新历史
+ * 与宿主的契约见 §4.2:workingDir/agentType 等作 props 传入;新建会话 / 刷新历史
  * 通过 emits 通知宿主。组件自洽直调 /api/chat、/api/fs、/api/refinery 等,不依赖宿主方法。
  *
  * @author zhourui(V33215020)
@@ -139,7 +139,7 @@
           v-model="userInput"
           type="textarea"
           :rows="3"
-          placeholder="输入你的问题，例如：测试环境，traceId: xxx，问题描述"
+          placeholder="输入你的问题，例如：traceId: xxx，问题描述"
           @keydown.enter.exact.prevent="handleEnter" @keydown.up.prevent="handleArrowUp" @keydown.down.prevent="handleArrowDown" @keydown.tab.prevent="handleTab" @keydown.escape="hideCommandPopup"
           @keydown.ctrl.enter.exact.prevent="insertNewline"
           @paste="handlePaste"
@@ -211,8 +211,6 @@
     props: {
       workingDir: { type: String, default: '' },
       agentType: { type: String, default: 'CODEX' },
-      env: { type: String, default: '' },
-      envList: { type: Array, default: () => [] },
       initialSessionId: { type: String, default: '' },
       initialResumeId: { type: String, default: '' },
       ragEnabled: { type: Boolean, default: true },
@@ -345,7 +343,6 @@
         const req = {
           workingDir: props.workingDir,
           agentType: props.agentType,
-          env: props.env || null,
         };
         const res = await fetch('/api/chat/session', {
           method: 'POST',
@@ -361,7 +358,6 @@
           sessionId: data.sessionId,
           workingDir: data.workingDir,
           agentType: data.agentType,
-          env: props.env || null,
         });
       };
 
@@ -761,11 +757,12 @@
         const msgIndex = messages.value.length;
         messages.value.push({ id: null, role: 'agent', segments: [], recall: null, recallOpen: false });
 
-        let url = '/api/chat/session/' + encodeURIComponent(sessionId.value) + '/message/stream?message=' + encodeURIComponent(message);
-        if (resumeId.value) { url += '&resumeId=' + encodeURIComponent(resumeId.value); }
-        url += '&recall=' + (ragRecall.value ? 'true' : 'false');
-
-        const es = new EventSource(url);
+        const url = '/api/chat/session/' + encodeURIComponent(sessionId.value) + '/message/stream';
+        const es = window.AgentPostSse.open(url, {
+          message: message,
+          resumeId: resumeId.value || null,
+          recall: !!ragRecall.value
+        });
         currentES = es;
         startHeartbeat();
         let segments = [];

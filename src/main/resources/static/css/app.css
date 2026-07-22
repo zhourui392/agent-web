@@ -13,7 +13,7 @@ html, body {
   font-weight: 600;
 }
 
-/* 会话进行中: env / agent radio 组锁定态可视化
+/* 会话进行中: Agent radio 组锁定态可视化
    - 选中项: 保留主色背景高亮, 一眼定位"锁的是哪个"
    - 未选项: 进一步灰化 (opacity 0.35), 与默认 disabled 拉开差距 */
 .locked-radio-group .el-radio-button.is-active .el-radio-button__inner {

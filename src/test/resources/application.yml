@@ -1,5 +1,7 @@
 agent:
   auth:
+    cookie-secure: false
+  public-access:
     enabled: false
   fs:
     roots:

@@ -12,10 +12,14 @@ import java.util.Optional;
 public class ManualSessionAuthenticator {
 
     private final ManualSessionRepository repository;
+    private final UserAccountRepository userAccountRepository;
     private final Clock clock;
 
-    public ManualSessionAuthenticator(ManualSessionRepository repository, Clock clock) {
+    public ManualSessionAuthenticator(ManualSessionRepository repository,
+                                      UserAccountRepository userAccountRepository,
+                                      Clock clock) {
         this.repository = repository;
+        this.userAccountRepository = userAccountRepository;
         this.clock = clock;
     }
 
@@ -37,6 +41,11 @@ public class ManualSessionAuthenticator {
             repository.deleteById(sessionToken);
             return Optional.empty();
         }
-        return Optional.of(session.toLoginUser());
+        UserAccount account = userAccountRepository.findById(session.getUserId()).orElse(null);
+        if (account == null || !account.isEnabled()) {
+            repository.deleteById(sessionToken);
+            return Optional.empty();
+        }
+        return Optional.of(session.toLoginUser(account));
     }
 }

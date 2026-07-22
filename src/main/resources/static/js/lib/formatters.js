@@ -22,11 +22,20 @@
     if (!text) return '';
     var cleaned = text.replace(/\n{3,}/g, '\n\n');
     try {
-      if (typeof marked !== 'undefined' && marked.parse) {
-        return marked.parse(cleaned, { breaks: false });
+      if (typeof marked !== 'undefined' && marked.parse
+        && typeof DOMPurify !== 'undefined' && DOMPurify.sanitize) {
+        var rendered = marked.parse(cleaned, { breaks: false });
+        return DOMPurify.sanitize(rendered, {
+          USE_PROFILES: { html: true },
+          ALLOW_DATA_ATTR: false,
+          ALLOW_UNKNOWN_PROTOCOLS: false,
+          FORBID_TAGS: ['style', 'iframe', 'object', 'embed', 'form', 'input', 'button',
+            'textarea', 'select', 'option']
+        });
       }
     } catch (e) { /* fallback */ }
-    return cleaned.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+    // 净化器缺失/异常时 fail-closed：不返回 marked 生成的未信任 HTML。
+    return escapeHtml(cleaned);
   }
 
   function parseUserMessage(text) {

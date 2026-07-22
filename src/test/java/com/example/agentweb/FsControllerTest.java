@@ -4,7 +4,7 @@ import com.example.agentweb.infra.auth.AuthProperties;
 import com.example.agentweb.infra.FsProperties;
 import com.example.agentweb.infra.UploadFileStore;
 import com.example.agentweb.infra.UploadPicStore;
-import com.example.agentweb.infra.auth.ApiKeyProperties;
+import com.example.agentweb.infra.RealPathWorkspacePolicy;
 import com.example.agentweb.interfaces.FsController;
 import com.example.agentweb.interfaces.GlobalExceptionHandler;
 import org.junit.jupiter.api.BeforeEach;
@@ -58,7 +58,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @WebMvcTest(FsController.class)
 @EnableConfigurationProperties(FsProperties.class)
-@Import(GlobalExceptionHandler.class)
+@Import({GlobalExceptionHandler.class, RealPathWorkspacePolicy.class})
 public class FsControllerTest {
 
     /** 受 agent.fs.roots 许可的根目录;上传校验以此为准,而非 OS 用户目录。 */
@@ -102,9 +102,6 @@ public class FsControllerTest {
     /** 手动登录链路依赖, SessionAuthFilter 现在还要 manual provider + props + repo, 切片测试一并 mock。 */
     @MockBean
     private com.example.agentweb.domain.auth.ManualSessionRepository manualSessionRepository;
-
-    @MockBean
-    private ApiKeyProperties apiKeyProperties;
 
     @BeforeEach
     void stubUploadPicStore() throws Exception {
@@ -365,6 +362,75 @@ public class FsControllerTest {
                     .andExpect(status().is4xxClientError());
         } finally {
             FileSystemUtils.deleteRecursively(workDir);
+        }
+    }
+
+    @Test
+    public void upload_with_pathTraversalFilename_should_be_rejected_withoutWritingOutsideTarget() throws Exception {
+        Path workDir = Files.createTempDirectory(fsRoot, "upload-traversal-");
+        Path escaped = workDir.getParent().resolve("escaped-" + System.nanoTime() + ".txt");
+        try {
+            MockMultipartFile file = new MockMultipartFile(
+                    "file", "../" + escaped.getFileName(), "text/plain", "owned".getBytes());
+
+            mvc.perform(multipart("/api/fs/upload")
+                            .file(file)
+                            .param("path", workDir.toString()))
+                    .andExpect(status().isBadRequest());
+
+            org.junit.jupiter.api.Assertions.assertFalse(Files.exists(escaped));
+        } finally {
+            Files.deleteIfExists(escaped);
+            FileSystemUtils.deleteRecursively(workDir);
+        }
+    }
+
+    @Test
+    public void upload_should_not_overwrite_existing_file() throws Exception {
+        Path workDir = Files.createTempDirectory(fsRoot, "upload-existing-");
+        Path existing = workDir.resolve("same.txt");
+        Files.write(existing, "original".getBytes());
+        try {
+            MockMultipartFile file = new MockMultipartFile("file", "same.txt", "text/plain", "new".getBytes());
+
+            mvc.perform(multipart("/api/fs/upload")
+                            .file(file)
+                            .param("path", workDir.toString()))
+                    .andExpect(status().isConflict());
+
+            org.junit.jupiter.api.Assertions.assertEquals("original", new String(Files.readAllBytes(existing)));
+        } finally {
+            FileSystemUtils.deleteRecursively(workDir);
+        }
+    }
+
+    @Test
+    public void filesystemEndpoints_should_reject_symlinkEscape() throws Exception {
+        Path workDir = Files.createTempDirectory(fsRoot, "symlink-root-");
+        Path outside = Files.createTempDirectory(
+                Paths.get(System.getProperty("user.home")), "agentweb-symlink-outside-");
+        Path outsideFile = outside.resolve("secret.txt");
+        Files.write(outsideFile, "secret".getBytes());
+        Path link = workDir.resolve("outside-link");
+        try {
+            try {
+                Files.createSymbolicLink(link, outside);
+            } catch (UnsupportedOperationException | java.nio.file.FileSystemException ex) {
+                org.junit.jupiter.api.Assumptions.assumeTrue(false,
+                        "current filesystem does not support symbolic links");
+            }
+
+            mvc.perform(get("/api/fs/list").param("path", link.toString()))
+                    .andExpect(status().isBadRequest());
+            mvc.perform(get("/api/fs/download").param("path", link.resolve("secret.txt").toString()))
+                    .andExpect(status().isBadRequest());
+            mvc.perform(multipart("/api/fs/upload")
+                            .file(new MockMultipartFile("file", "new.txt", "text/plain", "x".getBytes()))
+                            .param("path", link.toString()))
+                    .andExpect(status().isBadRequest());
+        } finally {
+            FileSystemUtils.deleteRecursively(workDir);
+            FileSystemUtils.deleteRecursively(outside);
         }
     }
 

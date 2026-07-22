@@ -14,12 +14,11 @@ import * as path from 'path';
  * 但 spec 预先以 admin 身份登录拿 cookie;Phase 2 把该前缀纳入 protected-prefixes 后无需改本 spec。
  *
  * 关键依赖:
- * - application-e2e.yml: agent.cli.codex 指向 codex-json-stub.cmd, agent.admin.password=e2e-admin-pass
+ * - application-e2e.yml: agent.cli.codex 指向 codex-json-stub.cmd
  * - agent.issue-log.refine.enabled=false → draft 走 DraftBuilder 启发式 fallback
  */
 
 const API_KEY = 'ak-ops-team-change-me';
-const ADMIN_PASSWORD = 'e2e-admin-pass';
 const STUB_KEYWORDS = ['ServiceA', '限流过紧', 'Sentinel'];
 const RUN_MARKER = 'E2E-DIAG-API-' + Date.now();
 
@@ -40,15 +39,14 @@ test.afterAll(async () => {
 
 /** 以 admin 身份登录,cookie 由 APIRequestContext 自动随后续请求携带。 */
 async function loginAsAdmin(request: APIRequestContext): Promise<void> {
-  const res = await request.post('/api/admin/login', {
-    data: { password: ADMIN_PASSWORD },
+  const res = await request.post('/api/auth/login', {
+    data: { username: 'admin', password: process.env.AGENT_E2E_ADMIN_PASSWORD },
   });
   expect(res.ok(), 'admin login should succeed with e2e password').toBeTruthy();
-  expect((await res.json()).authenticated).toBe(true);
-
-  // 确认 cookie 已被 context 记住并随请求回带
-  const status = await request.get('/api/admin/status');
-  expect((await status.json()).authenticated, 'admin cookie should stick across requests').toBe(true);
+  const status = await request.get('/api/auth/status');
+  const body = await status.json();
+  expect(body.authenticated, 'database session cookie should stick across requests').toBe(true);
+  expect(body.role).toBe('ADMIN');
 }
 
 async function submitDiagnose(request: APIRequestContext): Promise<string> {

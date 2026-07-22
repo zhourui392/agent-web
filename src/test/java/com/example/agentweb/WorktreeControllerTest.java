@@ -3,7 +3,6 @@ package com.example.agentweb;
 import com.example.agentweb.app.WorktreeService;
 import com.example.agentweb.domain.auth.CurrentUserProvider;
 import com.example.agentweb.infra.auth.AuthProperties;
-import com.example.agentweb.infra.auth.ApiKeyProperties;
 import com.example.agentweb.interfaces.GlobalExceptionHandler;
 import com.example.agentweb.interfaces.WorktreeController;
 import org.junit.jupiter.api.DisplayName;
@@ -53,8 +52,6 @@ class WorktreeControllerTest {
     private WorktreeService worktreeService;
     @MockBean
     private CurrentUserProvider currentUserProvider;
-    @MockBean
-    private ApiKeyProperties apiKeyProperties;
     @MockBean
     private AuthProperties authProperties;
 

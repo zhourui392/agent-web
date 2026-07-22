@@ -13,10 +13,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 public class PublicPathsTest {
 
     @Test
-    void shareViewerImage_isPublic() {
-        // 分享页 share.html 渲染消息图片走 /api/fs/image,未登录访问者必须放行
-        assertTrue(PublicPaths.isPublic("/api/fs/image"),
-                "/api/fs/image 应在白名单,否则分享页图片被 登录会话 拦成 401");
+    void arbitraryFilesystemImage_requiresLogin() {
+        assertFalse(PublicPaths.isPublic("/api/fs/image"));
+        assertTrue(PublicPaths.isPublic("/api/share/token/image"));
     }
 
     @Test
@@ -64,26 +63,20 @@ public class PublicPathsTest {
     }
 
     @Test
-    void adminLoginEndpoints_arePublic() {
-        // /api/admin/** 是管理口令登录入口,登录会话 全拦时若不放行,用户连登录接口都打不开 → 死循环
-        assertTrue(PublicPaths.isPublic("/api/admin/login"));
-        assertTrue(PublicPaths.isPublic("/api/admin/logout"));
-        assertTrue(PublicPaths.isPublic("/api/admin/status"));
+    void credentialLoginEndpoints_arePublic() {
+        assertTrue(PublicPaths.isPublic("/api/auth/login"));
+        assertTrue(PublicPaths.isPublic("/api/auth/logout"));
+        assertTrue(PublicPaths.isPublic("/api/auth/status"));
+        assertFalse(PublicPaths.isPublic("/api/auth/manual-login"));
     }
 
     @Test
-    void adminGuardedDataEndpoints_arePublic() {
-        // metrics/admin-user-suggestions/admin-workflows/admin-settings 由 AdminAuthFilter 用独立口令承担鉴权,
-        // 登录会话 必须放行避免双重拦截 (enforce-all-hosts=true 时尤其关键)
-        assertTrue(PublicPaths.isPublic("/api/metrics/overview"));
-        assertTrue(PublicPaths.isPublic("/api/admin-user-suggestions"));
-        assertTrue(PublicPaths.isPublic("/api/admin-user-suggestions/"));
-        assertTrue(PublicPaths.isPublic("/api/admin-workflows"));
-        assertTrue(PublicPaths.isPublic("/api/admin-workflows/wf-1"));
-        assertTrue(PublicPaths.isPublic("/api/admin-workflow-executions"));
-        assertTrue(PublicPaths.isPublic("/api/admin-workflow-executions/exec-1"));
-        assertTrue(PublicPaths.isPublic("/api/admin-settings"));
-        assertTrue(PublicPaths.isPublic("/api/admin-settings/agent-models"));
+    void adminDataEndpoints_requireNormalSessionBeforeRoleCheck() {
+        assertFalse(PublicPaths.isPublic("/api/metrics/overview"));
+        assertFalse(PublicPaths.isPublic("/api/admin-user-suggestions"));
+        assertFalse(PublicPaths.isPublic("/api/admin-workflows"));
+        assertFalse(PublicPaths.isPublic("/api/admin-workflow-executions"));
+        assertFalse(PublicPaths.isPublic("/api/admin-settings"));
     }
 
     @Test
@@ -102,16 +95,4 @@ public class PublicPathsTest {
                 "/api/admin-settings-debug 不应公开");
     }
 
-    @Test
-    void scmWebhookAndExternalIntake_arePublicExactOnly() {
-        // M2: GitLab 回调与外部建需求各有独立鉴权(secret / X-API-Key), 登录会话 必须放行
-        assertTrue(PublicPaths.isPublic("/api/scm/webhook"), "/api/scm/webhook 必须公开");
-        assertTrue(PublicPaths.isPublic("/api/requirements/external"),
-                "/api/requirements/external 必须公开");
-        // 精确匹配:需求线其余端点仍受 登录会话 保护
-        assertFalse(PublicPaths.isPublic("/api/requirements"), "/api/requirements 不应公开");
-        assertFalse(PublicPaths.isPublic("/api/requirements/R1"), "/api/requirements/{id} 不应公开");
-        assertFalse(PublicPaths.isPublic("/api/scm/webhook/replay"),
-                "/api/scm/webhook 子路径不应误放");
-    }
 }

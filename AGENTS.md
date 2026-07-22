@@ -198,14 +198,6 @@ config/       Spring MVC 和装配配置
 - `agent.cli.codex.args` 为空时，Codex 走真实 `codex exec --json`；填非空模板时回退 legacy 文本输出模式。
 - 集成测试必须使用 `TestCliStub` 或 e2e fixtures，不要调用真实本机 Agent。
 
-### 远程诊断
-
-1. `DiagnoseController` 通过 `ApiKeyAuthFilter` 校验 `X-API-Key`，并接受 `Idempotency-Key`。
-2. `DiagnoseAppServiceImpl` 持久化 `DiagnoseTask`，检查并发上限，把任务提交到诊断线程池。
-3. worker 复用 `AgentGateway` 驱动 CLI，事件发布到 `DiagnoseEventBus`。
-4. SSE 支持 `Last-Event-ID` 断线续传。
-5. `DiagnoseHistoryController` 提供详情、继续追问、issue-log 草稿和保存能力。
-
 ### AgentRun 与 Prompt 组装
 
 `app/agentrun/` 是应用层执行管线（不是领域聚合），把各入口"组装一次 run 的 prompt"收敛到统一 pipeline。诊断、Workflow、定时任务都经它装配。
@@ -257,10 +249,15 @@ config/       Spring MVC 和装配配置
 | --- | --- |
 | `CLAUDE_CLI_CMD` | Claude 可执行文件 |
 | `CODEX_CMD` | Codex 可执行文件 |
+| `SERVER_ADDRESS` / `SERVER_FORWARD_HEADERS_STRATEGY` | 应用监听地址（同机 Caddy 默认 `127.0.0.1`）/ 可信代理转发头策略 |
 | `CODEX_HOME` | Codex 配置/鉴权目录 |
 | `OPENAI_API_KEY` | Codex API 鉴权，已有登录态时可不设 |
 | `AGENT_DB_PATH` | SQLite 数据库路径 |
-| `ADMIN_PASSWORD` | 管理后台口令覆盖 |
+| `AGENT_AUTH_SESSION_TTL_SECONDS` | 数据库登录会话有效期（默认 7 天） |
+| `AGENT_AUTH_COOKIE_NAME` / `AGENT_AUTH_COOKIE_SECURE` | 登录 Cookie 名 / 是否强制 Secure（公网默认 `__Host-agent_session` / `true`） |
+| `AGENT_AUTH_LOGIN_MAX_FAILURES` / `AGENT_AUTH_LOGIN_FAILURE_WINDOW_SECONDS` | 登录失败限流阈值 / 窗口 |
+| `AGENT_PUBLIC_ACCESS_ENABLED` / `AGENT_BOOTSTRAP_ADMIN_PASSWORD` | 公网启动门禁 / 首次替换公开种子密码的新密码 |
+| `AGENT_WORKTREE_ALLOWED_ROOT` | Worktree 操作允许的工作区根 |
 | `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | 飞书凭据 |
 | `REFINERY_ENABLED` | Knowledge Refinery 总开关 |
 | `REFINERY_EMBED_API_KEY` | Ark embedding 凭据，refinery 开启时必填 |

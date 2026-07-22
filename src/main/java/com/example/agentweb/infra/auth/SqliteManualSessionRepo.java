@@ -90,6 +90,13 @@ public class SqliteManualSessionRepo implements ManualSessionRepository {
     }
 
     @Override
+    public int deleteByUserId(String userId) {
+        int rows = jdbc.update("DELETE FROM manual_session WHERE user_id = ?", userId);
+        log.info("manual-session-user-revoked userId={} affectedRows={}", userId, rows);
+        return rows;
+    }
+
+    @Override
     public int deleteExpiredBefore(Instant threshold) {
         int rows = jdbc.update("DELETE FROM manual_session WHERE expires_at < ?",
                 threshold.toEpochMilli());

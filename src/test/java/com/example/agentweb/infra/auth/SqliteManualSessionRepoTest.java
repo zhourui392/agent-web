@@ -90,6 +90,23 @@ class SqliteManualSessionRepoTest {
     }
 
     @Test
+    void deleteByUserId_should_RevokeOnlyThatUsersSessions() {
+        ManualSession first = ManualSession.create("admin", "admin", 600, fixed);
+        ManualSession second = ManualSession.create("admin", "admin", 600, fixed);
+        ManualSession other = ManualSession.create("other", "Other", 600, fixed);
+        repo.save(first);
+        repo.save(second);
+        repo.save(other);
+
+        int removed = repo.deleteByUserId("admin");
+
+        assertEquals(2, removed);
+        assertFalse(repo.findById(first.getSessionId()).isPresent());
+        assertFalse(repo.findById(second.getSessionId()).isPresent());
+        assertTrue(repo.findById(other.getSessionId()).isPresent());
+    }
+
+    @Test
     void deleteExpiredBefore_should_only_remove_expired() {
         ManualSession alive = ManualSession.create("alice", "Alice", 600, fixed);
         ManualSession dead = ManualSession.create("bob", "Bob", 10, fixed);

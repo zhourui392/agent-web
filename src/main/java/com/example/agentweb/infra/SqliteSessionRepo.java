@@ -12,6 +12,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -78,6 +79,7 @@ public class SqliteSessionRepo implements SessionRepository {
     }
 
     @Override
+    @Transactional
     public long addMessageReturningId(String sessionId, ChatMessage message) {
         KeyHolder keyHolder = new GeneratedKeyHolder();
         jdbc.update(connection -> {
@@ -147,6 +149,7 @@ public class SqliteSessionRepo implements SessionRepository {
     }
 
     @Override
+    @Transactional
     public void deleteById(String id) {
         // 先清召回明细 (按 message_id 关联), 再删消息, 避免 chat_message_recall 残留孤儿行
         jdbc.update("DELETE FROM chat_message_recall WHERE message_id IN "
@@ -157,6 +160,7 @@ public class SqliteSessionRepo implements SessionRepository {
     }
 
     @Override
+    @Transactional
     public int truncateFrom(String sessionId, long fromId) {
         // 同步清掉被截断消息的召回明细
         jdbc.update("DELETE FROM chat_message_recall WHERE message_id IN "
@@ -169,6 +173,7 @@ public class SqliteSessionRepo implements SessionRepository {
     }
 
     @Override
+    @Transactional
     public String setShareToken(String sessionId, String shareToken) {
         // If session already has a share token, return it
         List<String> existing = jdbc.query(

@@ -9,7 +9,7 @@ import { gotoAdminMenu } from './_admin';
  *
  * 沉淀入口已随诊断历史迁到 /admin。链路:
  * 1. POST /api/diagnose (X-API-Key) 起诊断 → 轮询 /api/diagnose/{id} 到 SUCCESS
- * 2. /admin 管理口令登录 → 诊断历史菜单 → 详情抽屉 → 点 "沉淀为 issue-log"
+ * 2. 复用数据库 ADMIN 用户会话 → 诊断历史菜单 → 详情抽屉 → 点 "沉淀为 issue-log"
  * 3. 弹窗启发式 draft (refine 关闭, 走 DraftBuilder fallback)
  * 4. 改 title 后保存
  * 5. 落盘断言: <workingDir>/docs/issue-log/issue/I-*.md + INDEX.md 含新 ID
@@ -17,7 +17,7 @@ import { gotoAdminMenu } from './_admin';
  * 纯 API draft/save 契约由 diagnose-api.spec.ts 覆盖,这里只验 admin UI。
  *
  * 关键依赖:
- * - application-e2e.yml: agent.issue-log.refine.enabled=false → DraftBuilder;agent.admin.password=e2e-admin-pass
+ * - application-e2e.yml: agent.issue-log.refine.enabled=false → DraftBuilder
  * - codex-json-stub: 输出 "ServiceA 限流过紧 / Sentinel" 结论
  */
 

@@ -38,4 +38,9 @@ public interface ChatSessionQueryService {
      * @return 分享视图；token 无效时返回 null
      */
     SharedSessionView findSharedView(String shareToken);
+
+    /**
+     * 查询某公开分享会话是否精确引用了指定图片路径。
+     */
+    boolean isSharedImageReferenced(String shareToken, String imagePath);
 }

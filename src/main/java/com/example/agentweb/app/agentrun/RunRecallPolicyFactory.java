@@ -22,10 +22,9 @@ public class RunRecallPolicyFactory {
         this.properties = properties;
     }
 
-    /** workspace 知识预召回默认放行的 run 形态；需求线 PLAN/IMPLEMENT/FIX 自 M4 接入（requirement 轴）。 */
+    /** workspace 知识预召回默认放行的 run 形态。 */
     private static final Set<RunForm> WORKSPACE_KNOWLEDGE_FORMS = EnumSet.of(
-            RunForm.DIAGNOSE, RunForm.WORKFLOW_STEP, RunForm.SCHEDULED,
-            RunForm.PLAN, RunForm.IMPLEMENT, RunForm.FIX);
+            RunForm.DIAGNOSE, RunForm.WORKFLOW_STEP, RunForm.SCHEDULED);
 
     public RunRecallPolicy forRun(RunForm runForm, SourceType sourceDomain) {
         boolean defaultWorkspaceKnowledge = WORKSPACE_KNOWLEDGE_FORMS.contains(runForm);

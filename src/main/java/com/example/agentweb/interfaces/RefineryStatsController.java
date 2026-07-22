@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * Knowledge Refinery 统计指标端点, 供管理后台展示 chunk 分布和诊断 ingest 状态.
  *
- * <p>走 session 鉴权 (AuthFilter), 不走 ApiKeyAuthFilter.
+ * <p>走 session 鉴权 (AuthFilter).
  * 仅在 {@code agent.refinery.enabled=true} 时装配.</p>
  *
  * @author zhourui(V33215020)

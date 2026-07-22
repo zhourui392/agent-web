@@ -4,6 +4,7 @@ import com.example.agentweb.app.ChatMessageView;
 import com.example.agentweb.app.ChatSessionQueryService;
 import com.example.agentweb.app.ChatSessionSummary;
 import com.example.agentweb.app.SharedSessionView;
+import com.example.agentweb.domain.chat.MessageImageReferences;
 import com.example.agentweb.domain.auth.CurrentUserProvider;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -82,16 +83,31 @@ public class SqliteChatSessionQueryService implements ChatSessionQueryService {
     @Override
     public SharedSessionView findSharedView(String shareToken) {
         List<SharedSessionView> heads = jdbc.query(
-                "SELECT id, agent_type, working_dir, created_at, title "
+                "SELECT id, agent_type, created_at, title "
                         + "FROM chat_session WHERE share_token = ?",
                 (rs, rowNum) -> new SharedSessionView(
                         rs.getString("title"),
                         rs.getString("agent_type"),
-                        rs.getString("working_dir"),
                         rs.getString("created_at"),
                         loadMessages(rs.getString("id"))),
                 shareToken);
         return heads.isEmpty() ? null : heads.get(0);
+    }
+
+    @Override
+    public boolean isSharedImageReferenced(String shareToken, String imagePath) {
+        List<String> contents = jdbc.query(
+                "SELECT m.content FROM chat_message m "
+                        + "JOIN chat_session s ON s.id = m.session_id "
+                        + "WHERE s.share_token = ? AND m.role = 'user'",
+                (rs, rowNum) -> rs.getString("content"),
+                shareToken);
+        for (String content : contents) {
+            if (MessageImageReferences.contains(content, imagePath)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private List<ChatMessageView> loadMessages(String sessionId) {

@@ -16,14 +16,20 @@ public class LoginUser implements Serializable {
     private String userId;
     private String userName;
     private String userEmail;
+    private UserRole role = UserRole.USER;
 
     public LoginUser() {
     }
 
     public LoginUser(String userId, String userName, String userEmail) {
+        this(userId, userName, userEmail, UserRole.USER);
+    }
+
+    public LoginUser(String userId, String userName, String userEmail, UserRole role) {
         this.userId = userId;
         this.userName = userName;
         this.userEmail = userEmail;
+        this.role = role == null ? UserRole.USER : role;
     }
 
     public String getUserId() {
@@ -48,6 +54,18 @@ public class LoginUser implements Serializable {
 
     public void setUserEmail(String userEmail) {
         this.userEmail = userEmail;
+    }
+
+    public UserRole getRole() {
+        return role;
+    }
+
+    public void setRole(UserRole role) {
+        this.role = role == null ? UserRole.USER : role;
+    }
+
+    public boolean isAdmin() {
+        return UserRole.ADMIN == role;
     }
 
     @Override

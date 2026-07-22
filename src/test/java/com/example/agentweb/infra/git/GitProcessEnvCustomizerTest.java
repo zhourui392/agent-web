@@ -81,6 +81,22 @@ class GitProcessEnvCustomizerTest {
     }
 
     @Test
+    void identityOnly_should_not_exposeCredentialToAgentProcess() throws Exception {
+        when(resolver.resolve("u1"))
+                .thenReturn(new GitEnvSpec(identityEnv(), "gituser", "secret-token"));
+        ProcessBuilder pb = new ProcessBuilder("git");
+
+        customizer.applyIdentityOnly(pb, "u1");
+
+        Map<String, String> env = pb.environment();
+        assertEquals("周锐", env.get("GIT_AUTHOR_NAME"));
+        assertNull(env.get("GIT_ASKPASS"));
+        assertNull(env.get("AGENT_GIT_USERNAME"));
+        assertNull(env.get("AGENT_GIT_PASSWORD"));
+        verify(askpassScript, never()).ensureScript();
+    }
+
+    @Test
     void askpass_write_failure_should_degrade_to_identity_only() throws Exception {
         when(resolver.resolve("u1"))
                 .thenReturn(new GitEnvSpec(identityEnv(), "gituser", "secret-token"));

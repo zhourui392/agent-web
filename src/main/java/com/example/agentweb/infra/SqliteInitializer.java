@@ -24,6 +24,10 @@ public class SqliteInitializer {
 
     @PostConstruct
     public void init() throws Exception {
+        // WAL 是数据库持久设置，foreign_keys/busy_timeout 同时保护初始化连接。
+        jdbc.execute("PRAGMA journal_mode=WAL");
+        jdbc.execute("PRAGMA foreign_keys=ON");
+        jdbc.execute("PRAGMA busy_timeout=5000");
         String sql = StreamUtils.copyToString(
                 new ClassPathResource("schema.sql").getInputStream(),
                 StandardCharsets.UTF_8
@@ -177,12 +181,6 @@ public class SqliteInitializer {
             }
         }
         migrateChatRecallObservation();
-        // Migration (M1 需求绑定): 挂靠需求的 run/会话回链 requirement_id（可空，NULL=非需求线）
-        try {
-            jdbc.execute("ALTER TABLE chat_session ADD COLUMN requirement_id TEXT");
-        } catch (Exception ignored) {
-            // column already exists
-        }
         migrateWorkflowTables();
     }
 

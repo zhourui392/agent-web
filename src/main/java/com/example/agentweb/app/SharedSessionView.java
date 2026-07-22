@@ -15,7 +15,6 @@ public class SharedSessionView {
 
     String title;
     String agentType;
-    String workingDir;
     String createdAt;
     List<ChatMessageView> messages;
 }

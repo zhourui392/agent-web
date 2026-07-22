@@ -35,12 +35,14 @@ public class AgentCliProperties {
         private int timeoutSeconds = 120;
         /** Grace period to drain stdout after process exit before assuming an inherited pipe is held. */
         private long stdoutDrainGraceMs = 3000L;
+        /** 单次运行最多接收的 stdout 字节数，防止无界内存与持久化增长。 */
+        private long maxOutputBytes = 10L * 1024L * 1024L;
 
         // ── Codex 专属字段；Claude 方言不读取 ──
         /** Codex --model 参数；为空则不下发该 flag */
         private String model;
-        /** Codex --dangerously-bypass-approvals-and-sandbox 开关，默认开 */
-        private boolean sandboxBypass = true;
+        /** Codex --dangerously-bypass-approvals-and-sandbox 开关，默认关闭。 */
+        private boolean sandboxBypass = false;
         /** Codex --skip-git-repo-check 开关，默认开 */
         private boolean skipGitCheck = true;
         /** Codex 透传到 codex exec 的额外参数，紧贴 stdin sentinel '-' 之前 */

@@ -8,8 +8,12 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
   fs.mkdirSync(path.dirname(storageStatePath), { recursive: true });
 
   const context = await request.newContext({ baseURL });
-  const response = await context.post('/api/auth/manual-login', {
-    data: { employeeId: 'E10001', userName: 'E2E User' }
+  const password = process.env.AGENT_E2E_ADMIN_PASSWORD;
+  if (!password) {
+    throw new Error('AGENT_E2E_ADMIN_PASSWORD is required for E2E database login');
+  }
+  const response = await context.post('/api/auth/login', {
+    data: { username: 'admin', password }
   });
   if (!response.ok()) {
     throw new Error(`E2E login failed: ${response.status()} ${await response.text()}`);

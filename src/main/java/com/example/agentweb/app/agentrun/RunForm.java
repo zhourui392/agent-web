@@ -12,9 +12,5 @@ public enum RunForm {
     DIAGNOSE,
     WORKFLOW_STEP,
     SCHEDULED,
-    CUSTOM,
-    // 需求线 run 形态(M2 计划门起使用)
-    PLAN,
-    IMPLEMENT,
-    FIX
+    CUSTOM
 }

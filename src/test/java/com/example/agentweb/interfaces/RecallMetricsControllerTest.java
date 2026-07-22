@@ -9,7 +9,6 @@ import com.example.agentweb.app.metrics.RecallMetricsFilter;
 import com.example.agentweb.app.metrics.RecallMetricsQueryService;
 import com.example.agentweb.app.metrics.RecallMetricsSummary;
 import com.example.agentweb.infra.auth.AuthProperties;
-import com.example.agentweb.infra.auth.ApiKeyProperties;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -55,9 +54,6 @@ class RecallMetricsControllerTest {
     private com.example.agentweb.infra.auth.ThreadLocalUserContext userContext;
     @MockBean
     private com.example.agentweb.domain.auth.ManualSessionRepository manualSessionRepository;
-    @MockBean
-    private ApiKeyProperties apiKeyProperties;
-
     @Test
     void summary_should_return_recall_metrics_and_only_passthrough_time_range() throws Exception {
         RecallMetricsSummary summary = new RecallMetricsSummary();

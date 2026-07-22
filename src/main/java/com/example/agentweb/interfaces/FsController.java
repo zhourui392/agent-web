@@ -1,5 +1,6 @@
 package com.example.agentweb.interfaces;
 
+import com.example.agentweb.domain.worktree.WorkspacePathPolicy;
 import com.example.agentweb.interfaces.dto.SuccessResponse;
 import com.example.agentweb.interfaces.dto.UploadResponse;
 import org.springframework.core.io.FileSystemResource;
@@ -8,7 +9,12 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.StringUtils;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.File;
@@ -16,8 +22,11 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.StandardCopyOption;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Server-side file browser with upload / download / delete.
@@ -35,19 +44,19 @@ public class FsController {
     private static final long MAX_FILE_UPLOAD_BYTES = 5L * 1024L * 1024L;
 
     private final List<String> roots;
-    private final List<String> uploadRoots;
+    private final WorkspacePathPolicy pathPolicy;
     private final com.example.agentweb.infra.UploadPicStore uploadPicStore;
     private final com.example.agentweb.infra.UploadFileStore uploadFileStore;
 
     public FsController(com.example.agentweb.infra.FsProperties fsProps,
                         com.example.agentweb.infra.UploadPicStore uploadPicStore,
-                        com.example.agentweb.infra.UploadFileStore uploadFileStore) {
+                        com.example.agentweb.infra.UploadFileStore uploadFileStore,
+                        WorkspacePathPolicy pathPolicy) {
         List<String> configured = fsProps.getRoots();
-        this.roots = configured == null || configured.isEmpty() ? Collections.singletonList("/") : configured;
-        List<String> configuredUpload = fsProps.getUploadRoots();
-        this.uploadRoots = configuredUpload == null ? Collections.<String>emptyList() : configuredUpload;
+        this.roots = configured == null ? Collections.<String>emptyList() : configured;
         this.uploadPicStore = uploadPicStore;
         this.uploadFileStore = uploadFileStore;
+        this.pathPolicy = pathPolicy;
     }
 
     @GetMapping(value = "/roots", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -57,18 +66,18 @@ public class FsController {
 
     @GetMapping(value = "/list", produces = MediaType.APPLICATION_JSON_VALUE)
     public List<Map<String, Object>> list(@RequestParam(value = "path", required = false) String path) {
-        String base = (StringUtils.hasText(path)) ? sanitize(path) : roots.get(0);
-        assertUnderRoots(base);
+        String requested = StringUtils.hasText(path) ? path : defaultRoot();
+        String base = pathPolicy.requireExistingDirectory(requested);
         File dir = new File(base);
-        if (!dir.exists() || !dir.isDirectory()) {
-            throw new IllegalArgumentException("Not a directory: " + base);
-        }
 
         File[] children = dir.listFiles();
         List<Map<String, Object>> dirs = new ArrayList<Map<String, Object>>();
         List<Map<String, Object>> files = new ArrayList<Map<String, Object>>();
         if (children != null) {
             for (File f : children) {
+                if (Files.isSymbolicLink(f.toPath())) {
+                    continue;
+                }
                 Map<String, Object> m = new HashMap<String, Object>(8);
                 m.put("name", f.getName());
                 m.put("path", f.getAbsolutePath());
@@ -85,9 +94,9 @@ public class FsController {
 
         List<Map<String, Object>> out = new ArrayList<Map<String, Object>>(dirs.size() + files.size() + 1);
         // Parent link
-        Path p = Paths.get(base).normalize();
+        Path p = Paths.get(base);
         Path parent = p.getParent();
-        if (parent != null && isUnderRoots(parent.toString())) {
+        if (parent != null && pathPolicy.isExistingPathAllowed(parent.toString())) {
             Map<String, Object> up = new HashMap<String, Object>(4);
             up.put("name", "..");
             up.put("path", parent.toString());
@@ -102,21 +111,19 @@ public class FsController {
     @PostMapping(value = "/upload", produces = MediaType.APPLICATION_JSON_VALUE)
     public UploadResponse upload(@RequestParam("path") String path,
                                  @RequestParam("file") MultipartFile file) throws IOException {
-        String targetDir = sanitize(path);
-        assertUploadAllowed(targetDir);
-        File dir = new File(targetDir);
-        if (!dir.exists()) {
-            dir.mkdirs();
+        if (file.getSize() > MAX_FILE_UPLOAD_BYTES) {
+            throw new IllegalArgumentException("文件大小不能超过 5MB");
         }
-        if (!dir.isDirectory()) {
-            throw new IllegalArgumentException("Not a directory: " + targetDir);
-        }
+        String targetDir = pathPolicy.prepareUploadDirectory(path);
+        Files.createDirectories(Paths.get(targetDir));
+        targetDir = pathPolicy.prepareUploadDirectory(targetDir);
         String originalName = file.getOriginalFilename();
-        if (!StringUtils.hasText(originalName)) {
-            throw new IllegalArgumentException("File name is empty");
-        }
+        requireSafeFileName(originalName);
         Path targetFile = Paths.get(targetDir, originalName);
-        Files.copy(file.getInputStream(), targetFile, StandardCopyOption.REPLACE_EXISTING);
+        if (Files.exists(targetFile)) {
+            throw new IllegalStateException("File already exists: " + originalName);
+        }
+        Files.copy(file.getInputStream(), targetFile);
 
         return new UploadResponse(true, targetFile.toString(), file.getSize());
     }
@@ -133,8 +140,7 @@ public class FsController {
     public UploadResponse uploadImage(@RequestParam("path") String path,
                                       @RequestParam(value = "sessionId", required = false) String sessionId,
                                       @RequestParam("file") MultipartFile file) throws IOException {
-        String workingDir = sanitize(path);
-        assertUnderRoots(workingDir);
+        String workingDir = pathPolicy.requireExistingDirectory(path);
         if (file.getSize() > MAX_IMAGE_UPLOAD_BYTES) {
             throw new IllegalArgumentException("图片大小不能超过 1MB");
         }
@@ -152,8 +158,7 @@ public class FsController {
     public UploadResponse uploadChatFile(@RequestParam("path") String path,
                                           @RequestParam(value = "sessionId", required = false) String sessionId,
                                           @RequestParam("file") MultipartFile file) throws IOException {
-        String workingDir = sanitize(path);
-        assertUnderRoots(workingDir);
+        String workingDir = pathPolicy.requireExistingDirectory(path);
         if (file.getSize() > MAX_FILE_UPLOAD_BYTES) {
             throw new IllegalArgumentException("文件大小不能超过 5MB");
         }
@@ -163,12 +168,8 @@ public class FsController {
 
     @GetMapping("/download")
     public ResponseEntity<Resource> download(@RequestParam("path") String path) {
-        String filePath = sanitize(path);
-        assertUnderRoots(filePath);
+        String filePath = pathPolicy.requireExistingFile(path);
         File file = new File(filePath);
-        if (!file.exists() || !file.isFile()) {
-            throw new IllegalArgumentException("Not a file: " + filePath);
-        }
         Resource resource = new FileSystemResource(file);
         String encodedName;
         try {
@@ -191,12 +192,8 @@ public class FsController {
      */
     @GetMapping("/image")
     public ResponseEntity<Resource> image(@RequestParam("path") String path) {
-        String filePath = sanitize(path);
-        assertUnderRoots(filePath);
+        String filePath = pathPolicy.requireExistingFile(path);
         File file = new File(filePath);
-        if (!file.exists() || !file.isFile()) {
-            throw new IllegalArgumentException("Not a file: " + filePath);
-        }
         MediaType mediaType = imageMediaType(file.getName());
         return ResponseEntity.ok()
                 .contentType(mediaType)
@@ -227,56 +224,31 @@ public class FsController {
 
     @DeleteMapping(value = "/delete", produces = MediaType.APPLICATION_JSON_VALUE)
     public SuccessResponse delete(@RequestParam("path") String path) throws IOException {
-        String filePath = sanitize(path);
-        assertUnderRoots(filePath);
+        String filePath = pathPolicy.requireExistingFile(path);
         File file = new File(filePath);
-        if (!file.exists()) {
-            throw new IllegalArgumentException("Path not found: " + filePath);
-        }
-        if (file.isDirectory()) {
-            throw new IllegalArgumentException("Cannot delete directory via this API: " + filePath);
-        }
         Files.delete(file.toPath());
 
         return new SuccessResponse(true);
     }
 
-    private String sanitize(String p) {
-        return Paths.get(p).normalize().toString();
-    }
-
-    private void assertUnderRoots(String p) {
-        if (!isUnderRoots(p)) {
-            throw new IllegalArgumentException("Path out of allowed roots: " + p);
+    private String defaultRoot() {
+        if (roots.isEmpty()) {
+            throw new IllegalStateException("No allowed filesystem roots configured");
         }
+        return roots.get(0);
     }
 
-    /**
-     * upload 专用校验:在常规 roots 之外额外放行 agent.fs.upload-roots。
-     * upload-roots 只对写入生效,download/delete/list 仍只认 roots,
-     * 因此可往该目录写文件,但目录内容不会被 download 接口泄露。
-     */
-    private void assertUploadAllowed(String p) {
-        if (isUnderAny(p, roots) || isUnderAny(p, uploadRoots)) {
-            return;
+    private void requireSafeFileName(String fileName) {
+        if (!StringUtils.hasText(fileName) || fileName.length() > 255
+                || ".".equals(fileName) || "..".equals(fileName)
+                || fileName.indexOf('/') >= 0 || fileName.indexOf('\\') >= 0) {
+            throw new IllegalArgumentException("File name is invalid");
         }
-        throw new IllegalArgumentException("Path out of allowed upload roots: " + p);
-    }
-
-    private boolean isUnderRoots(String p) {
-        return isUnderAny(p, roots);
-    }
-
-    private boolean isUnderAny(String p, List<String> rootList) {
-        String np = Paths.get(p).normalize().toString();
-        for (String r : rootList) {
-            String nr = Paths.get(r).normalize().toString();
-            String prefix = nr.endsWith(File.separator) ? nr : nr + File.separator;
-            if (np.equals(nr) || np.startsWith(prefix)) {
-                return true;
+        for (int i = 0; i < fileName.length(); i++) {
+            if (Character.isISOControl(fileName.charAt(i))) {
+                throw new IllegalArgumentException("File name is invalid");
             }
         }
-        return false;
     }
 
 }

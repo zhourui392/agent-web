@@ -30,7 +30,8 @@ class ManualSessionAuthenticatorTest {
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         ManualSession session = ManualSession.create("E10001", "张三", 60, clock);
         repository.save(session);
-        ManualSessionAuthenticator authenticator = new ManualSessionAuthenticator(repository, clock);
+        ManualSessionAuthenticator authenticator = new ManualSessionAuthenticator(
+                repository, new StubUserRepository(account(true)), clock);
 
         // When
         Optional<LoginUser> result = authenticator.authenticate(session.getSessionId());
@@ -39,6 +40,7 @@ class ManualSessionAuthenticatorTest {
         assertTrue(result.isPresent());
         assertEquals("E10001", result.get().getUserId());
         assertEquals("张三", result.get().getUserName());
+        assertEquals(UserRole.ADMIN, result.get().getRole());
     }
 
     @Test
@@ -49,7 +51,8 @@ class ManualSessionAuthenticatorTest {
         ManualSession session = ManualSession.create("E10001", "张三", 60, createdClock);
         repository.save(session);
         Clock expiredClock = Clock.fixed(NOW.plusSeconds(120), ZoneOffset.UTC);
-        ManualSessionAuthenticator authenticator = new ManualSessionAuthenticator(repository, expiredClock);
+        ManualSessionAuthenticator authenticator = new ManualSessionAuthenticator(
+                repository, new StubUserRepository(account(true)), expiredClock);
 
         // When
         Optional<LoginUser> result = authenticator.authenticate(session.getSessionId());
@@ -63,11 +66,29 @@ class ManualSessionAuthenticatorTest {
     void should_ReturnEmpty_When_TokenIsMissing() {
         // Given
         ManualSessionAuthenticator authenticator = new ManualSessionAuthenticator(
-                new StubSessionRepository(), Clock.fixed(NOW, ZoneOffset.UTC));
+                new StubSessionRepository(), new StubUserRepository(account(true)),
+                Clock.fixed(NOW, ZoneOffset.UTC));
 
         // When / Then
         assertFalse(authenticator.authenticate(null).isPresent());
         assertFalse(authenticator.authenticate("").isPresent());
+    }
+
+    @Test
+    void should_DeleteSession_When_AccountIsDisabled() {
+        StubSessionRepository repository = new StubSessionRepository();
+        Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
+        ManualSession session = ManualSession.create("E10001", "张三", 60, clock);
+        repository.save(session);
+        ManualSessionAuthenticator authenticator = new ManualSessionAuthenticator(
+                repository, new StubUserRepository(account(false)), clock);
+
+        assertFalse(authenticator.authenticate(session.getSessionId()).isPresent());
+        assertFalse(repository.sessions.containsKey(session.getSessionId()));
+    }
+
+    private UserAccount account(boolean enabled) {
+        return UserAccount.restore("E10001", "张三", "encoded", UserRole.ADMIN, enabled, NOW, NOW);
     }
 
     private static final class StubSessionRepository implements ManualSessionRepository {
@@ -89,8 +110,38 @@ class ManualSessionAuthenticatorTest {
         }
 
         @Override
+        public int deleteByUserId(String userId) {
+            int before = sessions.size();
+            sessions.values().removeIf(session -> userId.equals(session.getUserId()));
+            return before - sessions.size();
+        }
+
+        @Override
         public int deleteExpiredBefore(Instant threshold) {
             return 0;
+        }
+    }
+
+    private static final class StubUserRepository implements UserAccountRepository {
+        private final UserAccount account;
+
+        private StubUserRepository(UserAccount account) {
+            this.account = account;
+        }
+
+        @Override
+        public Optional<UserAccount> findByUsername(String username) {
+            return Optional.empty();
+        }
+
+        @Override
+        public Optional<UserAccount> findById(String id) {
+            return account.getId().equals(id) ? Optional.of(account) : Optional.empty();
+        }
+
+        @Override
+        public void save(UserAccount userAccount) {
+            throw new UnsupportedOperationException("test stub is read-only");
         }
     }
 }

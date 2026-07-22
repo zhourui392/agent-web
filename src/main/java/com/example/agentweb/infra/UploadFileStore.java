@@ -109,7 +109,8 @@ public class UploadFileStore {
         if (workingDir == null || workingDir.trim().isEmpty()) {
             return;
         }
-        Path sessionDir = Paths.get(WorkspaceUploadRoot.resolve(workingDir), SUBDIR, sessionId);
+        String safeSessionId = SafePathSegment.optionalSessionId(sessionId);
+        Path sessionDir = Paths.get(WorkspaceUploadRoot.resolve(workingDir), SUBDIR, safeSessionId);
         if (!Files.exists(sessionDir)) {
             return;
         }
@@ -129,10 +130,11 @@ public class UploadFileStore {
 
     private Path resolveSaveDir(String workingDir, String sessionId) {
         String uploadRoot = WorkspaceUploadRoot.resolve(workingDir);
-        if (sessionId == null || sessionId.trim().isEmpty()) {
+        String safeSessionId = SafePathSegment.optionalSessionId(sessionId);
+        if (safeSessionId == null) {
             return Paths.get(uploadRoot, SUBDIR);
         }
-        return Paths.get(uploadRoot, SUBDIR, sessionId);
+        return Paths.get(uploadRoot, SUBDIR, safeSessionId);
     }
 
     /**

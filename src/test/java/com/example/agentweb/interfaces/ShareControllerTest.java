@@ -3,9 +3,10 @@ package com.example.agentweb.interfaces;
 import com.example.agentweb.app.ChatMessageView;
 import com.example.agentweb.app.ChatSessionQueryService;
 import com.example.agentweb.app.SharedSessionView;
+import com.example.agentweb.domain.worktree.WorkspacePathPolicy;
 import com.example.agentweb.infra.auth.AuthProperties;
-import com.example.agentweb.infra.auth.ApiKeyProperties;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
@@ -13,16 +14,16 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.Arrays;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 import static org.hamcrest.Matchers.containsString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -38,6 +39,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import(GlobalExceptionHandler.class)
 class ShareControllerTest {
 
+    @TempDir
+    Path tempDir;
+
     @Autowired
     private MockMvc mvc;
 
@@ -46,9 +50,6 @@ class ShareControllerTest {
 
     @MockBean
     private com.example.agentweb.app.ChatAppService chatAppService;
-
-    @MockBean
-    private ApiKeyProperties apiKeyProperties;
 
     @MockBean
     private AuthProperties authProperties;
@@ -69,6 +70,9 @@ class ShareControllerTest {
     /** 手动登录链路依赖, SessionAuthFilter 现在还要 manual provider + props + repo, 切片测试一并 mock。 */
     @MockBean
     private com.example.agentweb.domain.auth.ManualSessionRepository manualSessionRepository;
+
+    @MockBean
+    private WorkspacePathPolicy workspacePathPolicy;
 
     @Test
     void share_should_return_token_from_app_service() throws Exception {
@@ -93,7 +97,7 @@ class ShareControllerTest {
 
     @Test
     void getShared_should_return_messages_and_meta() throws Exception {
-        SharedSessionView view = new SharedSessionView("debug session", "CODEX", "/tmp/work",
+        SharedSessionView view = new SharedSessionView("debug session", "CODEX",
                 "2026-05-26T08:00:00Z",
                 Arrays.asList(
                         new ChatMessageView(1L, "user", "q", "2026-05-26T08:01:00Z", null),
@@ -104,7 +108,7 @@ class ShareControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.title").value("debug session"))
                 .andExpect(jsonPath("$.agentType").value("CODEX"))
-                .andExpect(jsonPath("$.workingDir").value("/tmp/work"))
+                .andExpect(jsonPath("$.workingDir").doesNotExist())
                 .andExpect(jsonPath("$.createdAt").value("2026-05-26T08:00:00Z"))
                 .andExpect(jsonPath("$.messages.length()").value(2))
                 .andExpect(jsonPath("$.messages[0].role").value("user"))
@@ -113,7 +117,7 @@ class ShareControllerTest {
 
     @Test
     void getShared_should_attach_recall_payload_on_assistant_message() throws Exception {
-        SharedSessionView view = new SharedSessionView(null, "CLAUDE", "/tmp/work",
+        SharedSessionView view = new SharedSessionView(null, "CLAUDE",
                 "2026-05-26T08:00:00Z",
                 Arrays.asList(
                         new ChatMessageView(1L, "user", "/recall x", "2026-05-26T08:01:00Z", null),
@@ -136,23 +140,32 @@ class ShareControllerTest {
     }
 
     @Test
-    void streamShared_should_delegate_to_chatAppService_with_default_recall_true() throws Exception {
-        when(chatAppService.streamSharedMessage(eq("tok9"), eq("hi there"), eq(true)))
-                .thenReturn(new org.springframework.web.servlet.mvc.method.annotation.SseEmitter());
-
+    void streamShared_should_be_removed_to_keep_share_readOnly() throws Exception {
         mvc.perform(get("/api/share/tok9/message/stream").param("message", "hi there"))
-                .andExpect(request().asyncStarted());
-
-        verify(chatAppService, times(1)).streamSharedMessage("tok9", "hi there", true);
+                .andExpect(status().isNotFound());
     }
 
     @Test
-    void streamShared_should_return_400_when_token_unknown() throws Exception {
-        when(chatAppService.streamSharedMessage(eq("ghost"), eq("hi"), eq(true)))
-                .thenThrow(new IllegalArgumentException("Shared session not found"));
+    void sharedImage_should_require_exact_reference_and_allowedRealPath() throws Exception {
+        Path image = tempDir.resolve("a.png");
+        Files.write(image, new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47});
+        when(sessionQueryService.isSharedImageReferenced("tok9", image.toString()))
+                .thenReturn(true);
+        when(workspacePathPolicy.requireExistingFile(image.toString()))
+                .thenReturn(image.toString());
 
-        mvc.perform(get("/api/share/ghost/message/stream").param("message", "hi"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error", containsString("not found")));
+        mvc.perform(get("/api/share/tok9/image").param("path", image.toString()))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .contentType(org.springframework.http.MediaType.IMAGE_PNG));
+    }
+
+    @Test
+    void sharedImage_should_reject_unreferencedPath() throws Exception {
+        when(sessionQueryService.isSharedImageReferenced("tok9", "/work/secret.png"))
+                .thenReturn(false);
+
+        mvc.perform(get("/api/share/tok9/image").param("path", "/work/secret.png"))
+                .andExpect(status().isBadRequest());
     }
 }

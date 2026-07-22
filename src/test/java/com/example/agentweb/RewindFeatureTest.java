@@ -8,7 +8,6 @@ import com.example.agentweb.domain.chat.SessionRepository;
 import com.example.agentweb.domain.slashcommand.SlashCommandExpander;
 import com.example.agentweb.infra.auth.AuthProperties;
 import com.example.agentweb.infra.EnvProperties;
-import com.example.agentweb.infra.auth.ApiKeyProperties;
 import com.example.agentweb.interfaces.ChatController;
 import com.example.agentweb.interfaces.dto.TruncateResult;
 import org.junit.jupiter.api.Test;
@@ -98,9 +97,6 @@ public class RewindFeatureTest {
     /** 手动登录链路依赖, SessionAuthFilter 现在还要 manual provider + props + repo, 切片测试一并 mock。 */
     @MockBean
     private com.example.agentweb.domain.auth.ManualSessionRepository manualSessionRepository;
-
-    @MockBean
-    private ApiKeyProperties apiKeyProperties;
 
     // ── 1. Domain: ChatMessage.id (纯 POJO, 无需 Spring 上下文也能跑在本类内) ──
 

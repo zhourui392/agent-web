@@ -47,18 +47,6 @@ public class RunRecallPolicyFactoryTest {
     }
 
     @Test
-    public void forRun_shouldEnableWorkspaceKnowledgeForRequirementLineForms() {
-        AgentRunProperties properties = new AgentRunProperties();
-        RunRecallPolicyFactory factory = new RunRecallPolicyFactory(properties);
-
-        for (RunForm form : new RunForm[]{RunForm.PLAN, RunForm.IMPLEMENT, RunForm.FIX}) {
-            RunRecallPolicy policy = factory.forRun(form, SourceType.GENERAL);
-            assertTrue(policy.isWorkspaceKnowledgeEnabled(), "M4 需求轴: " + form + " 应开知识预召回");
-            assertFalse(policy.isHistoricalRagEnabled(), "历史 RAG 仍仅 DIAGNOSE 开");
-        }
-    }
-
-    @Test
     public void agentRunContext_shouldDisableRecallByDefaultWhenPolicyIsNotProvided() {
         AgentRunContext context = AgentRunContext.builder()
                 .runForm(RunForm.DIAGNOSE)

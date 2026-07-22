@@ -103,8 +103,7 @@ public interface AgentGateway {
     }
 
     /**
-     * 同 {@link #runStream}，但带 per-run 进程环境变量（M2 需求线：端口租约经
-     * {@code AGENT_DEV_PORT} 注入 run 子进程）。
+     * 同 {@link #runStream}，但允许向本次 run 的子进程注入额外环境变量。
      *
      * @param type           Agent type
      * @param workingDir     工作目录

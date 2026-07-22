@@ -16,7 +16,7 @@ public class PromptTemplateLoaderTest {
     @Test
     public void config_with_classpath_prefix_should_strip_prefix_and_load() {
         String text = PromptTemplateLoader.load(
-                "classpath:/issue-log-refine-prompt.md",
+                "classpath:/refinery-refine-prompt.md",
                 "/non-existent-default.md",
                 "fallback");
 
@@ -28,7 +28,7 @@ public class PromptTemplateLoaderTest {
     public void config_is_null_should_use_default_resource() {
         String text = PromptTemplateLoader.load(
                 null,
-                "/issue-log-refine-prompt.md",
+                "/refinery-refine-prompt.md",
                 "fallback");
 
         assertTrue(text.length() > 0);
@@ -39,7 +39,7 @@ public class PromptTemplateLoaderTest {
     public void config_without_classpath_prefix_should_use_default_resource() {
         String text = PromptTemplateLoader.load(
                 "some-other-format",
-                "/issue-log-refine-prompt.md",
+                "/refinery-refine-prompt.md",
                 "fallback");
 
         assertTrue(text.length() > 0);

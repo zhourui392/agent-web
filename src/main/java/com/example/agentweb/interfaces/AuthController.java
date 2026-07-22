@@ -4,11 +4,19 @@ import com.example.agentweb.app.auth.AuthAppService;
 import com.example.agentweb.domain.auth.LoginUser;
 import com.example.agentweb.domain.auth.ManualSession;
 import com.example.agentweb.infra.auth.AuthProperties;
+import com.example.agentweb.infra.auth.LoginAttemptLimiter;
 import com.example.agentweb.infra.auth.LoginUrlBuilder;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import lombok.Data;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseCookie;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -31,30 +39,52 @@ public class AuthController {
 
     private final AuthProperties authProperties;
     private final AuthAppService authAppService;
+    private final LoginAttemptLimiter loginAttemptLimiter;
 
-    public AuthController(AuthProperties authProperties, AuthAppService authAppService) {
+    public AuthController(AuthProperties authProperties,
+                          AuthAppService authAppService,
+                          LoginAttemptLimiter loginAttemptLimiter) {
         this.authProperties = authProperties;
         this.authAppService = authAppService;
+        this.loginAttemptLimiter = loginAttemptLimiter;
     }
 
     /**
-     * 使用工号和用户名创建本地登录会话。
+     * 使用用户名和密码创建本地登录会话。
      *
      * @param request 登录请求
      * @param response HTTP 响应
      * @return 登录结果
      */
-    @PostMapping("/manual-login")
-    public Map<String, Object> manualLogin(@RequestBody ManualLoginRequest request,
-                                           HttpServletResponse response) {
-        ManualSession session = authAppService.manualLogin(request.getEmployeeId(), request.getUserName());
-        writeSessionCookie(response, session.getSessionId(), sessionCookieMaxAge());
+    @PostMapping("/login")
+    public ResponseEntity<Map<String, Object>> login(@Valid @RequestBody LoginRequest request,
+                                                     HttpServletRequest httpRequest,
+                                                     HttpServletResponse response) {
+        String remoteAddress = httpRequest.getRemoteAddr();
+        long retryAfter = loginAttemptLimiter.retryAfterSeconds(remoteAddress, request.getUsername());
+        if (retryAfter > 0L) {
+            Map<String, Object> failure = new HashMap<>(2);
+            failure.put("error", "登录尝试过于频繁，请稍后重试");
+            return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                    .header(HttpHeaders.RETRY_AFTER, String.valueOf(retryAfter))
+                    .body(failure);
+        }
+        Optional<ManualSession> authenticated = authAppService.login(request.getUsername(), request.getPassword());
+        if (!authenticated.isPresent()) {
+            loginAttemptLimiter.recordFailure(remoteAddress, request.getUsername());
+            Map<String, Object> failure = new HashMap<>(2);
+            failure.put("error", "用户名或密码错误");
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(failure);
+        }
+        loginAttemptLimiter.recordSuccess(remoteAddress, request.getUsername());
+        ManualSession session = authenticated.get();
+        writeSessionCookie(response, session.getSessionId(), sessionCookieMaxAge(), isSecure(httpRequest));
 
         Map<String, Object> result = new HashMap<>(8);
         result.put("success", true);
         result.put("userId", session.getUserId());
         result.put("userName", session.getUserName());
-        return result;
+        return ResponseEntity.ok(result);
     }
 
     /**
@@ -67,7 +97,7 @@ public class AuthController {
     @PostMapping("/logout")
     public Map<String, Object> logout(HttpServletRequest request, HttpServletResponse response) {
         authAppService.logout(readSessionCookie(request));
-        clearSessionCookie(response);
+        clearSessionCookie(response, isSecure(request));
 
         Map<String, Object> result = new HashMap<>(8);
         result.put("loginUrl", LoginUrlBuilder.loginPage(request, authProperties));
@@ -92,6 +122,7 @@ public class AuthController {
         if (user.isPresent()) {
             result.put("userId", user.get().getUserId());
             result.put("username", user.get().getUserName());
+            result.put("role", user.get().getRole().name());
         } else {
             result.put("loginUrl", LoginUrlBuilder.loginPage(request, authProperties));
         }
@@ -100,6 +131,10 @@ public class AuthController {
 
     private int sessionCookieMaxAge() {
         return (int) Math.min(authProperties.getSessionTtlSeconds(), Integer.MAX_VALUE);
+    }
+
+    private boolean isSecure(HttpServletRequest request) {
+        return authProperties.isCookieSecure() || request.isSecure();
     }
 
     private String readSessionCookie(HttpServletRequest request) {
@@ -115,27 +150,35 @@ public class AuthController {
         return null;
     }
 
-    private void writeSessionCookie(HttpServletResponse response, String value, int maxAge) {
-        Cookie cookie = new Cookie(authProperties.getCookieName(), value);
-        cookie.setPath("/");
-        cookie.setHttpOnly(true);
-        cookie.setMaxAge(maxAge);
-        response.addCookie(cookie);
+    private void writeSessionCookie(HttpServletResponse response, String value, int maxAge, boolean secure) {
+        ResponseCookie cookie = ResponseCookie.from(authProperties.getCookieName(), value)
+                .path("/")
+                .httpOnly(true)
+                .secure(secure)
+                .sameSite("Strict")
+                .maxAge(maxAge)
+                .build();
+        response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
     }
 
-    private void clearSessionCookie(HttpServletResponse response) {
-        writeSessionCookie(response, "", 0);
+    private void clearSessionCookie(HttpServletResponse response, boolean secure) {
+        writeSessionCookie(response, "", 0, secure);
     }
 
     /**
-     * 工号登录请求。
+     * 用户名密码登录请求。
      *
      * @author zhourui(V33215020)
      * @since 2026-07-17
      */
     @Data
-    public static class ManualLoginRequest {
-        private String employeeId;
-        private String userName;
+    public static class LoginRequest {
+        @NotBlank
+        @Size(max = 64)
+        private String username;
+
+        @NotBlank
+        @Size(max = 256)
+        private String password;
     }
 }

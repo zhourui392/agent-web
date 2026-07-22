@@ -34,7 +34,8 @@ test('worktree UI 接线: list/switch/update/remove 的成功与错误提示', a
 
   await page.goto('/');
   await expect(page.locator('textarea[placeholder*="输入你的问题"]')).toBeEnabled({ timeout: 10_000 });
-  await page.getByText('测试环境', { exact: true }).click();
+  await expect(page.getByText('测试环境', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('生产环境', { exact: true })).toHaveCount(0);
   await page.locator('.el-tag').filter({ hasText: '请选择分支' }).click();
 
   await page.locator('.el-select').filter({ hasText: '选择或输入分支名' }).click();

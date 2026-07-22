@@ -11,7 +11,6 @@ import com.example.agentweb.domain.refinery.RefinedContent;
 import com.example.agentweb.domain.refinery.SourceType;
 import com.example.agentweb.domain.refinery.TtlCategory;
 import com.example.agentweb.infra.auth.AuthProperties;
-import com.example.agentweb.infra.auth.ApiKeyProperties;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -84,9 +83,6 @@ class RefineryAdminControllerTest {
     /** 手动登录链路依赖, SessionAuthFilter 现在还要 manual provider + props + repo, 切片测试一并 mock。 */
     @MockBean
     private com.example.agentweb.domain.auth.ManualSessionRepository manualSessionRepository;
-
-    @MockBean
-    private ApiKeyProperties apiKeyProperties;
 
     @Test
     void rebuildRecent_default_should_return_200_with_summary() throws Exception {

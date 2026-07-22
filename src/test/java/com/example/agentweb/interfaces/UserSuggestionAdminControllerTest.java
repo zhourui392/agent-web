@@ -5,7 +5,6 @@ import com.example.agentweb.domain.suggestion.UserSuggestion;
 import com.example.agentweb.domain.suggestion.UserSuggestionPage;
 import com.example.agentweb.domain.suggestion.UserSuggestionStatus;
 import com.example.agentweb.infra.auth.AuthProperties;
-import com.example.agentweb.infra.auth.ApiKeyProperties;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -41,8 +40,6 @@ public class UserSuggestionAdminControllerTest {
     @MockBean
     private UserSuggestionService service;
 
-    @MockBean
-    private ApiKeyProperties apiKeyProperties;
     @MockBean
     private AuthProperties authProperties;
 

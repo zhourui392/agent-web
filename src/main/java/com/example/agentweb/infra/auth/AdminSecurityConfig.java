@@ -1,15 +1,15 @@
 package com.example.agentweb.infra.auth;
 
+import com.example.agentweb.domain.auth.UserContext;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * 管理后台口令鉴权的 Servlet Filter 注册。
+ * 管理后台 ADMIN 角色鉴权的 Servlet Filter 注册。
  *
  * <p>用 {@link FilterRegistrationBean} 注册 {@link AdminAuthFilter},刻意不让它当 {@code @Component} 的 Filter Bean:
- * 后者会被 {@code @WebMvcTest} 切片自动扫描进上下文,逼每个控制器切片补 {@link AdminAccessService} /
- * {@link AdminProperties} 的 mock。走注册 Bean 后切片不再加载本过滤器,从源头消除对全部 {@code @WebMvcTest} 的污染;
+ * 后者会被 {@code @WebMvcTest} 切片自动扫描进上下文。走注册 Bean 后切片不再加载本过滤器，
  * 全栈 {@code @SpringBootTest} 与生产环境照常装配。</p>
  *
  * @author zhourui(V33215020)
@@ -23,9 +23,9 @@ public class AdminSecurityConfig {
 
     @Bean
     public FilterRegistrationBean<AdminAuthFilter> adminAuthFilterRegistration(
-            AdminAccessService accessService, AdminProperties properties) {
+            UserContext userContext, AdminProperties properties) {
         FilterRegistrationBean<AdminAuthFilter> registration =
-                new FilterRegistrationBean<>(new AdminAuthFilter(accessService, properties));
+                new FilterRegistrationBean<>(new AdminAuthFilter(userContext, properties));
         registration.addUrlPatterns("/*");
         registration.setOrder(ADMIN_FILTER_ORDER);
         return registration;

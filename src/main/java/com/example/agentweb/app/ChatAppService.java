@@ -115,15 +115,4 @@ public interface ChatAppService {
      */
     String shareSession(String sessionId);
 
-    /**
-     * 以分享 token 续聊：解析 token → 会话，复用 owner 侧流式管线
-     * （resumeId / env 一律以会话持久态为准）。
-     *
-     * @param shareToken 分享 token
-     * @param message 用户输入文本
-     * @param recallEnabled RAG 召回开关
-     * @return 注册到响应的 SseEmitter
-     * @throws IllegalArgumentException token 无效
-     */
-    SseEmitter streamSharedMessage(String shareToken, String message, boolean recallEnabled);
 }

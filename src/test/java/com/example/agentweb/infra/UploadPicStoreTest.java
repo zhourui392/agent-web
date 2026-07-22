@@ -101,6 +101,13 @@ public class UploadPicStoreTest {
     }
 
     @Test
+    public void save_with_pathTraversalSessionId_should_be_rejected(@TempDir Path workingDir) {
+        assertThrows(IllegalArgumentException.class,
+                () -> store.save(workingDir.toString(), "../../escaped", pngBytes()));
+        assertFalse(Files.exists(workingDir.resolve("escaped")));
+    }
+
+    @Test
     public void deleteSessionImages_should_recursively_delete_entire_directory(@TempDir Path workingDir) throws IOException {
         String sessionId = "sess-to-delete";
         store.save(workingDir.toString(), sessionId, pngBytes());
@@ -163,5 +170,11 @@ public class UploadPicStoreTest {
         store.deleteSessionImages(workingDir.toString(), "");
 
         assertTrue(Files.exists(uploadPic), "空 sessionId 不应清掉 upload_pic 父目录");
+    }
+
+    @Test
+    public void deleteSessionImages_pathTraversalSessionId_should_be_rejected(@TempDir Path workingDir) {
+        assertThrows(IllegalArgumentException.class,
+                () -> store.deleteSessionImages(workingDir.toString(), "../../outside"));
     }
 }

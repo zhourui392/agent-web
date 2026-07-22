@@ -1,16 +1,12 @@
 server:
+  # Caddy 与服务同机，应用端口仅监听 loopback；公网只经 Caddy 443 进入。
+  address: ${SERVER_ADDRESS:127.0.0.1}
   port: 18092
-  # SSE 发消息走 EventSource(GET), 正文塞在 URL 里, 会占请求头空间。
-  # Tomcat 默认 max-http-header-size=8KB, 长文本(尤其中文 URL 编码膨胀 3x)会撑爆并断开 → 前端报 "SSE 连接错误"。
-  # 应急: 放大到 1MB。根治应改成 POST 提交正文 + GET 开 SSE。
-  max-http-header-size: 1MB
+  # 由可信反向代理终止 HTTPS；只有后端端口不对公网开放时，才可信任转发头。
+  forward-headers-strategy: ${SERVER_FORWARD_HEADERS_STRATEGY:framework}
   servlet:
-    # 共享域名 /qa 部署:应用整体挂载在 /qa 上下文,网关原样透传(不剥前缀、无需 X-Forwarded-Prefix)。
-    # 域名入口与直连 IP(diagnose-remote 等调用方)统一带 /qa 前缀;Tomcat 对恰为 /qa(无尾斜杠)的
-    # 请求自动 302 补成 /qa/,根治"无尾斜杠时页面相对资源解析到根路径全 404"。
-    # 后端代码经 ContextPrefix 派生前缀,前端 base.js 从自身 <script src> 推导,均零硬编码;
-    # 切独立域名时改回根路径即可(e2e profile 已覆盖为根)。详见 docs/qa-path-prefix-deploy.md。
-    context-path: /qa
+    # 独立域名直接挂根路径：https://agent.mokatu.shop/，不再使用 /qa 前缀。
+    context-path: ""
     async:
       timeout: 7200000
   tomcat:
@@ -25,56 +21,11 @@ server:
 # IMPORTANT: narrow this to specific workspace folders in production.
 agent:
   default-type: CODEX    # 对话默认模型「首启种子」: DB(app_setting) 无值时回退此值; 落库后以管理后台为准。可选 CODEX/CLAUDE
-  # 平台化需求线(M0)。默认关: enabled=false 时 Controller/Advice 不装配,现有功能零影响。
-  # 需求线总体设计见 docs/remote-dev-platform-master-plan.md
-  requirement:
-    enabled: ${AGENT_REQUIREMENT_ENABLED:false}
-    quota:
-      max-active-per-user: 5        # 每用户并发活跃需求数(非终态计数); 非正数不设限
-      max-runs-per-requirement: 2   # 每需求并发 run 数(M2 计划门起启用)
-    # 需求工作区(M1): bare mirror + git worktree 隔离, 设计 §2.4/§2.5
-    workspace:
-      root: ${AGENT_REQ_WORKSPACE_ROOT:data/req-workspaces}   # {root}/mirrors + {root}/worktrees
-      repo-url: ${AGENT_REQ_WORKSPACE_REPO_URL:}              # M1 默认目标仓; M2 GitLab issue 接入后按需求覆盖
-      ttl-hours: 72                 # 闲置 TTL; REVIEW/VERIFYING/SUSPENDED 态需求的工作区不参与清理
-      cleanup-cron: "0 40 4 * * *"  # TTL 清理调度
-      port-range-start: 42000       # 端口租约池(含两端), 挂需求的 run 经 AGENT_DEV_PORT 消费
-      port-range-end: 42199
-      # M3-lite: 按仓库工具链 env 注入(repoUrl 正则, 首个命中生效), 替代容器镜像钉版本
-      # toolchains:
-      #   - repo-pattern: "legacy-java|legacy-tooling"
-      #     env:
-      #       JAVA_HOME: "C:/Program Files/Java/jdk1.8.0_202"
-      toolchains: []
-      min-free-disk-gb: ${AGENT_REQ_MIN_FREE_DISK_GB:0}   # 磁盘剩余空间阈值(GB), 低于即打 warn 日志; 0=关闭
-      disk-check-cron: "0 17 * * * *"                     # 磁盘监控调度(错开整点)
-    intake:
-      default-owner: ${AGENT_REQ_INTAKE_DEFAULT_OWNER:}   # GITLAB_ISSUE owner 映射失败回落接待人; 未配置则拒收 issue
-    run-agent-type: ${AGENT_REQ_RUN_AGENT:CLAUDE}   # 需求线 run 使用的 CLI agent
-    plan:
-      run-timeout-minutes: 30       # 计划 run 硬超时
-      working-dir: ${AGENT_REQ_PLAN_WORKDIR:data/req-workspaces/plan-runs}
-    implement:
-      run-timeout-minutes: 240      # 实现 run 硬超时
-    # 交付(M2): GitLab push + 草稿 MR + webhook。红线: 默认账号 token/webhook secret 禁落 yml,
-    # token 走 app_setting 加密存储(env AGENT_GITLAB_DEFAULT_TOKEN 优先), secret 走 AGENT_SCM_WEBHOOK_SECRET
-    delivery:
-      provider: gitlab
-      gitlab-base-url: ${AGENT_GITLAB_BASE_URL:}
-      default-account-username: ${AGENT_GITLAB_DEFAULT_USERNAME:}
-      default-target-branch: ${AGENT_REQ_MR_TARGET_BRANCH:master}
-      platform-base-url: ${AGENT_REQ_PLATFORM_BASE_URL:}   # commit trailer 回链 base, 空则退化为 requirement:<id>
-      webhook-secret: ${AGENT_SCM_WEBHOOK_SECRET:}          # 空 = 拒绝所有 webhook(fail-closed)
-      webhook-allowed-cidrs: []     # webhook 来源限制, 空 = 仅 secret 校验
-      issue-intake-label: ${AGENT_REQ_ISSUE_LABEL:agent-dev}   # issue 打此标签才进 agent 开发流程
-    # 验证闭环 L1(M2.5)
-    verify:
-      run-timeout-hours: 4          # L1 长 run 硬超时
   chat:
     # 对话用户隔离开关。true=普通用户仅见自己的会话(+老数据 user_id IS NULL);
-    # false=全员互见(可看到其他用户的对话)。代码默认 true(安全),此处显式放开;
-    # 切回隔离改成 true 或设环境变量 AGENT_CHAT_USER_ISOLATION_ENABLED=true 即可,无需改代码。
-    user-isolation-enabled: ${AGENT_CHAT_USER_ISOLATION_ENABLED:false}
+    # false=全员互见(可看到其他用户的对话)。默认安全地按用户隔离。
+    user-isolation-enabled: ${AGENT_CHAT_USER_ISOLATION_ENABLED:true}
+    session-cache-max-entries: ${AGENT_CHAT_SESSION_CACHE_MAX_ENTRIES:1000}
     # 普通聊天最终回答约束: 让 agent 把最终结论依赖的查询证据压缩到 assistant 正文中,
     # 便于后续 refinery/RAG 抽取,同时避免把完整 tool_result/log/SQL 大结果灌入上下文。
     final-answer-instruction-enabled: ${AGENT_CHAT_FINAL_ANSWER_INSTRUCTION_ENABLED:true}
@@ -109,19 +60,19 @@ agent:
       - "/home/service/.agent-web"
   worktree:
     # 允许作为 worktree workspace 根的目录白名单(绝对路径)。worktree 操作的 workspacePath 必须落在某个根下。
-    # 留空 = 不限制(仅启动 WARN 提示加固), 兼容现有部署; 配置后即开启强校验, 越界返回 400。
-    # 加固示例: 取消注释并按实际部署的代码工作区根填写。
-    allowed-roots: []
-    #  - "/home/service/workspace"
+    # 主配置 fail-closed 给出单一安全根；本机目录不同时用环境变量覆盖。
+    allowed-roots:
+      - ${AGENT_WORKTREE_ALLOWED_ROOT:/home/service/workspace}
   cli:
     codex:
       exec: ${CODEX_CMD:codex}
       # args 留空 → CodexCliDialect 走真实 codex exec --json 路径; 配模板则回退 legacy 文本路径
       args: []
       stdin: true
-      timeout-seconds: 0
+      timeout-seconds: ${CODEX_TIMEOUT_SECONDS:1800}
+      max-output-bytes: ${CODEX_MAX_OUTPUT_BYTES:10485760}
       model: ""                    # 留空使用 codex 默认模型; 需指定时设 gpt-5.1-codex 等
-      sandbox-bypass: true         # → --dangerously-bypass-approvals-and-sandbox
+      sandbox-bypass: ${CODEX_SANDBOX_BYPASS:false}
       skip-git-check: true         # → --skip-git-repo-check
       extra-args: []               # 透传 codex exec 的额外参数
     claude:
@@ -132,14 +83,16 @@ agent:
         - stream-json
         - --verbose
         - --include-partial-messages
-        - --dangerously-skip-permissions
+        - --permission-mode
+        - acceptEdits
         # 钉死 1M 上下文变体: 续聊(--resume)不带 --model 时 CLI 会退回基础版 claude-opus-4-8(200K),
         # 只有全新会话才自动选 [1m]; 显式带上保证全新+续聊都跑 1M。refinery 评分若另传 --model,
         # 因追加在更后面、CLI 取最后一个 --model, 不受影响。换模型/换区域改这里即可。
         - --model
         - ${CLAUDE_CLI_MODEL:claude-opus-4-8[1m]}
       stdin: true
-      timeout-seconds: 0
+      timeout-seconds: ${CLAUDE_TIMEOUT_SECONDS:1800}
+      max-output-bytes: ${CLAUDE_MAX_OUTPUT_BYTES:10485760}
   envs:
     - key: test
       label: 测试环境
@@ -155,36 +108,33 @@ agent:
     workspace-knowledge-enabled: ${AGENT_RUN_WORKSPACE_KNOWLEDGE_ENABLED:true}
     recall-top-k: ${AGENT_RUN_RECALL_TOP_K:8}
   auth:
-    cookie-name: ${AGENT_AUTH_COOKIE_NAME:local_session}
-    # 工号 + 用户名登录会话有效期(秒),默认 7 天。
+    cookie-name: ${AGENT_AUTH_COOKIE_NAME:__Host-agent_session}
+    # 公网入口必须是 HTTPS；Secure Cookie 不会通过明文 HTTP 回传。
+    cookie-secure: ${AGENT_AUTH_COOKIE_SECURE:true}
+    # 用户名 + 密码登录会话有效期(秒),默认 7 天。
     session-ttl-seconds: ${AGENT_AUTH_SESSION_TTL_SECONDS:604800}
     # 对外规范登录页 URL；留空时使用当前应用下的 /login.html。
     login-page-url: ${AGENT_AUTH_LOGIN_PAGE_URL:}
-  # 管理后台(/admin)使用独立口令鉴权。前缀 agent.admin。
+    # 同一 socket 来源 IP 或同一用户名在窗口内失败达到阈值后拒绝继续验密。
+    login-max-failures: ${AGENT_AUTH_LOGIN_MAX_FAILURES:5}
+    login-failure-window-seconds: ${AGENT_AUTH_LOGIN_FAILURE_WINDOW_SECONDS:300}
+  public-access:
+    # 公网模式下若数据库仍是公开的种子密码，启动会失败；首次启动必须提供新的管理员密码。
+    enabled: ${AGENT_PUBLIC_ACCESS_ENABLED:true}
+    bootstrap-admin-password: ${AGENT_BOOTSTRAP_ADMIN_PASSWORD:}
+  # 管理后台复用数据库用户会话，下列路径额外要求 ADMIN 角色。
   admin:
-    enabled: ${ADMIN_AUTH_ENABLED:false}
-    # 管理口令:优先读环境变量 ADMIN_PASSWORD,未设时回退下方默认值。
-    # 注意:默认值是明文且随本文件进 git,生产环境务必用 ADMIN_PASSWORD 覆盖;要彻底不留痕可移到 gitignored 的 config/agent-paths.yml。
-    password: ${ADMIN_PASSWORD:Aa135246}
-    # 登录会话有效期(分钟),超时需重新输口令。
-    session-ttl-minutes: 480
-    # 管理会话 cookie 名,与普通用户登录 cookie 区分。
-    cookie-name: admin_session
-    # 受管理口令保护的接口前缀。/api/chat/** 由普通用户会话鉴权。
     protected-prefixes:
       - /api/metrics
       - /api/admin-user-suggestions
       - /api/admin-workflows
       - /api/admin-workflow-executions
       - /api/admin-settings
-      - /api/admin-requirement-events
-  # 外部系统建需求(/api/requirements/external)统一 API Key 鉴权。生产部署请替换为强随机值。
-  api-keys:
-    - key: "ak-ops-team-change-me"
-      name: "ops-team"
-      rate-limit: 10
+      - /api/refinery
+      - /api/issue-log-backfill
+      - /api/diagnose-history
 
-  # issue-log 写盘通道配置(知识收件箱 approve 落盘复用)
+  # issue-log 写盘通道配置
   issue-log:
     docs-dir: docs/issue-log
     issues-subdir: issue
@@ -269,12 +219,11 @@ spring:
     # optional: 文件缺失时回退用下方 agent.fs.* 的 Linux 默认值。
     import: "optional:classpath:agent-paths.yml"
   datasource:
-    url: jdbc:sqlite:${AGENT_DB_PATH:data/agent-web.db}
+    url: jdbc:sqlite:${AGENT_DB_PATH:data/agent-web.db}?busy_timeout=5000
     driver-class-name: org.sqlite.JDBC
     hikari:
-      # SQLite WAL 下仍有写锁瞬时竞争; 默认无 busy_timeout 会立即抛 SQLITE_BUSY,
-      # 设 5s 让被锁连接等待而非报错 (多 scheduler 写 + SSE/HTTP 读并发场景)
-      connection-init-sql: "PRAGMA busy_timeout=5000;"
+      # foreign_keys 是连接级开关，每个 Hikari 连接建立时都强制开启。
+      connection-init-sql: "PRAGMA foreign_keys=ON;"
   mvc:
     throw-exception-if-no-handler-found: true
   web:
@@ -282,8 +231,8 @@ spring:
       add-mappings: true
   servlet:
     multipart:
-      max-file-size: 100MB
-      max-request-size: 100MB
+      max-file-size: 6MB
+      max-request-size: 7MB
 
 # 日志级别（具体 pattern / appender / 文件滚动配置在 logback-spring.xml）
 # 生产部署可通过 LOGGING_LEVEL_COM_EXAMPLE_AGENTWEB=INFO 覆盖

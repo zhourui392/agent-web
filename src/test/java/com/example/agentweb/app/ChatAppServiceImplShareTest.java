@@ -84,27 +84,4 @@ public class ChatAppServiceImplShareTest {
         verify(sessionRepository, never()).setShareToken(anyString(), anyString());
     }
 
-    @Test
-    public void streamSharedMessage_should_reject_unknown_token() {
-        when(sessionRepository.findByShareToken("ghost")).thenReturn(null);
-
-        assertThrows(IllegalArgumentException.class,
-                () -> service.streamSharedMessage("ghost", "hi", true));
-    }
-
-    @Test
-    public void streamSharedMessage_should_pass_session_persistent_resumeId_and_env() {
-        ChatSession session = session("sess-9");
-        session.setResumeId("resume-77");
-        session.setEnv("prod");
-        when(sessionRepository.findByShareToken("tok9")).thenReturn(session);
-        ChatAppServiceImpl spied = org.mockito.Mockito.spy(service);
-        org.mockito.Mockito.doReturn(new org.springframework.web.servlet.mvc.method.annotation.SseEmitter())
-                .when(spied).streamMessage(anyString(), anyString(), anyString(), anyString(),
-                        org.mockito.ArgumentMatchers.anyBoolean());
-
-        spied.streamSharedMessage("tok9", "hi there", true);
-
-        verify(spied, times(1)).streamMessage("sess-9", "hi there", "resume-77", "prod", true);
-    }
 }

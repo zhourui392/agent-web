@@ -17,6 +17,9 @@ import org.springframework.stereotype.Component;
 @Setter
 public class ChatProperties {
 
+    /** 进程内活跃会话 LRU 最大条数，超出仍可从 SQLite 回源。 */
+    private int sessionCacheMaxEntries = 1000;
+
     /** Whether to append the final-answer evidence instruction to normal chat turns. */
     private boolean finalAnswerInstructionEnabled = true;
 

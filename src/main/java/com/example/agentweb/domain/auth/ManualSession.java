@@ -6,7 +6,7 @@ import java.time.Instant;
 import java.util.Base64;
 
 /**
- * 本地登录会话聚合根。用户在 {@code /login.html} 输入工号 + 用户名后创建，
+ * 本地登录会话聚合根。用户在 {@code /login.html} 通过用户名 + 密码认证后创建，
  * 浏览器通过本地 Cookie 持有会话标识。
  *
  * <p>不变量:userId / userName 非空白;ttlSeconds 为正;sessionId 由工厂用 256-bit
@@ -56,6 +56,16 @@ public class ManualSession {
     }
 
     /**
+     * 为已通过认证的账户创建会话。
+     */
+    public static ManualSession create(UserAccount account, long ttlSeconds, Clock clock) {
+        if (account == null || !account.isEnabled()) {
+            throw new IllegalArgumentException("只能为可用账户创建会话");
+        }
+        return create(account.getId(), account.getUsername(), ttlSeconds, clock);
+    }
+
+    /**
      * 从持久化数据重建聚合根。仅 Repo 实现使用,不走入参校验 (假定库内数据来自合法 {@link #create})。
      */
     public static ManualSession restore(String sessionId, String userId, String userName,
@@ -75,6 +85,16 @@ public class ManualSession {
 
     public LoginUser toLoginUser() {
         return new LoginUser(userId, userName, null);
+    }
+
+    /**
+     * 使用账户的当前展示名和角色构建登录用户，避免会话快照固化旧权限。
+     */
+    public LoginUser toLoginUser(UserAccount account) {
+        if (account == null || !userId.equals(account.getId())) {
+            throw new IllegalArgumentException("账户与会话不匹配");
+        }
+        return new LoginUser(account.getId(), account.getUsername(), null, account.getRole());
     }
 
     public String getSessionId() {

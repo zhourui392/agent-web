@@ -108,6 +108,14 @@ public class SqliteRagChunkRepo implements RagChunkRepository {
                 now.toEpochMilli());
     }
 
+    /** 仅供缓存装饰器探测软上限，避免先解码整个 embedding 池才发现超限。 */
+    public List<RagChunk> findActiveLimited(Instant now, int limit) {
+        return jdbc.query(
+                "SELECT " + COLUMNS + " FROM chat_rag_chunk WHERE " + ACTIVE_WHERE + " LIMIT ?",
+                ROW_MAPPER,
+                now.toEpochMilli(), limit);
+    }
+
     @Override
     public List<RagChunk> findPage(boolean activeOnly, Instant now, int offset, int limit) {
         if (activeOnly) {

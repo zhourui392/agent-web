@@ -29,8 +29,8 @@ import java.util.stream.Collectors;
 /**
  * Knowledge Refinery 管理接口(仅供 Web 前端使用)。
  *
- * <p>路径前缀 {@code /api/refinery} 不命中 {@code ApiKeyAuthFilter}(它只拦 {@code /api/diagnose/}),
- * 因此走普通用户会话鉴权。仅在 {@code agent.refinery.enabled=true} 时装配，
+ * <p>路径前缀 {@code /api/refinery} 走普通用户会话鉴权。
+ * 仅在 {@code agent.refinery.enabled=true} 时装配，
  * 否则依赖 {@link RefineryRebuildService} 缺失会导致启动失败。</p>
  *
  * @author zhourui(V33215020)

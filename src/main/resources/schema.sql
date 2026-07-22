@@ -195,7 +195,26 @@ CREATE TABLE IF NOT EXISTS user_git_config (
     updated_at        INTEGER
 );
 
--- 本地登录会话: 用户在 /login.html 输入工号 + 用户名后创建.
+-- 登录账户: 密码只保存 BCrypt 哈希，不保存明文.
+CREATE TABLE IF NOT EXISTS user_account (
+    id            TEXT PRIMARY KEY,
+    username      TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+    password_hash TEXT    NOT NULL,
+    role          TEXT    NOT NULL,
+    enabled       INTEGER NOT NULL DEFAULT 1,
+    created_at    INTEGER NOT NULL,
+    updated_at    INTEGER NOT NULL
+);
+
+-- 初始管理员只在不存在时创建，重启不会重置已有密码.
+INSERT OR IGNORE INTO user_account
+    (id, username, password_hash, role, enabled, created_at, updated_at)
+VALUES
+    ('admin', 'admin', '$2b$12$DKOR1h0GGLppD.lpcl94N.TqktMUO3Bmh19O.moh9qhPzY/..ZdR.',
+     'ADMIN', 1, CAST(strftime('%s', 'now') AS INTEGER) * 1000,
+     CAST(strftime('%s', 'now') AS INTEGER) * 1000);
+
+-- 本地登录会话: 用户名密码校验通过后创建.
 -- session_id 由 ManualSession.create 用 SecureRandom 生成 base64url(32 字节熵).
 -- 过期由 expires_at 控制, 后台 tick 用 deleteExpiredBefore 清理.
 CREATE TABLE IF NOT EXISTS manual_session (
@@ -263,144 +282,3 @@ CREATE TABLE IF NOT EXISTS app_setting (
     setting_value TEXT    NOT NULL,
     updated_at    INTEGER NOT NULL
 );
-
--- 需求线(M0): Requirement 聚合 + 状态迁移审计。requirement_event 是迁移审计的唯一事实源,
--- 由聚合 pullEvents 经 Repository 落库,只追加不回读进聚合。
-CREATE TABLE IF NOT EXISTS requirement (
-    id                    TEXT PRIMARY KEY,
-    title                 TEXT    NOT NULL,
-    description           TEXT,
-    status                TEXT    NOT NULL,
-    status_before_suspend TEXT,
-    source_type           TEXT    NOT NULL,
-    source_ref            TEXT,
-    owner                 TEXT    NOT NULL,
-    participants_json     TEXT,
-    workspace_id          TEXT,
-    plan_json             TEXT,
-    created_at            INTEGER NOT NULL,
-    updated_at            INTEGER NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_requirement_status ON requirement(status);
-
-CREATE INDEX IF NOT EXISTS idx_requirement_owner ON requirement(owner);
-
-CREATE TABLE IF NOT EXISTS requirement_event (
-    id             INTEGER PRIMARY KEY AUTOINCREMENT,
-    requirement_id TEXT    NOT NULL,
-    event_type     TEXT    NOT NULL,
-    actor          TEXT,
-    from_status    TEXT,
-    to_status      TEXT,
-    payload_json   TEXT,
-    created_at     INTEGER NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_requirement_event_rid ON requirement_event(requirement_id);
-
--- 需求工作区(M1): git worktree 隔离单元。port_lease 是纯 infra 资源表(端口全局池),
--- 以 workspace_id 关联、随工作区释放整体删除,聚合不感知(detailed-design §2.5)。
-CREATE TABLE IF NOT EXISTS requirement_workspace (
-    id             TEXT PRIMARY KEY,
-    requirement_id TEXT    NOT NULL,
-    repo_url       TEXT    NOT NULL,
-    mirror_path    TEXT    NOT NULL,
-    worktree_path  TEXT    NOT NULL,
-    branch         TEXT    NOT NULL,
-    status         TEXT    NOT NULL,
-    ttl_hours      INTEGER NOT NULL,
-    last_active_at INTEGER NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_req_workspace_rid ON requirement_workspace(requirement_id);
-
-CREATE INDEX IF NOT EXISTS idx_req_workspace_idle ON requirement_workspace(status, last_active_at);
-
-CREATE TABLE IF NOT EXISTS port_lease (
-    port         INTEGER PRIMARY KEY,
-    workspace_id TEXT    NOT NULL,
-    leased_at    INTEGER NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_port_lease_wid ON port_lease(workspace_id);
-
--- 交付(M2): MR 引用镜像 + webhook 幂等去重。UNIQUE(requirement_id, mr_iid) 防 webhook 重放插重复行,
--- processed_webhook 随 cleanup cron 顺带删 received_at 超 30 天的行。
-CREATE TABLE IF NOT EXISTS merge_request_ref (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    requirement_id  TEXT    NOT NULL,
-    mr_iid          INTEGER NOT NULL,
-    mr_url          TEXT    NOT NULL,
-    draft           INTEGER NOT NULL,
-    pipeline_status TEXT,
-    updated_at      INTEGER NOT NULL,
-    UNIQUE (requirement_id, mr_iid)
-);
-
-CREATE TABLE IF NOT EXISTS processed_webhook (
-    event_uuid  TEXT PRIMARY KEY,
-    received_at INTEGER NOT NULL
-);
-
--- 验证闭环(M2.5): L1 工件落库。内容 <=64KB 存 content,超限存平台侧文件路径,
--- M4.5 verification_round 建立后本表成为其证据源。
-CREATE TABLE IF NOT EXISTS requirement_artifact (
-    id             INTEGER PRIMARY KEY AUTOINCREMENT,
-    requirement_id TEXT    NOT NULL,
-    kind           TEXT    NOT NULL,
-    content        TEXT,
-    file_path      TEXT,
-    created_at     INTEGER NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_req_artifact_rid ON requirement_artifact(requirement_id);
-
--- 外部系统建需求幂等(M2): (api_key_name, idem_key) 二元组,对齐 diagnose API 模式
-CREATE TABLE IF NOT EXISTS requirement_intake_dedup (
-    api_key_name   TEXT    NOT NULL,
-    idem_key       TEXT    NOT NULL,
-    requirement_id TEXT    NOT NULL,
-    created_at     INTEGER NOT NULL,
-    PRIMARY KEY (api_key_name, idem_key)
-);
-
--- 知识建议收件箱(M4): run/交付产出的知识候选,人工审批门是入库唯一出口,
--- 批准后经 issue-log 写盘通道落盘并回填 issue_id
-CREATE TABLE IF NOT EXISTS knowledge_suggestion (
-    id                   TEXT PRIMARY KEY,
-    requirement_id       TEXT    NOT NULL,
-    scope                TEXT    NOT NULL,
-    source_ref           TEXT,
-    title                TEXT    NOT NULL,
-    trigger_signals_json TEXT,
-    phenomenon           TEXT,
-    root_cause           TEXT,
-    solution             TEXT,
-    notes                TEXT,
-    status               TEXT    NOT NULL,
-    reject_reason        TEXT,
-    reviewed_by          TEXT,
-    reviewed_at          INTEGER,
-    issue_id             TEXT,
-    issue_path           TEXT,
-    created_at           INTEGER NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_knowledge_suggestion_status ON knowledge_suggestion(status);
-
-CREATE INDEX IF NOT EXISTS idx_knowledge_suggestion_req ON knowledge_suggestion(requirement_id);
-
--- 验证轮次(M4.5 轮次化第一步): 每次验证 run 终结落一行, requirement_artifact 是其证据源
-CREATE TABLE IF NOT EXISTS verification_round (
-    id             INTEGER PRIMARY KEY AUTOINCREMENT,
-    requirement_id TEXT    NOT NULL,
-    round          INTEGER NOT NULL,
-    deploy_ref     TEXT,
-    verdict        TEXT    NOT NULL,
-    failed_count   INTEGER NOT NULL DEFAULT 0,
-    evidence_ref   TEXT,
-    created_at     INTEGER NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_verification_round_req ON verification_round(requirement_id);

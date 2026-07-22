@@ -8,7 +8,6 @@ import com.example.agentweb.domain.workflow.WorkflowStatus;
 import com.example.agentweb.domain.workflow.WorkflowStep;
 import com.example.agentweb.domain.workflow.WorkflowStepExecution;
 import com.example.agentweb.infra.auth.AuthProperties;
-import com.example.agentweb.infra.auth.ApiKeyProperties;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -43,8 +42,6 @@ class AdminWorkflowControllerTest {
 
     @MockBean
     private WorkflowAppService workflowAppService;
-    @MockBean
-    private ApiKeyProperties apiKeyProperties;
     @MockBean
     private AuthProperties authProperties;
 

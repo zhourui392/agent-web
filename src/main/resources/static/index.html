@@ -14,6 +14,7 @@
   <script src="js/base.js?v=20260611"></script>
   <!-- Markdown rendering -->
   <script src="vendor/marked.min.js"></script>
+  <script src="webjars/dompurify/3.2.6/dist/purify.min.js"></script>
 </head>
 <body>
   <div id="app">
@@ -28,22 +29,6 @@
           <!-- ① Logo -->
           <span class="logo">Q & A</span>
           <div class="divider hidden-mobile"></div>
-
-          <!-- ② 环境切换 (会话开始后锁定: 中途切环境会让提示词与历史上下文不自洽) -->
-          <template v-if="envList.length > 0">
-            <el-radio-group v-model="env" size="small" @change="onEnvChange" :disabled="!!activeSessionId" :class="['hidden-mobile', { 'locked-radio-group': !!activeSessionId }]" style="flex-shrink: 0;">
-              <el-radio-button value="">
-                <span :style="{ fontWeight: 700, fontSize: '12px' }">无</span>
-              </el-radio-button>
-              <el-radio-button v-for="e in envList" :key="e.key" :value="e.key">
-                <span :style="{ color: env !== e.key ? e.color : '', fontWeight: 700, fontSize: '12px' }">{{ e.label }}</span>
-              </el-radio-button>
-            </el-radio-group>
-            <el-tooltip raw-content content="环境选择使用注入限制提示词<br/>生产环境只能根据日志定位问题<br/>会话开始后不可切换，需新对话" placement="bottom">
-              <span class="hidden-mobile" style="display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid #909399; color: #909399; font-size: 12px; cursor: pointer; font-weight: bold; user-select: none; flex-shrink: 0;">?</span>
-            </el-tooltip>
-            <div class="divider hidden-mobile"></div>
-          </template>
 
           <!-- ②.5 Agent 选择 -->
           <el-radio-group v-model="agentType" size="small" @change="onAgentTypeChange" :disabled="!!activeSessionId" :class="['hidden-mobile', { 'locked-radio-group': !!activeSessionId }]" style="flex-shrink: 0;">
@@ -63,8 +48,7 @@
             <el-icon><arrow-down /></el-icon>
           </div>
 
-          <!-- ④ 分支标签（仅测试环境） -->
-          <template v-if="env === 'test'">
+          <!-- ④ 分支标签 -->
             <el-popover v-model:visible="branchPopoverVisible" trigger="click" width="400" placement="bottom-start">
               <template #reference>
                 <el-tag :type="currentBranch ? 'success' : 'warning'"
@@ -123,7 +107,6 @@
                 </div>
               </div>
             </el-popover>
-          </template>
 
           <!-- 右侧弹性空间 -->
           <span style="flex: 1;"></span>
@@ -140,8 +123,7 @@
               <div style="font-weight: 600; color: #303133; margin-bottom: 6px;">快速开始</div>
               <ol style="padding-left: 20px; margin: 0 0 10px;">
                 <li>（可选）点击顶部<b>工作目录</b>，选择项目根路径</li>
-                <li>（可选）切换<b>环境</b>：测试 / 生产会注入对应约束提示词</li>
-                <li>测试环境下可点击 🌿 <b>分支标签</b> 切换或更新 worktree</li>
+                <li>（可选）点击 🌿 <b>分支标签</b> 切换或更新 worktree</li>
                 <li>在底部输入框提问，<el-tag size="small" effect="plain">Enter</el-tag> 发送，<el-tag size="small" effect="plain">Ctrl+Enter</el-tag> 换行</li>
               </ol>
               <div style="font-weight: 600; color: #303133; margin-bottom: 6px;">输入技巧</div>
@@ -159,7 +141,7 @@
               </ul>
               <div style="font-weight: 600; color: #303133; margin-bottom: 6px;">分享 / 协作</div>
               <ul style="padding-left: 20px; margin: 0 0 10px;">
-                <li>会话头条或历史详情抽屉的 <b>分享</b> 按钮可生成公开链接，他人<b>免登录</b>即可查看，并可在分享页<b>直接续聊</b></li>
+                <li>会话头条或历史详情抽屉的 <b>分享</b> 按钮可生成只读公开链接，他人<b>免登录</b>即可查看，但不能续聊或启动 Agent</li>
               </ul>
               <div style="font-weight: 600; color: #303133; margin-bottom: 6px;">其他</div>
               <ul style="padding-left: 20px; margin: 0;">
@@ -177,12 +159,6 @@
           <!-- ⑥~⑨ 顶栏工具按钮组: 靠右成组, 窄屏自动收起文字只留图标, 避免挤掉按钮 -->
           <div class="topbar-actions">
           <!-- 召回历史已迁移至管理后台「召回历史」页(/admin/refinery.html);此处只保留聊天内的召回开关 -->
-
-          <!-- ⑦ 需求看板入口 (M0: 独立页 /requirement-board.html) -->
-          <el-button style="flex-shrink: 0;" plain @click="goRequirementBoard">
-            <el-icon><data-board /></el-icon>
-            <span class="hidden-mobile">需求看板</span>
-          </el-button>
 
           <!-- ⑧ 定时任务按钮 -->
           <el-button v-if="canUseScheduledTask" @click="taskManagerVisible = true" style="flex-shrink: 0;">
@@ -245,18 +221,6 @@
         <!-- ========== 侧边栏 - 移动端抽屉 ========== -->
         <el-drawer v-if="isMobile" v-model="sidebarVisible" direction="ltr" size="280px" :show-close="false" :with-header="false">
           <div style="display: flex; flex-direction: column; height: 100%;">
-            <!-- 环境切换（移动端放侧边栏；会话开始后锁定） -->
-            <div v-if="envList.length > 0" style="padding: 12px 16px; border-bottom: 1px solid #f0f0f0;">
-              <div style="font-size: 12px; color: #909399; margin-bottom: 8px;">环境切换 {{ activeSessionId ? '（会话进行中）' : '' }}</div>
-              <el-radio-group v-model="env" size="small" @change="onEnvChange" :disabled="!!activeSessionId" :class="{ 'locked-radio-group': !!activeSessionId }">
-                <el-radio-button value="">
-                  <span :style="{ fontWeight: 700, fontSize: '12px' }">无</span>
-                </el-radio-button>
-                <el-radio-button v-for="e in envList" :key="e.key" :value="e.key">
-                  <span :style="{ color: env !== e.key ? e.color : '', fontWeight: 700, fontSize: '12px' }">{{ e.label }}</span>
-                </el-radio-button>
-              </el-radio-group>
-            </div>
             <!-- Agent 切换（移动端放侧边栏） -->
             <div style="padding: 12px 16px; border-bottom: 1px solid #f0f0f0;">
               <div style="font-size: 12px; color: #909399; margin-bottom: 8px;">Agent {{ activeSessionId ? '（会话进行中）' : '' }}</div>
@@ -313,8 +277,6 @@
           <chat-panel
             :working-dir="currentPath"
             :agent-type="agentType"
-            :env="env"
-            :env-list="envList"
             :initial-session-id="activeSessionId"
             :initial-resume-id="activeResumeId"
             :rag-enabled="chatRagEnabled"
@@ -620,9 +582,10 @@
   <script src="vendor/element-plus-icons-vue.iife.min.js"></script>
   <!-- Frontend lib: 纯函数工具 (formatSize/renderMarkdown/parseUserMessage/imageUrl/formatTime/escapeHtml/parseStreamJson) -->
   <script src="js/lib/formatters.js?v=20260703"></script>
+  <script src="js/lib/post-sse-client.js?v=20260722"></script>
   <!-- ChatPanel 组件(挂 window.ChatPanel),须在 app.js 之前加载 -->
-  <script src="js/components/chat-panel.js?v=20260703"></script>
+  <script src="js/components/chat-panel.js?v=2026072202"></script>
   <!-- App JS -->
-  <script src="js/app.js?v=20260703"></script>
+  <script src="js/app.js?v=2026072202"></script>
 </body>
 </html>

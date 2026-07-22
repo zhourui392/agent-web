@@ -5,6 +5,9 @@ import com.example.agentweb.domain.auth.ManualSession;
 import com.example.agentweb.domain.auth.ManualSessionAuthenticator;
 import com.example.agentweb.domain.auth.ManualSessionFactory;
 import com.example.agentweb.domain.auth.ManualSessionRepository;
+import com.example.agentweb.domain.auth.UserAccount;
+import com.example.agentweb.domain.auth.UserAuthenticator;
+import com.example.agentweb.domain.auth.UserRole;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -32,6 +35,7 @@ public class AuthAppServiceTest {
     private ManualSessionFactory sessionFactory;
     private ManualSessionAuthenticator sessionAuthenticator;
     private ManualSessionRepository sessionRepository;
+    private UserAuthenticator userAuthenticator;
     private AuthAppService service;
 
     @BeforeEach
@@ -40,7 +44,8 @@ public class AuthAppServiceTest {
                 Clock.fixed(Instant.parse("2026-07-02T08:00:00Z"), ZoneOffset.UTC));
         sessionAuthenticator = org.mockito.Mockito.mock(ManualSessionAuthenticator.class);
         sessionRepository = org.mockito.Mockito.mock(ManualSessionRepository.class);
-        service = new AuthAppService(sessionFactory, sessionAuthenticator, sessionRepository);
+        userAuthenticator = org.mockito.Mockito.mock(UserAuthenticator.class);
+        service = new AuthAppService(userAuthenticator, sessionFactory, sessionAuthenticator, sessionRepository);
     }
 
     @Test
@@ -70,20 +75,35 @@ public class AuthAppServiceTest {
     }
 
     @Test
-    public void should_PersistSession_When_EmployeeLogsIn() {
+    public void should_PersistSession_When_CredentialsAreValid() {
         // Given
-        String employeeId = "V33215020";
-        String userName = "周锐";
+        UserAccount account = UserAccount.restore(
+                "admin", "admin", "encoded", UserRole.ADMIN, true,
+                Instant.parse("2026-07-22T00:00:00Z"), Instant.parse("2026-07-22T00:00:00Z"));
+        when(userAuthenticator.authenticate("admin", "secret")).thenReturn(Optional.of(account));
 
         // When
-        ManualSession session = service.manualLogin(employeeId, userName);
+        ManualSession session = service.login("admin", "secret").orElseThrow(AssertionError::new);
 
         // Then
         ArgumentCaptor<ManualSession> captor = ArgumentCaptor.forClass(ManualSession.class);
         verify(sessionRepository).save(captor.capture());
         assertEquals(session.getSessionId(), captor.getValue().getSessionId());
-        assertEquals(employeeId, session.getUserId());
-        assertEquals(userName, session.getUserName());
+        assertEquals("admin", session.getUserId());
+        assertEquals("admin", session.getUserName());
+    }
+
+    @Test
+    public void should_NotPersistSession_When_CredentialsAreInvalid() {
+        // Given
+        when(userAuthenticator.authenticate("admin", "wrong")).thenReturn(Optional.empty());
+
+        // When
+        Optional<ManualSession> result = service.login("admin", "wrong");
+
+        // Then
+        assertFalse(result.isPresent());
+        verify(sessionRepository, never()).save(org.mockito.ArgumentMatchers.any());
     }
 
     @Test

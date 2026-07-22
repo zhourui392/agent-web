@@ -4,11 +4,9 @@ import { Page, expect } from '@playwright/test';
  * Admin UI e2e 共享登录 / 导航 helper。
  *
  * 管理后台 MPA(每菜单一页):/admin 入口 302 跳 /admin/dashboard.html,各菜单是
- * /admin/<slug>.html 真实静态页,点侧栏菜单 = 整页跳转。鉴权走管理口令 cookie(admin_session),
- * 跨页导航后 cookie 复用,壳重新 checkStatus 即认得。口令固定为 application-e2e.yml 的 agent.admin.password。
+ * /admin/<slug>.html 真实静态页,点侧栏菜单 = 整页跳转。鉴权复用数据库用户会话，
+ * 并要求 ADMIN 角色。
  */
-
-export const ADMIN_PASSWORD = 'e2e-admin-pass';
 
 const MENU_SLUG: Record<string, string> = {
   '大盘': 'dashboard',
@@ -18,22 +16,19 @@ const MENU_SLUG: Record<string, string> = {
   '经验回填': 'backfill',
   '用户建议': 'suggestions',
   '工作流': 'workflows',
-  '需求事件': 'requirement-events',
   '召回观测': 'recall',
   '召回历史': 'refinery',
   '对话': 'chat',
 };
 
-/** /admin 入口(302 → dashboard)填管理口令登录,登录后侧栏「大盘」菜单出现即返回。 */
+/** /admin 入口复用 global setup 已建立的 ADMIN 会话。 */
 export async function loginAdminUI(page: Page): Promise<void> {
   await page.goto('/admin');
   const dashboardMenu = page.getByRole('menuitem', { name: '大盘' });
   if (await dashboardMenu.isVisible({ timeout: 2_000 }).catch(() => false)) {
     return;
   }
-  await page.getByPlaceholder('请输入管理口令').fill(ADMIN_PASSWORD);
-  await page.getByRole('button', { name: '登录' }).click();
-  await expect(dashboardMenu).toBeVisible({ timeout: 10_000 });
+  throw new Error('ADMIN session is missing; run Playwright with AGENT_E2E_ADMIN_PASSWORD');
 }
 
 /** 登录后点侧栏菜单 → 整页跳到 /admin/<slug>.html,等导航完成 + 新页菜单再现(cookie 复用鉴权)。 */

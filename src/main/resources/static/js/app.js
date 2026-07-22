@@ -48,15 +48,13 @@ const app = createApp({
     };
     const agentType = ref(readPreferredAgentType());
     // 当前 ChatPanel 的会话标识:由组件 session-created 回填 / 宿主点历史时设置,
-    // 驱动顶栏 env/agent 选择器锁定,并作为 initialSessionId/initialResumeId 传给组件触发 resume。
+    // 驱动顶栏 Agent 选择器锁定,并作为 initialSessionId/initialResumeId 传给组件触发 resume。
     const activeSessionId = ref('');
     const activeResumeId = ref('');
     const username = ref('admin');
     const currentUserId = ref('');
     // 登录用户均可管理自己的定时任务
     const canUseScheduledTask = computed(() => Boolean(currentUserId.value));
-    const env = ref('');
-    const envList = ref([]);
     const starting = ref(false);
     const historyList = ref([]);
     const historyPage = ref(1);
@@ -190,11 +188,6 @@ const app = createApp({
         // 忽略: 取不到默认值就保留本地选择
       }
       try {
-        const envData = await fetch('/api/chat/envs').then(r => r.json());
-        envList.value = envData;
-        if (envData.length > 0) {
-          env.value = envData[0].key;
-        }
         const data = await fetch('/api/fs/roots').then(r => r.json());
         roots.value = data;
         if (data.length > 0) {
@@ -322,17 +315,6 @@ const app = createApp({
     };
 
     // formatTime / escapeHtml 由 lib/formatters.js 提供,顶部已解构。
-
-    // ========== 环境与分支 ==========
-    // env 一旦会话开始就锁定 (单选 disabled), 这里只处理新建态切换
-    const onEnvChange = (val) => {
-      const found = envList.value.find(e => e.key === val);
-      const label = found ? found.label : '无环境';
-      ElementPlus.ElMessage.info('已切换到' + label);
-      if (val !== 'test') {
-        clearBranch();
-      }
-    };
 
     // ========== Agent 类型 ==========
     const onAgentTypeChange = (val) => {
@@ -553,12 +535,11 @@ const app = createApp({
       }
     };
 
-    // 恢复历史会话:设宿主 agent/env 锁定态与 active*,由 ChatPanel 经 initialSessionId 拉消息续聊。
+    // 恢复历史会话:设宿主 Agent 锁定态与 active*,由 ChatPanel 经 initialSessionId 拉消息续聊。
     // 先设 resumeId 再设 sessionId,确保组件 watch(initialSessionId) 触发时拿到正确的 initialResumeId。
     const resumeHistory = (session) => {
       if (!session || !session.sessionId) return;
       if (session.agentType) agentType.value = session.agentType;
-      env.value = session.env || '';
       activeResumeId.value = session.resumeId || '';
       activeSessionId.value = session.sessionId;
     };
@@ -757,7 +738,7 @@ const app = createApp({
     }
 
     // ========== ChatPanel 宿主回调 ==========
-    // 组件新建会话:回填 active* 锁定顶栏 env/agent,并刷新历史列表让新会话显现
+    // 组件新建会话:回填 active* 锁定顶栏 Agent,并刷新历史列表让新会话显现
     const onSessionCreated = (payload) => {
       activeSessionId.value = payload.sessionId;
       activeResumeId.value = '';
@@ -785,11 +766,6 @@ const app = createApp({
       if (v) loadWorktreeBranches();
     });
 
-    // 跳转需求看板页(M0 独立 MPA 页面,与主控台同源共享登录态)
-    function goRequirementBoard() {
-      window.location.href = window.withBase('/requirement-board.html');
-    }
-
     async function doLogout() {
       // 登出后跳本站 /login.html（loginUrl 由后端返回，已带 ?redirect=）；拿不到则退回首页重新鉴权。
       let loginUrl = '/';
@@ -813,14 +789,11 @@ const app = createApp({
       agentType,
       activeSessionId,
       activeResumeId,
-      env,
-      envList,
       username,
       starting,
       handleRootChange,
       loadList,
       newConversation,
-      onEnvChange,
       onAgentTypeChange,
       onSessionCreated,
       onRefreshHistory,
@@ -880,7 +853,6 @@ const app = createApp({
       groupedHistory,
       authEnabled,
       doLogout,
-      goRequirementBoard,
       suggestionDialogVisible,
       suggestionTab,
       suggestionForm,

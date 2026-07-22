@@ -4,7 +4,6 @@ import com.example.agentweb.app.git.GitConfigAppService;
 import com.example.agentweb.app.git.GitConfigView;
 import com.example.agentweb.infra.auth.AuthProperties;
 import com.example.agentweb.infra.auth.ThreadLocalUserContext;
-import com.example.agentweb.infra.auth.ApiKeyProperties;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -41,8 +40,6 @@ class GitConfigControllerTest {
     private GitConfigAppService service;
 
     // ── @WebMvcTest 装配 Filter Bean 时需补齐的构造依赖 ──
-    @MockBean
-    private ApiKeyProperties apiKeyProperties;
     @MockBean
     private AuthProperties authProperties;
 

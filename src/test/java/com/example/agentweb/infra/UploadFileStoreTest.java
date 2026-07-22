@@ -77,6 +77,13 @@ public class UploadFileStoreTest {
     }
 
     @Test
+    public void save_pathTraversalInSessionId_isRejected(@TempDir Path workingDir) {
+        assertThrows(IllegalArgumentException.class, () ->
+                store.save(workingDir.toString(), "../../escaped", "safe.log", textBytes("x")));
+        assertFalse(Files.exists(workingDir.resolve("escaped")));
+    }
+
+    @Test
     public void save_windowsBackslashName_takesBasenameOnly(@TempDir Path workingDir) throws IOException {
         String saved = store.save(workingDir.toString(), "s", "C:\\temp\\foo.txt", textBytes("ok"));
 
@@ -220,6 +227,12 @@ public class UploadFileStoreTest {
         store.deleteSessionFiles("", "s");
 
         assertTrue(Files.exists(keeper), "空 sessionId 不应误删父目录");
+    }
+
+    @Test
+    public void deleteSessionFiles_pathTraversalSessionId_should_be_rejected(@TempDir Path workingDir) {
+        assertThrows(IllegalArgumentException.class,
+                () -> store.deleteSessionFiles(workingDir.toString(), "../../outside"));
     }
 
     private static void assertArrayEqualsBytes(byte[] expected, byte[] actual) {

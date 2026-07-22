@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test';
 
-test('工号登录后返回本地会话状态', async ({ request }) => {
-  const login = await request.post('/api/auth/manual-login', {
-    data: { employeeId: 'E10001', userName: '测试用户' }
+test('用户名密码登录后返回数据库会话状态', async ({ request }) => {
+  const login = await request.post('/api/auth/login', {
+    data: { username: 'admin', password: process.env.AGENT_E2E_ADMIN_PASSWORD }
   });
   expect(login.ok()).toBeTruthy();
 
@@ -13,8 +13,9 @@ test('工号登录后返回本地会话状态', async ({ request }) => {
     enforced: true,
     authEnabled: true,
     authenticated: true,
-    userId: 'E10001',
-    username: '测试用户'
+    userId: 'admin',
+    username: 'admin',
+    role: 'ADMIN'
   });
 });
 

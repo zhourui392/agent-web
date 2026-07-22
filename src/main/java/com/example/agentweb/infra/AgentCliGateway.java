@@ -7,15 +7,20 @@ import com.example.agentweb.infra.cli.CliDialect;
 import com.example.agentweb.infra.log.LogSafe;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.EnumMap;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.stream.Stream;
 
 /**
  * CLI-based implementation: spawn a process per message.
@@ -32,17 +37,21 @@ public class AgentCliGateway implements AgentGateway {
     private final AgentCliProperties props;
     private final EnvProperties envProperties;
     private final com.example.agentweb.infra.git.GitProcessEnvCustomizer gitEnvCustomizer;
+    private final ProcessEnvironmentSanitizer environmentSanitizer;
     private final Map<AgentType, CliDialect> dialects;
     private final ConcurrentHashMap<String, Process> runningProcesses = new ConcurrentHashMap<String, Process>();
     private final ScheduledExecutorService watchdogScheduler;
     private final ExecutorService readExecutor;
 
+    @Autowired
     public AgentCliGateway(AgentCliProperties props, EnvProperties envProperties,
                            com.example.agentweb.infra.git.GitProcessEnvCustomizer gitEnvCustomizer,
-                           List<CliDialect> dialectBeans) {
+                           List<CliDialect> dialectBeans,
+                           ProcessEnvironmentSanitizer environmentSanitizer) {
         this.props = props;
         this.envProperties = envProperties;
         this.gitEnvCustomizer = gitEnvCustomizer;
+        this.environmentSanitizer = environmentSanitizer;
         this.dialects = new EnumMap<AgentType, CliDialect>(AgentType.class);
         for (CliDialect d : dialectBeans) {
             this.dialects.put(d.type(), d);
@@ -51,6 +60,12 @@ public class AgentCliGateway implements AgentGateway {
         scheduler.setRemoveOnCancelPolicy(true);
         this.watchdogScheduler = scheduler;
         this.readExecutor = Executors.newCachedThreadPool(namedFactory("agent-cli-reader"));
+    }
+
+    AgentCliGateway(AgentCliProperties props, EnvProperties envProperties,
+                    com.example.agentweb.infra.git.GitProcessEnvCustomizer gitEnvCustomizer,
+                    List<CliDialect> dialectBeans) {
+        this(props, envProperties, gitEnvCustomizer, dialectBeans, new ProcessEnvironmentSanitizer());
     }
 
     private static ThreadFactory namedFactory(String prefix) {
@@ -71,7 +86,8 @@ public class AgentCliGateway implements AgentGateway {
         ProcessBuilder pb = new ProcessBuilder(cmd);
         pb.directory(new File(workingDir));
         pb.redirectErrorStream(true);
-        gitEnvCustomizer.apply(pb, userId);
+        environmentSanitizer.sanitize(pb);
+        gitEnvCustomizer.applyIdentityOnly(pb, userId);
 
         long startNanos = System.nanoTime();
         log.debug("cli-runonce-build agentType={} cwd={} cmd={}",
@@ -90,7 +106,8 @@ public class AgentCliGateway implements AgentGateway {
             } catch (IOException ignore) { /* no-op */ }
         }
 
-        String output = readWithTimeout(p, cfg.getTimeoutSeconds(), cfg.getStdoutDrainGraceMs());
+        String output = readWithTimeout(p, cfg.getTimeoutSeconds(), cfg.getStdoutDrainGraceMs(),
+                cfg.getMaxOutputBytes());
         int code = p.waitFor();
         log.info("cli-runonce-exit agentType={} exitCode={} outputLen={} elapsedMs={}",
                 type, code, LogSafe.safeLen(output), elapsedMs(startNanos));
@@ -121,7 +138,8 @@ public class AgentCliGateway implements AgentGateway {
         ProcessBuilder pb = new ProcessBuilder(cmd);
         pb.directory(new File(workingDir));
         pb.redirectErrorStream(true);
-        gitEnvCustomizer.apply(pb, userId);
+        environmentSanitizer.sanitize(pb);
+        gitEnvCustomizer.applyIdentityOnly(pb, userId);
         if (extraEnv != null && !extraEnv.isEmpty()) {
             pb.environment().putAll(extraEnv);
         }
@@ -132,37 +150,46 @@ public class AgentCliGateway implements AgentGateway {
 
         final Process p = pb.start();
         if (sessionId != null) {
-            runningProcesses.put(sessionId, p);
+            registerProcess(sessionId, p);
         }
         log.info("cli-stream-spawn agentType={} sessionId={} resumeId={} pid={}",
                 type, sessionId, resumeId, processId(p));
-        writeStdin(p, cfg, userMessage, env);
+        Future<?> killer = null;
+        Future<?> readDone = null;
+        try {
+            writeStdin(p, cfg, userMessage, env);
 
-        // per-call 超时 >0 时优先（诊断侧据此强制 30 分钟超时）；否则回退到 agent.cli.* 配置
-        long effectiveTimeout = timeoutSeconds > 0 ? timeoutSeconds : cfg.getTimeoutSeconds();
-        Future<?> killer = scheduleTimeoutKill(p, effectiveTimeout, onChunk);
-        // 读 stdout 独立成线程: 读到方言的 turn-end 标记即收掉进程、唤醒下面的 waitFor 立即收尾;
-        // 否则退化为等进程自然退出。二者都不依赖 stdout 管道 EOF, 不会被 codex 孤儿子进程拖死。
-        AtomicBoolean turnEnded = new AtomicBoolean(false);
-        final CliDialect dialect = resolveDialect(type);
-        Future<?> readDone = startStdoutReader(p, type, sessionId, startNanos, onChunk, dialect, turnEnded);
+            // per-call 超时 >0 时优先（诊断侧据此强制 30 分钟超时）；否则回退到 agent.cli.* 配置
+            long effectiveTimeout = timeoutSeconds > 0 ? timeoutSeconds : cfg.getTimeoutSeconds();
+            killer = scheduleTimeoutKill(p, effectiveTimeout, onChunk);
+            AtomicBoolean turnEnded = new AtomicBoolean(false);
+            final CliDialect dialect = resolveDialect(type);
+            readDone = startStdoutReader(p, type, sessionId, startNanos, onChunk, dialect, turnEnded);
 
-        int code = p.waitFor();
-        log.info("cli-stream-exit agentType={} sessionId={} elapsedMs={} turnEnded={} exitCode={}",
-                type, sessionId, elapsedMs(startNanos), turnEnded.get(), code);
-        if (killer != null) { killer.cancel(false); }
-        if (turnEnded.get()) {
-            readDone.cancel(true);
-        } else {
-            // 进程自然退出但未见 turn-end 标记(异常退出/非 codex/被 stop): 残余缓冲给读线程宽限期排空
-            awaitStdoutDrain(readDone, cfg.getStdoutDrainGraceMs());
+            int code = p.waitFor();
+            log.info("cli-stream-exit agentType={} sessionId={} elapsedMs={} turnEnded={} exitCode={}",
+                    type, sessionId, elapsedMs(startNanos), turnEnded.get(), code);
+            if (turnEnded.get()) {
+                readDone.cancel(true);
+            } else {
+                awaitStdoutDrain(readDone, cfg.getStdoutDrainGraceMs());
+            }
+            // turn-end 收尾时进程是被读线程强杀的，回合既已正常结束则报 0。
+            onExit.accept(turnEnded.get() ? 0 : code);
+        } finally {
+            if (killer != null) {
+                killer.cancel(false);
+            }
+            if (readDone != null && !readDone.isDone()) {
+                readDone.cancel(true);
+            }
+            if (sessionId != null) {
+                runningProcesses.remove(sessionId, p);
+            }
+            if (p.isAlive()) {
+                destroyProcessTree(p);
+            }
         }
-
-        if (sessionId != null) {
-            runningProcesses.remove(sessionId);
-        }
-        // turn-end 收尾时进程是被读线程强杀的, waitFor 拿到的 code 无意义; 回合既已正常结束, 报 0
-        onExit.accept(turnEnded.get() ? 0 : code);
     }
 
     /** 按配置把 user message（含环境约束前缀）写入子进程 stdin；非 stdin 模式直接关闭输出流。 */
@@ -173,8 +200,7 @@ public class AgentCliGateway implements AgentGateway {
             return;
         }
         String fullMessage = composeMessage(userMessage, env);
-        log.debug("cli-stream-stdin env={} messageLen={} preview={}",
-                env, fullMessage.length(), LogSafe.truncate(fullMessage));
+        log.debug("cli-stream-stdin env={} messageLen={}", env, fullMessage.length());
         OutputStream os = p.getOutputStream();
         os.write(fullMessage.getBytes(StandardCharsets.UTF_8));
         os.flush();
@@ -214,7 +240,7 @@ public class AgentCliGateway implements AgentGateway {
             try {
                 onChunk.accept("[timeout]\n");
             } catch (Exception ignore) { /* ignore */ }
-            p.destroyForcibly();
+            destroyProcessTree(p);
         }, timeoutSeconds, TimeUnit.SECONDS);
     }
 
@@ -231,6 +257,8 @@ public class AgentCliGateway implements AgentGateway {
                                         final CliDialect dialect,
                                         final AtomicBoolean turnEnded) {
         final AtomicBoolean firstStdoutLogged = new AtomicBoolean(false);
+        final AtomicLong deliveredBytes = new AtomicLong(0L);
+        final long maxOutputBytes = normalizeMaxOutputBytes(resolve(agentType).getMaxOutputBytes());
         return readExecutor.submit(new Runnable() {
             @Override
             public void run() {
@@ -245,12 +273,20 @@ public class AgentCliGateway implements AgentGateway {
                             log.debug("cli-stream-first-stdout agentType={} sessionId={} elapsedMs={} preview={}",
                                     agentType, sessionId, elapsedMs(startNanos), previewLine(line));
                         }
+                        long lineBytes = line.getBytes(StandardCharsets.UTF_8).length + 1L;
+                        if (deliveredBytes.addAndGet(lineBytes) > maxOutputBytes) {
+                            log.warn("cli-stream-output-limit agentType={} sessionId={} maxBytes={}",
+                                    agentType, sessionId, maxOutputBytes);
+                            onChunk.accept("[output-limit]");
+                            destroyProcessTree(p);
+                            break;
+                        }
                         onChunk.accept(line);
                         if (dialect.isTurnEnd(line)) {
                             turnEnded.set(true);
                             log.info("cli-stream-turn-end agentType={} sessionId={} elapsedMs={}",
                                     agentType, sessionId, elapsedMs(startNanos));
-                            p.destroyForcibly();
+                            destroyProcessTree(p);
                             break;
                         }
                     }
@@ -309,7 +345,7 @@ public class AgentCliGateway implements AgentGateway {
         Process p = runningProcesses.remove(sessionId);
         if (p != null && p.isAlive()) {
             log.info("cli-stream-destroy sessionId={} pid={} reason=manual-stop", sessionId, processId(p));
-            p.destroyForcibly();
+            destroyProcessTree(p);
         } else {
             log.debug("cli-stream-destroy-noop sessionId={} reason={}",
                     sessionId, p == null ? "no-process" : "already-exited");
@@ -332,11 +368,14 @@ public class AgentCliGateway implements AgentGateway {
         return resolveDialect(type).normalizeChunk(stdoutLine);
     }
 
-    private String readWithTimeout(Process p, int timeoutSeconds, long drainGraceMs) throws InterruptedException {
+    private String readWithTimeout(Process p, int timeoutSeconds, long drainGraceMs, long configuredMaxOutputBytes)
+            throws InterruptedException {
         // collected 由读线程写入、收尾后由本线程读取；用其自身做锁保证可见性。
         // 取共享缓冲而非 Future<String>，是为了在读线程被孤儿管道阻塞、需放弃等待时，
         // 仍能拿回进程退出前已排空的部分输出。
         final ByteArrayOutputStream collected = new ByteArrayOutputStream();
+        final AtomicBoolean outputLimited = new AtomicBoolean(false);
+        final long maxOutputBytes = normalizeMaxOutputBytes(configuredMaxOutputBytes);
         Future<?> reader = readExecutor.submit(new Runnable() {
             @Override
             public void run() {
@@ -345,7 +384,16 @@ public class AgentCliGateway implements AgentGateway {
                     int r;
                     while ((r = is.read(buf)) != -1) {
                         synchronized (collected) {
-                            collected.write(buf, 0, r);
+                            int remaining = (int) Math.max(0L, maxOutputBytes - collected.size());
+                            int accepted = Math.min(r, remaining);
+                            if (accepted > 0) {
+                                collected.write(buf, 0, accepted);
+                            }
+                            if (accepted < r) {
+                                outputLimited.set(true);
+                                destroyProcessTree(p);
+                                break;
+                            }
                         }
                     }
                 } catch (IOException ignore) {
@@ -363,7 +411,7 @@ public class AgentCliGateway implements AgentGateway {
                 reader.get(normalizeDrainGraceMs(drainGraceMs), TimeUnit.MILLISECONDS);
             }
         } catch (TimeoutException te) {
-            p.destroyForcibly();
+            destroyProcessTree(p);
             reader.cancel(true);
             if (timeoutSeconds > 0) {
                 return "[timeout]";
@@ -373,12 +421,17 @@ public class AgentCliGateway implements AgentGateway {
             return "[error] " + ee.getCause();
         }
         synchronized (collected) {
-            return new String(collected.toByteArray(), StandardCharsets.UTF_8);
+            String output = new String(collected.toByteArray(), StandardCharsets.UTF_8);
+            return outputLimited.get() ? output + "\n[output-limit]" : output;
         }
     }
 
     private long normalizeDrainGraceMs(long drainGraceMs) {
         return Math.max(1L, drainGraceMs);
+    }
+
+    private long normalizeMaxOutputBytes(long maxOutputBytes) {
+        return maxOutputBytes > 0 ? maxOutputBytes : 10L * 1024L * 1024L;
     }
 
     private CliDialect resolveDialect(AgentType type) {
@@ -397,5 +450,47 @@ public class AgentCliGateway implements AgentGateway {
             return props.getClaude();
         }
         throw new IllegalArgumentException("Unsupported type: " + type);
+    }
+
+    private void registerProcess(String sessionId, Process process) {
+        while (true) {
+            Process existing = runningProcesses.putIfAbsent(sessionId, process);
+            if (existing == null) {
+                return;
+            }
+            if (existing.isAlive()) {
+                destroyProcessTree(process);
+                throw new IllegalStateException("Session already has a running process: " + sessionId);
+            }
+            if (runningProcesses.replace(sessionId, existing, process)) {
+                return;
+            }
+        }
+    }
+
+    /** 先终止所有派生进程，再终止根进程。反射使用 ProcessHandle 以保持 Java 8 源码兼容。 */
+    private void destroyProcessTree(Process process) {
+        if (process == null) {
+            return;
+        }
+        try {
+            Class<?> handleType = Class.forName("java.lang.ProcessHandle");
+            Object rootHandle = Process.class.getMethod("toHandle").invoke(process);
+            @SuppressWarnings("unchecked")
+            Stream<Object> descendants = (Stream<Object>) handleType.getMethod("descendants").invoke(rootHandle);
+            List<Object> handles = new ArrayList<>();
+            try {
+                descendants.forEach(handles::add);
+            } finally {
+                descendants.close();
+            }
+            Collections.reverse(handles);
+            for (Object handle : handles) {
+                handleType.getMethod("destroyForcibly").invoke(handle);
+            }
+            handleType.getMethod("destroyForcibly").invoke(rootHandle);
+        } catch (Exception ex) {
+            process.destroyForcibly();
+        }
     }
 }

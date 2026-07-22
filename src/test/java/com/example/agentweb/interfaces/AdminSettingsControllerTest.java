@@ -2,7 +2,6 @@ package com.example.agentweb.interfaces;
 
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.infra.auth.AuthProperties;
-import com.example.agentweb.infra.auth.ApiKeyProperties;
 import com.example.agentweb.infra.setting.RuntimeAgentSettings;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,8 +34,6 @@ public class AdminSettingsControllerTest {
     @MockBean
     private RuntimeAgentSettings runtimeAgentSettings;
 
-    @MockBean
-    private ApiKeyProperties apiKeyProperties;
     @MockBean
     private AuthProperties authProperties;
 

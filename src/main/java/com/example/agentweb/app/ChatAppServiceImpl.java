@@ -18,6 +18,7 @@ import com.example.agentweb.domain.chat.ShareToken;
 import com.example.agentweb.domain.slashcommand.SlashCommand;
 import com.example.agentweb.domain.chat.SessionCache;
 import com.example.agentweb.domain.slashcommand.SlashCommandExpander;
+import com.example.agentweb.domain.worktree.WorkspacePathPolicy;
 import com.example.agentweb.infra.AgentTypeResolver;
 import com.example.agentweb.infra.ChatProperties;
 import com.example.agentweb.infra.UploadFileStore;
@@ -35,7 +36,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.Assert;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -80,12 +80,43 @@ public class ChatAppServiceImpl implements ChatAppService {
     private final Optional<RecallObservationRecorder> recallObservationRecorder;
     private final CurrentUserProvider currentUserProvider;
     private final ChatProperties chatProperties;
+    private WorkspacePathPolicy workspacePathPolicy;
     private final ScheduledExecutorService keepAliveScheduler =
             new ScheduledThreadPoolExecutor(2, namedFactory("chat-sse-keepalive"));
 
     private static ThreadFactory namedFactory(String prefix) {
         AtomicInteger counter = new AtomicInteger(0);
         return r -> new Thread(r, prefix + "-" + counter.incrementAndGet());
+    }
+
+    /** 仅供历史单测构造器使用，生产装配始终注入真实路径策略。 */
+    private static WorkspacePathPolicy permissivePathPolicy() {
+        return new WorkspacePathPolicy() {
+            @Override
+            public String requireExistingDirectory(String path) {
+                return path;
+            }
+
+            @Override
+            public String requireExistingFile(String path) {
+                return path;
+            }
+
+            @Override
+            public String prepareWorkspaceDirectory(String path) {
+                return path;
+            }
+
+            @Override
+            public String prepareUploadDirectory(String path) {
+                return path;
+            }
+
+            @Override
+            public boolean isExistingPathAllowed(String path) {
+                return true;
+            }
+        };
     }
 
     @Autowired
@@ -114,7 +145,16 @@ public class ChatAppServiceImpl implements ChatAppService {
         this.chatRagRecaller = chatRagRecaller;
         this.recallObservationRecorder = recallObservationRecorder;
         this.currentUserProvider = currentUserProvider;
-        this.chatProperties = chatProperties == null ? new ChatProperties() : chatProperties;
+        this.chatProperties = chatProperties;
+        this.workspacePathPolicy = permissivePathPolicy();
+    }
+
+    /**
+     * 生产装配注入真实路径策略；独立单测未注入时保留历史构造兼容。
+     */
+    @Autowired
+    void configureWorkspacePathPolicy(WorkspacePathPolicy workspacePathPolicy) {
+        this.workspacePathPolicy = workspacePathPolicy;
     }
 
     ChatAppServiceImpl(SessionCache sessionCache,
@@ -154,12 +194,8 @@ public class ChatAppServiceImpl implements ChatAppService {
     public ChatSession startSession(StartSessionRequest req, String clientIp) {
         Assert.notNull(req, "request is null");
         AgentType type = agentTypeResolver.resolve(req.getAgentType());
-        File dir = new File(req.getWorkingDir());
-        if (!dir.exists() || !dir.isDirectory()) {
-            log.warn("chat-session-create-rejected reason=working-dir-not-found workingDir={}", req.getWorkingDir());
-            throw new IllegalArgumentException("Working directory not found: " + req.getWorkingDir());
-        }
-        ChatSession s = new ChatSession(type, dir.getAbsolutePath());
+        String workingDir = workspacePathPolicy.requireExistingDirectory(req.getWorkingDir());
+        ChatSession s = new ChatSession(type, workingDir);
         // 持久化创建时选定的环境, 用于后续恢复时回填; null/空串均按 "无环境" 处理
         String reqEnv = req.getEnv();
         if (reqEnv != null && !reqEnv.isEmpty()) {
@@ -597,18 +633,6 @@ public class ChatAppServiceImpl implements ChatAppService {
         String token = sessionRepository.setShareToken(sessionId, ShareToken.generate());
         log.info("chat-session-shared sessionId={}", sessionId);
         return token;
-    }
-
-    @Override
-    public SseEmitter streamSharedMessage(String shareToken, String message, boolean recallEnabled) {
-        ChatSession session = sessionRepository.findByShareToken(shareToken);
-        if (session == null) {
-            throw new IllegalArgumentException("Shared session not found");
-        }
-        MdcContext.putSessionId(session.getId());
-        log.info("share-stream-request token={} sessionId={} recall={} messageLen={}",
-                LogSafe.maskKey(shareToken), session.getId(), recallEnabled, LogSafe.safeLen(message));
-        return streamMessage(session.getId(), message, session.getResumeId(), session.getEnv(), recallEnabled);
     }
 
     /** 评分字符串转枚举:null/空白 → null(未评分);非法值 → IllegalArgumentException。 */

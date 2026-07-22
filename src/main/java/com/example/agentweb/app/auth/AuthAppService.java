@@ -5,6 +5,7 @@ import com.example.agentweb.domain.auth.ManualSession;
 import com.example.agentweb.domain.auth.ManualSessionAuthenticator;
 import com.example.agentweb.domain.auth.ManualSessionFactory;
 import com.example.agentweb.domain.auth.ManualSessionRepository;
+import com.example.agentweb.domain.auth.UserAuthenticator;
 import org.springframework.stereotype.Service;
 
 import java.util.Optional;
@@ -18,13 +19,16 @@ import java.util.Optional;
 @Service
 public class AuthAppService {
 
+    private final UserAuthenticator userAuthenticator;
     private final ManualSessionFactory sessionFactory;
     private final ManualSessionAuthenticator sessionAuthenticator;
     private final ManualSessionRepository sessionRepository;
 
-    public AuthAppService(ManualSessionFactory sessionFactory,
+    public AuthAppService(UserAuthenticator userAuthenticator,
+                          ManualSessionFactory sessionFactory,
                           ManualSessionAuthenticator sessionAuthenticator,
                           ManualSessionRepository sessionRepository) {
+        this.userAuthenticator = userAuthenticator;
         this.sessionFactory = sessionFactory;
         this.sessionAuthenticator = sessionAuthenticator;
         this.sessionRepository = sessionRepository;
@@ -37,8 +41,13 @@ public class AuthAppService {
      * @param userName 用户名
      * @return 新建的登录会话
      */
-    public ManualSession manualLogin(String employeeId, String userName) {
-        ManualSession session = sessionFactory.create(employeeId, userName);
+    public Optional<ManualSession> login(String username, String password) {
+        return userAuthenticator.authenticate(username, password)
+                .map(sessionFactory::create)
+                .map(this::saveAndReturn);
+    }
+
+    private ManualSession saveAndReturn(ManualSession session) {
         sessionRepository.save(session);
         return session;
     }

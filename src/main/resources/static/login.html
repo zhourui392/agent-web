@@ -27,17 +27,17 @@
   <div id="app">
     <div class="login-card">
       <h2 class="login-title">Agent Q&A</h2>
-      <p class="login-subtitle">使用工号和用户名登录 · 会话保留 7 天</p>
+      <p class="login-subtitle">使用用户名和密码登录 · 会话保留 7 天</p>
 
-      <el-form @submit.prevent="onManualLogin" label-position="top">
-        <el-form-item label="工号">
-          <el-input v-model="employeeId" placeholder="例如 E10001，对话记录通过工号隔离" clearable></el-input>
-        </el-form-item>
+      <el-form @submit.prevent="onLogin" label-position="top">
         <el-form-item label="用户名">
-          <el-input v-model="userName" placeholder="例如 张三" clearable
-                    @keyup.enter="onManualLogin"></el-input>
+          <el-input v-model="username" autocomplete="username" placeholder="请输入用户名" clearable></el-input>
         </el-form-item>
-        <el-button :loading="submitting" @click="onManualLogin"
+        <el-form-item label="密码">
+          <el-input v-model="password" type="password" autocomplete="current-password"
+                    placeholder="请输入密码" show-password @keyup.enter="onLogin"></el-input>
+        </el-form-item>
+        <el-button :loading="submitting" @click="onLogin"
                    style="width: 100%;">登录</el-button>
       </el-form>
 
@@ -54,8 +54,8 @@
 
     const app = createApp({
       setup() {
-        const employeeId = ref('');
-        const userName = ref('');
+        const username = ref('');
+        const password = ref('');
         const submitting = ref(false);
         const errorMessage = ref('');
 
@@ -68,50 +68,41 @@
               params.get('redirect'), window.__APP_BASE__ || '');
         }
 
-        // 记住上次登录成功的工号+用户名(localStorage 按 origin 隔离,/qa 与根域共享),
-        // 下次进入登录页自动回显,省去重复输入。仅存非敏感的工号/用户名,不涉密码。
-        const LOGIN_MEMORY_KEY = 'agentweb.manualLogin';
+        // 只记住用户名，密码永不写入浏览器存储。
+        const LOGIN_MEMORY_KEY = 'agentweb.loginUsername';
         function saveLoginMemory() {
           try {
-            localStorage.setItem(LOGIN_MEMORY_KEY, JSON.stringify({
-              employeeId: employeeId.value.trim(),
-              userName: userName.value.trim()
-            }));
+            localStorage.setItem(LOGIN_MEMORY_KEY, username.value.trim());
           } catch (e) { /* 隐私模式 / 禁用 localStorage 时静默 */ }
         }
         function restoreLoginMemory() {
           try {
-            const saved = JSON.parse(localStorage.getItem(LOGIN_MEMORY_KEY) || 'null');
-            if (saved && typeof saved === 'object') {
-              employeeId.value = saved.employeeId || '';
-              userName.value = saved.userName || '';
-            }
-          } catch (e) { /* 解析失败(脏数据)静默,按空表单处理 */ }
+            username.value = localStorage.getItem(LOGIN_MEMORY_KEY) || '';
+          } catch (e) { /* 读取失败按空表单处理 */ }
         }
 
-        async function onManualLogin() {
-          if (!employeeId.value.trim() || !userName.value.trim()) {
-            errorMessage.value = '工号与用户名都不能为空';
+        async function onLogin() {
+          if (!username.value.trim() || !password.value) {
+            errorMessage.value = '用户名与密码都不能为空';
             return;
           }
           submitting.value = true;
           errorMessage.value = '';
           try {
-            const resp = await fetch('/api/auth/manual-login', {
+            const resp = await fetch('/api/auth/login', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                employeeId: employeeId.value.trim(),
-                userName: userName.value.trim()
+                username: username.value.trim(),
+                password: password.value
               })
             });
             if (!resp.ok) {
-              const text = await resp.text();
-              errorMessage.value = '登录失败: ' + text;
+              errorMessage.value = resp.status === 401 ? '用户名或密码错误' : '登录失败，请稍后重试';
               return;
             }
-            // 登录成功:记住工号+用户名,下次进入登录页自动回显
             saveLoginMemory();
+            password.value = '';
             window.location.href = window.withBase(getRedirect());
           } catch (e) {
             errorMessage.value = '网络错误: ' + e.message;
@@ -124,7 +115,7 @@
           restoreLoginMemory();
         });
 
-        return { employeeId, userName, submitting, errorMessage, onManualLogin };
+        return { username, password, submitting, errorMessage, onLogin };
       }
     });
     app.use(ElementPlus);

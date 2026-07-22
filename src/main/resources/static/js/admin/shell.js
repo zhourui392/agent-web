@@ -1,7 +1,7 @@
 /**
  * 管理后台外壳组件 AdminShell + 启动工具 bootstrapAdminApp。
  *
- * AdminShell 承载所有横切 chrome:管理口令登录门、顶栏(标题 / 退出 + #header-actions 插槽)、
+ * AdminShell 承载所有横切 chrome:ADMIN 角色门、顶栏(标题 / 退出 + #header-actions 插槽)、
  * 侧栏菜单(含 backfill badge),内容区用默认 <slot>。鉴权通过后 emit('ready') 通知宿主拉数。
  * 单页(admin.html)与未来 MPA 各页共享同一份实现。
  *
@@ -24,12 +24,11 @@
       <div>
         <div v-if="!authed" class="login-wrap">
           <el-card class="login-card" v-loading="checking">
-            <template #header><div style="font-weight:700;">管理后台 · 管理口令</div></template>
-            <el-input v-model="password" type="password" placeholder="请输入管理口令" show-password
-                      size="large" @keyup.enter="login"></el-input>
+            <template #header><div style="font-weight:700;">管理后台 · 管理员登录</div></template>
+            <div style="color:#606266; font-size:14px;">请使用 ADMIN 账户登录后访问。</div>
             <div v-if="loginError" style="color:#f56c6c; font-size:12px; margin-top:8px;">{{ loginError }}</div>
             <el-button type="primary" size="large" style="width:100%; margin-top:16px;"
-                       :loading="loggingIn" @click="login">登录</el-button>
+                       @click="login">前往登录</el-button>
           </el-card>
         </div>
 
@@ -48,7 +47,6 @@
                 <el-menu-item index="conversations"><span>对话记录</span></el-menu-item>
                 <el-menu-item index="suggestions"><span>用户建议</span></el-menu-item>
                 <el-menu-item index="workflows"><span>工作流</span></el-menu-item>
-                <el-menu-item index="requirement-events"><span>需求事件</span></el-menu-item>
                 <el-menu-item index="recall"><span>召回观测</span></el-menu-item>
                 <el-menu-item v-if="ragEnabled" index="refinery"><span>召回历史</span></el-menu-item>
                 <el-menu-item index="chat"><span>对话</span></el-menu-item>
@@ -66,10 +64,7 @@
     setup(props, { emit }) {
       const authed = ref(false);
       const checking = ref(true);
-      const password = ref('');
       const loginError = ref('');
-      const loggingIn = ref(false);
-      const authEnabled = ref(true);
       // chat-rag(Knowledge Refinery)是否启用:enabled=false 时 controller 不装配,
       // /chunks 返回 404 → 隐藏「召回历史」菜单。口径对齐主控制台 app.js 的探测。
       const ragEnabled = ref(false);
@@ -95,12 +90,13 @@
       async function checkStatus() {
         checking.value = true;
         try {
-          const status = await (await fetch('/api/admin/status')).json();
-          authEnabled.value = status.authEnabled !== false;
-          authed.value = !!status.authenticated;
+          const status = await (await fetch('/api/auth/status')).json();
+          authed.value = !!status.authenticated && status.role === 'ADMIN';
           if (authed.value) {
             emit('ready');
             probeRefinery();
+          } else if (status.authenticated) {
+            loginError.value = '当前账户无管理员权限';
           }
         } catch (e) {
           // 状态接口异常按未登录处理,展示登录框
@@ -109,45 +105,25 @@
         }
       }
 
-      async function login() {
-        loginError.value = '';
-        loggingIn.value = true;
-        try {
-          const resp = await fetch('/api/admin/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ password: password.value })
-          });
-          if (resp.ok) {
-            const data = await resp.json().catch(() => ({}));
-            authEnabled.value = data.authEnabled !== false;
-            authed.value = true;
-            password.value = '';
-            emit('ready');
-            probeRefinery();
-          } else {
-            loginError.value = '口令错误,请重试';
-          }
-        } catch (e) {
-          loginError.value = '登录失败: ' + e;
-        } finally {
-          loggingIn.value = false;
-        }
+      function login() {
+        const redirect = location.pathname + location.search + location.hash;
+        location.href = window.withBase('/login.html?redirect=' + encodeURIComponent(redirect));
       }
 
       async function logout() {
         try {
-          await fetch('/api/admin/logout', { method: 'POST' });
+          await fetch('/api/auth/logout', { method: 'POST' });
         } catch (e) {
           // 忽略:本地状态照常清空
         }
-        authed.value = !authEnabled.value;
+        authed.value = false;
+        location.href = window.withBase('/login.html');
         emit('logout');
       }
 
       onMounted(checkStatus);
 
-      return { authed, checking, password, loginError, loggingIn, ragEnabled, onMenuSelect, login, logout };
+      return { authed, checking, loginError, ragEnabled, onMenuSelect, login, logout };
     }
   };
 

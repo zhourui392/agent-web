@@ -3,7 +3,6 @@ package com.example.agentweb.interfaces;
 import com.example.agentweb.app.ScheduledTaskService;
 import com.example.agentweb.domain.schedule.ScheduledTask;
 import com.example.agentweb.infra.auth.AuthProperties;
-import com.example.agentweb.infra.auth.ApiKeyProperties;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -51,9 +50,6 @@ class ScheduledTaskControllerTest {
 
     @MockBean(name = "agentExecutor")
     private Executor agentExecutor;
-
-    @MockBean
-    private ApiKeyProperties apiKeyProperties;
 
     @MockBean
     private AuthProperties authProperties;
