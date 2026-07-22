@@ -9,6 +9,7 @@ import com.example.agentweb.domain.auth.PasswordVerifier;
 import com.example.agentweb.domain.auth.UserAccountRepository;
 import com.example.agentweb.domain.auth.UserAuthenticator;
 import com.example.agentweb.domain.auth.UserPasswordService;
+import com.example.agentweb.domain.auth.UserRegistrationService;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -57,6 +58,12 @@ public class AuthSecurityConfig {
                                                    PasswordHasher passwordHasher) {
         return new UserPasswordService(
                 userAccountRepository, sessionRepository, passwordHasher, Clock.systemUTC());
+    }
+
+    @Bean
+    public UserRegistrationService userRegistrationService(UserAccountRepository userAccountRepository,
+                                                           PasswordHasher passwordHasher) {
+        return new UserRegistrationService(userAccountRepository, passwordHasher, Clock.systemUTC());
     }
 
     @Bean

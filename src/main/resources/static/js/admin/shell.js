@@ -45,6 +45,7 @@
               <el-menu :default-active="active" @select="onMenuSelect">
                 <el-menu-item index="dashboard"><span>大盘</span></el-menu-item>
                 <el-menu-item index="conversations"><span>对话记录</span></el-menu-item>
+                <el-menu-item index="users"><span>用户管理</span></el-menu-item>
                 <el-menu-item index="suggestions"><span>用户建议</span></el-menu-item>
                 <el-menu-item index="workflows"><span>工作流</span></el-menu-item>
                 <el-menu-item index="recall"><span>召回观测</span></el-menu-item>

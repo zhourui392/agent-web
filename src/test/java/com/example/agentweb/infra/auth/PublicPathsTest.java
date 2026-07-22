@@ -74,6 +74,7 @@ public class PublicPathsTest {
     void adminDataEndpoints_requireNormalSessionBeforeRoleCheck() {
         assertFalse(PublicPaths.isPublic("/api/metrics/overview"));
         assertFalse(PublicPaths.isPublic("/api/admin-user-suggestions"));
+        assertFalse(PublicPaths.isPublic("/api/admin-users"));
         assertFalse(PublicPaths.isPublic("/api/admin-workflows"));
         assertFalse(PublicPaths.isPublic("/api/admin-workflow-executions"));
         assertFalse(PublicPaths.isPublic("/api/admin-settings"));

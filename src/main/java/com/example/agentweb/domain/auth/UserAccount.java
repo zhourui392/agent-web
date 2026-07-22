@@ -2,6 +2,7 @@ package com.example.agentweb.domain.auth;
 
 import java.time.Instant;
 import java.util.Objects;
+import java.util.UUID;
 
 /**
  * 用户账户聚合根，封装账户可用性、密码校验与角色语义。
@@ -11,6 +12,7 @@ import java.util.Objects;
  */
 public final class UserAccount {
 
+    private static final int MAX_USERNAME_LENGTH = 64;
     private static final int MIN_PASSWORD_LENGTH = 12;
     private static final int MAX_PASSWORD_LENGTH = 256;
 
@@ -45,6 +47,23 @@ public final class UserAccount {
     }
 
     /**
+     * 创建默认启用的账户，集中维护用户名、密码和角色不变量。
+     */
+    public static UserAccount create(String username, String rawPassword, UserRole role,
+                                     PasswordHasher hasher, Instant createdAt) {
+        Objects.requireNonNull(hasher, "hasher 不能为空");
+        Objects.requireNonNull(createdAt, "createdAt 不能为空");
+        String normalizedUsername = requireText(username, "username");
+        if (normalizedUsername.length() > MAX_USERNAME_LENGTH) {
+            throw new IllegalArgumentException("用户名不能超过 64 个字符");
+        }
+        validateRawPassword(rawPassword);
+        return new UserAccount(
+                UUID.randomUUID().toString(), normalizedUsername, hasher.encode(rawPassword),
+                role, true, createdAt, createdAt);
+    }
+
+    /**
      * 校验当前账户是否允许使用该密码登录。
      */
     public boolean authenticate(String rawPassword, PasswordVerifier verifier) {
@@ -58,13 +77,17 @@ public final class UserAccount {
     public UserAccount changePassword(String rawPassword, PasswordHasher hasher, Instant changedAt) {
         Objects.requireNonNull(hasher, "hasher 不能为空");
         Objects.requireNonNull(changedAt, "changedAt 不能为空");
+        validateRawPassword(rawPassword);
+        return new UserAccount(id, username, hasher.encode(rawPassword), role, enabled, createdAt, changedAt);
+    }
+
+    private static void validateRawPassword(String rawPassword) {
         if (rawPassword == null
                 || rawPassword.trim().isEmpty()
                 || rawPassword.length() < MIN_PASSWORD_LENGTH
                 || rawPassword.length() > MAX_PASSWORD_LENGTH) {
             throw new IllegalArgumentException("密码长度必须在 12 到 256 个字符之间");
         }
-        return new UserAccount(id, username, hasher.encode(rawPassword), role, enabled, createdAt, changedAt);
     }
 
     public boolean isAdmin() {

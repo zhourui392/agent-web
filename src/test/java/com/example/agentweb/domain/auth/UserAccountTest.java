@@ -6,6 +6,7 @@ import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -18,6 +19,37 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class UserAccountTest {
 
     private static final Instant NOW = Instant.parse("2026-07-22T00:00:00Z");
+
+    @Test
+    void create_should_BuildEnabledAccountWithHashedPassword() {
+        UserAccount account = UserAccount.create(
+                "  zhangsan  ", "A-secure-password!2026", UserRole.USER,
+                new StubPasswordHasher(), NOW);
+
+        assertNotNull(account.getId());
+        assertFalse(account.getId().trim().isEmpty());
+        assertEquals("zhangsan", account.getUsername());
+        assertEquals("encoded:A-secure-password!2026", account.getPasswordHash());
+        assertEquals(UserRole.USER, account.getRole());
+        assertTrue(account.isEnabled());
+        assertEquals(NOW, account.getCreatedAt());
+        assertEquals(NOW, account.getUpdatedAt());
+    }
+
+    @Test
+    void create_should_RejectInvalidUsernamePasswordOrRole() {
+        PasswordHasher hasher = new StubPasswordHasher();
+
+        assertThrows(IllegalArgumentException.class,
+                () -> UserAccount.create(" ", "A-secure-password!2026", UserRole.USER, hasher, NOW));
+        assertThrows(IllegalArgumentException.class,
+                () -> UserAccount.create(repeatedCharacter(65),
+                        "A-secure-password!2026", UserRole.USER, hasher, NOW));
+        assertThrows(IllegalArgumentException.class,
+                () -> UserAccount.create("zhangsan", "short", UserRole.USER, hasher, NOW));
+        assertThrows(IllegalArgumentException.class,
+                () -> UserAccount.create("zhangsan", "A-secure-password!2026", null, hasher, NOW));
+    }
 
     @Test
     void restore_should_RejectInvalidPersistentState() {

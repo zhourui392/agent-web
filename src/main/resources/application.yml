@@ -127,6 +127,7 @@ agent:
     protected-prefixes:
       - /api/metrics
       - /api/admin-user-suggestions
+      - /api/admin-users
       - /api/admin-workflows
       - /api/admin-workflow-executions
       - /api/admin-settings

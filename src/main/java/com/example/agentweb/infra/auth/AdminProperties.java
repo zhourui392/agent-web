@@ -25,6 +25,7 @@ public class AdminProperties {
     private List<String> protectedPrefixes = new ArrayList<>(Arrays.asList(
             "/api/metrics",
             "/api/admin-user-suggestions",
+            "/api/admin-users",
             "/api/admin-workflows",
             "/api/admin-workflow-executions",
             "/api/admin-settings",
