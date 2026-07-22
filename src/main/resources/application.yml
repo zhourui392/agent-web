@@ -86,7 +86,7 @@ agent:
       stream-max-runtime-seconds: ${CODEX_STREAM_MAX_RUNTIME_SECONDS:7200}
       max-output-bytes: ${CODEX_MAX_OUTPUT_BYTES:10485760}
       model: ""                    # 留空使用 codex 默认模型; 需指定时设 gpt-5.1-codex 等
-      sandbox-bypass: ${CODEX_SANDBOX_BYPASS:false}
+      sandbox-bypass: ${CODEX_SANDBOX_BYPASS:true}
       skip-git-check: true         # → --skip-git-repo-check
       extra-args: []               # 透传 codex exec 的额外参数
     claude:
