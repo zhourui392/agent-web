@@ -24,6 +24,59 @@ CREATE TABLE IF NOT EXISTS chat_message (
 
 CREATE INDEX IF NOT EXISTS idx_chat_message_session_id ON chat_message(session_id);
 
+-- 一次聊天执行的独立生命周期。recall_enabled 是提交时快照，后台线程不再信任浏览器状态。
+CREATE TABLE IF NOT EXISTS chat_run (
+    id                    TEXT PRIMARY KEY,
+    session_id            TEXT    NOT NULL,
+    user_message_id       INTEGER NOT NULL,
+    assistant_message_id  INTEGER,
+    idempotency_key       TEXT    NOT NULL,
+    recall_enabled        INTEGER NOT NULL DEFAULT 1,
+    status                TEXT    NOT NULL,
+    last_event_seq        INTEGER NOT NULL DEFAULT 0,
+    exit_code             INTEGER,
+    failure_code          TEXT,
+    error_message         TEXT,
+    created_at            INTEGER NOT NULL,
+    started_at            INTEGER,
+    cancel_requested_at   INTEGER,
+    finished_at           INTEGER,
+    updated_at            INTEGER NOT NULL,
+    version               INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (session_id, idempotency_key),
+    UNIQUE (assistant_message_id),
+    CHECK (recall_enabled IN (0, 1)),
+    CHECK (last_event_seq >= 0),
+    CHECK (status IN (
+        'PENDING', 'RUNNING', 'CANCEL_REQUESTED',
+        'SUCCEEDED', 'FAILED', 'CANCELLED', 'INTERRUPTED'
+    ))
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_run_session_created
+    ON chat_run(session_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_chat_run_status_updated
+    ON chat_run(status, updated_at);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_chat_run_active_session
+    ON chat_run(session_id)
+    WHERE status IN ('PENDING', 'RUNNING', 'CANCEL_REQUESTED');
+
+-- 浏览器可见的 append-only 流投影，cursor 仅在单个 run 内有意义。
+CREATE TABLE IF NOT EXISTS chat_run_event (
+    run_id       TEXT    NOT NULL,
+    seq          INTEGER NOT NULL,
+    event_type   TEXT    NOT NULL,
+    payload      TEXT    NOT NULL,
+    payload_size INTEGER NOT NULL,
+    created_at   INTEGER NOT NULL,
+    PRIMARY KEY (run_id, seq),
+    CHECK (seq > 0),
+    CHECK (payload_size >= 0)
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_run_event_created
+    ON chat_run_event(created_at);
+
 -- /recall 命中明细, 1:1 挂在 assistant 消息上 (key=chat_message.id), 供刷新/重开历史时回放召回卡片
 CREATE TABLE IF NOT EXISTS chat_message_recall (
     message_id    INTEGER PRIMARY KEY,

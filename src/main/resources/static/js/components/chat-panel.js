@@ -99,6 +99,7 @@
                   <div v-show="isToolExpanded(index, si)" class="tool-content">{{ seg.content }}</div>
                 </div>
               </template>
+              <div v-if="sending && reconnecting && index === messages.length - 1" class="message-system">连接中断，正在恢复...</div>
               <div v-if="sending && index === messages.length - 1" class="loading-dots"><span></span><span></span><span></span></div>
             </div>
           </div>
@@ -226,6 +227,11 @@
       const sending = ref(false);
       const sessionId = ref('');
       const resumeId = ref('');
+      const activeRunId = ref('');
+      const runStatus = ref('');
+      const lastAppliedEventSeq = ref(0);
+      const reconnecting = ref(false);
+      const resumableEnabled = ref(null);
       const chatContainer = ref(null);
       const feedback = ref({ rating: null, comment: null });
       const feedbackDialogVisible = ref(false);
@@ -255,6 +261,9 @@
       let lastEventTime = 0;
       let heartbeatTimer = null;
       let recovering = false;
+      let restoringActiveRun = false;
+      let resumableProbe = null;
+      let runStore = null;
 
       // ===== computed =====
       const canShare = computed(() =>
@@ -379,6 +388,20 @@
 
       const stopSession = async () => {
         if (!sessionId.value || !sending.value) return;
+        if (activeRunId.value) {
+          try {
+            const res = await fetch('/api/chat/runs/' + encodeURIComponent(activeRunId.value) + '/stop', {
+              method: 'POST',
+            });
+            if (!res.ok) throw new Error(await res.text());
+            const result = await res.json();
+            runStatus.value = result.status || 'CANCEL_REQUESTED';
+            addMessage('system', '已请求停止，等待任务退出');
+          } catch (e) {
+            ElementPlus.ElMessage.error('停止失败: ' + (e.message || e));
+          }
+          return;
+        }
         try {
           await fetch('/api/chat/session/' + encodeURIComponent(sessionId.value) + '/stop', { method: 'POST' });
         } catch (e) { /* best effort */ }
@@ -394,6 +417,10 @@
         sending.value = false;
         sessionId.value = '';
         resumeId.value = '';
+        activeRunId.value = '';
+        runStatus.value = '';
+        lastAppliedEventSeq.value = 0;
+        reconnecting.value = false;
         messages.value = [];
         feedback.value = { rating: null, comment: null };
         pendingImages.value = [];
@@ -702,6 +729,237 @@
         } catch (e) { /* ignore */ }
       }
 
+      // ===== 可恢复 ChatRun =====
+      async function ensureRunStore() {
+        if (runStore) return runStore;
+        let userKey = 'anonymous';
+        try {
+          const status = await fetch('/api/auth/status').then(r => r.json());
+          userKey = status.userId || status.username || userKey;
+        } catch (e) { /* 使用 anonymous 隔离桶 */ }
+        runStore = window.AgentChatRunState.createStore(localStorage, userKey);
+        return runStore;
+      }
+
+      async function queryActiveRuns() {
+        const response = await fetch('/api/chat/runs/active');
+        if (response.status === 404) {
+          resumableEnabled.value = false;
+          return [];
+        }
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        resumableEnabled.value = true;
+        const runs = await response.json();
+        return Array.isArray(runs) ? runs : [];
+      }
+
+      async function ensureResumableCapability() {
+        if (resumableEnabled.value !== null) return resumableEnabled.value;
+        if (!resumableProbe) {
+          resumableProbe = queryActiveRuns()
+            .then(() => resumableEnabled.value === true)
+            .finally(() => { resumableProbe = null; });
+        }
+        return resumableProbe;
+      }
+
+      async function saveRunMarker(extra) {
+        if (!activeRunId.value) return;
+        const store = await ensureRunStore();
+        store.put(Object.assign({
+          runId: activeRunId.value,
+          sessionId: sessionId.value,
+          workingDir: props.workingDir,
+          lastAppliedEventSeq: lastAppliedEventSeq.value,
+          startedAt: Date.now(),
+        }, extra || {}));
+      }
+
+      async function removeRunMarker(runId) {
+        const store = await ensureRunStore();
+        store.remove(runId);
+      }
+
+      function createResumableRenderer(msgIndex) {
+        const chunks = [];
+        let flushTimer = null;
+        function flush() {
+          if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+          const target = messages.value[msgIndex];
+          if (!target || target.role !== 'agent') return;
+          const output = chunks.join('\n');
+          target.segments = output
+            ? (isStreamJson(output) ? parseStreamJson(output) : [{ type: 'text', content: output }])
+            : [];
+          nextTick(() => {
+            if (chatContainer.value) chatContainer.value.scrollTop = chatContainer.value.scrollHeight;
+          });
+        }
+        return {
+          recall: function (data) {
+            const target = messages.value[msgIndex];
+            if (!target || target.role !== 'agent') return;
+            try { target.recall = JSON.parse(data); target.recallOpen = false; } catch (e) { /* ignore */ }
+          },
+          chunk: function (data) {
+            chunks.push(data);
+            if (!flushTimer) flushTimer = setTimeout(flush, 100);
+          },
+          flush: flush,
+        };
+      }
+
+      function rememberEventCursor(event) {
+        const sequence = Number(event.lastEventId || 0);
+        if (sequence > lastAppliedEventSeq.value) {
+          lastAppliedEventSeq.value = sequence;
+          saveRunMarker();
+        }
+      }
+
+      async function finishResumableRun(runId, terminalData, renderer) {
+        renderer.flush();
+        let terminal = {};
+        try { terminal = JSON.parse(terminalData || '{}'); } catch (e) { terminal = {}; }
+        runStatus.value = terminal.status || 'FAILED';
+        sending.value = false;
+        reconnecting.value = false;
+        if (currentES) { currentES.close(); currentES = null; }
+        await removeRunMarker(runId);
+        activeRunId.value = '';
+        lastAppliedEventSeq.value = 0;
+        await reloadMessages();
+        if (runStatus.value === 'SUCCEEDED') addMessage('system', '任务已完成');
+        else if (runStatus.value === 'CANCELLED') addMessage('system', '任务已取消');
+        else addMessage('error', terminal.errorMessage || '任务执行失败');
+        emit('refresh-history');
+      }
+
+      async function handleExpiredCursor(runId, data) {
+        let expired = {};
+        try { expired = JSON.parse(data || '{}'); } catch (e) { expired = {}; }
+        await reloadMessages();
+        addMessage('system', '早期流式片段已过期，已重新加载持久化消息');
+        try {
+          const statusResponse = await fetch('/api/chat/runs/' + encodeURIComponent(runId));
+          if (!statusResponse.ok) throw new Error('HTTP ' + statusResponse.status);
+          const status = await statusResponse.json();
+          runStatus.value = status.status || '';
+          if (['PENDING', 'RUNNING', 'CANCEL_REQUESTED'].indexOf(runStatus.value) >= 0) {
+            const msgIndex = messages.value.length;
+            messages.value.push({ id: null, role: 'agent', segments: [], recall: null, recallOpen: false });
+            sending.value = true;
+            subscribeResumableRun(runId, Number(expired.lastEventSeq || status.lastEventSeq || 0), msgIndex);
+            return;
+          }
+        } catch (e) { /* 终态或已不可见，按快照收口 */ }
+        sending.value = false;
+        await removeRunMarker(runId);
+        activeRunId.value = '';
+      }
+
+      function redirectToLogin() {
+        fetch('/api/auth/status').then(r => r.json()).then(status => {
+          if (!status.authenticated && status.loginUrl) window.location.href = status.loginUrl;
+        }).catch(() => {});
+      }
+
+      function subscribeResumableRun(runId, cursor, msgIndex) {
+        const renderer = createResumableRenderer(msgIndex);
+        const url = '/api/chat/runs/' + encodeURIComponent(runId) + '/events';
+        const client = window.AgentResumableSse.open(url, { after: Math.max(0, Number(cursor) || 0) });
+        currentES = client;
+        client.addEventListener('run_status', event => {
+          rememberEventCursor(event);
+          reconnecting.value = false;
+          try { runStatus.value = JSON.parse(event.data).status || runStatus.value; } catch (e) { /* ignore */ }
+        });
+        client.addEventListener('recall', event => {
+          rememberEventCursor(event);
+          reconnecting.value = false;
+          renderer.recall(event.data);
+        });
+        client.addEventListener('chunk', event => {
+          rememberEventCursor(event);
+          reconnecting.value = false;
+          renderer.chunk(event.data);
+        });
+        client.addEventListener('ping', () => { reconnecting.value = false; });
+        client.addEventListener('reconnecting', () => { reconnecting.value = true; });
+        client.addEventListener('terminal', event => {
+          rememberEventCursor(event);
+          finishResumableRun(runId, event.data, renderer);
+        });
+        client.addEventListener('cursor_expired', event => {
+          currentES = null;
+          handleExpiredCursor(runId, event.data);
+        });
+        client.addEventListener('unauthorized', redirectToLogin);
+        client.addEventListener('fatal', event => {
+          renderer.flush();
+          sending.value = false;
+          reconnecting.value = false;
+          currentES = null;
+          addMessage('error', event.data || 'SSE 连接错误');
+          if (event.data === 'HTTP 404') {
+            removeRunMarker(runId);
+            activeRunId.value = '';
+          }
+        });
+      }
+
+      async function restoreActiveRun(preferredSessionId) {
+        if (restoringActiveRun || sending.value || !props.workingDir) return;
+        restoringActiveRun = true;
+        try {
+          const activeRuns = await queryActiveRuns();
+          if (!resumableEnabled.value) return;
+          const store = await ensureRunStore();
+          const localRuns = store.list();
+          const activeIds = {};
+          activeRuns.forEach(run => { activeIds[run.runId] = true; });
+          Object.keys(localRuns).forEach(runId => {
+            if (!activeIds[runId]) store.remove(runId);
+          });
+          let selected = preferredSessionId
+            ? activeRuns.find(run => run.sessionId === preferredSessionId)
+            : null;
+          if (!selected) {
+            selected = window.AgentChatRunState.selectActiveRun(activeRuns, localRuns, props.workingDir);
+          }
+          if (!selected) return;
+
+          sessionId.value = selected.sessionId;
+          resumeId.value = '';
+          activeRunId.value = selected.runId;
+          runStatus.value = selected.status;
+          lastAppliedEventSeq.value = 0;
+          sending.value = true;
+          reconnecting.value = false;
+          await reloadMessages();
+          addMessage('system', '正在恢复运行中的任务');
+          const msgIndex = messages.value.length;
+          messages.value.push({ id: null, role: 'agent', segments: [], recall: null, recallOpen: false });
+          await saveRunMarker({
+            workingDir: selected.workingDir,
+            startedAt: selected.startedAt || selected.createdAt || Date.now(),
+          });
+          emit('session-created', {
+            sessionId: selected.sessionId,
+            workingDir: selected.workingDir,
+            agentType: selected.agentType,
+          });
+          // 新页面没有旧的局部渲染状态，必须从 0 回放完整保留窗口；同页断线由客户端按 cursor 续传。
+          subscribeResumableRun(selected.runId, 0, msgIndex);
+        } catch (e) {
+          if (resumableEnabled.value !== false) {
+            ElementPlus.ElMessage.warning('恢复运行中任务失败: ' + (e.message || e));
+          }
+        } finally {
+          restoringActiveRun = false;
+        }
+      }
+
       // ===== 对话回退 =====
       const rewindToMessage = async (msg, index) => {
         if (sending.value) { ElementPlus.ElMessage.warning('请先停止当前对话再回退'); return; }
@@ -733,7 +991,7 @@
       };
 
       // ===== SSE 发送 =====
-      const sendMessageStream = async () => {
+      const sendMessageLegacy = async () => {
         if (!props.workingDir || !userInput.value.trim() || sending.value) return;
         try {
           await ensureSession();
@@ -894,6 +1152,95 @@
         };
       };
 
+      function newIdempotencyKey() {
+        if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+          return window.crypto.randomUUID();
+        }
+        return Date.now().toString(36) + '-' + Math.random().toString(36).substring(2);
+      }
+
+      async function submitResumableRun(idempotencyKey, payload) {
+        let lastError = null;
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            return await fetch('/api/chat/session/' + encodeURIComponent(sessionId.value) + '/runs', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Idempotency-Key': idempotencyKey,
+              },
+              body: JSON.stringify(payload),
+            });
+          } catch (e) {
+            lastError = e;
+            if (attempt === 0) await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+        }
+        throw lastError || new Error('提交任务失败');
+      }
+
+      const sendMessageResumable = async () => {
+        if (!props.workingDir || !userInput.value.trim() || sending.value) return;
+        try {
+          await ensureSession();
+        } catch (error) {
+          ElementPlus.ElMessage.error('创建会话失败: ' + error.message);
+          return;
+        }
+
+        const baseText = userInput.value.trim();
+        const imagePaths = pendingImages.value.map(img => img.path);
+        const filePath = pendingFile.value ? pendingFile.value.path : null;
+        let message = baseText;
+        if (imagePaths.length) message += '\n' + imagePaths.join('\n');
+        if (filePath) message += '\n\n[附件清单]\n- ' + filePath;
+        messages.value.push(userMessageEntry(null, message));
+        userInput.value = '';
+        pendingImages.value = [];
+        pendingFile.value = null;
+        sending.value = true;
+        reconnecting.value = false;
+
+        const msgIndex = messages.value.length;
+        messages.value.push({ id: null, role: 'agent', segments: [], recall: null, recallOpen: false });
+        const idempotencyKey = newIdempotencyKey();
+        try {
+          const response = await submitResumableRun(idempotencyKey, {
+            message: message,
+            resumeId: resumeId.value || null,
+            recall: !!ragRecall.value,
+          });
+          if (!response.ok) {
+            let error = {};
+            try { error = await response.json(); } catch (e) { error = {}; }
+            throw new Error(error.message || error.code || ('HTTP ' + response.status));
+          }
+          const submitted = await response.json();
+          activeRunId.value = submitted.runId;
+          runStatus.value = submitted.status || 'PENDING';
+          lastAppliedEventSeq.value = 0;
+          await saveRunMarker({ startedAt: Date.now() });
+          subscribeResumableRun(submitted.runId, 0, msgIndex);
+          emit('refresh-history');
+        } catch (e) {
+          sending.value = false;
+          reconnecting.value = false;
+          messages.value.splice(msgIndex, 1);
+          await reloadMessages();
+          ElementPlus.ElMessage.error('发送失败: ' + (e.message || e));
+        }
+      };
+
+      const sendMessageStream = async () => {
+        try {
+          const enabled = await ensureResumableCapability();
+          if (enabled) return sendMessageResumable();
+          return sendMessageLegacy();
+        } catch (e) {
+          ElementPlus.ElMessage.error('聊天服务暂不可用: ' + (e.message || e));
+        }
+      };
+
       // ===== 恢复历史会话(宿主通过 initialSessionId 触发) =====
       const applyResume = async (sid, rid) => {
         if (!sid) return;
@@ -917,6 +1264,7 @@
           fetch('/api/chat/session/' + encodeURIComponent(sid) + '/commands')
             .then(r => r.json()).then(cmds => { slashCommands.value = cmds; }).catch(() => {});
           ElementPlus.ElMessage.success('已恢复历史会话');
+          await restoreActiveRun(sid);
         } catch (e) {
           ElementPlus.ElMessage.error('恢复会话失败');
         }
@@ -938,6 +1286,7 @@
       watch(() => props.workingDir, () => {
         clearConversation();
         loadSlashCommands();
+        restoreActiveRun('');
       });
 
       // 宿主切换会话:非空且不同 → 恢复;置空 → 清空开新对话
@@ -954,8 +1303,11 @@
         if (props.initialSessionId) {
           applyResume(props.initialSessionId, props.initialResumeId);
         }
+        ensureResumableCapability().then(enabled => {
+          if (enabled && !props.initialSessionId) restoreActiveRun('');
+        }).catch(() => {});
         document.addEventListener('visibilitychange', function () {
-          if (document.visibilityState === 'visible' && sending.value && !recovering) {
+          if (document.visibilityState === 'visible' && sending.value && !activeRunId.value && !recovering) {
             if (!currentES || currentES.readyState === EventSource.CLOSED || Date.now() - lastEventTime > 30000) {
               recoverSession();
             }
@@ -965,7 +1317,7 @@
 
       return {
         // state
-        messages, userInput, sending, sessionId, chatContainer,
+        messages, userInput, sending, sessionId, activeRunId, runStatus, reconnecting, chatContainer,
         feedback, feedbackDialogVisible, feedbackCommentDraft, feedbackSaving,
         showCommandPopup, selectedCommandIdx, filteredCommands,
         pendingImages, maxImagesPerMessage, pendingFile,

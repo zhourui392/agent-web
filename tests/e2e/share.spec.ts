@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 /**
  * 分享视图 E2E:
  * 1. 主页发 hello + 等 Codex stub 输出
- * 2. 截获 SSE 请求 URL 拿 sessionId (URL 里带 sessionId, 比 sessions 列表更稳)
+ * 2. 截获 ChatRun 提交 URL 拿 sessionId (URL 里带 sessionId, 比 sessions 列表更稳)
  * 3. POST /api/chat/session/{sid}/share 拿 token (ShareController 生成 16 位)
  * 4. page.goto('/share.html?token=...') → 分享页渲染
  * 5. 断言 header "只读" tag，user/assistant 消息正确渲染
@@ -21,16 +21,16 @@ test('share: 生成 token → /share.html 分享页渲染', async ({ page, reque
   const input = page.locator('textarea[placeholder*="输入你的问题"]');
   await expect(input).toBeEnabled({ timeout: 10_000 });
 
-  // 监听 SSE 请求, 从 URL 抓 sessionId (路径形如 /api/chat/session/<sid>/message/stream)
+  // 监听 run 提交请求, 从 URL 抓 sessionId (路径形如 /api/chat/session/<sid>/runs)
   const streamReqPromise = page.waitForRequest(req =>
-    /\/api\/chat\/session\/[^/]+\/message\/stream/.test(req.url())
+    /\/api\/chat\/session\/[^/]+\/runs$/.test(req.url())
   );
 
   await input.fill(SHARE_MARKER + ' hello');
   await page.getByRole('button', { name: '发送' }).click();
 
   const streamReq = await streamReqPromise;
-  const m = streamReq.url().match(/\/api\/chat\/session\/([^/]+)\/message\/stream/);
+  const m = streamReq.url().match(/\/api\/chat\/session\/([^/]+)\/runs/);
   expect(m, 'sessionId in stream URL').toBeTruthy();
   const sid = decodeURIComponent(m![1]);
 

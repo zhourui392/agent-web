@@ -198,7 +198,10 @@
               </div>
               <div v-for="h in group.items" :key="h.sessionId" class="history-item" style="display: flex; align-items: center;">
                 <div style="flex: 1; min-width: 0;" @click="viewHistory(h.sessionId)">
-                  <div class="history-title">{{ h.title || '新对话' }}</div>
+                  <div class="history-title">
+                    {{ h.title || '新对话' }}
+                    <el-tag v-if="h.running" size="small" type="warning" effect="plain">运行中</el-tag>
+                  </div>
                   <div class="history-meta">
                     <span v-if="h.agentType" :class="'agent-tag agent-tag-' + h.agentType.toLowerCase()">{{ h.agentType }}</span>
                     {{ h.workingDir.split('/').pop() }} · {{ h.messageCount }} 条 · {{ formatTime(h.createdAt) }}
@@ -251,7 +254,10 @@
                 </div>
                 <div v-for="h in group.items" :key="h.sessionId" class="history-item" style="display: flex; align-items: center;">
                   <div style="flex: 1; min-width: 0;" @click="viewHistory(h.sessionId); sidebarVisible = false;">
-                    <div class="history-title">{{ h.title || '新对话' }}</div>
+                    <div class="history-title">
+                      {{ h.title || '新对话' }}
+                      <el-tag v-if="h.running" size="small" type="warning" effect="plain">运行中</el-tag>
+                    </div>
                     <div class="history-meta">
                       {{ h.workingDir.split('/').pop() }} · {{ h.messageCount }} 条 · {{ formatTime(h.createdAt) }}
                     </div>
@@ -588,8 +594,10 @@
   <!-- Frontend lib: 纯函数工具 (formatSize/renderMarkdown/parseUserMessage/imageUrl/formatTime/escapeHtml/parseStreamJson) -->
   <script src="js/lib/formatters.js?v=20260703"></script>
   <script src="js/lib/post-sse-client.js?v=20260722"></script>
+  <script src="js/lib/resumable-sse-client.js?v=20260722"></script>
+  <script src="js/lib/chat-run-state.js?v=20260722"></script>
   <!-- ChatPanel 组件(挂 window.ChatPanel),须在 app.js 之前加载 -->
-  <script src="js/components/chat-panel.js?v=2026072202"></script>
+  <script src="js/components/chat-panel.js?v=2026072203"></script>
   <!-- App JS -->
   <script src="js/app.js?v=2026072203"></script>
 </body>

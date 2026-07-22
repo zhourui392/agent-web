@@ -12,6 +12,9 @@ agent:
   # 对话默认模型(/api/chat/agent-default → 此 default-type), 故 e2e 默认须为 CODEX,
   # 否则 UI 走 Claude=echo 路径, chat/share/conversations 等 UI 用例拿不到 stub 结论。
   default-type: CODEX
+  chat:
+    resumable-stream:
+      enabled: true
   # 管理数据接口复用 user_account 会话，再校验 ADMIN 角色。
   admin:
     protected-prefixes:
@@ -49,6 +52,8 @@ agent:
         - Echo ${MESSAGE}
       stdin: false           # 关键: 走 args 占位符替换,不走 stdin
       timeout-seconds: 0
+      stream-idle-timeout-seconds: 0
+      stream-max-runtime-seconds: 0
     codex:
       # JSON stub: 输出固定 NDJSON 事件序列, 供 diagnose E2E 走通 CodexEventNormalizer
       exec: cmd
@@ -57,6 +62,8 @@ agent:
         - ${user.dir}\tests\e2e\fixtures\codex-json-stub.cmd
       stdin: false
       timeout-seconds: 0
+      stream-idle-timeout-seconds: 0
+      stream-max-runtime-seconds: 0
   auth:
     cookie-name: local_session
     cookie-secure: false

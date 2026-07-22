@@ -4,8 +4,11 @@ import com.example.agentweb.adapter.AgentGateway;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.chat.ChatMessage;
 import com.example.agentweb.domain.chat.ChatSession;
+import com.example.agentweb.domain.chat.ChatSessionNotFoundException;
 import com.example.agentweb.domain.chat.SessionCache;
 import com.example.agentweb.domain.chat.SessionRepository;
+import com.example.agentweb.domain.chatrun.ActiveChatRunExistsException;
+import com.example.agentweb.domain.chatrun.ChatRunActivityGuard;
 import com.example.agentweb.domain.slashcommand.SlashCommand;
 import com.example.agentweb.domain.slashcommand.SlashCommandExpander;
 import com.example.agentweb.domain.worktree.WorkspacePathPolicy;
@@ -41,6 +44,8 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -65,6 +70,7 @@ public class ChatAppServiceImplBranchesTest {
     private UploadPicStore uploadPicStore;
     private UploadFileStore uploadFileStore;
     private WorkspacePathPolicy workspacePathPolicy;
+    private ChatRunActivityGuard chatRunActivityGuard;
     private ChatAppServiceImpl service;
 
     @TempDir
@@ -81,6 +87,7 @@ public class ChatAppServiceImplBranchesTest {
         uploadPicStore = mock(UploadPicStore.class);
         uploadFileStore = mock(UploadFileStore.class);
         workspacePathPolicy = mock(WorkspacePathPolicy.class);
+        chatRunActivityGuard = mock(ChatRunActivityGuard.class);
         when(workspacePathPolicy.requireExistingDirectory(anyString()))
                 .thenAnswer(invocation -> invocation.getArgument(0));
         Executor sync = Runnable::run;
@@ -95,22 +102,48 @@ public class ChatAppServiceImplBranchesTest {
                 new com.example.agentweb.domain.auth.CurrentUserProvider(() -> java.util.Optional.empty()),
                 chatProperties);
         service.configureWorkspacePathPolicy(workspacePathPolicy);
+        service.configureChatRunActivityGuard(chatRunActivityGuard);
     }
 
     // ============ stopSession / isSessionRunning ============
 
     @Test
     public void stopSession_delegatesToGatewayStopStream() {
+        when(sessionCache.find("s1")).thenReturn(session("s1", "/tmp/wd"));
         service.stopSession("s1");
         verify(gateway).stopStream("s1");
     }
 
     @Test
+    public void stopSession_invisibleSession_rejectsWithoutTouchingGateway() {
+        when(sessionCache.find("hidden")).thenReturn(null);
+        when(sessionRepository.findById("hidden")).thenReturn(null);
+
+        assertThrows(ChatSessionNotFoundException.class,
+                () -> service.stopSession("hidden"));
+
+        verify(gateway, never()).stopStream(anyString());
+    }
+
+    @Test
     public void isSessionRunning_delegatesToGatewayIsRunning() {
+        when(sessionCache.find("s1")).thenReturn(session("s1", "/tmp/wd"));
+        when(sessionCache.find("s2")).thenReturn(session("s2", "/tmp/wd"));
         when(gateway.isRunning("s1")).thenReturn(true);
         assertTrue(service.isSessionRunning("s1"));
         when(gateway.isRunning("s2")).thenReturn(false);
         assertFalse(service.isSessionRunning("s2"));
+    }
+
+    @Test
+    public void isSessionRunning_invisibleSession_rejectsWithoutReadingGateway() {
+        when(sessionCache.find("hidden")).thenReturn(null);
+        when(sessionRepository.findById("hidden")).thenReturn(null);
+
+        assertThrows(ChatSessionNotFoundException.class,
+                () -> service.isSessionRunning("hidden"));
+
+        verify(gateway, never()).isRunning(anyString());
     }
 
     // ============ listCommands ============
@@ -415,10 +448,41 @@ public class ChatAppServiceImplBranchesTest {
     // ============ truncateFrom ============
 
     @Test
+    public void streamMessage_activeChatRun_rejectsLegacyExecutionBeforePersistingMessage() throws Exception {
+        when(sessionCache.find("s1")).thenReturn(session("s1", "/tmp/wd"));
+        doThrow(new ActiveChatRunExistsException("s1"))
+                .when(chatRunActivityGuard).requireInactive("s1");
+
+        assertThrows(ActiveChatRunExistsException.class,
+                () -> service.streamMessage("s1", "Q", null, null, true));
+
+        verify(chatRunActivityGuard).requireInactive("s1");
+        verify(sessionRepository, never()).addMessageReturningId(anyString(), any(ChatMessage.class));
+        verify(gateway, never()).runStream(any(), anyString(), anyString(), anyString(), any(), any(),
+                anyLong(), any(), any());
+    }
+
+    @Test
     public void truncateFrom_sessionNotFound_throws() {
         when(sessionRepository.findById("nope")).thenReturn(null);
         assertThrows(IllegalArgumentException.class,
                 () -> service.truncateFrom("nope", 1L));
+        verify(chatRunActivityGuard, never()).requireInactive(anyString());
+    }
+
+    @Test
+    public void truncateFrom_activeRun_rejectsAfterAuthorizingSession() {
+        when(sessionRepository.findById("s1")).thenReturn(session("s1", "/tmp/wd"));
+        doThrow(new ActiveChatRunExistsException("s1"))
+                .when(chatRunActivityGuard).requireInactive("s1");
+
+        assertThrows(ActiveChatRunExistsException.class,
+                () -> service.truncateFrom("s1", 1L));
+
+        org.mockito.InOrder order = inOrder(sessionRepository, chatRunActivityGuard);
+        order.verify(sessionRepository).findById("s1");
+        order.verify(chatRunActivityGuard).requireInactive("s1");
+        verify(sessionRepository, never()).truncateFrom(anyString(), anyLong());
     }
 
     @Test

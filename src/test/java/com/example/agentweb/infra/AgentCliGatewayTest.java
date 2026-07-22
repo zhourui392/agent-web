@@ -1,5 +1,6 @@
 package com.example.agentweb.infra;
 
+import com.example.agentweb.adapter.AgentStreamResult;
 import com.example.agentweb.app.git.GitEnvResolver;
 import com.example.agentweb.domain.git.GitConfigPolicy;
 import com.example.agentweb.domain.shared.AgentType;
@@ -25,8 +26,10 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -161,12 +164,98 @@ class AgentCliGatewayTest {
         List<String> cmd = writeOutputFloodStub();
         AgentCliGateway gateway = newGateway(cmd, null, 128L);
         List<String> chunks = new CopyOnWriteArrayList<>();
+        AtomicReference<AgentStreamResult> result = new AtomicReference<AgentStreamResult>();
         try {
-            long elapsed = timed(() -> gateway.runStream(AgentType.CODEX, WORKING_DIR, "ignored",
-                    "output-limit", null, null, 0L, chunks::add, code -> { }));
+            long elapsed = timed(() -> gateway.runStreamWithResult(AgentType.CODEX, WORKING_DIR, "ignored",
+                    "output-limit", null, null, 0L, chunks::add, result::set));
 
             assertTrue(elapsed < 3000L, "output limit should terminate process promptly");
             assertTrue(chunks.contains("[output-limit]"), "client should receive explicit output-limit event");
+            assertEquals(AgentStreamResult.TerminationReason.OUTPUT_LIMIT,
+                    result.get().getTerminationReason());
+        } finally {
+            deleteQuietly(cmd);
+        }
+    }
+
+    @Test
+    void runStream_killsProcessAfterConfiguredIdleTimeout() throws Exception {
+        List<String> cmd = writeLongRunningStub();
+        AgentCliGateway gateway = newGateway(cmd, null,
+                10L * 1024L * 1024L, 1L, 8L);
+        List<String> chunks = new CopyOnWriteArrayList<String>();
+        AtomicReference<AgentStreamResult> result = new AtomicReference<AgentStreamResult>();
+        try {
+            long elapsed = timed(() -> gateway.runStreamWithResult(AgentType.CODEX, WORKING_DIR, "ignored",
+                    "idle-timeout", null, null, 0L, chunks::add, result::set));
+
+            assertTrue(elapsed < 4000L, "silent process should be stopped by idle timeout");
+            assertTrue(chunks.contains("[timeout:idle]"),
+                    "client should receive an explicit idle-timeout marker");
+            assertEquals(-1, result.get().getExitCode());
+            assertEquals(AgentStreamResult.TerminationReason.IDLE_TIMEOUT,
+                    result.get().getTerminationReason());
+        } finally {
+            deleteQuietly(cmd);
+        }
+    }
+
+    @Test
+    void runStream_stdoutActivityRenewsIdleTimeout() throws Exception {
+        List<String> cmd = writeActiveOutputStub(4);
+        AgentCliGateway gateway = newGateway(cmd, null,
+                10L * 1024L * 1024L, 2L, 8L);
+        List<String> chunks = new CopyOnWriteArrayList<String>();
+        AtomicInteger exitCode = new AtomicInteger(Integer.MIN_VALUE);
+        try {
+            long elapsed = timed(() -> gateway.runStream(AgentType.CODEX, WORKING_DIR, "ignored",
+                    "active-output", null, null, 0L, chunks::add, exitCode::set));
+
+            assertTrue(elapsed >= 3000L, "process should stay alive beyond the first idle deadline");
+            assertFalse(chunks.contains("[timeout:idle]"));
+            assertEquals(0, exitCode.get());
+        } finally {
+            deleteQuietly(cmd);
+        }
+    }
+
+    @Test
+    void runStream_maxRuntimeIsNotRenewedByStdoutActivity() throws Exception {
+        List<String> cmd = writeActiveOutputStub(8);
+        AgentCliGateway gateway = newGateway(cmd, null,
+                10L * 1024L * 1024L, 2L, 3L);
+        List<String> chunks = new CopyOnWriteArrayList<String>();
+        AtomicReference<AgentStreamResult> result = new AtomicReference<AgentStreamResult>();
+        try {
+            long elapsed = timed(() -> gateway.runStreamWithResult(AgentType.CODEX, WORKING_DIR, "ignored",
+                    "max-runtime", null, null, 0L, chunks::add, result::set));
+
+            assertTrue(elapsed < 6000L, "active process should still respect the absolute limit");
+            assertTrue(chunks.contains("[timeout:max-runtime]"),
+                    "client should receive an explicit max-runtime marker");
+            assertEquals(-1, result.get().getExitCode());
+            assertEquals(AgentStreamResult.TerminationReason.MAX_RUNTIME_TIMEOUT,
+                    result.get().getTerminationReason());
+        } finally {
+            deleteQuietly(cmd);
+        }
+    }
+
+    @Test
+    void runStream_explicitTimeoutRemainsHardLimit() throws Exception {
+        List<String> cmd = writeActiveOutputStub(6);
+        AgentCliGateway gateway = newGateway(cmd, null,
+                10L * 1024L * 1024L, 2L, 8L);
+        List<String> chunks = new CopyOnWriteArrayList<String>();
+        AtomicInteger exitCode = new AtomicInteger(Integer.MIN_VALUE);
+        try {
+            long elapsed = timed(() -> gateway.runStream(AgentType.CODEX, WORKING_DIR, "ignored",
+                    "hard-timeout", null, null, 3L, chunks::add, exitCode::set));
+
+            assertTrue(elapsed < 6000L, "per-call timeout should remain a hard total deadline");
+            assertTrue(chunks.contains("[timeout:hard]"));
+            assertFalse(chunks.contains("[timeout:idle]"));
+            assertEquals(-1, exitCode.get());
         } finally {
             deleteQuietly(cmd);
         }
@@ -190,11 +279,18 @@ class AgentCliGatewayTest {
     }
 
     private AgentCliGateway newGateway(List<String> cmd, String turnEndMarker, long maxOutputBytes) {
+        return newGateway(cmd, turnEndMarker, maxOutputBytes, 0L, 0L);
+    }
+
+    private AgentCliGateway newGateway(List<String> cmd, String turnEndMarker, long maxOutputBytes,
+                                       long idleTimeoutSeconds, long maxRuntimeSeconds) {
         AgentCliProperties props = new AgentCliProperties();
         AgentCliProperties.Client codex = props.getCodex();
         codex.setExec(cmd.get(0));
         codex.setStdin(false);
         codex.setTimeoutSeconds(0);
+        codex.setStreamIdleTimeoutSeconds(idleTimeoutSeconds);
+        codex.setStreamMaxRuntimeSeconds(maxRuntimeSeconds);
         codex.setStdoutDrainGraceMs(200L);
         codex.setMaxOutputBytes(maxOutputBytes);
         return new AgentCliGateway(props, new EnvProperties(), noopGitCustomizer(),
@@ -269,6 +365,25 @@ class AgentCliGatewayTest {
                 "i=0",
                 "while [ $i -lt 200 ]; do echo 012345678901234567890123456789; i=$((i + 1)); done",
                 "sleep 5"));
+    }
+
+    private List<String> writeActiveOutputStub(int seconds) {
+        if (isWindows()) {
+            return writeStub(".cmd", Arrays.asList(
+                    "@echo off",
+                    "for /L %%i in (1,1," + seconds + ") do (",
+                    "  echo line%%i",
+                    "  ping -n 2 127.0.0.1 >nul",
+                    ")"));
+        }
+        return writeStub(".sh", Arrays.asList(
+                "#!/bin/sh",
+                "i=0",
+                "while [ $i -lt " + seconds + " ]; do",
+                "  echo line$i",
+                "  i=$((i + 1))",
+                "  sleep 1",
+                "done"));
     }
 
     private List<String> writeStub(String suffix, List<String> lines) {

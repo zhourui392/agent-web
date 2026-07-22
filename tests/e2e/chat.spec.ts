@@ -8,14 +8,14 @@ import * as path from 'path';
  *
  * 这套 spec 是 ChatPanel 组件化的唯一前端防线(CDN-only 无组件级单测):覆盖发消息/SSE、
  * 停止中断、斜杠命令补全、历史加载+恢复、历史删除、消息回退、清空上下文、附件上传/删除,
- * 以及 RAG 召回默认拼进 SSE URL。组件化前后这套必须持续绿(行为对等证明)。
+ * 以及 RAG 召回默认进入 run 提交 body。组件化前后这套必须持续绿(行为对等证明)。
  *
  * 关键依赖(application-e2e.yml):
  * - agent.cli.codex.args 指向 codex JSON stub → assistant 气泡渲染稳定诊断结论
  * - agent.slash-command.command-dirs=tests/e2e/fixtures/commands → 3 个占位命令(e2e-alpha/beta/gamma)
  *
  * 已知不走 e2e 的边角(见设计 §6.3,代码审查 + 手动覆盖):
- * - 断连重连 / 心跳超时 / 可见性重连:依赖 SSE 中断与定时器,强测反成不稳定围栏
+ * - 心跳超时:依赖 35 秒定时器,强测反成不稳定围栏；刷新恢复由确定性 route 单独覆盖
  * - 工具块折叠(toolStates):echo / codex stub 都不产 tool_use 段,无法在 chat 链路构造工具块
  * - RAG 召回开关 UI:refinery 关闭时 el-switch 隐藏;此处改为断言 SSE URL 默认带 recall=true 间接守住接线
  */
@@ -57,34 +57,110 @@ test('chat 主链路: 发送 hello 后 assistant 气泡渲染 Codex stub 结论'
   await expect(page.getByRole('button', { name: '停止' })).toHaveCount(0, { timeout: 10_000 });
 });
 
-test('停止: 发送中点停止 → 中断并提示已手动停止;POST body 默认带 recall=true', async ({ page }) => {
+test('停止: resumable run 发送中点停止 → 请求 run stop;提交默认带 recall=true 和幂等键', async ({ page }) => {
   await gotoReady(page);
 
-  // 截停 POST SSE 请求，挂住不响应，sending 维持 true，"停止"按钮可点。
+  await page.route('**/api/chat/session/*/runs', async route => {
+    await route.fulfill({
+      status: 202,
+      contentType: 'application/json',
+      body: JSON.stringify({ runId: 'run-stop-e2e', sessionId: 'session-stop', status: 'PENDING', lastEventSeq: 1, duplicated: false }),
+    });
+  });
   let release: (() => void) | undefined;
-  await page.route('**/message/stream*', async (route) => {
+  await page.route('**/api/chat/runs/run-stop-e2e/events*', async (route) => {
     await new Promise<void>((resolve) => { release = resolve; });
-    await route.abort().catch(() => { /* ES 关闭后请求已取消,abort 抛错可忽略 */ });
+    await route.abort().catch(() => { /* 页面关闭后请求可能已取消 */ });
+  });
+  await page.route('**/api/chat/runs/run-stop-e2e/stop', async route => {
+    await route.fulfill({
+      status: 202,
+      contentType: 'application/json',
+      body: JSON.stringify({ runId: 'run-stop-e2e', sessionId: 'session-stop', status: 'CANCEL_REQUESTED' }),
+    });
   });
 
-  const streamReqP = page.waitForRequest(/\/message\/stream/);
+  const submitReqP = page.waitForRequest(/\/api\/chat\/session\/[^/]+\/runs$/);
   await page.locator(INPUT).fill('STOP-' + Date.now());
   await page.getByRole('button', { name: '发送' }).click();
 
-  const req = await streamReqP;
+  const req = await submitReqP;
   expect(req.method()).toBe('POST');
   expect(req.postDataJSON(), 'RAG 默认开 → POST body 带 recall=true').toMatchObject({ recall: true });
+  expect(req.headers()['idempotency-key']).toBeTruthy();
 
   const stopBtn = page.getByRole('button', { name: '停止' });
   await expect(stopBtn).toBeVisible({ timeout: 5_000 });
   await stopBtn.click();
 
-  await expect(page.locator('.message-system').filter({ hasText: '已手动停止' }))
+  await expect(page.locator('.message-system').filter({ hasText: '已请求停止' }))
     .toBeVisible({ timeout: 5_000 });
-  await expect(stopBtn).toHaveCount(0, { timeout: 5_000 });
 
   if (release) release();
-  await page.unroute('**/message/stream*');
+  await page.unroute('**/api/chat/runs/run-stop-e2e/events*');
+});
+
+test('刷新恢复: 回放同一 run 的完整输出且不会重复提交', async ({ page }) => {
+  let submitted = false;
+  let terminal = false;
+  let sessionId = '';
+  let submitCount = 0;
+  let eventConnections = 0;
+
+  await page.route('**/api/chat/runs/active', async route => {
+    const active = submitted && !terminal
+      ? [{ runId: 'run-refresh-e2e', sessionId, status: 'RUNNING', agentType: 'CODEX', workingDir: '/workspace', lastEventSeq: 2, startedAt: Date.now(), createdAt: Date.now() }]
+      : [];
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(active) });
+  });
+  await page.route('**/api/chat/session/*/runs', async route => {
+    submitCount++;
+    sessionId = decodeURIComponent(route.request().url().match(/\/session\/([^/]+)\/runs/)![1]);
+    submitted = true;
+    await route.fulfill({
+      status: 202,
+      contentType: 'application/json',
+      body: JSON.stringify({ runId: 'run-refresh-e2e', sessionId, status: 'PENDING', lastEventSeq: 1, duplicated: false }),
+    });
+  });
+  await page.route('**/api/chat/session/*/messages', async route => {
+    const messages = terminal
+      ? [{ id: 1, role: 'user', content: 'REFRESH-RUN' }, { id: 2, role: 'assistant', content: 'first-\nsecond' }]
+      : [{ id: 1, role: 'user', content: 'REFRESH-RUN' }];
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(messages) });
+  });
+  await page.route('**/api/chat/runs/run-refresh-e2e/events*', async route => {
+    eventConnections++;
+    if (eventConnections === 1) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        body: 'id: 1\nevent: run_status\ndata: {"status":"RUNNING"}\n\nid: 2\nevent: chunk\ndata: first-\n\n',
+      });
+      return;
+    }
+    terminal = true;
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: 'id: 1\nevent: run_status\ndata: {"status":"RUNNING"}\n\n'
+        + 'id: 2\nevent: chunk\ndata: first-\n\n'
+        + 'id: 3\nevent: chunk\ndata: second\n\n'
+        + 'id: 4\nevent: terminal\ndata: {"status":"SUCCEEDED","assistantMessageId":2}\n\n',
+    });
+  });
+
+  await gotoReady(page);
+  await page.locator(INPUT).fill('REFRESH-RUN');
+  await page.getByRole('button', { name: '发送' }).click();
+  await expect(page.locator('.message-agent .text-segment').last()).toContainText('first-', { timeout: 5_000 });
+
+  await page.reload();
+  await expect(page.locator(INPUT)).toBeEnabled({ timeout: 10_000 });
+  await expect(page.locator('.message-agent .text-segment').last()).toContainText('second', { timeout: 10_000 });
+  await expect(page.getByRole('button', { name: '停止' })).toHaveCount(0, { timeout: 5_000 });
+  expect(submitCount).toBe(1);
+  expect(eventConnections).toBeGreaterThanOrEqual(2);
 });
 
 test('斜杠命令: / 弹补全, ↑↓ 改选中, Tab/Enter 填充', async ({ page }) => {

@@ -28,7 +28,7 @@ import java.util.function.LongConsumer;
  * @since 2026-05-14
  */
 @Slf4j
-class StreamChunkHandler {
+public class StreamChunkHandler {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final int MAX_TOOL_RESULT_CONTENT_CHARS = 12_000;
@@ -45,10 +45,10 @@ class StreamChunkHandler {
     private volatile LongConsumer assistantPersistedCallback;
     private int chunkCount;
 
-    StreamChunkHandler(SessionRepository sessionRepository,
-                       String sessionId,
-                       AgentGateway gateway,
-                       AgentType agentType) {
+    public StreamChunkHandler(SessionRepository sessionRepository,
+                              String sessionId,
+                              AgentGateway gateway,
+                              AgentType agentType) {
         this.sessionRepository = sessionRepository;
         this.sessionId = sessionId;
         this.gateway = gateway;
@@ -60,7 +60,7 @@ class StreamChunkHandler {
      * message persisted on exit also writes {@code chat_message_recall} so history
      * can replay the recall card.
      */
-    void setRecallJson(String recallJson) {
+    public void setRecallJson(String recallJson) {
         this.recallJson = recallJson;
     }
 
@@ -68,7 +68,7 @@ class StreamChunkHandler {
      * Registers a lightweight callback after assistant message persistence. The
      * app layer uses it to backfill recall attempt {@code assistant_message_id}.
      */
-    void onAssistantPersisted(LongConsumer callback) {
+    public void onAssistantPersisted(LongConsumer callback) {
         this.assistantPersistedCallback = callback;
     }
 
@@ -80,7 +80,7 @@ class StreamChunkHandler {
      * @param additionalAction extra chunk action, such as sending SSE; may be null
      * @return chunk consumer
      */
-    Consumer<String> onChunk(final Consumer<String> additionalAction) {
+    public Consumer<String> onChunk(final Consumer<String> additionalAction) {
         return new Consumer<String>() {
             @Override
             public void accept(String rawChunk) {
@@ -115,7 +115,7 @@ class StreamChunkHandler {
      * @param additionalAction 额外的结束处理逻辑（如发送 SSE exit 事件），可为 null
      * @return exit 消费者
      */
-    IntConsumer onExit(final IntConsumer additionalAction) {
+    public IntConsumer onExit(final IntConsumer additionalAction) {
         return new IntConsumer() {
             @Override
             public void accept(int code) {
@@ -152,6 +152,14 @@ class StreamChunkHandler {
                 }
             }
         };
+    }
+
+    /**
+     * Returns the normalized accumulation without persisting it. ChatRun completion owns
+     * the atomic assistant-message plus terminal-state transaction.
+     */
+    public String accumulatedResponse() {
+        return fullResponse.toString().trim();
     }
 
     private void extractResumeIdIfNeeded(String chunk) {

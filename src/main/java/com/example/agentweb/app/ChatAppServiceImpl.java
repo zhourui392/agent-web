@@ -11,12 +11,15 @@ import com.example.agentweb.domain.auth.CurrentUserProvider;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.chat.ChatMessage;
 import com.example.agentweb.domain.chat.ChatSession;
+import com.example.agentweb.domain.chat.ChatSessionNotFoundException;
+import com.example.agentweb.domain.chat.ChatSessionTruncation;
 import com.example.agentweb.domain.chat.Feedback;
 import com.example.agentweb.domain.chat.FeedbackRating;
 import com.example.agentweb.domain.chat.SessionRepository;
 import com.example.agentweb.domain.chat.ShareToken;
 import com.example.agentweb.domain.slashcommand.SlashCommand;
 import com.example.agentweb.domain.chat.SessionCache;
+import com.example.agentweb.domain.chatrun.ChatRunActivityGuard;
 import com.example.agentweb.domain.slashcommand.SlashCommandExpander;
 import com.example.agentweb.domain.worktree.WorkspacePathPolicy;
 import com.example.agentweb.infra.AgentTypeResolver;
@@ -81,6 +84,7 @@ public class ChatAppServiceImpl implements ChatAppService {
     private final CurrentUserProvider currentUserProvider;
     private final ChatProperties chatProperties;
     private WorkspacePathPolicy workspacePathPolicy;
+    private ChatRunActivityGuard chatRunActivityGuard = ChatRunActivityGuard.permissive();
     private final ScheduledExecutorService keepAliveScheduler =
             new ScheduledThreadPoolExecutor(2, namedFactory("chat-sse-keepalive"));
 
@@ -155,6 +159,14 @@ public class ChatAppServiceImpl implements ChatAppService {
     @Autowired
     void configureWorkspacePathPolicy(WorkspacePathPolicy workspacePathPolicy) {
         this.workspacePathPolicy = workspacePathPolicy;
+    }
+
+    /**
+     * 生产装配注入活动 run 领域守卫；历史独立单测未涉及新表时保留兼容默认值。
+     */
+    @Autowired
+    void configureChatRunActivityGuard(ChatRunActivityGuard chatRunActivityGuard) {
+        this.chatRunActivityGuard = chatRunActivityGuard;
     }
 
     ChatAppServiceImpl(SessionCache sessionCache,
@@ -287,6 +299,8 @@ public class ChatAppServiceImpl implements ChatAppService {
             log.warn("chat-stream-rejected reason=session-not-found sessionId={}", sessionId);
             throw new IllegalArgumentException("Session not found: " + sessionId);
         }
+        // 灰度期旧 POST SSE 入口仍可用，但不能绕过 ChatRun 的单活动执行约束。
+        chatRunActivityGuard.requireInactive(sessionId);
 
         // env 在会话创建时一次性写入 session.env, 之后不可变 (前端单选 disabled)
         // URL 上的 env 参数仅为保持 controller 兼容, 这里一律以 session.env 为准
@@ -536,13 +550,23 @@ public class ChatAppServiceImpl implements ChatAppService {
 
     @Override
     public void stopSession(String sessionId) {
+        requireVisibleSession(sessionId);
         log.info("chat-stop-stream sessionId={}", sessionId);
         gateway.stopStream(sessionId);
     }
 
     @Override
     public boolean isSessionRunning(String sessionId) {
+        requireVisibleSession(sessionId);
         return gateway.isRunning(sessionId);
+    }
+
+    private ChatSession requireVisibleSession(String sessionId) {
+        ChatSession session = getSession(sessionId);
+        if (session == null) {
+            throw new ChatSessionNotFoundException(sessionId);
+        }
+        return session;
     }
 
     @Override
@@ -560,23 +584,15 @@ public class ChatAppServiceImpl implements ChatAppService {
         if (s == null) {
             throw new IllegalArgumentException("Session not found: " + sessionId);
         }
-        String prefillContent = "";
-        for (ChatMessage msg : s.getMessages()) {
-            if (msg.getId() != null && msg.getId().longValue() == fromId) {
-                if ("user".equals(msg.getRole())) {
-                    prefillContent = msg.getContent();
-                }
-                break;
-            }
-        }
-        boolean hadResumeId = s.getResumeId() != null && !s.getResumeId().isEmpty();
+        chatRunActivityGuard.requireInactive(sessionId);
+        ChatSessionTruncation plan = s.planTruncationFrom(fromId);
         int deleted = sessionRepository.truncateFrom(sessionId, fromId);
         recallObservationRecorder.ifPresent(r -> r.tryDeleteByMessageRange(sessionId, fromId));
         // cache 内部 ChatSession 对象的 messages / resumeId 已和持久化不一致, 必须失效让下次重读
         sessionCache.remove(sessionId);
         log.info("session {} truncated from id={}: {} messages deleted, resumeId cleared={}, jsonl on CLI side left untouched",
-                sessionId, fromId, deleted, hadResumeId);
-        return new TruncateResult(deleted, prefillContent, hadResumeId);
+                sessionId, fromId, deleted, plan.isResumeIdPresent());
+        return new TruncateResult(deleted, plan.getPrefillContent(), plan.isResumeIdPresent());
     }
 
     /**
@@ -664,6 +680,7 @@ public class ChatAppServiceImpl implements ChatAppService {
             // 删除权限收紧: 仅创建者(或无归属老数据)可删, 删他人会话直接抛 403, 不动任何数据。
             // 与可见性隔离开关无关——可见性可全开, 删除按创建者归属把关。
             s.requireDeletableBy(currentUserProvider.currentUserId());
+            chatRunActivityGuard.requireInactive(sessionId);
             uploadPicStore.deleteSessionImages(s.getWorkingDir(), sessionId);
             uploadFileStore.deleteSessionFiles(s.getWorkingDir(), sessionId);
         } else {

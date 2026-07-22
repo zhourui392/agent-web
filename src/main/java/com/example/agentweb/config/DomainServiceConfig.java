@@ -1,8 +1,12 @@
 package com.example.agentweb.config;
 
+import com.example.agentweb.adapter.AgentGateway;
 import com.example.agentweb.domain.auth.CurrentUserProvider;
 import com.example.agentweb.domain.auth.UserContext;
 import com.example.agentweb.domain.git.GitConfigPolicy;
+import com.example.agentweb.domain.chatrun.ChatRunActivityGuard;
+import com.example.agentweb.domain.chatrun.ChatRunRepository;
+import com.example.agentweb.domain.chatrun.RepositoryChatRunActivityGuard;
 import com.example.agentweb.domain.refinery.DefaultTrustTierPolicy;
 import com.example.agentweb.domain.refinery.TrustTierPolicy;
 import org.springframework.beans.factory.annotation.Value;
@@ -33,5 +37,11 @@ public class DomainServiceConfig {
     @Bean
     public TrustTierPolicy trustTierPolicy() {
         return new DefaultTrustTierPolicy();
+    }
+
+    @Bean
+    public ChatRunActivityGuard chatRunActivityGuard(ChatRunRepository runRepository,
+                                                     AgentGateway agentGateway) {
+        return new RepositoryChatRunActivityGuard(runRepository, agentGateway);
     }
 }

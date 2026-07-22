@@ -87,6 +87,34 @@ public class ChatSession {
         }
     }
 
+    /**
+     * 根据截断起点生成重开会话所需的语义信息。
+     *
+     * <p>只有命中 user 消息时才将其内容带回编辑框；resumeId 是否存在也由聚合统一解释，
+     * 避免应用层遍历内部消息或根据 getter 重组业务含义。</p>
+     *
+     * @param fromId 截断起点消息 ID
+     * @return 截断领域计划
+     */
+    public ChatSessionTruncation planTruncationFrom(long fromId) {
+        String prefillContent = "";
+        for (ChatMessage message : messages) {
+            if (isMessage(message, fromId)) {
+                prefillContent = userContentOrEmpty(message);
+                break;
+            }
+        }
+        return new ChatSessionTruncation(prefillContent, resumeId != null && !resumeId.isEmpty());
+    }
+
+    private boolean isMessage(ChatMessage message, long messageId) {
+        return message.getId() != null && message.getId().longValue() == messageId;
+    }
+
+    private String userContentOrEmpty(ChatMessage message) {
+        return "user".equals(message.getRole()) ? message.getContent() : "";
+    }
+
     public List<ChatMessage> getMessages() {
         return Collections.unmodifiableList(messages);
     }

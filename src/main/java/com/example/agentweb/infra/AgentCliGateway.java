@@ -1,6 +1,7 @@
 package com.example.agentweb.infra;
 
 import com.example.agentweb.adapter.AgentGateway;
+import com.example.agentweb.adapter.AgentStreamResult;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.infra.cli.BuildContext;
 import com.example.agentweb.infra.cli.CliDialect;
@@ -9,17 +10,34 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.beans.factory.annotation.Autowired;
 
-import java.io.*;
+import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
-import java.util.EnumMap;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 
 /**
@@ -127,6 +145,39 @@ public class AgentCliGateway implements AgentGateway {
                           java.util.function.IntConsumer onExit,
                           String userId,
                           java.util.Map<String, String> extraEnv) throws IOException, InterruptedException {
+        runStreamInternal(type, workingDir, userMessage, sessionId, resumeId, env, timeoutSeconds,
+                onChunk, result -> onExit.accept(result.getExitCode()), userId, extraEnv);
+    }
+
+    @Override
+    public void runStreamWithResult(AgentType type,
+                                    String workingDir,
+                                    String userMessage,
+                                    String sessionId,
+                                    String resumeId,
+                                    String env,
+                                    long timeoutSeconds,
+                                    java.util.function.Consumer<String> onChunk,
+                                    java.util.function.Consumer<AgentStreamResult> onExit,
+                                    String userId,
+                                    java.util.Map<String, String> extraEnv)
+            throws IOException, InterruptedException {
+        runStreamInternal(type, workingDir, userMessage, sessionId, resumeId, env, timeoutSeconds,
+                onChunk, onExit, userId, extraEnv);
+    }
+
+    private void runStreamInternal(AgentType type,
+                                   String workingDir,
+                                   String userMessage,
+                                   String sessionId,
+                                   String resumeId,
+                                   String env,
+                                   long timeoutSeconds,
+                                   java.util.function.Consumer<String> onChunk,
+                                   java.util.function.Consumer<AgentStreamResult> onExit,
+                                   String userId,
+                                   java.util.Map<String, String> extraEnv)
+            throws IOException, InterruptedException {
         AgentCliProperties.Client cfg = resolve(type);
         List<String> cmd = resolveDialect(type).buildCommand(BuildContext.builder()
                 .config(cfg)
@@ -154,19 +205,24 @@ public class AgentCliGateway implements AgentGateway {
         }
         log.info("cli-stream-spawn agentType={} sessionId={} resumeId={} pid={}",
                 type, sessionId, resumeId, processId(p));
-        Future<?> killer = null;
+        StreamProcessWatchdog watchdog = null;
         Future<?> readDone = null;
+        final AtomicReference<StreamProcessWatchdog.TimeoutReason> timeoutReason =
+                new AtomicReference<StreamProcessWatchdog.TimeoutReason>();
+        final AtomicBoolean outputLimited = new AtomicBoolean(false);
         try {
             writeStdin(p, cfg, userMessage, env);
 
-            // per-call 超时 >0 时优先（诊断侧据此强制 30 分钟超时）；否则回退到 agent.cli.* 配置
-            long effectiveTimeout = timeoutSeconds > 0 ? timeoutSeconds : cfg.getTimeoutSeconds();
-            killer = scheduleTimeoutKill(p, effectiveTimeout, onChunk);
+            // 诊断 / workflow 显式传入的 per-call 超时保持硬总时长语义；
+            // 普通聊天则使用可被 stdout 活动续期的空闲期限，并保留独立绝对上限。
+            watchdog = createStreamWatchdog(p, cfg, timeoutSeconds, timeoutReason);
             AtomicBoolean turnEnded = new AtomicBoolean(false);
             final CliDialect dialect = resolveDialect(type);
-            readDone = startStdoutReader(p, type, sessionId, startNanos, onChunk, dialect, turnEnded);
+            readDone = startStdoutReader(p, type, sessionId, startNanos, onChunk, dialect,
+                    turnEnded, watchdog, outputLimited);
 
             int code = p.waitFor();
+            watchdog.close();
             log.info("cli-stream-exit agentType={} sessionId={} elapsedMs={} turnEnded={} exitCode={}",
                     type, sessionId, elapsedMs(startNanos), turnEnded.get(), code);
             if (turnEnded.get()) {
@@ -174,11 +230,16 @@ public class AgentCliGateway implements AgentGateway {
             } else {
                 awaitStdoutDrain(readDone, cfg.getStdoutDrainGraceMs());
             }
+            StreamProcessWatchdog.TimeoutReason reason = timeoutReason.get();
+            if (reason != null) {
+                onChunk.accept(timeoutMarker(reason));
+            }
             // turn-end 收尾时进程是被读线程强杀的，回合既已正常结束则报 0。
-            onExit.accept(turnEnded.get() ? 0 : code);
+            onExit.accept(toStreamResult(reason, outputLimited.get(),
+                    turnEnded.get() ? 0 : code));
         } finally {
-            if (killer != null) {
-                killer.cancel(false);
+            if (watchdog != null) {
+                watchdog.close();
             }
             if (readDone != null && !readDone.isDone()) {
                 readDone.cancel(true);
@@ -189,6 +250,33 @@ public class AgentCliGateway implements AgentGateway {
             if (p.isAlive()) {
                 destroyProcessTree(p);
             }
+        }
+    }
+
+    private AgentStreamResult toStreamResult(StreamProcessWatchdog.TimeoutReason timeoutReason,
+                                             boolean outputLimited,
+                                             int exitCode) {
+        if (timeoutReason != null) {
+            return AgentStreamResult.terminated(-1, toTerminationReason(timeoutReason));
+        }
+        if (outputLimited) {
+            return AgentStreamResult.terminated(exitCode,
+                    AgentStreamResult.TerminationReason.OUTPUT_LIMIT);
+        }
+        return AgentStreamResult.completed(exitCode);
+    }
+
+    private AgentStreamResult.TerminationReason toTerminationReason(
+            StreamProcessWatchdog.TimeoutReason reason) {
+        switch (reason) {
+            case IDLE:
+                return AgentStreamResult.TerminationReason.IDLE_TIMEOUT;
+            case MAX_RUNTIME:
+                return AgentStreamResult.TerminationReason.MAX_RUNTIME_TIMEOUT;
+            case HARD_TIMEOUT:
+                return AgentStreamResult.TerminationReason.HARD_TIMEOUT;
+            default:
+                throw new IllegalArgumentException("unsupported timeout reason: " + reason);
         }
     }
 
@@ -229,19 +317,46 @@ public class AgentCliGateway implements AgentGateway {
         return (entry != null && entry.getPrompt() != null) ? entry.getPrompt() : "";
     }
 
-    /** 注册超时看门狗；timeoutSeconds ≤0 时返回 null（不限时）。 */
-    private Future<?> scheduleTimeoutKill(final Process p, long timeoutSeconds,
-                                          final java.util.function.Consumer<String> onChunk) {
-        if (timeoutSeconds <= 0) {
-            return null;
+    private StreamProcessWatchdog createStreamWatchdog(
+            final Process process,
+            AgentCliProperties.Client config,
+            long hardTimeoutSeconds,
+            final AtomicReference<StreamProcessWatchdog.TimeoutReason> timeoutReason) {
+        boolean hardLimit = hardTimeoutSeconds > 0L;
+        Duration idleTimeout = hardLimit
+                ? Duration.ZERO : durationSeconds(config.getStreamIdleTimeoutSeconds());
+        Duration absoluteTimeout = hardLimit
+                ? durationSeconds(hardTimeoutSeconds)
+                : durationSeconds(config.getStreamMaxRuntimeSeconds());
+        StreamProcessWatchdog.TimeoutReason absoluteReason = hardLimit
+                ? StreamProcessWatchdog.TimeoutReason.HARD_TIMEOUT
+                : StreamProcessWatchdog.TimeoutReason.MAX_RUNTIME;
+        return new StreamProcessWatchdog(watchdogScheduler, idleTimeout, absoluteTimeout,
+                absoluteReason, reason -> {
+                    timeoutReason.compareAndSet(null, reason);
+                    log.warn("cli-stream-timeout-kill pid={} reason={} idleTimeoutSec={} "
+                                    + "maxRuntimeSec={} hardTimeoutSec={}",
+                            processId(process), reason, config.getStreamIdleTimeoutSeconds(),
+                            config.getStreamMaxRuntimeSeconds(), hardTimeoutSeconds);
+                    destroyProcessTree(process);
+                });
+    }
+
+    private Duration durationSeconds(long seconds) {
+        return seconds > 0L ? Duration.ofSeconds(seconds) : Duration.ZERO;
+    }
+
+    private String timeoutMarker(StreamProcessWatchdog.TimeoutReason reason) {
+        switch (reason) {
+            case IDLE:
+                return "[timeout:idle]";
+            case MAX_RUNTIME:
+                return "[timeout:max-runtime]";
+            case HARD_TIMEOUT:
+                return "[timeout:hard]";
+            default:
+                throw new IllegalArgumentException("unsupported timeout reason: " + reason);
         }
-        return watchdogScheduler.schedule(() -> {
-            log.warn("cli-stream-timeout-kill pid={} timeoutSec={}", processId(p), timeoutSeconds);
-            try {
-                onChunk.accept("[timeout]\n");
-            } catch (Exception ignore) { /* ignore */ }
-            destroyProcessTree(p);
-        }, timeoutSeconds, TimeUnit.SECONDS);
     }
 
     /**
@@ -255,7 +370,9 @@ public class AgentCliGateway implements AgentGateway {
                                         final long startNanos,
                                         final java.util.function.Consumer<String> onChunk,
                                         final CliDialect dialect,
-                                        final AtomicBoolean turnEnded) {
+                                        final AtomicBoolean turnEnded,
+                                        final StreamProcessWatchdog watchdog,
+                                        final AtomicBoolean outputLimited) {
         final AtomicBoolean firstStdoutLogged = new AtomicBoolean(false);
         final AtomicLong deliveredBytes = new AtomicLong(0L);
         final long maxOutputBytes = normalizeMaxOutputBytes(resolve(agentType).getMaxOutputBytes());
@@ -266,6 +383,7 @@ public class AgentCliGateway implements AgentGateway {
                         new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
                     String line;
                     while ((line = reader.readLine()) != null) {
+                        watchdog.recordActivity();
                         if (line.trim().isEmpty()) {
                             continue;
                         }
@@ -275,6 +393,7 @@ public class AgentCliGateway implements AgentGateway {
                         }
                         long lineBytes = line.getBytes(StandardCharsets.UTF_8).length + 1L;
                         if (deliveredBytes.addAndGet(lineBytes) > maxOutputBytes) {
+                            outputLimited.set(true);
                             log.warn("cli-stream-output-limit agentType={} sessionId={} maxBytes={}",
                                     agentType, sessionId, maxOutputBytes);
                             onChunk.accept("[output-limit]");

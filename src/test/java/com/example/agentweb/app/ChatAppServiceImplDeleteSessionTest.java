@@ -6,6 +6,8 @@ import com.example.agentweb.domain.chat.ChatSession;
 import com.example.agentweb.domain.chat.SessionCache;
 import com.example.agentweb.domain.chat.SessionDeletionForbiddenException;
 import com.example.agentweb.domain.chat.SessionRepository;
+import com.example.agentweb.domain.chatrun.ActiveChatRunExistsException;
+import com.example.agentweb.domain.chatrun.ChatRunActivityGuard;
 import com.example.agentweb.domain.slashcommand.SlashCommandExpander;
 import com.example.agentweb.infra.AgentTypeResolver;
 import com.example.agentweb.infra.UploadFileStore;
@@ -19,6 +21,7 @@ import java.util.concurrent.Executor;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -34,6 +37,7 @@ public class ChatAppServiceImplDeleteSessionTest {
     private SessionRepository sessionRepository;
     private UploadPicStore uploadPicStore;
     private UploadFileStore uploadFileStore;
+    private ChatRunActivityGuard chatRunActivityGuard;
     private ChatAppServiceImpl service;
 
     @BeforeEach
@@ -42,6 +46,7 @@ public class ChatAppServiceImplDeleteSessionTest {
         sessionRepository = mock(SessionRepository.class);
         uploadPicStore = mock(UploadPicStore.class);
         uploadFileStore = mock(UploadFileStore.class);
+        chatRunActivityGuard = mock(ChatRunActivityGuard.class);
 
         AgentGateway gateway = mock(AgentGateway.class);
         Executor agentExecutor = mock(Executor.class);
@@ -53,6 +58,7 @@ public class ChatAppServiceImplDeleteSessionTest {
                 commandExpander, outputExtractor, agentTypeResolver, uploadPicStore, uploadFileStore,
                 java.util.Optional.empty(),
                 new com.example.agentweb.domain.auth.CurrentUserProvider(() -> java.util.Optional.empty()));
+        service.configureChatRunActivityGuard(chatRunActivityGuard);
     }
 
     @Test
@@ -87,6 +93,7 @@ public class ChatAppServiceImplDeleteSessionTest {
                 org.mockito.ArgumentMatchers.anyString());
         verify(sessionCache).remove(sessionId);
         verify(sessionRepository).deleteById(sessionId);
+        verify(chatRunActivityGuard, never()).requireInactive(anyString());
     }
 
     @Test
@@ -101,6 +108,27 @@ public class ChatAppServiceImplDeleteSessionTest {
         assertThrows(SessionDeletionForbiddenException.class, () -> service.deleteSession(sessionId));
 
         // 拒绝时不得清图/清附件/清缓存/删库
+        verify(uploadPicStore, never()).deleteSessionImages(anyString(), anyString());
+        verify(uploadFileStore, never()).deleteSessionFiles(anyString(), anyString());
+        verify(sessionCache, never()).remove(anyString());
+        verify(sessionRepository, never()).deleteById(anyString());
+        verify(chatRunActivityGuard, never()).requireInactive(anyString());
+    }
+
+    @Test
+    public void deleteSession_activeRun_should_be_rejected_after_owner_check() {
+        ChatSession session = new ChatSession("sess-active", AgentType.CLAUDE, "/tmp/wd",
+                java.time.Instant.now(), new java.util.ArrayList<>());
+        when(sessionRepository.findById("sess-active")).thenReturn(session);
+        doThrow(new ActiveChatRunExistsException("sess-active"))
+                .when(chatRunActivityGuard).requireInactive("sess-active");
+
+        assertThrows(ActiveChatRunExistsException.class,
+                () -> service.deleteSession("sess-active"));
+
+        org.mockito.InOrder order = inOrder(sessionRepository, chatRunActivityGuard);
+        order.verify(sessionRepository).findById("sess-active");
+        order.verify(chatRunActivityGuard).requireInactive("sess-active");
         verify(uploadPicStore, never()).deleteSessionImages(anyString(), anyString());
         verify(uploadFileStore, never()).deleteSessionFiles(anyString(), anyString());
         verify(sessionCache, never()).remove(anyString());

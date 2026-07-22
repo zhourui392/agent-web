@@ -26,7 +26,8 @@ test.describe('工作空间文件系统', () => {
       await expect(targetDirRow).toHaveCount(1);
       await targetDirRow.click();
 
-      await expect(dialog.locator('[data-test="workspace-candidate-path"] input')).toHaveValue(targetDir);
+      const candidatePath = dialog.locator('[data-test="workspace-candidate-path"]');
+      await expect(candidatePath).toHaveValue(targetDir);
       await expect(page.locator('.workspace-selector .path')).toHaveText(committedWorkspace);
       await expect(page.locator('.message-user-text').filter({ hasText: marker })).toBeVisible();
 
@@ -64,7 +65,8 @@ test.describe('工作空间文件系统', () => {
       await expect(targetDirRow, 'workspace root should list the test-owned target directory').toHaveCount(1);
       await targetDirRow.scrollIntoViewIfNeeded();
       await targetDirRow.click();
-      await expect(dialog.locator('[data-test="workspace-candidate-path"] input')).toHaveValue(targetDir);
+      const candidatePath = dialog.locator('[data-test="workspace-candidate-path"]');
+      await expect(candidatePath).toHaveValue(targetDir);
 
       await dialog.locator('[data-test="fs-upload"] input[type="file"]').setInputFiles(sourceFile);
       await expect(page.locator('.el-message--success').filter({ hasText: '上传成功' }))
@@ -73,7 +75,7 @@ test.describe('工作空间文件系统', () => {
       const row = dialog.locator('[data-test="fs-row"]').filter({ hasText: fileName });
       await expect(row).toBeVisible({ timeout: 10_000 });
 
-      const selectedPath = await dialog.locator('[data-test="workspace-candidate-path"] input').inputValue();
+      const selectedPath = await candidatePath.inputValue();
       const download = await request.get('/api/fs/download?path=' + encodeURIComponent(selectedPath + '/' + fileName));
       expect(download.ok(), 'download API should return uploaded file').toBeTruthy();
       expect(await download.text()).toBe(content);

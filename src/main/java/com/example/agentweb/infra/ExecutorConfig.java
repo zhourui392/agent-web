@@ -34,6 +34,17 @@ public class ExecutorConfig {
         return ex;
     }
 
+    @Bean(name = "chatRunSubscriberExecutor")
+    public Executor chatRunSubscriberExecutor() {
+        ThreadPoolTaskExecutor ex = new ThreadPoolTaskExecutor();
+        ex.setCorePoolSize(4);
+        ex.setMaxPoolSize(16);
+        ex.setQueueCapacity(1024);
+        ex.setThreadNamePrefix("chat-run-sse-");
+        ex.initialize();
+        return ex;
+    }
+
     @Bean
     public TaskScheduler taskScheduler() {
         ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
@@ -43,4 +54,3 @@ public class ExecutorConfig {
         return scheduler;
     }
 }
-

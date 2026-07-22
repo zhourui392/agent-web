@@ -482,7 +482,18 @@ const app = createApp({
       historyLoading.value = true;
       try {
         const data = await fetch('/api/chat/sessions?page=' + historyPage.value + '&size=' + historyPageSize).then(r => r.json());
-        historyList.value = historyList.value.concat(data);
+        let activeBySession = {};
+        try {
+          const activeResponse = await fetch('/api/chat/runs/active');
+          if (activeResponse.ok) {
+            const activeRuns = await activeResponse.json();
+            activeRuns.forEach(run => { activeBySession[run.sessionId] = true; });
+          }
+        } catch (e) { /* feature flag 关闭或探测失败时不影响历史列表 */ }
+        const decorated = data.map(item => Object.assign({}, item, {
+          running: !!activeBySession[item.sessionId],
+        }));
+        historyList.value = historyList.value.concat(decorated);
         historyHasMore.value = data.length >= historyPageSize;
         historyPage.value++;
       } catch (e) {

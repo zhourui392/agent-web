@@ -1,6 +1,7 @@
 package com.example.agentweb.adapter;
 
 import com.example.agentweb.domain.shared.AgentType;
+import com.example.agentweb.domain.chatrun.ChatExecutionActivityProbe;
 
 import java.io.IOException;
 import java.util.List;
@@ -9,7 +10,7 @@ import java.util.List;
  * Port for sending a prompt to a specific CLI agent implementation.
  * @author zhourui(V33215020)
  */
-public interface AgentGateway {
+public interface AgentGateway extends ChatExecutionActivityProbe {
 
     /**
      * Execute one prompt against the selected agent in the given working directory.
@@ -50,8 +51,8 @@ public interface AgentGateway {
      * @param resumeId Optional resume ID for continuing a conversation (used for Claude --resume)
      * @param env 环境约束 key (对应 EnvProperties),空字符串/null 表示无约束
      * @param timeoutSeconds Per-call hard timeout; the process is force-killed after this many
-     *                       seconds. {@code <= 0} falls back to the agent's configured
-     *                       {@code agent.cli.*.timeout-seconds}.
+     *                       seconds. {@code <= 0} uses the configured stream idle timeout and
+     *                       absolute runtime limit.
      * @param onChunk 单行 stdout/stderr 输出回调
      * @param onExit 进程退出回调,参数为退出码 (-1 表示超时被强制终止)
      * @throws IOException 进程启动失败或读 IO 异常
@@ -132,6 +133,43 @@ public interface AgentGateway {
                    java.util.Map<String, String> extraEnv) throws IOException, InterruptedException;
 
     /**
+     * 与 {@link #runStream} 相同，但把进程终止原因作为结构化结果返回。
+     * <p>默认实现兼容旧 Gateway，仅能报告普通退出；支持技术超时和输出上限的适配器应覆盖完整重载。</p>
+     */
+    default void runStreamWithResult(AgentType type,
+                                     String workingDir,
+                                     String userMessage,
+                                     String sessionId,
+                                     String resumeId,
+                                     String env,
+                                     long timeoutSeconds,
+                                     java.util.function.Consumer<String> onChunk,
+                                     java.util.function.Consumer<AgentStreamResult> onExit)
+            throws IOException, InterruptedException {
+        runStreamWithResult(type, workingDir, userMessage, sessionId, resumeId, env,
+                timeoutSeconds, onChunk, onExit, null, null);
+    }
+
+    /**
+     * 带用户身份和附加环境变量的结构化流式执行入口。
+     */
+    default void runStreamWithResult(AgentType type,
+                                     String workingDir,
+                                     String userMessage,
+                                     String sessionId,
+                                     String resumeId,
+                                     String env,
+                                     long timeoutSeconds,
+                                     java.util.function.Consumer<String> onChunk,
+                                     final java.util.function.Consumer<AgentStreamResult> onExit,
+                                     String userId,
+                                     java.util.Map<String, String> extraEnv)
+            throws IOException, InterruptedException {
+        runStream(type, workingDir, userMessage, sessionId, resumeId, env, timeoutSeconds,
+                onChunk, code -> onExit.accept(AgentStreamResult.completed(code)), userId, extraEnv);
+    }
+
+    /**
      * Stop a running stream process by session ID.
      * @param sessionId 会话 ID,无对应运行进程时静默返回
      */
@@ -143,6 +181,11 @@ public interface AgentGateway {
      * @return true 表示该会话有正在运行的进程
      */
     boolean isRunning(String sessionId);
+
+    @Override
+    default boolean isExecutionActive(String sessionId) {
+        return isRunning(sessionId);
+    }
 
     /**
      * Extract the CLI-internal session id (used for subsequent resume) from one line of stdout.

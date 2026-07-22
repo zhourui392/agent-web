@@ -5,8 +5,10 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
@@ -54,5 +56,30 @@ class ChatSessionTest {
         ChatSession s = sessionOwnedBy("alice");
 
         assertThrows(SessionDeletionForbiddenException.class, () -> s.requireDeletableBy(null));
+    }
+
+    @Test
+    void plan_truncation_should_return_user_prefill_and_resume_state() {
+        ChatSession session = new ChatSession("sess-1", AgentType.CLAUDE, "/tmp/wd",
+                Instant.parse("2026-06-23T00:00:00Z"), Arrays.asList(
+                new ChatMessage(10L, "user", "before", Instant.parse("2026-06-23T00:00:00Z")),
+                new ChatMessage(11L, "user", "target", Instant.parse("2026-06-23T00:00:01Z")),
+                new ChatMessage(12L, "assistant", "answer", Instant.parse("2026-06-23T00:00:02Z"))));
+        session.setResumeId("resume-1");
+
+        ChatSessionTruncation plan = session.planTruncationFrom(11L);
+
+        assertEquals("target", plan.getPrefillContent());
+        assertEquals(true, plan.isResumeIdPresent());
+    }
+
+    @Test
+    void plan_truncation_should_not_prefill_assistant_or_missing_message() {
+        ChatSession session = new ChatSession("sess-1", AgentType.CLAUDE, "/tmp/wd",
+                Instant.parse("2026-06-23T00:00:00Z"), Arrays.asList(
+                new ChatMessage(11L, "assistant", "answer", Instant.parse("2026-06-23T00:00:01Z"))));
+
+        assertEquals("", session.planTruncationFrom(11L).getPrefillContent());
+        assertEquals("", session.planTruncationFrom(99L).getPrefillContent());
     }
 }
