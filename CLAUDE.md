@@ -10,26 +10,25 @@ Spring Boot web service that provides a browser UI for driving local CLI AI agen
 
 ```bash
 mvn clean package                # Build JAR
-mvn spring-boot:run              # Run locally (port 17988)
+mvn spring-boot:run              # Run locally (默认 http://localhost:18092/qa/)
 mvn test                         # Run all tests
 mvn test -Dtest=ChatFlowTest     # Run single test class
 mvn test -Dtest=ChatFlowTest#testMethodName  # Run single test method
 mvn pmd:check                    # Code quality check (Alibaba P3C)
-./scripts/service.sh start|stop|restart|status|logs # 现网实例 (端口 18092; Windows 用 .\scripts\service.ps1)
 ```
 
-> **Claude 行为约束**：代码改动后**不要自动 `mvn package` / `scripts/service.sh restart`**。除非用户明确说"编译"/"打包"/"重启"/"部署"，否则停在改完代码 + 跑测试这一步，让用户自己控制何时重启服务。
+> **端口 / 路径**：`application.yml` 里 `server.port=18092`、`server.servlet.context-path=/qa`，本地跑起来是 `http://localhost:18092/qa/`。切独立域名把 `context-path` 改回 `/`。
 
-> **部署发布**（正式上线）→ 用户明确要求时，用 `./scripts/service.sh restart` 重启 **18092** 现网实例。同样受上面的"不自动执行"约束：除非用户明确说编译/部署/重启，否则停在改完代码 + 跑测试。
+> **Claude 行为约束**：代码改动后**不要自动 `mvn package` / 重启服务**。除非用户明确说"编译"/"打包"/"重启"/"部署"，否则停在改完代码 + 跑测试这一步，让用户自己控制何时重启服务。（原 `scripts/service.sh` 已随重构移除，部署脚本由运维侧维护。）
 
 ## Tech Stack
 
 - **Backend**: Spring Boot 3.3.13 / Java 21 / Maven (jakarta 命名空间; 运行时需 JDK 21+)
-- **Database**: SQLite (sessions, scheduled tasks, diagnose tasks, tickets, knowledge state)
-- **Frontend**: Vue 3 + Element Plus via CDN (no build step, static HTML/JS/CSS in `src/main/resources/static/`)
+- **Database**: SQLite (sessions, scheduled tasks, requirements / workspaces / verification rounds / MR refs, workflows, knowledge & user suggestions, RAG vector store, recall traces, per-user git config; 建表见 `resources/schema.sql` + `SqliteInitializer`)
+- **Frontend**: Vue 3 + Element Plus via CDN (no build step, static HTML/JS/CSS in `src/main/resources/static/`)；主应用 + `/admin` 管理台 MPA
 - **Communication**: REST + Server-Sent Events (SSE)
 - **Code Quality**: Alibaba P3C (PMD plugin)
-- **External integrations**: Feishu Open Platform (IM / cards / contacts)
+- **External integrations**: GitLab (branch push / draft MR / issue-label 与 pipeline webhook)
 
 ## Architecture
 
@@ -37,14 +36,24 @@ DDD + Hexagonal Architecture with four layers:
 
 ```
 interfaces/   → REST Controllers + DTOs (API boundary)
-                Chat, Fs, Auth, Share, ScheduledTask, Worktree, Diagnose, DiagnoseHistory
+                Chat, Fs, Auth, Share, ScheduledTask, Worktree,
+                Requirement*, RequirementIntake, RequirementRun, ScmWebhook,
+                GitConfig, KnowledgeInbox, UserSuggestion*, Metrics, RecallMetrics,
+                Refinery*, Admin*(Auth/Entry/Conversation/Workflow/Settings/RequirementEvents)
 app/          → Application services (orchestration, no domain logic)
-                agentrun/ (prompt assembly pipeline), chat, scheduled-task, worktree, diagnose/, ticket/
+                agentrun/ (prompt assembly pipeline), chat, scheduled-task, worktree,
+                requirement/, workflow/, verification/, workspace/, delivery/, git/,
+                knowledge/, suggestion/, metrics/, refinery/
 domain/       → Aggregate roots, value objects, repository interfaces
-                chat, scheduled-task, slash-command, branch-validator, diagnose/, ticket/, messaging/
+                chat, requirement, workflow, verification, workspace, delivery, git,
+                knowledge, suggestion, refinery, issuelog, auth, schedule,
+                slashcommand, worktree, shared
 infra/        → CLI process execution, SQLite repos, auth filter, config properties
-                cli/ (CliDialect strategy), diagnose/, messaging/, UploadPicStore, ...
-adapter/      → Port interfaces (AgentGateway, messaging and external gateways)
+                cli/ (CliDialect strategy), requirement/, workflow/, delivery/, git/,
+                knowledge/, suggestion/, metrics/, workspace/, refinery/, issuelog/,
+                setting/, UploadPicStore, ...
+adapter/      → Port interfaces (AgentGateway, NotificationGateway; delivery/ requirement/
+                verification/ workspace/ 外部网关端口)
 ```
 
 ### Key Data Flow: Chat Message
@@ -54,44 +63,46 @@ adapter/      → Port interfaces (AgentGateway, messaging and external gateways
 3. `AgentCliGateway` routes to the matching `CliDialect` (Claude / Codex) which assembles the command and spawns the CLI subprocess, reads line-by-line JSON
 4. `StreamChunkHandler` processes chunks (Codex events are first normalized via `CodexEventNormalizer` to the unified frontend contract) → SSE events pushed to browser via `SseEmitter`
 
-### Key Data Flow: Remote Diagnose
+### Key Data Flow: Requirement Delivery (需求交付流水线，默认关 `agent.requirement.enabled`)
 
-1. `DiagnoseController` authenticates via `ApiKeyAuthFilter` (`X-API-Key`), accepts `Idempotency-Key` header
-2. `DiagnoseAppServiceImpl` persists a `DiagnoseTask`, submits the run to the diagnose executor, and returns immediately with `taskId` + stream URL
-3. The worker reuses `AgentGateway` to drive the CLI; events fan out through `DiagnoseEventBus` to SSE subscribers (supports `Last-Event-ID` resume)
-4. `DiagnoseHistoryController` exposes list/detail and `continue-as-chat`, which converts a diagnose task into a resumable `ChatSession`
+平台化研发流水线：把一条需求从接入推到「草稿 MR」，各阶段由 Agent run 驱动。整套栈 `@ConditionalOnProperty("agent.requirement.enabled")`，关时相关 Controller/Advice/scheduler 不装配。
+
+1. **接入**：`RequirementController#create`（看板直建 `BOARD`）/ `RequirementIntakeController`（外部 REST，走 `ApiKeyAuthFilter` 的 `/api/requirements/external`，`X-API-Key` + `Idempotency-Key`，`REST_API`）/ SCM issue 打标签 webhook（`GITLAB_ISSUE`）。落 `Requirement` 聚合，状态 `INTAKE`。
+2. **状态机**：`RequirementStatus` = `INTAKE → PLANNED → APPROVED → IMPLEMENTING → VERIFYING → REVIEW → DELIVERED`（+ `SUSPENDED` 人工接管 / `ARCHIVED`），迁移收敛在 `RequirementTransitions`；每次迁移落 `RequirementEvent` 审计。
+3. **Agent run**：`RequirementRunController` 触发 `plan-run` / `implement-run` / `fix-run` / `verify-run`，经 `app/agentrun/` 装配 prompt（`requirement-{plan,implement,fix,verify}-prompt.md`）后 `AgentGateway.runStream` 驱动 CLI，输出经 `GET .../run-stream` SSE 实时推。run 数受 `agent.requirement.quota` 配额守护。
+4. **工作区**：进入实现阶段由 `app/workspace/` 分配隔离 `RequirementWorkspace`（bare mirror + git worktree + `PortLease` 端口租约）；`WorkspaceCleanupService` / `WorkspaceDiskMonitor` 定时回收，释放前脏检查（`WorkspaceDirtyException`）。
+5. **验证**：verify run 产出 `VerificationRound`（轮次/结论/证据），`RoundBreakerPolicy` 熔断防死循环。
+6. **交付**：`deliver-draft` 经 `app/delivery/` 解析凭据链（个人 git 配置 → 系统默认 → 拒绝）→ push 分支 → 开草稿 MR，记 `MergeRequestRef`；`ScmWebhookController` 回流：MR 合并 → 标记交付、pipeline 失败 / MR 评论 → 生成修复 run 建议、issue 打标 → 建新需求。webhook 幂等 + secret 为空 fail-closed。
+7. **知识收割**：交付后 `KnowledgeHarvestService` 把标题/描述/计划落成 `KnowledgeSuggestion`（PENDING 收件箱），审核通过写进需求 worktree 的 `docs/issue-log`。
 
 ### Key Data Flow: AgentRun Prompt Assembly (新增)
 
-`app/agentrun/` 是应用层执行管线（**不是领域聚合**），把"组装一次 run 的 prompt"从各入口收敛到统一 pipeline。`DiagnoseAppServiceImpl` / `WorkflowRunner` / `ScheduledTaskServiceImpl` 均经它装配 prompt。
+`app/agentrun/` 是应用层执行管线（**不是领域聚合**），把"组装一次 run 的 prompt"从各入口收敛到统一 pipeline。需求线 run（`PlanRunService` / `ImplementRunService` / `FixRunService` / `VerifyRunService` 经 `RunProfile`）、`WorkflowRunner`、`ScheduledTaskServiceImpl` 均经它装配 prompt。
 
-1. 入口构造 `AgentRunContext`：`originalInput` + 两条正交轴 `runForm`（CHAT / DIAGNOSE / WORKFLOW_STEP / SCHEDULED / CUSTOM，决定执行引擎行为）× `sourceDomain`（`SourceType` DIAGNOSE / CHAT / GENERAL，决定 RAG 过滤与沉淀归属）+ `workingDir` / `env` / `outputInstruction` + `RunRecallPolicy`
-2. `RunRecallPolicyFactory.forRun(runForm, sourceDomain)` 按 `AgentRunProperties`（`agent.run.*`）建策略：`workspace-context-enabled` / `workspace-knowledge-enabled` / `recall-top-k`（env 覆盖 `AGENT_RUN_*`，紧急止血可关）。历史 RAG 仅在 `sourceDomain=DIAGNOSE` 开（再受内层 `agent.refinery.diagnose.recall-enabled` 控制）。`AgentRunContext` 未显式传 policy 时默认 `RunRecallPolicy.disabled()`（fail-safe，避免新入口忘配即全开）
+1. 入口构造 `AgentRunContext`：`originalInput` + 两条正交轴 `runForm`（`RunForm`：CHAT / WORKFLOW_STEP / SCHEDULED / CUSTOM / PLAN / IMPLEMENT / FIX，`DIAGNOSE` 为已摘除诊断线的历史枚举，仅留兼容）× `sourceDomain`（`SourceType` CHAT / GENERAL，`DIAGNOSE` 同为存量兼容）+ `workingDir` / `env` / `outputInstruction` + `RunRecallPolicy`
+2. `RunRecallPolicyFactory.forRun(runForm, sourceDomain)` 按 `AgentRunProperties`（`agent.run.*`）建策略：`workspace-context-enabled` / `workspace-knowledge-enabled` / `recall-top-k`（env 覆盖 `AGENT_RUN_*`，紧急止血可关）。`AgentRunContext` 未显式传 policy 时默认 `RunRecallPolicy.disabled()`（fail-safe，避免新入口忘配即全开）
 3. `PromptAssemblyService` 按固定序跑 6 个 `PromptContributor`：`Env`(10) → `WorkspaceContext`(20) → `KnowledgePreRecall`(30) → `HistoricalRag`(40) → `UserInput`(50) → `OutputInstruction`(60)，拼成 `PromptPart` 列表、算 SHA-256 `promptHash`、返回 `PromptAssemblyResult`
-4. **每个 Contributor 失败即降级为空、绝不阻断 run**；业务正文（诊断输出格式、env 文案）由业务域 / 配置注入，平台层只负责编排顺序与降级
-5. **当前用户问题由 `UserInputContributor` 唯一持有**。命中诊断历史 RAG 时 legacy enhanced query 内已含 `[当前问题]`，靠 `PromptAssembly.ownsUserInput` 互斥跳过 `UserInputContributor`，避免重复注入
+4. **每个 Contributor 失败即降级为空、绝不阻断 run**；业务正文（输出格式、env 文案）由业务域 / 配置注入，平台层只负责编排顺序与降级
+5. **当前用户问题由 `UserInputContributor` 唯一持有**，靠 `PromptAssembly.ownsUserInput` 互斥避免与历史 RAG enhanced query 重复注入
 6. `WorkspaceContextResolver` 在 `agent.fs.roots` 白名单内由 `workingDir` 向上发现 workspace root + 约定知识索引（`docs/issue-log/INDEX.md` / `known-issues` / `playbooks`）+ 可选 `.agent-web.yml`（SnakeYAML 解析 `knowledge_indexes` / `guardrails`）。**`agent-web` 不发现 / 不读取 / 不注入 `AGENTS.md` / `CLAUDE.md`**，是否加载由具体 CLI 决定
 7. guardrail 合并：env（`agent.envs[].prompt`）是基线，workspace manifest **只能收紧不能放松**（append-only），`guardrail_source` 记 `env` / `manifest` / `both`
-8. **当前零 schema 变更**：`diagnose_task.query` 存的是最终 assembled prompt（非仅原始 query，诊断历史页会看到 ENV / Workspace / Knowledge / Historical RAG / User Input / Output 多段内容）；`recall_used` / `recall_chunk_ids` 回填；`RecallContribution` / `promptHash` / workspace hits / guardrail source 目前仅落日志，恢复用户原话与审计字段落库需另起独立 migration
+8. `promptHash` / `RecallContribution` / workspace hits / guardrail source 目前仅落日志；`WorkflowRunner` 装配失败会静默回退原始 prompt（韧性优先，但会掩盖误配）
 
-### Key Data Flow: Feishu IM Ticket
+### Key Data Flow: Workflow Orchestration (`agent.requirement` 线内)
 
-1. 飞书长连接事件标准化后先写 IM inbox，由 `InboundEventWorker` 异步消费。
-2. `TicketAppService` 建立工单并提交诊断；`TicketDiagnoseSubscriber` 消费诊断终态。
-3. `TicketNotificationService` 发送或更新消息卡片；复核、反馈、关闭与重开规则封装在 `Ticket` 聚合。
-4. 工单反馈经 `DiagnosisFeedbackQueryService` 提供给 issue-log 回填和 Knowledge Refinery。
+管理台定义可复用多步 workflow：`AdminWorkflowController` CRUD `Workflow`（有序 `WorkflowStep`，每步一个 prompt 模板），`POST /{id}/run` 建 `WorkflowExecution` → `app/workflow/` 逐步经 `app/agentrun/` 装配 + `AgentGateway` 异步执行，落 `WorkflowStepExecution`；`RUNNING/SUCCEEDED/FAILED` 状态与逐步结果经 `/api/admin-workflow-executions` 查询。
 
-### Key Data Flow: Issue-Log Generation (新增)
+### Key Data Flow: Knowledge Inbox → Issue-Log
 
-诊断详情抽屉 → "沉淀为 issue-log" 按钮 → 把诊断结论结构化落盘到 `<workingDir>/docs/issue-log/issue/I-xxx-*.md`，对齐 issue-log skill 读取规范。
+需求交付后沉淀经验：`KnowledgeHarvestService` 把交付信息收成 `KnowledgeSuggestion`（PENDING 收件箱），审核落盘为工作目录里的 `docs/issue-log/issue/I-xxx-*.md`，对齐 issue-log skill 读取规范。
 
-1. `DiagnoseHistoryController#draftIssueLog` (`GET /api/diagnose-history/{taskId}/issue-log/draft`) 调 `IssueLogAppServiceImpl.draftFromTask`
-2. `IssueLogAppServiceImpl` 先调 `IssueLogRefinery`（复用 `task.agentType` 的 CLI，180s 同步阻塞）让 LLM 把诊断结论压成 `title/slug/categories/services/triggerSignals/phenomenon/rootCause/solution/notes` 九字段 JSON；解析失败一律降级到启发式 `DraftBuilder`（会从 query/result 正则提取错误码/接口路径/表字段兜底触发词），按钮永远不会因为 LLM 不稳而失效
-3. 前端 `el-dialog` 立即弹出 loading，结构化表单填充返回值；右侧只读 panel 贴诊断 result 全文供复制
-4. 用户编辑确认后 `POST /api/diagnose-history/{taskId}/issue-log`：先 `IssueLogDraft.requireArchivable()`（触发词非空才允许落盘，422），再过 `IssueLogDedupMatcher` 查重闸门（判 DUP → 409 + 既有条目 ID，查重失败不阻断保存）→ `FileSystemIssueLogRepository.save` 在 `WorkingDirIssueLogLockRegistry` 锁内重算 ID、写 `issue/I-xxx-*.md`（文件名优先用精炼产出的英文 kebab slug）、追加 `INDEX.md`。查重输入是 `IndexProjection` 压缩的 ID/标题/触发词三列投影（不再截断 16k）
-5. 不自动 git commit，用户在工作目录手动 `git add` 走 review；`agent.issue-log.*` 控制路径、`refine.*` 控制 LLM 精炼、`dedup.enabled/timeout-seconds` 控制保存前查重（e2e profile 关闭）。工作空间侧录入规范以 `qpon/.claude/skills/issue-log/SKILL.md` 为唯一事实源。
+1. `KnowledgeInboxController` 提供收件箱：`GET /api/knowledge-suggestions`（列表）、`PUT /{id}`（审核前编辑）、`POST /{id}/approve`、`POST /{id}/reject`
+2. approve → `app/knowledge/` 经 `FileSystemIssueLogRepository.save`，在 `WorkingDirIssueLogLockRegistry` 锁内重算 ID、写 `issue/I-xxx-*.md`（文件名优先用英文 kebab slug）、追加 `INDEX.md`
+3. **不自动 git commit**：条目落在需求 worktree 内，随该需求的 MR 一起走 review；`agent.issue-log.*` 控制路径。工作空间侧录入规范以 `.claude/skills/issue-log/SKILL.md` 为唯一事实源。
 
-### Key Data Flow: Knowledge Refinery (会话/诊断向量召回, Phase 1-4 已落地)
+### Key Data Flow: Knowledge Refinery (会话向量召回)
+
+> 诊断线已摘除，refinery 现仅消费 chat 单上游（`ChatViewBuilder` 恒产 `SourceType.CHAT`）。`SourceType.DIAGNOSE` / cross-source 开关仅为召回存量 diagnose chunk 保留，无活跃生产者。
 
 `agent.refinery.enabled` 默认关. 打开后, 静默会话自动评分 → embed → 入向量库; 前端"RAG 召回"开关(默认开)开时每条消息自动召回历史结论拼进消息.
 
@@ -108,9 +119,10 @@ adapter/      → Port interfaces (AgentGateway, messaging and external gateways
 
 ### Storage Tiers (chat sessions)
 
-- **L1**: `InMemorySessionRepo` — fast lookup for active sessions
-- **L2**: `SqliteSessionRepo` — persistent across restarts
-- **Backup**: `JsonFileSessionRepo` — JSON file export/import
+- **L1**: `InMemorySessionRepo` — fast lookup for active sessions (`SessionCache` 端口)
+- **L2**: `SqliteSessionRepo` — 唯一 `SessionRepository` 实现，跨重启持久化
+- 读侧 CQRS 走 `ChatSessionQueryService`（分页/消息视图/分享视图），与写侧 lifecycle 分治
+- 注：`JsonFileSessionRepo` 是**孤儿 bean**（不实现任何接口、生产零注入），非活跃备份层
 
 ### Slash Commands
 
@@ -136,6 +148,13 @@ adapter/      → Port interfaces (AgentGateway, messaging and external gateways
 | `AGENT_RUN_WORKSPACE_KNOWLEDGE_ENABLED` | `true` | AgentRun workspace 知识预召回开关 |
 | `AGENT_RUN_RECALL_TOP_K` | `8` | AgentRun 召回 top-K |
 | `AGENT_CHAT_USER_ISOLATION_ENABLED` | `false`(yml) | 对话用户隔离总开关（`agent.chat.*`）。`false`=全员互见(可看其他用户对话)；`true`=普通用户仅见自己的会话+老数据。代码默认 `true`(安全)，yml 显式放开为 `false` |
+| `REFINERY_ENABLED` | `false` | 知识精炼子域总开关，`false` 时相关 bean 全不注册 |
+| `AGENT_REQUIREMENT_ENABLED` | `false` | 需求交付流水线总开关（`agent.requirement.*`），关时相关 Controller/Advice/scheduler 不装配 |
+| `ADMIN_AUTH_ENABLED` / `ADMIN_PASSWORD` | `false` / 明文默认 | `/admin` 管理台独立口令鉴权开关与口令，生产务必用 `ADMIN_PASSWORD` 覆盖 |
+| `AGENT_GITLAB_BASE_URL` | _(none)_ | 交付目标 GitLab base URL |
+| `AGENT_GITLAB_DEFAULT_USERNAME` / `AGENT_GITLAB_DEFAULT_TOKEN` | _(none)_ | 交付默认账号 / token（token 加密存储，严禁落 yml） |
+| `AGENT_SCM_WEBHOOK_SECRET` | _(none)_ | SCM webhook 密钥，空 = fail-closed 拒收所有 webhook |
+| `GIT_CRED_ENC_KEY` | _(none)_ | 用户 SCM 凭证 AES-256-GCM 加密密钥，仅 env、无默认回退；缺失则凭证功能降级为仅注入 git 身份 |
 
 `application.yml` drives Codex through the real `codex exec --json` path by
 default (`agent.cli.codex.args` is empty, so `CodexCliDialect` builds the
@@ -157,7 +176,7 @@ JUnit 5 + Mockito + MockMvc。测试文件按生产代码同包放在 `src/test/
 | **Application 单测** | 零容器 + Mockito | Mock Repository / Gateway / Domain Service _接口_；**真实 Domain 对象** | 编排顺序、事务边界调用、参数透传 | <50ms |
 | **Infra 轻量集成** | 零容器 + 真实 SQLite/HTTP/进程 | 不 Mock 被测组件，外部依赖（远端 HTTP）按需 Mock | SQL 方言、表锁/退避、协议适配 | <500ms |
 | **Interface 切片** | `@WebMvcTest(XxxController.class)` | Mock `@MockBean ApplicationService` | `@RequestBody`/`@Valid`、状态码、`@RestControllerAdvice`、Filter 装配 | ~1s |
-| **全栈集成** | `@SpringBootTest` + `TestCliStub` | CLI 用 echo stub；Feishu HTTP Mock；其余真实 | 跨切关注点：`@Transactional` 代理、SSE + `Last-Event-ID` 续传、`@Scheduled` 装配、Bean 装配本身 | 5-15s |
+| **全栈集成** | `@SpringBootTest` + `TestCliStub` | CLI 用 echo stub；SCM/GitLab HTTP 按需 Mock；其余真实 | 跨切关注点：`@Transactional` 代理、SSE 流式时序、`@Scheduled` 装配、Bean 装配本身 | 5-15s |
 
 **目标比例**（条数级，非绝对）：Domain/App 单测 ≫ Infra 轻量集成 ≫ Interface 切片 > 全栈集成。
 
@@ -186,7 +205,7 @@ JUnit 5 + Mockito + MockMvc。测试文件按生产代码同包放在 `src/test/
 
 ### Infra 轻量集成模板（推荐）
 
-参考 `SqliteTicketRepoTest`：`@TempDir` + 手动 `new SQLiteDataSource()` + `JdbcTemplate`，**不起 Spring 容器**。所有 `Sqlite*Repo` 都应走此模式。
+参考 `SqliteRequirementRepoTest`：`@TempDir` + 手动 `new SQLiteDataSource()` + `JdbcTemplate`，**不起 Spring 容器**。所有 `Sqlite*Repo` 都应走此模式。
 
 ```java
 @TempDir Path tempDir;
@@ -201,11 +220,11 @@ SqliteXxxRepo repo = new SqliteXxxRepo(new JdbcTemplate(ds));
 
 | 关注点 | 锚定测试 |
 |---|---|
-| SSE 真实时序 + `Last-Event-ID` 续传 | `DiagnoseFlowTest` |
+| SSE 流式时序（chat 流 / 需求 run-stream） | `ChatControllerTest` / `RequirementDeliveryFlowTest` |
 | `@Transactional` AOP 代理 + 回滚行为 | `ChatFlowTest` 等 |
-| `@Scheduled` 装配 + SQLite 锁退避 | `ScheduledTaskTest` |
+| `@Scheduled` 装配 + SQLite 锁退避 | `ScheduledTaskTest` / `WorkspaceCleanupSchedulingTest` |
 | 会话跨重启持久化 | `ResumeSessionTest` |
-| Filter Chain 装配（`ApiKeyAuthFilter`） | 远程诊断鉴权链路 |
+| Filter Chain 装配（`ApiKeyAuthFilter`，外部建需求鉴权） | `ExternalIntakeServiceTest` / `RequirementDeliveryFlowTest` |
 
 新功能**不要**再补 `@SpringBootTest`，除非命中以上跨切关注点。
 
@@ -217,22 +236,21 @@ SqliteXxxRepo repo = new SqliteXxxRepo(new JdbcTemplate(ds));
 
 前端 `static/js/app.js` 是 CDN 引入的单文件 Vue 3，**不引入 Vite/Vitest 工程化生产代码**。测试工程独立在 `tests/`，两条路径已落地：
 
-1. **纯函数单测 (Vitest)**：可外提的格式化/解析函数抽到 `static/js/lib/formatters.js` 走 UMD-lite（挂 `window.AgentFormatters` + `module.exports`），在独立 `tests/` npm 工程用 Vitest 跑。当前覆盖 6 个函数 + 1 个常量,46 个 case <500ms
-2. **E2E 主链路 (Playwright)**：`tests/e2e/` 独立 Playwright 工程，自动启停 Spring Boot e2e profile (端口 18099)。覆盖 chat / diagnose / issue-log 三条主流程,3 spec 15s
-3. **e2e profile** (`src/main/resources/application-e2e.yml`): Claude CLI = `cmd /c echo` (走前端兜底文本渲染), Codex CLI = `tests/e2e/fixtures/codex-json-stub.cmd` (输出固定 NDJSON 走 `CodexEventNormalizer`),关 IM 长连接 / `agent.issue-log.refine` / `agent.issue-log.backfill`,独立 db `data/agent-web-e2e.db`
+1. **纯函数单测 (Vitest)**：可外提的格式化/解析函数抽到 `static/js/lib/formatters.js` 走 UMD-lite（挂 `window.AgentFormatters` + `module.exports`），在独立 `tests/` npm 工程用 Vitest 跑（`tests/unit/*.spec.ts`）
+2. **E2E 主链路 (Playwright)**：`tests/e2e/` 独立 Playwright 工程，自动启停 Spring Boot e2e profile (端口 18099)。覆盖 chat / 需求看板 / 需求 run / workflows / 管理台(auth/conversations/dashboard/recall/refinery/suggestions) / fs / share / worktree / scheduled-task / git-settings / qa-prefix 等（`tests/e2e/*.spec.ts`；注：`diagnose*.spec` / `tickets.spec` / `backfill*.spec` 是已下线功能的残留 spec，尚未清理）
+3. **e2e profile** (`src/main/resources/application-e2e.yml`): 端口 18099、`context-path` 空、`default-type=CODEX`；Claude CLI = `cmd /c echo` (走前端兜底文本渲染), Codex CLI = `tests/e2e/fixtures/codex-json-stub.cmd` (输出固定 NDJSON 走 `CodexEventNormalizer`)；`agent.requirement.enabled=true` + `agent.admin.enabled=true`(口令 `e2e-admin-pass`) 走主链路，关 `agent.issue-log.refine/backfill/dedup`，独立 db `data/agent-web-e2e.db`
 4. **选择器约定**：用 Playwright `getByRole` / `getByText` 等语义化 API,**不要用** Element Plus 内部 class (`.el-dialog__body` 等会随版本碎)。新功能加 `data-test="xxx"` 属性是可选优化,目前主链路用语义化选择器已经稳
-5. **踩坑·Playwright 必须在 `tests/` 目录里跑**：`playwright.config.ts` 在 `tests/` 下,只有 cwd=`tests/` 时才被自动加载 (它设了 `testDir: ./e2e`、webServer 自启 18099)。若从仓库根或别处跑 (尤其**后台/非交互执行,cwd 可能默认落在仓库根**),config 不生效 → Playwright 退化成扫整个 `tests/` 树,把 Vitest 的 `tests/unit/formatters.spec.ts` 也当 E2E 加载,报一串**假错**:`require is not defined in ES module scope` + `Playwright Test did not expect test() to be called here` (像 @playwright/test 版本错配) + `No tests found`。**这不是围栏破了,是调用 cwd 错了**——务必先 `cd tests` (或 `npx playwright test -c tests/playwright.config.ts`)。`./scripts/test-all.sh` 已是 `cd tests` 后再跑,不踩此坑
+5. **踩坑·Playwright 必须在 `tests/` 目录里跑**：`playwright.config.ts` 在 `tests/` 下,只有 cwd=`tests/` 时才被自动加载 (它设了 `testDir: ./e2e`、webServer 自启 18099)。若从仓库根或别处跑 (尤其**后台/非交互执行,cwd 可能默认落在仓库根**),config 不生效 → Playwright 退化成扫整个 `tests/` 树,把 Vitest 的 `tests/unit/formatters.spec.ts` 也当 E2E 加载,报一串**假错**:`require is not defined in ES module scope` + `Playwright Test did not expect test() to be called here` (像 @playwright/test 版本错配) + `No tests found`。**这不是围栏破了,是调用 cwd 错了**——务必先 `cd tests` (或 `npx playwright test -c tests/playwright.config.ts`)
 
 ### 命令
 
 ```bash
-./scripts/test-all.sh                               # 一键跑三层 (后端 + Vitest + Playwright)
 mvn test                                            # 全部后端测试
 mvn test -Dtest=ChatFlowTest                        # 单类
 mvn test -Dtest=ChatFlowTest#start_and_send_should_work  # 单方法
 mvn test -Dtest='*RepoTest'                         # 仅跑 Infra 轻量集成
-cd tests && npx vitest run                          # 前端纯函数单测
-cd tests && npx playwright test                     # 前端 E2E (自动启停 Spring Boot)
+cd tests && npm test                                # 前端纯函数单测 (Vitest)
+cd tests && npm run e2e                             # 前端 E2E (自动启停 Spring Boot e2e profile)
 cd tests && npx playwright test chat.spec.ts        # 单条 E2E
-cd tests && npx playwright test --headed --debug    # 带浏览器调试
+cd tests && npm run e2e:debug                       # 带浏览器调试
 ```
