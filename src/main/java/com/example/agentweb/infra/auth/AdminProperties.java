@@ -31,6 +31,7 @@ public class AdminProperties {
             "/api/admin-settings",
             "/api/refinery",
             "/api/issue-log-backfill",
-            "/api/diagnose-history"
+            "/api/diagnose-history",
+            "/api/harness"
     ));
 }

@@ -3,11 +3,15 @@ package com.example.agentweb.interfaces;
 import com.example.agentweb.app.chatrun.EventCursorExpiredException;
 import com.example.agentweb.app.chatrun.InvalidIdempotencyKeyException;
 import com.example.agentweb.app.chatrun.RunCapacityExceededException;
+import com.example.agentweb.app.harness.InvalidHarnessIdempotencyKeyException;
 import com.example.agentweb.domain.auth.UsernameAlreadyExistsException;
 import com.example.agentweb.domain.chat.ChatSessionNotFoundException;
 import com.example.agentweb.domain.chat.SessionDeletionForbiddenException;
 import com.example.agentweb.domain.chatrun.ActiveChatRunExistsException;
 import com.example.agentweb.domain.chatrun.ChatRunNotFoundException;
+import com.example.agentweb.domain.harness.HarnessRunNotFoundException;
+import com.example.agentweb.domain.harness.IllegalHarnessTransitionException;
+import com.example.agentweb.domain.harness.DuplicateHarnessRunException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -55,6 +59,41 @@ public class GlobalExceptionHandler {
         body.put("code", "CHAT_RUN_NOT_FOUND");
         body.put("message", ex.getMessage());
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
+    }
+
+    @ExceptionHandler(HarnessRunNotFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleHarnessRunNotFound(HarnessRunNotFoundException ex) {
+        Map<String, Object> body = new HashMap<String, Object>();
+        body.put("code", "HARNESS_RUN_NOT_FOUND");
+        body.put("message", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
+    }
+
+    @ExceptionHandler(InvalidHarnessIdempotencyKeyException.class)
+    public ResponseEntity<Map<String, Object>> handleInvalidHarnessIdempotencyKey(
+            InvalidHarnessIdempotencyKeyException ex) {
+        Map<String, Object> body = new HashMap<String, Object>();
+        body.put("code", "INVALID_HARNESS_IDEMPOTENCY_KEY");
+        body.put("message", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
+    }
+
+    @ExceptionHandler(IllegalHarnessTransitionException.class)
+    public ResponseEntity<Map<String, Object>> handleIllegalHarnessTransition(
+            IllegalHarnessTransitionException ex) {
+        Map<String, Object> body = new HashMap<String, Object>();
+        body.put("code", "HARNESS_ILLEGAL_TRANSITION");
+        body.put("message", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
+    }
+
+    @ExceptionHandler(DuplicateHarnessRunException.class)
+    public ResponseEntity<Map<String, Object>> handleDuplicateHarnessRun(
+            DuplicateHarnessRunException ex) {
+        Map<String, Object> body = new HashMap<String, Object>();
+        body.put("code", "HARNESS_IDEMPOTENCY_CONFLICT");
+        body.put("message", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
     }
 
     @ExceptionHandler(ActiveChatRunExistsException.class)

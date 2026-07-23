@@ -24,6 +24,9 @@ agent:
       - /api/admin-settings
       - /api/refinery
       - /api/diagnose-history
+      - /api/harness
+  harness:
+    enabled: false
   # 斜杠命令固定指向仓库内 fixtures, 让 e2e 命令补全确定可复现, 不受开发机 ~/.claude 影响。
   # 相对路径会同时拼到 workingDir(=仓库根)与 user.home; 仓库根下命中 3 个占位命令。
   slash-command:

@@ -49,4 +49,14 @@ public class ArchitectureTest {
     static final ArchRule A4_APP_NOT_DEPEND_ON_INFRA_FROZEN = FreezingArchRule.freeze(noClasses()
             .that().resideInAPackage("com.example.agentweb.app..")
             .should().dependOnClassesThat().resideInAPackage("com.example.agentweb.infra.."));
+
+    @ArchTest
+    static final ArchRule A5_HARNESS_DOMAIN_SEPARATE_FROM_WORKFLOW = noClasses()
+            .that().resideInAPackage("com.example.agentweb.domain.harness..")
+            .should().dependOnClassesThat().resideInAPackage("com.example.agentweb.domain.workflow..");
+
+    @ArchTest
+    static final ArchRule A6_WORKFLOW_DOMAIN_SEPARATE_FROM_HARNESS = noClasses()
+            .that().resideInAPackage("com.example.agentweb.domain.workflow..")
+            .should().dependOnClassesThat().resideInAPackage("com.example.agentweb.domain.harness..");
 }

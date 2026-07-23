@@ -61,6 +61,7 @@ public class AdminAuthFilterTest {
             "/api/admin-workflow-executions/exec-1",
             "/api/admin-settings",
             "/api/refinery/rebuild-recent",
+            "/api/harness/runs/run-1",
     })
     public void protectedPath_noCookie_returns401(String uri) throws Exception {
         MockHttpServletResponse resp = new MockHttpServletResponse();
@@ -81,6 +82,7 @@ public class AdminAuthFilterTest {
             "/api/admin-workflow-executions/exec-1",
             "/api/admin-settings",
             "/api/refinery/rebuild-recent",
+            "/api/harness/runs/run-1",
     })
     public void protectedPath_normalUser_returns403(String uri) throws Exception {
         currentUser = new LoginUser("user", "user", null, UserRole.USER);
@@ -103,6 +105,7 @@ public class AdminAuthFilterTest {
             "/api/admin-workflow-executions/exec-1",
             "/api/admin-settings",
             "/api/refinery/rebuild-recent",
+            "/api/harness/runs/run-1",
     })
     public void protectedPath_adminUser_passesThrough(String uri) throws Exception {
         currentUser = new LoginUser("admin", "admin", null, UserRole.ADMIN);

@@ -325,6 +325,112 @@ CREATE TABLE IF NOT EXISTS workflow_step_execution (
     finished_at   INTEGER
 );
 
+-- Harness M1 独立限界上下文，首版仅增表，不复用 Workflow 状态语义.
+CREATE TABLE IF NOT EXISTS harness_run (
+    id                 TEXT PRIMARY KEY,
+    title              TEXT    NOT NULL,
+    working_dir        TEXT    NOT NULL,
+    agent_type         TEXT    NOT NULL,
+    environment        TEXT    NOT NULL,
+    definition_version TEXT    NOT NULL,
+    created_by         TEXT    NOT NULL,
+    idempotency_key    TEXT    NOT NULL,
+    status             TEXT    NOT NULL,
+    created_at         INTEGER NOT NULL,
+    updated_at         INTEGER NOT NULL,
+    version            INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(created_by, idempotency_key)
+);
+CREATE INDEX IF NOT EXISTS idx_harness_run_status ON harness_run(status, updated_at);
+
+CREATE TABLE IF NOT EXISTS harness_stage_execution (
+    run_id               TEXT    NOT NULL,
+    stage                TEXT    NOT NULL,
+    stage_order          INTEGER NOT NULL,
+    status               TEXT    NOT NULL,
+    required_inputs_json TEXT    NOT NULL,
+    required_outputs_json TEXT   NOT NULL,
+    gates_json           TEXT    NOT NULL,
+    approval_type        TEXT    NOT NULL,
+    PRIMARY KEY(run_id, stage),
+    FOREIGN KEY(run_id) REFERENCES harness_run(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS harness_stage_attempt (
+    run_id          TEXT    NOT NULL,
+    stage           TEXT    NOT NULL,
+    attempt_number  INTEGER NOT NULL,
+    idempotency_key TEXT    NOT NULL,
+    status          TEXT    NOT NULL,
+    started_at      INTEGER NOT NULL,
+    finished_at     INTEGER,
+    failure_reason  TEXT,
+    PRIMARY KEY(run_id, stage, attempt_number),
+    FOREIGN KEY(run_id, stage) REFERENCES harness_stage_execution(run_id, stage) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS harness_artifact (
+    run_id                TEXT    NOT NULL,
+    artifact_id           TEXT    NOT NULL,
+    artifact_type         TEXT    NOT NULL,
+    version               INTEGER NOT NULL,
+    stage                 TEXT    NOT NULL,
+    attempt_number        INTEGER NOT NULL,
+    content_type          TEXT    NOT NULL,
+    size_bytes            INTEGER NOT NULL,
+    sha256                TEXT    NOT NULL,
+    classification        TEXT    NOT NULL,
+    created_by            TEXT    NOT NULL,
+    created_at            INTEGER NOT NULL,
+    source_artifacts_json TEXT    NOT NULL,
+    PRIMARY KEY(run_id, artifact_id, version),
+    FOREIGN KEY(run_id) REFERENCES harness_run(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_harness_artifact_run_type
+    ON harness_artifact(run_id, artifact_type, version);
+
+CREATE TABLE IF NOT EXISTS harness_gate_result (
+    result_id             TEXT PRIMARY KEY,
+    run_id                TEXT    NOT NULL,
+    stage                 TEXT    NOT NULL,
+    attempt_number        INTEGER NOT NULL,
+    rule                  TEXT    NOT NULL,
+    passed                INTEGER NOT NULL,
+    artifact_baseline_hash TEXT   NOT NULL,
+    evidence_json         TEXT    NOT NULL,
+    reason                TEXT,
+    evaluated_at          INTEGER NOT NULL,
+    FOREIGN KEY(run_id) REFERENCES harness_run(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS harness_approval (
+    approval_id           TEXT PRIMARY KEY,
+    run_id                TEXT    NOT NULL,
+    stage                 TEXT    NOT NULL,
+    attempt_number        INTEGER NOT NULL,
+    approval_type         TEXT    NOT NULL,
+    decision              TEXT    NOT NULL,
+    artifact_baseline_hash TEXT   NOT NULL,
+    decided_by            TEXT    NOT NULL,
+    reason                TEXT    NOT NULL,
+    decided_at            INTEGER NOT NULL,
+    valid                 INTEGER NOT NULL,
+    invalidated_at        INTEGER,
+    FOREIGN KEY(run_id) REFERENCES harness_run(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS harness_event (
+    run_id      TEXT    NOT NULL,
+    sequence    INTEGER NOT NULL,
+    event_type  TEXT    NOT NULL,
+    stage       TEXT,
+    actor       TEXT    NOT NULL,
+    detail      TEXT,
+    occurred_at INTEGER NOT NULL,
+    PRIMARY KEY(run_id, sequence),
+    FOREIGN KEY(run_id) REFERENCES harness_run(id) ON DELETE CASCADE
+);
+
 CREATE INDEX IF NOT EXISTS idx_workflow_step_execution_execution
     ON workflow_step_execution(execution_id, step_index);
 
