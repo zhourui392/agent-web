@@ -33,6 +33,7 @@ import static org.hamcrest.Matchers.hasItem;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -454,8 +455,9 @@ public class FsControllerTest {
         Path workDir = Files.createTempDirectory(fsRoot, "upfile-");
         try {
             // 走 UploadFileStore mock,返回固定路径,验 Controller 透传 file.bytes/originalName/sessionId
-            String stubReturn = workDir.resolve("upload_file").resolve("s").resolve("app.log").toString();
-            when(uploadFileStore.save(eq(workDir.toString()), eq("s"), eq("app.log"), any(byte[].class)))
+            String realWorkDir = workDir.toRealPath().toString();
+            String stubReturn = Paths.get(realWorkDir, "upload_file", "s", "app.log").toString();
+            when(uploadFileStore.save(eq(realWorkDir), eq("s"), eq("app.log"), any(byte[].class)))
                     .thenReturn(stubReturn);
 
             MockMultipartFile file = new MockMultipartFile("file", "app.log", "text/plain",
@@ -468,6 +470,8 @@ public class FsControllerTest {
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.success").value(true))
                     .andExpect(jsonPath("$.path", containsString("app.log")));
+
+            verify(uploadFileStore).save(eq(realWorkDir), eq("s"), eq("app.log"), any(byte[].class));
         } finally {
             FileSystemUtils.deleteRecursively(workDir);
         }
