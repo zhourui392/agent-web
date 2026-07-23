@@ -1,4 +1,4 @@
-package com.example.agentweb.infra;
+package com.example.agentweb.config;
 
 import com.example.agentweb.app.chatrun.ChatRunStreamSettings;
 import lombok.Getter;
@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
 /**
  * Technical limits for resumable chat streaming.
  *
- * @author zhourui(V33215020)
+ * @author alex
  * @since 2026-07-22
  */
 @Component

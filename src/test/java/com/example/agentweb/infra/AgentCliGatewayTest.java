@@ -1,5 +1,6 @@
 package com.example.agentweb.infra;
 
+import com.example.agentweb.config.EnvProperties;
 import com.example.agentweb.app.agentrun.port.AgentStreamResult;
 import com.example.agentweb.app.git.GitEnvResolver;
 import com.example.agentweb.domain.git.GitConfigPolicy;

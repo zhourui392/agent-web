@@ -1,6 +1,6 @@
 package com.example.agentweb.app.agentrun;
 
-import com.example.agentweb.infra.EnvProperties;
+import com.example.agentweb.config.EnvProperties;
 import org.springframework.stereotype.Component;
 
 /**

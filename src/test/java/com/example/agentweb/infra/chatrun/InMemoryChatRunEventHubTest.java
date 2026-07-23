@@ -4,7 +4,7 @@ import com.example.agentweb.app.chatrun.ChatRunEvent;
 import com.example.agentweb.app.chatrun.ChatRunEventConsumer;
 import com.example.agentweb.app.chatrun.ChatRunEventSubscription;
 import com.example.agentweb.domain.chatrun.ChatRunId;
-import com.example.agentweb.infra.ResumableChatStreamProperties;
+import com.example.agentweb.config.ResumableChatStreamProperties;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 

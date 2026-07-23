@@ -1,5 +1,6 @@
 package com.example.agentweb.app.refinery;
 
+import com.example.agentweb.app.logging.TraceContext;
 import com.example.agentweb.domain.chat.SessionRepository;
 import com.example.agentweb.domain.refinery.RagChunkRepository;
 import com.example.agentweb.domain.refinery.SessionRefineryStateRepository;
@@ -47,6 +48,7 @@ public class RefineryRebuildServiceImplTest {
     @Mock private RagChunkRepository chunkRepo;
     @Mock private SessionRefineryStateRepository stateRepo;
     @Mock private RefineryAppService appService;
+    @Mock private TraceContext traceContext;
 
     private final Executor directExecutor = Runnable::run;
     private final Clock fixedClock = Clock.fixed(NOW, ZoneOffset.UTC);
@@ -56,7 +58,8 @@ public class RefineryRebuildServiceImplTest {
     @BeforeEach
     public void setUp() {
         service = new RefineryRebuildServiceImpl(
-                sessionRepo, chunkRepo, stateRepo, appService, directExecutor, fixedClock);
+                sessionRepo, chunkRepo, stateRepo, appService, directExecutor, fixedClock, traceContext);
+        when(traceContext.newTraceIdIfAbsent()).thenReturn("trace-1");
     }
 
     @Test
@@ -132,7 +135,7 @@ public class RefineryRebuildServiceImplTest {
             t.start();
         };
         RefineryRebuildServiceImpl blocking = new RefineryRebuildServiceImpl(
-                sessionRepo, chunkRepo, stateRepo, appService, blockingExecutor, fixedClock);
+                sessionRepo, chunkRepo, stateRepo, appService, blockingExecutor, fixedClock, traceContext);
         when(sessionRepo.findIdsWithLastMessageAfter(org.mockito.ArgumentMatchers.anyLong()))
                 .thenReturn(Arrays.asList("s1"));
         when(chunkRepo.deleteBySourceSessionId("s1")).thenReturn(1);

@@ -1,4 +1,4 @@
-package com.example.agentweb.infra;
+package com.example.agentweb.config;
 
 import com.example.agentweb.app.chatrun.ChatPromptSettings;
 import lombok.Getter;
@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
 /**
  * Chat-specific runtime switches.
  *
- * @author zhourui(V33215020)
+ * @author alex
  * @since 2026-06-24
  */
 @Component

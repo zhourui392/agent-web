@@ -1,4 +1,4 @@
-package com.example.agentweb.infra;
+package com.example.agentweb.config;
 
 import lombok.Getter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -8,7 +8,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * @author zhourui(V33215020)
+ * @author alex
+ * @since 2026-07-23
  */
 @Component
 @ConfigurationProperties(prefix = "agent.fs")

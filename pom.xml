@@ -318,6 +318,12 @@
                         <artifactId>p3c-pmd</artifactId>
                         <version>${p3c.version}</version>
                     </dependency>
+                    <!-- PMD 6.53.0 defaults to ASM 9.3, which cannot read Java 21 bytecode. -->
+                    <dependency>
+                        <groupId>org.ow2.asm</groupId>
+                        <artifactId>asm</artifactId>
+                        <version>9.7.1</version>
+                    </dependency>
                 </dependencies>
             </plugin>
         </plugins>

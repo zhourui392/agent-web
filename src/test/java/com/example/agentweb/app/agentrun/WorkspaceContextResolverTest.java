@@ -1,6 +1,6 @@
 package com.example.agentweb.app.agentrun;
 
-import com.example.agentweb.infra.FsProperties;
+import com.example.agentweb.config.FsProperties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 

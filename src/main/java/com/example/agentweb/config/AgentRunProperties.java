@@ -1,4 +1,4 @@
-package com.example.agentweb.infra;
+package com.example.agentweb.config;
 
 import lombok.Getter;
 import lombok.Setter;
@@ -8,7 +8,7 @@ import org.springframework.stereotype.Component;
 /**
  * AgentRun execution and recall switches.
  *
- * @author zhourui(V33215020)
+ * @author alex
  * @since 2026-06-13
  */
 @Getter

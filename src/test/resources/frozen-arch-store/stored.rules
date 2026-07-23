@@ -1,3 +1,0 @@
-#
-#Sat Jul 04 16:44:21 CST 2026
-no\ classes\ that\ reside\ in\ a\ package\ 'com.example.agentweb.app..'\ should\ depend\ on\ classes\ that\ reside\ in\ a\ package\ 'com.example.agentweb.infra..'=274a0446-a336-43c6-b746-a7ef460c9da5

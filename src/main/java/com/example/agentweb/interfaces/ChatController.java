@@ -11,7 +11,7 @@ import com.example.agentweb.domain.chat.ChatSession;
 import com.example.agentweb.domain.chat.Feedback;
 import com.example.agentweb.domain.slashcommand.SlashCommand;
 import com.example.agentweb.infra.ClientIpResolver;
-import com.example.agentweb.infra.EnvProperties;
+import com.example.agentweb.config.EnvProperties;
 import com.example.agentweb.infra.setting.RuntimeAgentSettings;
 import com.example.agentweb.app.logging.LogSafe;
 import com.example.agentweb.infra.log.MdcContext;

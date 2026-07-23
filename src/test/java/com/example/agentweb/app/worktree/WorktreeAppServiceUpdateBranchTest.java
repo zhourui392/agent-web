@@ -1,6 +1,6 @@
 package com.example.agentweb.app.worktree;
 
-import com.example.agentweb.infra.FsProperties;
+import com.example.agentweb.config.FsProperties;
 import com.example.agentweb.infra.RealPathWorkspacePolicy;
 import com.example.agentweb.infra.git.LocalWorktreeFileGateway;
 import com.example.agentweb.infra.git.ProcessGitWorktreeGateway;

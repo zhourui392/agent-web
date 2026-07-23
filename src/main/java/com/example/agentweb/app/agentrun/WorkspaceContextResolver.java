@@ -1,7 +1,7 @@
 package com.example.agentweb.app.agentrun;
 
 import com.example.agentweb.domain.refinery.TrustTier;
-import com.example.agentweb.infra.FsProperties;
+import com.example.agentweb.config.FsProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.yaml.snakeyaml.Yaml;
 import org.springframework.stereotype.Component;

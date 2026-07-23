@@ -15,7 +15,7 @@ import com.example.agentweb.domain.chat.SessionRepository;
 import com.example.agentweb.domain.schedule.CronExpression;
 import com.example.agentweb.domain.schedule.ScheduledTask;
 import com.example.agentweb.domain.schedule.ScheduledTaskRepository;
-import com.example.agentweb.infra.AgentRunProperties;
+import com.example.agentweb.config.AgentRunProperties;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 

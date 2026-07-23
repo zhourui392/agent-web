@@ -1,4 +1,4 @@
-package com.example.agentweb.adapter;
+package com.example.agentweb.app.auth.port;
 
 import java.util.Optional;
 
@@ -7,7 +7,7 @@ import java.util.Optional;
  * 实现必须 fail-open/fail-safe：目录不可用时 {@code containsUser} 恒真、
  * {@code imUserIdOf} 返回 empty，均不得抛异常——目录是旁路能力，不得卡死接入与通知。
  *
- * @author zhourui(V33215020)
+ * @author alex
  * @since 2026-07-04
  */
 public interface UserDirectory {

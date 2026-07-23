@@ -5,7 +5,7 @@ import com.example.agentweb.app.chatrun.ChatRunEventConsumer;
 import com.example.agentweb.app.chatrun.ChatRunEventHub;
 import com.example.agentweb.app.chatrun.ChatRunEventSubscription;
 import com.example.agentweb.domain.chatrun.ChatRunId;
-import com.example.agentweb.infra.ResumableChatStreamProperties;
+import com.example.agentweb.config.ResumableChatStreamProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;

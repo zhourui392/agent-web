@@ -1,7 +1,7 @@
 package com.example.agentweb;
 
 import com.example.agentweb.infra.auth.AuthProperties;
-import com.example.agentweb.infra.FsProperties;
+import com.example.agentweb.config.FsProperties;
 import com.example.agentweb.app.UploadFileStorage;
 import com.example.agentweb.app.UploadPicStorage;
 import com.example.agentweb.infra.RealPathWorkspacePolicy;

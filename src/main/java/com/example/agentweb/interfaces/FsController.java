@@ -50,7 +50,7 @@ public class FsController {
     private final UploadPicStorage uploadPicStore;
     private final UploadFileStorage uploadFileStore;
 
-    public FsController(com.example.agentweb.infra.FsProperties fsProps,
+    public FsController(com.example.agentweb.config.FsProperties fsProps,
                         UploadPicStorage uploadPicStore,
                         UploadFileStorage uploadFileStore,
                         WorkspacePathPolicy pathPolicy) {

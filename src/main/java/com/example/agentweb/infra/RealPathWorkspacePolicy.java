@@ -1,5 +1,6 @@
 package com.example.agentweb.infra;
 
+import com.example.agentweb.config.FsProperties;
 import com.example.agentweb.domain.worktree.WorkspacePathPolicy;
 import org.springframework.stereotype.Component;
 

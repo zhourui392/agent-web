@@ -1,6 +1,6 @@
 package com.example.agentweb.app.chatrun;
 
-import com.example.agentweb.infra.ResumableChatStreamProperties;
+import com.example.agentweb.config.ResumableChatStreamProperties;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;

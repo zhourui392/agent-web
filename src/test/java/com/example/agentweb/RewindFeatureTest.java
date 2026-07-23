@@ -8,7 +8,7 @@ import com.example.agentweb.domain.chat.ChatSession;
 import com.example.agentweb.domain.chat.SessionRepository;
 import com.example.agentweb.domain.slashcommand.SlashCommandExpander;
 import com.example.agentweb.infra.auth.AuthProperties;
-import com.example.agentweb.infra.EnvProperties;
+import com.example.agentweb.config.EnvProperties;
 import com.example.agentweb.interfaces.ChatController;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;

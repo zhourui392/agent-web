@@ -14,7 +14,7 @@ import com.example.agentweb.domain.workflow.WorkflowStepExecution;
 import com.example.agentweb.domain.workflow.WorkflowExecutionRepository;
 import com.example.agentweb.app.agentrun.port.AgentCliInvoker;
 import com.example.agentweb.app.agentrun.port.CliInvokeException;
-import com.example.agentweb.infra.AgentRunProperties;
+import com.example.agentweb.config.AgentRunProperties;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

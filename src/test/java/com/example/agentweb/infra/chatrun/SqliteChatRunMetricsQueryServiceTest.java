@@ -6,7 +6,7 @@ import com.example.agentweb.app.chatrun.ChatRunEventConsumer;
 import com.example.agentweb.app.chatrun.ChatRunEventSubscription;
 import com.example.agentweb.app.chatrun.ChatRunMetricsOverview;
 import com.example.agentweb.domain.chatrun.ChatRunId;
-import com.example.agentweb.infra.ResumableChatStreamProperties;
+import com.example.agentweb.config.ResumableChatStreamProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;

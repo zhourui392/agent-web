@@ -13,7 +13,7 @@ import com.example.agentweb.domain.chat.FeedbackRating;
 import com.example.agentweb.domain.slashcommand.SlashCommand;
 import com.example.agentweb.domain.slashcommand.SlashCommandExpander;
 import com.example.agentweb.infra.auth.AuthProperties;
-import com.example.agentweb.infra.EnvProperties;
+import com.example.agentweb.config.EnvProperties;
 import com.example.agentweb.interfaces.dto.SendMessageRequest;
 import com.example.agentweb.interfaces.dto.StartSessionRequest;
 import org.junit.jupiter.api.Test;

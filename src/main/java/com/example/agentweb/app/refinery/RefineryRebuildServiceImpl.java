@@ -1,9 +1,9 @@
 package com.example.agentweb.app.refinery;
 
+import com.example.agentweb.app.logging.TraceContext;
 import com.example.agentweb.domain.chat.SessionRepository;
 import com.example.agentweb.domain.refinery.RagChunkRepository;
 import com.example.agentweb.domain.refinery.SessionRefineryStateRepository;
-import com.example.agentweb.infra.log.MdcContext;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -39,6 +39,7 @@ public class RefineryRebuildServiceImpl implements RefineryRebuildService {
     private final RefineryAppService appService;
     private final Executor rebuildExecutor;
     private final Clock clock;
+    private final TraceContext traceContext;
 
     private final AtomicBoolean rebuildRunning = new AtomicBoolean(false);
 
@@ -47,13 +48,15 @@ public class RefineryRebuildServiceImpl implements RefineryRebuildService {
                                      SessionRefineryStateRepository stateRepo,
                                      RefineryAppService appService,
                                      @Qualifier("chatRagRebuildExecutor") Executor rebuildExecutor,
-                                     @Qualifier("chatRagClock") Clock clock) {
+                                     @Qualifier("chatRagClock") Clock clock,
+                                     TraceContext traceContext) {
         this.sessionRepo = sessionRepo;
         this.chunkRepo = chunkRepo;
         this.stateRepo = stateRepo;
         this.appService = appService;
         this.rebuildExecutor = rebuildExecutor;
         this.clock = clock;
+        this.traceContext = traceContext;
     }
 
     @Override
@@ -97,7 +100,7 @@ public class RefineryRebuildServiceImpl implements RefineryRebuildService {
 
     /** 后台串行重跑. 每个会话独立 try-catch, 单个失败不影响其余; 结束释放护栏. */
     private void reingestAll(List<String> sessionIds) {
-        String traceId = MdcContext.newTraceIdIfAbsent();
+        String traceId = traceContext.newTraceIdIfAbsent();
         long startMs = System.currentTimeMillis();
         int saved = 0;
         try {
@@ -115,7 +118,7 @@ public class RefineryRebuildServiceImpl implements RefineryRebuildService {
             rebuildRunning.set(false);
             log.info("refinery-rebuild-done total={} saved={} elapsedMs={} traceId={}",
                     sessionIds.size(), saved, System.currentTimeMillis() - startMs, traceId);
-            MdcContext.clear();
+            traceContext.clear();
         }
     }
 }

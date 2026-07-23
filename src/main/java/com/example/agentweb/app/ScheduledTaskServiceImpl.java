@@ -41,7 +41,7 @@ public class ScheduledTaskServiceImpl implements ScheduledTaskService {
     private final PromptAssemblyService promptAssemblyService;
     private final RunRecallPolicyFactory runRecallPolicyFactory;
     private final Clock clock;
-    private DynamicTaskScheduler dynamicScheduler;
+    private ScheduledTaskRegistrar taskRegistrar;
 
     public ScheduledTaskServiceImpl(ScheduledTaskRepository taskRepo,
                                     SessionRepository sessionRepository,
@@ -62,10 +62,10 @@ public class ScheduledTaskServiceImpl implements ScheduledTaskService {
     }
 
     /**
-     * Setter injection to break circular dependency with DynamicTaskScheduler.
+     * Setter injection to break the runtime registrar's circular lifecycle dependency.
      */
-    public void setDynamicScheduler(DynamicTaskScheduler dynamicScheduler) {
-        this.dynamicScheduler = dynamicScheduler;
+    public void setTaskRegistrar(ScheduledTaskRegistrar taskRegistrar) {
+        this.taskRegistrar = taskRegistrar;
     }
 
     @Override
@@ -73,8 +73,8 @@ public class ScheduledTaskServiceImpl implements ScheduledTaskService {
         ScheduledTask task = ScheduledTask.create(name, CronExpression.parse(cronExpr), prompt,
                 workingDir, currentUserProvider.currentUserId(), clock.instant());
         taskRepo.save(task);
-        if (dynamicScheduler != null) {
-            dynamicScheduler.scheduleTask(task);
+        if (taskRegistrar != null) {
+            taskRegistrar.refresh(task);
         }
         return task;
     }
@@ -87,8 +87,8 @@ public class ScheduledTaskServiceImpl implements ScheduledTaskService {
         }
         task.revise(name, cronExpr, prompt, workingDir, clock.instant());
         taskRepo.update(task);
-        if (dynamicScheduler != null) {
-            dynamicScheduler.scheduleTask(task);
+        if (taskRegistrar != null) {
+            taskRegistrar.refresh(task);
         }
         return task;
     }
@@ -96,8 +96,8 @@ public class ScheduledTaskServiceImpl implements ScheduledTaskService {
     @Override
     public void delete(String id) {
         taskRepo.deleteById(id);
-        if (dynamicScheduler != null) {
-            dynamicScheduler.cancelTask(id);
+        if (taskRegistrar != null) {
+            taskRegistrar.cancel(id);
         }
     }
 
@@ -109,8 +109,8 @@ public class ScheduledTaskServiceImpl implements ScheduledTaskService {
         }
         task.toggle(clock.instant());
         taskRepo.update(task);
-        if (dynamicScheduler != null) {
-            dynamicScheduler.scheduleTask(task);
+        if (taskRegistrar != null) {
+            taskRegistrar.refresh(task);
         }
     }
 

@@ -1,5 +1,6 @@
 package com.example.agentweb.infra;
 
+import com.example.agentweb.config.ChatProperties;
 import com.example.agentweb.domain.chat.ChatSession;
 import com.example.agentweb.domain.chat.SessionCache;
 import org.springframework.stereotype.Repository;

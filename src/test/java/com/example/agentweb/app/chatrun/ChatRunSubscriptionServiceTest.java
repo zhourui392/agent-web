@@ -6,7 +6,7 @@ import com.example.agentweb.domain.chatrun.ChatRun;
 import com.example.agentweb.domain.chatrun.ChatRunId;
 import com.example.agentweb.domain.chatrun.ChatRunRepository;
 import com.example.agentweb.domain.shared.AgentType;
-import com.example.agentweb.infra.ResumableChatStreamProperties;
+import com.example.agentweb.config.ResumableChatStreamProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.scheduling.TaskScheduler;

@@ -1,8 +1,9 @@
-package com.example.agentweb.app;
+package com.example.agentweb.infra.schedule;
 
+import com.example.agentweb.app.ScheduledTaskRegistrar;
+import com.example.agentweb.app.ScheduledTaskServiceImpl;
 import com.example.agentweb.domain.schedule.ScheduledTask;
 import com.example.agentweb.domain.schedule.ScheduledTaskRepository;
-import com.example.agentweb.infra.SqliteInitializer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.event.ContextRefreshedEvent;
 import org.springframework.context.event.EventListener;
@@ -16,11 +17,12 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledFuture;
 
 /**
- * @author zhourui(V33215020)
+ * @author alex
+ * @since 2026-07-23
  */
 @Component
 @Slf4j
-public class DynamicTaskScheduler {
+public class DynamicTaskScheduler implements ScheduledTaskRegistrar {
 
     private final ScheduledTaskRepository taskRepo;
     private final ScheduledTaskServiceImpl taskService;
@@ -38,17 +40,18 @@ public class DynamicTaskScheduler {
     @EventListener(ContextRefreshedEvent.class)
     public void init() {
         // Inject self into service to break circular dependency
-        taskService.setDynamicScheduler(this);
+        taskService.setTaskRegistrar(this);
 
         List<ScheduledTask> tasks = taskRepo.findAllEnabled();
         log.info("Loading {} enabled scheduled tasks", tasks.size());
         for (ScheduledTask task : tasks) {
-            scheduleTask(task);
+            refresh(task);
         }
     }
 
-    public void scheduleTask(ScheduledTask task) {
-        cancelTask(task.getId());
+    @Override
+    public void refresh(ScheduledTask task) {
+        cancel(task.getId());
         if (!task.isEnabled()) {
             return;
         }
@@ -58,7 +61,7 @@ public class DynamicTaskScheduler {
                         @Override
                         public void run() {
                             try {
-                                taskService.doExecute(task);
+                                taskService.executeTask(task.getId());
                             } catch (Exception e) {
                                 log.error("Scheduled task failed: {}", task.getName(), e);
                             }
@@ -73,7 +76,8 @@ public class DynamicTaskScheduler {
         }
     }
 
-    public void cancelTask(String taskId) {
+    @Override
+    public void cancel(String taskId) {
         ScheduledFuture<?> future = scheduledFutures.remove(taskId);
         if (future != null) {
             future.cancel(false);

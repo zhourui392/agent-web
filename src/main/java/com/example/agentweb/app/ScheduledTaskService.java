@@ -10,7 +10,7 @@ import java.util.List;
 public interface ScheduledTaskService {
 
     /**
-     * 创建定时任务,落库后由 DynamicTaskScheduler 注册触发.
+     * 创建定时任务，落库后由运行时注册端口注册触发。
      * @param name 任务名
      * @param cronExpr Spring CronTrigger 兼容表达式
      * @param prompt 触发时发送给 agent 的提示词

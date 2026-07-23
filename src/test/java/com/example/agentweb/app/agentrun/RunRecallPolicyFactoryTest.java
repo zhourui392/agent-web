@@ -1,7 +1,7 @@
 package com.example.agentweb.app.agentrun;
 
 import com.example.agentweb.domain.refinery.SourceType;
-import com.example.agentweb.infra.AgentRunProperties;
+import com.example.agentweb.config.AgentRunProperties;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
