@@ -1,13 +1,14 @@
 package com.example.agentweb.app.agentrun;
 
-import com.example.agentweb.config.FsProperties;
+import com.example.agentweb.app.setting.WorkspaceSettingsQueryService;
+import com.example.agentweb.domain.setting.WorkspaceSettings;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
+import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -33,7 +34,7 @@ public class WorkspaceContextResolverTest {
         Files.write(root.resolve("docs/playbooks/INDEX.md"),
                 "- [支付排查](pay.md)\n".getBytes(StandardCharsets.UTF_8));
 
-        WorkspaceContextResolver resolver = new WorkspaceContextResolver(fsProperties(root));
+        WorkspaceContextResolver resolver = new WorkspaceContextResolver(workspaceSettings(root));
 
         WorkspaceContext context = resolver.resolve(serviceDir.toString());
 
@@ -54,7 +55,7 @@ public class WorkspaceContextResolverTest {
                 + "name: project\n"
                 + "recall:\n"
                 + "  min_tier: PENDING\n").getBytes(StandardCharsets.UTF_8));
-        WorkspaceContextResolver resolver = new WorkspaceContextResolver(fsProperties(root));
+        WorkspaceContextResolver resolver = new WorkspaceContextResolver(workspaceSettings(root));
 
         WorkspaceContext context = resolver.resolve(root.toString());
 
@@ -71,7 +72,7 @@ public class WorkspaceContextResolverTest {
         Files.write(root.resolve(".agent-web.yml"), (""
                 + "recall:\n"
                 + "  min_tier: SUPER_TRUSTED\n").getBytes(StandardCharsets.UTF_8));
-        WorkspaceContextResolver resolver = new WorkspaceContextResolver(fsProperties(root));
+        WorkspaceContextResolver resolver = new WorkspaceContextResolver(workspaceSettings(root));
 
         WorkspaceContext context = resolver.resolve(root.toString());
 
@@ -87,7 +88,7 @@ public class WorkspaceContextResolverTest {
         Files.write(root.resolve("docs/known-issues/INDEX.md"),
                 "- [登录失败](issue/I-002-login.md)\n".getBytes(StandardCharsets.UTF_8));
 
-        WorkspaceContextResolver resolver = new WorkspaceContextResolver(fsProperties(root));
+        WorkspaceContextResolver resolver = new WorkspaceContextResolver(workspaceSettings(root));
 
         WorkspaceContext context = resolver.resolve(root.toString());
 
@@ -115,7 +116,7 @@ public class WorkspaceContextResolverTest {
                 "    readonly: true",
                 "    prompt: \"生产只读，不允许写操作\"").getBytes(StandardCharsets.UTF_8));
 
-        WorkspaceContextResolver resolver = new WorkspaceContextResolver(fsProperties(root));
+        WorkspaceContextResolver resolver = new WorkspaceContextResolver(workspaceSettings(root));
 
         WorkspaceContext context = resolver.resolve(root.toString());
 
@@ -149,7 +150,7 @@ public class WorkspaceContextResolverTest {
                 "        第一行只读约束",
                 "        第二行必须核实证据").getBytes(StandardCharsets.UTF_8));
 
-        WorkspaceContextResolver resolver = new WorkspaceContextResolver(fsProperties(root));
+        WorkspaceContextResolver resolver = new WorkspaceContextResolver(workspaceSettings(root));
 
         WorkspaceContext context = resolver.resolve(root.toString());
 
@@ -180,7 +181,7 @@ public class WorkspaceContextResolverTest {
                 "  - name: child",
                 "    path: docs/custom/INDEX.md").getBytes(StandardCharsets.UTF_8));
 
-        WorkspaceContextResolver resolver = new WorkspaceContextResolver(fsProperties(root));
+        WorkspaceContextResolver resolver = new WorkspaceContextResolver(workspaceSettings(root));
 
         WorkspaceContext context = resolver.resolve(child.resolve("module-a").toString());
 
@@ -198,7 +199,7 @@ public class WorkspaceContextResolverTest {
         Files.write(outsideRoot.resolve("docs/issue-log/INDEX.md"),
                 "- [不应越界](issue/I-999.md)\n".getBytes(StandardCharsets.UTF_8));
 
-        WorkspaceContextResolver resolver = new WorkspaceContextResolver(fsProperties(root));
+        WorkspaceContextResolver resolver = new WorkspaceContextResolver(workspaceSettings(root));
 
         WorkspaceContext context = resolver.resolve(outsideRoot.toString());
 
@@ -206,10 +207,8 @@ public class WorkspaceContextResolverTest {
         assertTrue(context.getKnowledgeIndexes().isEmpty());
     }
 
-    private FsProperties fsProperties(Path root) {
-        FsProperties props = new FsProperties();
-        List<String> roots = props.getRoots();
-        roots.add(root.toString());
-        return props;
+    private WorkspaceSettingsQueryService workspaceSettings(Path root) {
+        return () -> WorkspaceSettings.create(root.toString(), Collections.singletonList(root.toString()),
+                Collections.<String>emptyList());
     }
 }

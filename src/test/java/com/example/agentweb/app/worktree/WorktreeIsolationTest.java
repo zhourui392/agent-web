@@ -2,7 +2,8 @@ package com.example.agentweb.app.worktree;
 
 import com.example.agentweb.domain.worktree.UserBranchRef;
 import com.example.agentweb.domain.worktree.UserSlug;
-import com.example.agentweb.config.FsProperties;
+import com.example.agentweb.app.setting.WorkspaceSettingsQueryService;
+import com.example.agentweb.domain.setting.WorkspaceSettings;
 import com.example.agentweb.infra.RealPathWorkspacePolicy;
 import com.example.agentweb.infra.git.LocalWorktreeFileGateway;
 import com.example.agentweb.infra.git.ProcessGitWorktreeGateway;
@@ -19,6 +20,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Comparator;
+import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -45,9 +47,9 @@ class WorktreeIsolationTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        FsProperties properties = new FsProperties();
-        properties.getRoots().add(tempDir.toString());
-        service = new WorktreeAppService(new RealPathWorkspacePolicy(properties),
+        WorkspaceSettingsQueryService settings = () -> WorkspaceSettings.create(tempDir.toString(),
+                Collections.singletonList(tempDir.toString()), Collections.<String>emptyList());
+        service = new WorktreeAppService(new RealPathWorkspacePolicy(settings),
                 new ProcessGitWorktreeGateway(), new LocalWorktreeFileGateway());
         workspace = tempDir.resolve("ws");
         Files.createDirectories(workspace);

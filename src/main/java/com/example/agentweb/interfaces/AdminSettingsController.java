@@ -1,8 +1,13 @@
 package com.example.agentweb.interfaces;
 
+import com.example.agentweb.app.setting.WorkspaceSettingsAppServiceImpl;
+import com.example.agentweb.domain.setting.WorkspaceSettings;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.infra.setting.RuntimeAgentSettings;
+import com.example.agentweb.interfaces.dto.WorkspaceSettingsUpdateRequest;
+import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -16,7 +21,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 管理后台系统设置:对话默认模型 的运行时切换(免重启热生效)。
+ * 管理后台系统设置：对话默认模型与工作空间目录授权，修改后免重启热生效。
  *
  * <p>受管理口令鉴权({@code agent.admin.protected-prefixes} 含 {@code /api/admin-settings})。</p>
  *
@@ -29,9 +34,12 @@ import java.util.Map;
 public class AdminSettingsController {
 
     private final RuntimeAgentSettings runtimeAgentSettings;
+    private final WorkspaceSettingsAppServiceImpl workspaceSettingsAppService;
 
-    public AdminSettingsController(RuntimeAgentSettings runtimeAgentSettings) {
+    public AdminSettingsController(RuntimeAgentSettings runtimeAgentSettings,
+                                   WorkspaceSettingsAppServiceImpl workspaceSettingsAppService) {
         this.runtimeAgentSettings = runtimeAgentSettings;
+        this.workspaceSettingsAppService = workspaceSettingsAppService;
     }
 
     /**
@@ -59,6 +67,26 @@ public class AdminSettingsController {
         return body(chat);
     }
 
+    @GetMapping("/workspaces")
+    public Map<String, Object> getWorkspaces() {
+        return workspaceBody(workspaceSettingsAppService.get());
+    }
+
+    @PutMapping("/workspaces")
+    public Map<String, Object> updateWorkspaces(@Valid @RequestBody WorkspaceSettingsUpdateRequest request) {
+        workspaceSettingsAppService.update(request.getDefaultWorkspace(),
+                request.getWorkspaceRoots(), request.getUploadRoots());
+        log.info("admin-workspace-settings-updated");
+        return workspaceBody(workspaceSettingsAppService.get());
+    }
+
+    @DeleteMapping("/workspaces")
+    public Map<String, Object> resetWorkspaces() {
+        workspaceSettingsAppService.reset();
+        log.info("admin-workspace-settings-reset");
+        return workspaceBody(workspaceSettingsAppService.get());
+    }
+
     private Map<String, Object> body(AgentType chat) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("chatDefaultAgent", chat.name());
@@ -70,5 +98,13 @@ public class AdminSettingsController {
         }
         m.put("options", options);
         return m;
+    }
+
+    private Map<String, Object> workspaceBody(WorkspaceSettings settings) {
+        Map<String, Object> body = new LinkedHashMap<String, Object>();
+        body.put("defaultWorkspace", settings.getDefaultWorkspace());
+        body.put("workspaceRoots", settings.getWorkspaceRoots());
+        body.put("uploadRoots", settings.getUploadRoots());
+        return body;
     }
 }

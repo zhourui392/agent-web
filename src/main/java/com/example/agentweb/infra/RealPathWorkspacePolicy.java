@@ -1,6 +1,6 @@
 package com.example.agentweb.infra;
 
-import com.example.agentweb.config.FsProperties;
+import com.example.agentweb.app.setting.WorkspaceSettingsQueryService;
 import com.example.agentweb.domain.worktree.WorkspacePathPolicy;
 import org.springframework.stereotype.Component;
 
@@ -24,17 +24,15 @@ import java.util.List;
 @Component
 public class RealPathWorkspacePolicy implements WorkspacePathPolicy {
 
-    private final List<Path> workspaceRoots;
-    private final List<Path> uploadRoots;
+    private final WorkspaceSettingsQueryService workspaceSettingsQueryService;
 
-    public RealPathWorkspacePolicy(FsProperties properties) {
-        this.workspaceRoots = absoluteRoots(properties == null ? null : properties.getRoots());
-        this.uploadRoots = absoluteRoots(properties == null ? null : properties.getUploadRoots());
+    public RealPathWorkspacePolicy(WorkspaceSettingsQueryService workspaceSettingsQueryService) {
+        this.workspaceSettingsQueryService = workspaceSettingsQueryService;
     }
 
     @Override
     public String requireExistingDirectory(String path) {
-        Path real = requireExisting(path, workspaceRoots);
+        Path real = requireExisting(path, workspaceRoots());
         if (!Files.isDirectory(real)) {
             throw new IllegalArgumentException("Not a directory: " + path);
         }
@@ -43,7 +41,7 @@ public class RealPathWorkspacePolicy implements WorkspacePathPolicy {
 
     @Override
     public String requireExistingFile(String path) {
-        Path real = requireExisting(path, workspaceRoots);
+        Path real = requireExisting(path, workspaceRoots());
         if (!Files.isRegularFile(real)) {
             throw new IllegalArgumentException("Not a file: " + path);
         }
@@ -52,11 +50,13 @@ public class RealPathWorkspacePolicy implements WorkspacePathPolicy {
 
     @Override
     public String prepareWorkspaceDirectory(String path) {
-        return prepare(path, workspaceRoots).toString();
+        return prepare(path, workspaceRoots()).toString();
     }
 
     @Override
     public String prepareUploadDirectory(String path) {
+        List<Path> workspaceRoots = workspaceRoots();
+        List<Path> uploadRoots = uploadRoots();
         List<Path> allowed = new ArrayList<>(workspaceRoots.size() + uploadRoots.size());
         allowed.addAll(workspaceRoots);
         allowed.addAll(uploadRoots);
@@ -66,7 +66,7 @@ public class RealPathWorkspacePolicy implements WorkspacePathPolicy {
     @Override
     public boolean isExistingPathAllowed(String path) {
         try {
-            requireExisting(path, workspaceRoots);
+            requireExisting(path, workspaceRoots());
             return true;
         } catch (IllegalArgumentException ignored) {
             return false;
@@ -159,5 +159,13 @@ public class RealPathWorkspacePolicy implements WorkspacePathPolicy {
             }
         }
         return result;
+    }
+
+    private List<Path> workspaceRoots() {
+        return absoluteRoots(workspaceSettingsQueryService.get().getWorkspaceRoots());
+    }
+
+    private List<Path> uploadRoots() {
+        return absoluteRoots(workspaceSettingsQueryService.get().getUploadRoots());
     }
 }

@@ -1,32 +1,31 @@
 package com.example.agentweb;
 
 import com.example.agentweb.infra.auth.AuthProperties;
-import com.example.agentweb.config.FsProperties;
+import com.example.agentweb.app.setting.WorkspaceSettingsQueryService;
 import com.example.agentweb.app.UploadFileStorage;
 import com.example.agentweb.app.UploadPicStorage;
 import com.example.agentweb.infra.RealPathWorkspacePolicy;
 import com.example.agentweb.interfaces.FsController;
 import com.example.agentweb.interfaces.GlobalExceptionHandler;
+import com.example.agentweb.domain.setting.WorkspaceSettings;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentMatchers;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.util.FileSystemUtils;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Collections;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasItem;
@@ -49,29 +48,20 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * <p>从 {@code @SpringBootTest} 下沉到 {@code @WebMvcTest},只起 MVC 容器,
  * 不加载 SQLite/AppService/Filter 等无关 Bean,启动从 5-10s 降到 <1s。</p>
  *
- * <p>{@code FsProperties} 通过 {@code @EnableConfigurationProperties} 显式拉入,
- * 再用 {@code @DynamicPropertySource} 把 {@code @TempDir} 注入 roots(Controller 构造期就读 roots,
- * 没法靠 {@code @MockBean} + {@code @BeforeEach} 装行为);{@code UploadPicStorage} 走 {@code @MockBean},
+ * <p>运行时根目录通过 {@code WorkspaceSettingsQueryService} 注入并可在请求间热更新；
+ * {@code UploadPicStorage} 走 {@code @MockBean},
  * 真实文件读取走 {@code @TempDir} 触发 Controller 的扩展名 / 越界 / 大小校验。</p>
  *
  * @author zhourui(V33215020)
  * @since 2026-05-25
  */
 @WebMvcTest(FsController.class)
-@EnableConfigurationProperties(FsProperties.class)
 @Import({GlobalExceptionHandler.class, RealPathWorkspacePolicy.class})
 public class FsControllerTest {
 
     /** 受 agent.fs.roots 许可的根目录;上传校验以此为准,而非 OS 用户目录。 */
     @TempDir
     static Path fsRoot;
-
-    @DynamicPropertySource
-    static void registerFsRoot(DynamicPropertyRegistry registry) {
-        registry.add("agent.fs.roots", () -> fsRoot.toString());
-        // 清空测试 application.yml 里残留的 upload-roots,避免影响越界判断
-        registry.add("agent.fs.upload-roots", () -> "");
-    }
 
     @Autowired
     private MockMvc mvc;
@@ -82,6 +72,9 @@ public class FsControllerTest {
     /** FsController 构造依赖,1242e3d 后新增,本切片只验图片路径,文件附件不触发。 */
     @MockBean
     private UploadFileStorage uploadFileStore;
+
+    @MockBean
+    private WorkspaceSettingsQueryService workspaceSettingsQueryService;
 
     /** {@code @WebMvcTest} 会扫描 Filter Bean,需补齐其构造依赖以免 ApplicationContext 加载失败。 */
     @MockBean
@@ -106,6 +99,7 @@ public class FsControllerTest {
 
     @BeforeEach
     void stubUploadPicStore() throws Exception {
+        when(workspaceSettingsQueryService.get()).thenReturn(workspaceSettings(fsRoot));
         // 默认 stub:upload-image 调用都会落到 <workingDir>/upload_pic[/<sessionId>]/<name>.png
         when(uploadPicStore.save(anyString(), ArgumentMatchers.<String>any(), any(byte[].class)))
                 .thenAnswer(inv -> {
@@ -122,11 +116,34 @@ public class FsControllerTest {
         return new byte[]{(byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A};
     }
 
+    private WorkspaceSettings workspaceSettings(Path root) {
+        return WorkspaceSettings.create(root.toString(), Collections.singletonList(root.toString()),
+                Collections.<String>emptyList());
+    }
+
     @Test
     public void roots_should_return_configured() throws Exception {
         mvc.perform(get("/api/fs/roots"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$", hasItem(fsRoot.toString())));
+    }
+
+    @Test
+    public void roots_shouldReflectRuntimeConfigurationUpdateWithoutRecreatingController() throws Exception {
+        Path updatedRoot = Files.createTempDirectory(fsRoot, "runtime-root-");
+        try {
+            when(workspaceSettingsQueryService.get())
+                    .thenReturn(workspaceSettings(fsRoot), workspaceSettings(updatedRoot));
+
+            mvc.perform(get("/api/fs/roots"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$[0]").value(fsRoot.toString()));
+            mvc.perform(get("/api/fs/roots"))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$[0]").value(updatedRoot.toString()));
+        } finally {
+            FileSystemUtils.deleteRecursively(updatedRoot);
+        }
     }
 
     @Test

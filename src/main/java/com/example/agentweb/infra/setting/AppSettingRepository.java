@@ -4,8 +4,8 @@ import java.util.Optional;
 
 /**
  * 运行时可变配置(app_setting)读写口。
- * <p>通用 key-value,语义由读取方({@link RuntimeAgentSettings})解析。
- * 抽接口是为了让 {@link RuntimeAgentSettings} 可脱离 DB 单测。</p>
+ * <p>通用 key-value,语义由具体配置仓储解析。
+ * 抽接口是为了让运行设置可脱离 DB 单测。</p>
  *
  * @author zhourui(V33215020)
  * @since 2026-06-25
@@ -28,4 +28,11 @@ public interface AppSettingRepository {
      * @param updatedAtMillis 更新时间(epoch millis)
      */
     void put(String key, String value, long updatedAtMillis);
+
+    /**
+     * 删除一个配置值。
+     *
+     * @param key 配置键
+     */
+    void delete(String key);
 }

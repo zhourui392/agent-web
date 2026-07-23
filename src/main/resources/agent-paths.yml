@@ -12,7 +12,6 @@ agent:
   fs:
     roots:
       # 旧 AGENT_WORKTREE_ALLOWED_ROOT 仅作兼容回退，新部署统一使用 AGENT_WORKSPACE_ROOT。
-      - "${AGENT_WORKSPACE_ROOT:${AGENT_WORKTREE_ALLOWED_ROOT:/home/service/workspace}}"
-      - "/home/service/.claude/skills"
-    upload-roots:
-      - "/home/service/.agent-web"
+      - "${AGENT_WORKSPACE_ROOT:${AGENT_WORKTREE_ALLOWED_ROOT:${user.home}/workspace}}"
+    # 额外上传根默认不开放；需要时从管理后台加入真实存在的目录。
+    upload-roots: []

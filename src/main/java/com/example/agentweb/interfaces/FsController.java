@@ -2,6 +2,7 @@ package com.example.agentweb.interfaces;
 
 import com.example.agentweb.app.UploadFileStorage;
 import com.example.agentweb.app.UploadPicStorage;
+import com.example.agentweb.app.setting.WorkspaceSettingsQueryService;
 import com.example.agentweb.domain.worktree.WorkspacePathPolicy;
 import com.example.agentweb.interfaces.dto.SuccessResponse;
 import com.example.agentweb.interfaces.dto.UploadResponse;
@@ -25,14 +26,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
  * Server-side file browser with upload / download / delete.
- * Configure allowed roots via application properties: agent.fs.roots
+ * Allowed roots are read from runtime workspace settings; agent.fs.roots only provides the seed.
  * @author zhourui(V33215020)
  */
 @RestController
@@ -45,17 +45,16 @@ public class FsController {
     /** 聊天附件上传大小上限:5 MB。 */
     private static final long MAX_FILE_UPLOAD_BYTES = 5L * 1024L * 1024L;
 
-    private final List<String> roots;
+    private final WorkspaceSettingsQueryService workspaceSettingsQueryService;
     private final WorkspacePathPolicy pathPolicy;
     private final UploadPicStorage uploadPicStore;
     private final UploadFileStorage uploadFileStore;
 
-    public FsController(com.example.agentweb.config.FsProperties fsProps,
+    public FsController(WorkspaceSettingsQueryService workspaceSettingsQueryService,
                         UploadPicStorage uploadPicStore,
                         UploadFileStorage uploadFileStore,
                         WorkspacePathPolicy pathPolicy) {
-        List<String> configured = fsProps.getRoots();
-        this.roots = configured == null ? Collections.<String>emptyList() : configured;
+        this.workspaceSettingsQueryService = workspaceSettingsQueryService;
         this.uploadPicStore = uploadPicStore;
         this.uploadFileStore = uploadFileStore;
         this.pathPolicy = pathPolicy;
@@ -63,7 +62,7 @@ public class FsController {
 
     @GetMapping(value = "/roots", produces = MediaType.APPLICATION_JSON_VALUE)
     public List<String> roots() {
-        return roots;
+        return workspaceSettingsQueryService.get().effectiveWorkspaceRoots();
     }
 
     @GetMapping(value = "/list", produces = MediaType.APPLICATION_JSON_VALUE)
@@ -234,10 +233,7 @@ public class FsController {
     }
 
     private String defaultRoot() {
-        if (roots.isEmpty()) {
-            throw new IllegalStateException("No allowed filesystem roots configured");
-        }
-        return roots.get(0);
+        return workspaceSettingsQueryService.get().getDefaultWorkspace();
     }
 
     private void requireSafeFileName(String fileName) {

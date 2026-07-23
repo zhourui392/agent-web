@@ -1,7 +1,7 @@
 package com.example.agentweb.app.agentrun;
 
+import com.example.agentweb.app.setting.WorkspaceSettingsQueryService;
 import com.example.agentweb.domain.refinery.TrustTier;
-import com.example.agentweb.config.FsProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.yaml.snakeyaml.Yaml;
 import org.springframework.stereotype.Component;
@@ -34,15 +34,16 @@ public class WorkspaceContextResolver {
     );
     private static final String MANIFEST_FILE = ".agent-web.yml";
 
-    private final List<Path> allowedRoots;
+    private final WorkspaceSettingsQueryService workspaceSettingsQueryService;
 
-    public WorkspaceContextResolver(FsProperties fsProperties) {
-        this.allowedRoots = normalizeRoots(fsProperties == null ? null : fsProperties.getRoots());
+    public WorkspaceContextResolver(WorkspaceSettingsQueryService workspaceSettingsQueryService) {
+        this.workspaceSettingsQueryService = workspaceSettingsQueryService;
     }
 
     public WorkspaceContext resolve(String workingDir) {
+        List<Path> allowedRoots = normalizeRoots(workspaceSettingsQueryService.get().getWorkspaceRoots());
         Path work = normalizeWorkingDir(workingDir);
-        Path ceiling = nearestAllowedRoot(work);
+        Path ceiling = nearestAllowedRoot(work, allowedRoots);
         if (!allowedRoots.isEmpty() && ceiling == null) {
             return new WorkspaceContext(work, work, null, null,
                     new ArrayList<WorkspaceKnowledgeIndex>(), new LinkedHashMap<String, WorkspaceGuardrail>());
@@ -75,7 +76,7 @@ public class WorkspaceContextResolver {
         return Paths.get(workingDir).toAbsolutePath().normalize();
     }
 
-    private Path nearestAllowedRoot(Path workingDir) {
+    private Path nearestAllowedRoot(Path workingDir, List<Path> allowedRoots) {
         Path nearest = null;
         for (Path root : allowedRoots) {
             if (!workingDir.startsWith(root)) {

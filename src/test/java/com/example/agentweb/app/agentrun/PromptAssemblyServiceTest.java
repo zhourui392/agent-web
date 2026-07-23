@@ -3,7 +3,6 @@ package com.example.agentweb.app.agentrun;
 import com.example.agentweb.domain.refinery.SourceType;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.config.EnvProperties;
-import com.example.agentweb.config.FsProperties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -215,9 +214,11 @@ public class PromptAssemblyServiceTest {
     }
 
     private PromptAssemblyService service(EnvProperties envProperties, Path root) {
-        FsProperties fsProperties = new FsProperties();
-        fsProperties.getRoots().add(root.toString());
-        WorkspaceContextResolver resolver = new WorkspaceContextResolver(fsProperties);
+        com.example.agentweb.app.setting.WorkspaceSettingsQueryService workspaceSettings =
+                () -> com.example.agentweb.domain.setting.WorkspaceSettings.create(root.toString(),
+                        java.util.Collections.singletonList(root.toString()),
+                        java.util.Collections.<String>emptyList());
+        WorkspaceContextResolver resolver = new WorkspaceContextResolver(workspaceSettings);
         return new PromptAssemblyService(java.util.Arrays.asList(
                 new EnvPromptContributor(envProperties),
                 new WorkspaceContextContributor(resolver),

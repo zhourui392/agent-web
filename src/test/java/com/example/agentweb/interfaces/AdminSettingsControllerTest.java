@@ -1,5 +1,7 @@
 package com.example.agentweb.interfaces;
 
+import com.example.agentweb.app.setting.WorkspaceSettingsAppServiceImpl;
+import com.example.agentweb.domain.setting.WorkspaceSettings;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.infra.auth.AuthProperties;
 import com.example.agentweb.infra.setting.RuntimeAgentSettings;
@@ -11,8 +13,12 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.util.Arrays;
+import java.util.Collections;
+
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -33,6 +39,9 @@ public class AdminSettingsControllerTest {
 
     @MockBean
     private RuntimeAgentSettings runtimeAgentSettings;
+
+    @MockBean
+    private WorkspaceSettingsAppServiceImpl workspaceSettingsAppService;
 
     @MockBean
     private AuthProperties authProperties;
@@ -83,5 +92,50 @@ public class AdminSettingsControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"chatDefaultAgent\":\"NATIVE\"}"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    public void getWorkspaces_shouldReturnCurrentRuntimeConfiguration() throws Exception {
+        when(workspaceSettingsAppService.get()).thenReturn(workspaceSettings());
+
+        mvc.perform(get("/api/admin-settings/workspaces"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.defaultWorkspace").value("/srv/project"))
+                .andExpect(jsonPath("$.workspaceRoots.length()").value(2))
+                .andExpect(jsonPath("$.uploadRoots[0]").value("/srv/upload"));
+    }
+
+    @Test
+    public void putWorkspaces_shouldDelegateRawValuesToApplicationService() throws Exception {
+        when(workspaceSettingsAppService.get()).thenReturn(workspaceSettings());
+
+        mvc.perform(put("/api/admin-settings/workspaces")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"defaultWorkspace\":\"/srv/project\","
+                                + "\"workspaceRoots\":[\"/srv/workspace\",\"/srv/project\"],"
+                                + "\"uploadRoots\":[\"/srv/upload\"]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.defaultWorkspace").value("/srv/project"));
+
+        verify(workspaceSettingsAppService).update("/srv/project",
+                Arrays.asList("/srv/workspace", "/srv/project"),
+                Collections.singletonList("/srv/upload"));
+    }
+
+    @Test
+    public void deleteWorkspaces_shouldResetDatabaseConfiguration() throws Exception {
+        when(workspaceSettingsAppService.get()).thenReturn(workspaceSettings());
+
+        mvc.perform(delete("/api/admin-settings/workspaces"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.defaultWorkspace").value("/srv/project"));
+
+        verify(workspaceSettingsAppService).reset();
+    }
+
+    private WorkspaceSettings workspaceSettings() {
+        return WorkspaceSettings.create("/srv/project",
+                Arrays.asList("/srv/workspace", "/srv/project"),
+                Collections.singletonList("/srv/upload"));
     }
 }

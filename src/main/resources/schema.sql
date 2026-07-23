@@ -509,8 +509,8 @@ CREATE TABLE IF NOT EXISTS harness_runtime_event (
 CREATE INDEX IF NOT EXISTS idx_workflow_step_execution_execution
     ON workflow_step_execution(execution_id, step_index);
 
--- 运行时可变配置 key-value(管理后台可改、免重启热生效)。当前承载对话默认模型开关,
--- yml 仅作首启种子,落库后以本表为准。value 统一存字符串,语义由读取方解析。
+-- 运行时可变配置 key-value(管理后台可改、免重启热生效)。当前承载对话默认模型与工作空间配置,
+-- yml 仅作未落库时的种子。value 统一存字符串；复合配置使用单个 JSON 文档保证原子更新。
 CREATE TABLE IF NOT EXISTS app_setting (
     setting_key   TEXT PRIMARY KEY,
     setting_value TEXT    NOT NULL,

@@ -28,7 +28,7 @@
 
 ### 平台运维
 
-- **管理台**（`/admin`，数据库 ADMIN 角色鉴权）— 使用概览、对话浏览、用户账号创建、工作流管理、用户建议 triage、RAG 语料维护、运行时设置（Agent 模型）
+- **管理台**（`/admin`，数据库 ADMIN 角色鉴权）— 使用概览、对话浏览、用户账号创建、工作流管理、用户建议 triage、RAG 语料维护、运行时设置（Agent 模型、默认工作空间与目录授权）
 - **工作流编排** — 定义可复用的多步 workflow（每步一个 prompt 模板），一键触发执行并按步记录结果
 - **研发交付 Harness（默认关闭）** — 独立于 Workflow 的四阶段控制平面；M1 已支持 Run/Stage/Attempt、Artifact/Gate/Approval，M2 已支持四阶段 Prompt Pack、可信 Skill Catalog、能力授权求交、不可变 Capability Snapshot 与 ADMIN 预览页；M3 已完成只读 MCP、`RuntimeExecution`、提交后启动/取消、M3.1 Snapshot、单次 CLI 能力覆盖、工作区旁路防护、Codex 版本/PID 预检、Secret 脱敏和 Evidence Store，并通过重新验收，详见 [M3 设计](docs/harness/04-m3-detailed-design.md)、[实现记录](docs/harness/m3/README.md)与[自测报告](docs/harness/m3/test-report.md)
 - **用户建议** — 登录用户从聊天界面提交产品反馈，管理员分流处理
@@ -126,17 +126,23 @@ mvn spring-boot:run
 
 ### 基本配置
 
-机器相关路径编辑 `src/main/resources/agent-paths.yml`。`agent.fs.roots` 同时授权文件接口和 Git
-worktree 操作；`agent.fs.upload-roots` 仍只额外授权上传接口：
+机器相关路径在数据库尚未配置时，以 `src/main/resources/agent-paths.yml` 作为种子。管理员可在
+`/admin/settings.html` 维护默认工作空间、允许的工作空间根目录和仅上传额外根目录；保存后写入
+现有 `app_setting` 表并立即生效，数据库值优先于种子。`agent.fs.roots` 同时授权文件接口、会话、
+Workspace Context 和 Git worktree 操作；`agent.fs.upload-roots` 仍只额外授权上传接口：
 
 ```yaml
 agent:
   fs:
     roots:
-      - "${AGENT_WORKSPACE_ROOT:/home/service/workspace}"
-    upload-roots:
-      - "/home/service/.agent-web"
+      - "${AGENT_WORKSPACE_ROOT:${AGENT_WORKTREE_ALLOWED_ROOT:${user.home}/workspace}}"
+    upload-roots: []
 ```
+
+工作空间配置在 `app_setting` 中以 `workspace.configuration` 单个 JSON 文档保存，避免默认目录和授权
+根目录多行更新时出现部分成功。通用配置读取按 key 使用进程内缓存：新增/更新成功后刷新对应缓存，
+删除或在管理后台“恢复配置文件默认值”后淘汰对应缓存。保存工作空间配置时，所有路径必须是已存在的
+绝对目录，且默认工作空间必须同时出现在允许根目录列表中。
 
 其他服务配置编辑 `src/main/resources/application.yml`：
 
@@ -204,8 +210,8 @@ AGENT_BOOTSTRAP_ADMIN_PASSWORD=<仅首次公网启动使用的新管理员密码
 | `AGENT_AUTH_LOGIN_FAILURE_WINDOW_SECONDS` | `300` | 登录失败限流窗口（秒） |
 | `AGENT_PUBLIC_ACCESS_ENABLED` | `true` | 启用公网启动安全门禁；本机 loopback 开发才可关闭 |
 | `AGENT_BOOTSTRAP_ADMIN_PASSWORD` | _(无)_ | 仅在数据库仍是公开种子哈希时使用一次的新管理员密码；至少 12、至多 256 字符 |
-| `AGENT_WORKSPACE_ROOT` | `/home/service/workspace` | 文件接口与 Worktree 共用的主工作区根；写入 `agent-paths.yml` 的首个 `agent.fs.roots` |
-| `AGENT_WORKTREE_ALLOWED_ROOT` | `/home/service/workspace` | 旧部署兼容变量，仅在未设置 `AGENT_WORKSPACE_ROOT` 时作为共享主工作区根回退 |
+| `AGENT_WORKSPACE_ROOT` | `${user.home}/workspace` | 工作空间配置未落库时的主工作区种子；写入 `agent-paths.yml` 的首个 `agent.fs.roots` |
+| `AGENT_WORKTREE_ALLOWED_ROOT` | `${user.home}/workspace` | 旧部署兼容变量，仅在未设置 `AGENT_WORKSPACE_ROOT` 时作为共享主工作区种子回退 |
 | `AGENT_E2E_ADMIN_PASSWORD` | _(无)_ | Playwright 登录测试账户的密码；只用于测试进程，不写入仓库 |
 | `GIT_CRED_ENC_KEY` | _(无)_ | 用户 Git push 凭据的 AES-256-GCM 主密钥；支持环境变量或 `data/secrets.properties` |
 | `REFINERY_ENABLED` | `false` | 知识精炼子域总开关，`false` 时相关 bean 全不注册 |

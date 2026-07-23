@@ -1,6 +1,5 @@
 package com.example.agentweb.app.worktree;
 
-import com.example.agentweb.config.FsProperties;
 import com.example.agentweb.infra.RealPathWorkspacePolicy;
 import com.example.agentweb.infra.git.LocalWorktreeFileGateway;
 import com.example.agentweb.infra.git.ProcessGitWorktreeGateway;
@@ -278,9 +277,11 @@ class WorktreeAppServiceTest {
     }
 
     private WorktreeAppService worktreeServiceAllowedUnder(Path root) {
-        FsProperties properties = new FsProperties();
-        properties.getRoots().add(root.toString());
-        return new WorktreeAppService(new RealPathWorkspacePolicy(properties),
+        com.example.agentweb.app.setting.WorkspaceSettingsQueryService settings =
+                () -> com.example.agentweb.domain.setting.WorkspaceSettings.create(root.toString(),
+                        java.util.Collections.singletonList(root.toString()),
+                        java.util.Collections.<String>emptyList());
+        return new WorktreeAppService(new RealPathWorkspacePolicy(settings),
                 new ProcessGitWorktreeGateway(), new LocalWorktreeFileGateway());
     }
 

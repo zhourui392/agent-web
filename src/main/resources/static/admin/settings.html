@@ -14,8 +14,8 @@
         <el-button text @click="loadSettings" :loading="loading">刷新</el-button>
       </template>
 
-      <div class="view-wrap">
-        <el-card shadow="never" v-loading="loading" style="max-width: 640px;">
+      <div class="view-wrap" v-loading="loading" style="max-width: 760px;">
+        <el-card shadow="never">
           <template #header>
             <div style="font-weight: 700;">默认模型</div>
           </template>
@@ -31,7 +31,45 @@
             </el-form-item>
 
             <el-form-item>
-              <el-button type="primary" :loading="saving" @click="save" data-test="save-settings">保存</el-button>
+              <el-button type="primary" :loading="savingAgentModels" @click="saveAgentModels" data-test="save-settings">保存默认模型</el-button>
+            </el-form-item>
+          </el-form>
+        </el-card>
+
+        <el-card shadow="never" style="margin-top: 16px;">
+          <template #header>
+            <div style="font-weight: 700;">工作空间与目录授权</div>
+          </template>
+
+          <el-form label-position="top" size="default">
+            <el-form-item label="默认工作空间">
+              <el-input v-model="form.defaultWorkspace" placeholder="/home/service/workspace" data-test="default-workspace"></el-input>
+              <div class="muted" style="font-size: 12px; margin-top: 6px; line-height: 1.6;">
+                首页首次加载时进入的目录，必须同时出现在下方允许根目录中。
+              </div>
+            </el-form-item>
+
+            <el-form-item label="允许的工作空间根目录（每行一个）">
+              <el-input v-model="form.workspaceRootsText" type="textarea" :rows="5"
+                        placeholder="/home/service/workspace" data-test="workspace-roots"></el-input>
+              <div class="muted" style="font-size: 12px; margin-top: 6px; line-height: 1.6;">
+                同时约束目录浏览、文件读写、会话、Worktree 和 Workspace Context。保存时目录必须真实存在；更新后立即生效。
+              </div>
+            </el-form-item>
+
+            <el-form-item label="仅上传额外放行根目录（可选，每行一个）">
+              <el-input v-model="form.uploadRootsText" type="textarea" :rows="3"
+                        placeholder="/home/service/.agent-web" data-test="upload-roots"></el-input>
+              <div class="muted" style="font-size: 12px; margin-top: 6px; line-height: 1.6;">
+                只额外授权上传，不开放目录浏览、下载或删除。
+              </div>
+            </el-form-item>
+
+            <el-form-item>
+              <el-button type="primary" :loading="savingWorkspaces" @click="saveWorkspaces"
+                         data-test="save-workspaces">保存工作空间配置</el-button>
+              <el-button :loading="resettingWorkspaces" @click="resetWorkspaces"
+                         data-test="reset-workspaces">恢复配置文件默认值</el-button>
             </el-form-item>
           </el-form>
         </el-card>
@@ -44,6 +82,7 @@
   <script src="../vendor/element-plus.full.min.js"></script>
   <script src="../vendor/element-plus-icons-vue.iife.min.js"></script>
   <script src="../js/admin/shell.js?v=2026072301"></script>
-  <script src="../js/admin/pages/settings.js?v=2026062501"></script>
+  <script src="../js/admin/settings-utils.js?v=2026072301"></script>
+  <script src="../js/admin/pages/settings.js?v=2026072301"></script>
 </body>
 </html>
