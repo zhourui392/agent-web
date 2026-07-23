@@ -16,12 +16,15 @@ public final class StageAttempt {
     private final int number;
     private final String idempotencyKey;
     private final Instant startedAt;
+    private String snapshotHash;
+    private String executionId;
     private StageAttemptStatus status;
     private Instant finishedAt;
     private String failureReason;
 
     private StageAttempt(int number, String idempotencyKey, Instant startedAt,
-                         StageAttemptStatus status, Instant finishedAt, String failureReason) {
+                         StageAttemptStatus status, Instant finishedAt, String failureReason,
+                         String snapshotHash, String executionId) {
         if (number < 1) {
             throw new IllegalArgumentException("attempt number must be positive");
         }
@@ -34,18 +37,77 @@ public final class StageAttempt {
         this.status = status;
         this.finishedAt = finishedAt;
         this.failureReason = failureReason;
+        this.snapshotHash = snapshotHash;
+        this.executionId = executionId;
         validateRestoredState();
     }
 
     public static StageAttempt start(int number, String idempotencyKey, Instant now) {
         return new StageAttempt(number, idempotencyKey, now,
-                StageAttemptStatus.RUNNING, null, null);
+                StageAttemptStatus.RUNNING, null, null, null, null);
     }
 
     public static StageAttempt restore(int number, String idempotencyKey, Instant startedAt,
                                        StageAttemptStatus status, Instant finishedAt,
                                        String failureReason) {
-        return new StageAttempt(number, idempotencyKey, startedAt, status, finishedAt, failureReason);
+        return new StageAttempt(number, idempotencyKey, startedAt, status, finishedAt,
+                failureReason, null, null);
+    }
+
+    public static StageAttempt restore(int number, String idempotencyKey, Instant startedAt,
+                                       StageAttemptStatus status, Instant finishedAt,
+                                       String failureReason, String snapshotHash,
+                                       String executionId) {
+        return new StageAttempt(number, idempotencyKey, startedAt, status, finishedAt,
+                failureReason, snapshotHash, executionId);
+    }
+
+    void bindSnapshot(String hash) {
+        String normalized = DomainText.requireSha256(hash, "attempt snapshot hash");
+        if (snapshotHash != null && !snapshotHash.equals(normalized)) {
+            throw new IllegalHarnessTransitionException(
+                    "attempt already binds a different capability snapshot");
+        }
+        snapshotHash = normalized;
+    }
+
+    void bindExecution(String id) {
+        String normalized = DomainText.require(id, "attempt execution id", 128);
+        if (snapshotHash == null) {
+            throw new IllegalHarnessTransitionException(
+                    "attempt must bind a capability snapshot before execution");
+        }
+        if (executionId != null) {
+            throw new IllegalHarnessTransitionException("attempt already binds a runtime execution");
+        }
+        executionId = normalized;
+    }
+
+    void requestCancellation() {
+        if (status != StageAttemptStatus.RUNNING
+                && status != StageAttemptStatus.WAITING_INPUT
+                && status != StageAttemptStatus.WAITING_APPROVAL) {
+            throw new IllegalHarnessTransitionException(
+                    "attempt cannot request cancellation from " + status);
+        }
+        status = StageAttemptStatus.CANCELLING;
+    }
+
+    void confirmCancellation(Instant now) {
+        requireStatus(StageAttemptStatus.CANCELLING);
+        status = StageAttemptStatus.CANCELLED;
+        finishedAt = requireAfterStart(now);
+    }
+
+    void failFromRuntime(String reason, Instant now) {
+        if (status != StageAttemptStatus.RUNNING
+                && status != StageAttemptStatus.WAITING_INPUT) {
+            throw new IllegalHarnessTransitionException(
+                    "attempt cannot fail from runtime while " + status);
+        }
+        status = StageAttemptStatus.FAILED;
+        failureReason = DomainText.require(reason, "runtime failure reason");
+        finishedAt = requireAfterStart(now);
     }
 
     void waitForApproval() {
@@ -93,6 +155,15 @@ public final class StageAttempt {
         if (status == StageAttemptStatus.FAILED
                 && (failureReason == null || failureReason.trim().isEmpty())) {
             throw new IllegalArgumentException("failed attempt requires failure reason");
+        }
+        if (executionId != null && snapshotHash == null) {
+            throw new IllegalArgumentException("execution binding requires snapshot binding");
+        }
+        if (snapshotHash != null) {
+            DomainText.requireSha256(snapshotHash, "restored attempt snapshot hash");
+        }
+        if (executionId != null) {
+            DomainText.require(executionId, "restored attempt execution id", 128);
         }
     }
 

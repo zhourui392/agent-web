@@ -56,6 +56,8 @@ public class HarnessCapabilityController {
         ResolveHarnessCapabilityCommand command = new ResolveHarnessCapabilityCommand(
                 runId, stage(stage), set(request.getExplicitSkillIds()), set(request.getTechnicalTags()),
                 set(request.getApprovedWorkspaceSkillIds()), grant,
+                set(request.getExplicitMcpServerIds()), set(request.getRequiredMcpServerIds()),
+                set(request.getGrantedMcpServerIds()),
                 request.getUpstreamArtifacts(), request.getCurrentInput());
         return ResponseEntity.status(HttpStatus.CREATED).body(capabilityService.resolve(command));
     }

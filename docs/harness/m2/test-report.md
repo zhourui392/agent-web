@@ -5,6 +5,8 @@
 > Node/Vitest：Vitest 3.2.7
 > 外部 Agent/MCP/HTTP：未调用
 
+> 设计复核补充（2026-07-23）：本报告的 PASS 是 M2 当时执行结果，不包含“Snapshot 创建后再更新 HarnessRun”的跨 Repository 场景。后续复核确认旧 `HarnessRunRepository.update()` 删除 Attempt 时可能通过外键级联删除 Snapshot；M3.0 已用真实 SQLite 红测复现并修复为增量持久化。M3 Runtime 合同缺口也已完成重新验收，详见 [M3 实现记录](../m3/README.md)和[自测报告](../m3/test-report.md)。
+
 ## 1. TDD 红—绿证据
 
 本阶段按门禁顺序获得以下可复现证据：
@@ -113,6 +115,7 @@ git diff --check
 
 - 未执行 `mvn package`、服务重启、部署或 Git push。
 - 未调用真实 Codex/Claude CLI、OpenAI/Anthropic Provider 或 MCP。
-- 未实现 MCP Registry、Secret Reference、Runtime Adapter、Runtime Execution、取消和对账；属于 M3。
+- M2 当时未实现 MCP Registry、Secret Reference、Runtime Adapter、Runtime Execution、取消和对账；这些能力已在 M3 形成主体基线，但 M3 Runtime 合同尚在重新验收，不能写作全部完成。
 - M2 管理页完成纯函数单测与后端 API Slice/纵向测试，未新增 Playwright 场景；页面没有复杂交互状态机，残余风险为浏览器布局与视觉回归。
 - 默认 Catalog 根是源码开发路径；JAR/生产运行必须显式配置管理员维护的外置目录。
+- M2 当时未覆盖 Snapshot 固化后再执行 Artifact/Gate/Approval/取消所触发的 HarnessRun 聚合更新；M3.0 已补真实 SQLite 红测并修复增量持久化，Snapshot 现可作为 RuntimeExecution 的可靠外键基线。

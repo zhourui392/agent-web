@@ -1,6 +1,7 @@
 package com.example.agentweb.infra.harness;
 
 import com.example.agentweb.domain.harness.AgentRuntime;
+import com.example.agentweb.config.harness.HarnessCatalogProperties;
 import com.example.agentweb.domain.harness.CapabilityAccess;
 import com.example.agentweb.domain.harness.CapabilityKind;
 import com.example.agentweb.domain.harness.CapabilityRequest;
@@ -42,7 +43,7 @@ public class FileSystemSkillCatalog implements SkillCatalog {
     private final List<TrustedRoot> roots;
 
     @Autowired
-    public FileSystemSkillCatalog(HarnessProperties properties) {
+    public FileSystemSkillCatalog(HarnessCatalogProperties properties) {
         List<TrustedRoot> configured = new ArrayList<TrustedRoot>();
         configured.add(new TrustedRoot(Paths.get(properties.getPlatformSkillRoot()), SkillTrustSource.PLATFORM));
         addOptional(configured, properties.getApprovedUserSkillRoot(), SkillTrustSource.APPROVED_USER);

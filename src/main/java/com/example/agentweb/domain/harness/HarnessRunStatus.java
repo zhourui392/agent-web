@@ -11,6 +11,7 @@ public enum HarnessRunStatus {
     ACTIVE,
     WAITING_INPUT,
     WAITING_APPROVAL,
+    CANCELLING,
     FAILED,
     ROLLING_BACK,
     ROLLED_BACK,

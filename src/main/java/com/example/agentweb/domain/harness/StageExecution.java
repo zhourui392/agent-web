@@ -96,11 +96,45 @@ public final class StageExecution {
         status = StageStatus.FAILED;
     }
 
+    void bindSnapshot(String snapshotHash) {
+        requireStatus(StageStatus.RUNNING);
+        currentAttempt().bindSnapshot(snapshotHash);
+    }
+
+    void bindExecution(String executionId) {
+        requireStatus(StageStatus.RUNNING);
+        currentAttempt().bindExecution(executionId);
+    }
+
+    void requestCancellation() {
+        if (!status.isWritable()) {
+            throw new IllegalHarnessTransitionException(
+                    "stage cannot request cancellation from " + status);
+        }
+        currentAttempt().requestCancellation();
+        status = StageStatus.CANCELLING;
+    }
+
+    void confirmCancellation(Instant now) {
+        requireStatus(StageStatus.CANCELLING);
+        currentAttempt().confirmCancellation(now);
+        status = StageStatus.CANCELLED;
+    }
+
+    void failFromRuntime(String reason, Instant now) {
+        if (status != StageStatus.RUNNING && status != StageStatus.WAITING_INPUT) {
+            throw new IllegalHarnessTransitionException(
+                    "stage cannot fail from runtime while " + status);
+        }
+        currentAttempt().failFromRuntime(reason, now);
+        status = StageStatus.FAILED;
+    }
+
     boolean invalidate() {
         if (status == StageStatus.PENDING || status == StageStatus.INVALIDATED) {
             return false;
         }
-        if (status.isWritable()) {
+        if (status.occupiesActiveAttempt()) {
             throw new IllegalHarnessTransitionException(
                     "cannot invalidate writable stage: " + getStage());
         }

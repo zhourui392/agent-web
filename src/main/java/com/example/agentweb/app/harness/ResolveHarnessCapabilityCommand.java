@@ -23,6 +23,9 @@ public final class ResolveHarnessCapabilityCommand {
     private final Set<String> technicalTags;
     private final Set<String> approvedWorkspaceSkillIds;
     private final CapabilityGrant capabilityGrant;
+    private final Set<String> explicitMcpServerIds;
+    private final Set<String> requiredMcpServerIds;
+    private final Set<String> grantedMcpServerIds;
     private final String upstreamArtifacts;
     private final String currentInput;
 
@@ -30,6 +33,19 @@ public final class ResolveHarnessCapabilityCommand {
                                            Set<String> explicitSkillIds, Set<String> technicalTags,
                                            Set<String> approvedWorkspaceSkillIds,
                                            CapabilityGrant capabilityGrant,
+                                           String upstreamArtifacts, String currentInput) {
+        this(runId, stage, explicitSkillIds, technicalTags, approvedWorkspaceSkillIds,
+                capabilityGrant, Collections.<String>emptySet(), Collections.<String>emptySet(),
+                Collections.<String>emptySet(), upstreamArtifacts, currentInput);
+    }
+
+    public ResolveHarnessCapabilityCommand(String runId, HarnessStage stage,
+                                           Set<String> explicitSkillIds, Set<String> technicalTags,
+                                           Set<String> approvedWorkspaceSkillIds,
+                                           CapabilityGrant capabilityGrant,
+                                           Set<String> explicitMcpServerIds,
+                                           Set<String> requiredMcpServerIds,
+                                           Set<String> grantedMcpServerIds,
                                            String upstreamArtifacts, String currentInput) {
         this.runId = require(runId, "run id");
         if (stage == null || capabilityGrant == null) {
@@ -40,6 +56,12 @@ public final class ResolveHarnessCapabilityCommand {
         this.technicalTags = immutable(technicalTags);
         this.approvedWorkspaceSkillIds = immutable(approvedWorkspaceSkillIds);
         this.capabilityGrant = capabilityGrant;
+        this.explicitMcpServerIds = immutable(explicitMcpServerIds);
+        this.requiredMcpServerIds = immutable(requiredMcpServerIds);
+        this.grantedMcpServerIds = immutable(grantedMcpServerIds);
+        if (!this.explicitMcpServerIds.containsAll(this.requiredMcpServerIds)) {
+            throw new IllegalArgumentException("required MCP servers must also be explicit");
+        }
         this.upstreamArtifacts = require(upstreamArtifacts, "upstream artifacts");
         this.currentInput = require(currentInput, "current input");
     }

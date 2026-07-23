@@ -5,6 +5,7 @@ import com.example.agentweb.app.chatrun.InvalidIdempotencyKeyException;
 import com.example.agentweb.app.chatrun.RunCapacityExceededException;
 import com.example.agentweb.app.harness.InvalidHarnessIdempotencyKeyException;
 import com.example.agentweb.app.harness.HarnessCapabilitySnapshotNotFoundException;
+import com.example.agentweb.app.harness.HarnessRuntimeExecutionNotFoundException;
 import com.example.agentweb.domain.auth.UsernameAlreadyExistsException;
 import com.example.agentweb.domain.chat.ChatSessionNotFoundException;
 import com.example.agentweb.domain.chat.SessionDeletionForbiddenException;
@@ -15,6 +16,7 @@ import com.example.agentweb.domain.harness.CapabilityResolutionException;
 import com.example.agentweb.domain.harness.HarnessCatalogException;
 import com.example.agentweb.domain.harness.IllegalHarnessTransitionException;
 import com.example.agentweb.domain.harness.DuplicateHarnessRunException;
+import com.example.agentweb.domain.harness.RuntimeExecutionIdempotencyConflictException;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.Path;
@@ -84,6 +86,15 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
     }
 
+    @ExceptionHandler(HarnessRuntimeExecutionNotFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleHarnessRuntimeExecutionNotFound(
+            HarnessRuntimeExecutionNotFoundException ex) {
+        Map<String, Object> body = new HashMap<String, Object>(2);
+        body.put("code", "HARNESS_RUNTIME_EXECUTION_NOT_FOUND");
+        body.put("message", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
+    }
+
     @ExceptionHandler(CapabilityResolutionException.class)
     public ResponseEntity<Map<String, Object>> handleCapabilityResolution(
             CapabilityResolutionException ex) {
@@ -115,6 +126,15 @@ public class GlobalExceptionHandler {
             IllegalHarnessTransitionException ex) {
         Map<String, Object> body = new HashMap<String, Object>();
         body.put("code", "HARNESS_ILLEGAL_TRANSITION");
+        body.put("message", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
+    }
+
+    @ExceptionHandler(RuntimeExecutionIdempotencyConflictException.class)
+    public ResponseEntity<Map<String, Object>> handleRuntimeExecutionIdempotencyConflict(
+            RuntimeExecutionIdempotencyConflictException ex) {
+        Map<String, Object> body = new HashMap<String, Object>(2);
+        body.put("code", "HARNESS_EXECUTION_IDEMPOTENCY_CONFLICT");
         body.put("message", ex.getMessage());
         return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
     }

@@ -365,6 +365,8 @@ CREATE TABLE IF NOT EXISTS harness_stage_attempt (
     started_at      INTEGER NOT NULL,
     finished_at     INTEGER,
     failure_reason  TEXT,
+    snapshot_hash   TEXT,
+    execution_id    TEXT,
     PRIMARY KEY(run_id, stage, attempt_number),
     FOREIGN KEY(run_id, stage) REFERENCES harness_stage_execution(run_id, stage) ON DELETE CASCADE
 );
@@ -451,12 +453,58 @@ CREATE TABLE IF NOT EXISTS harness_capability_snapshot (
     prompt_hash                  TEXT    NOT NULL,
     snapshot_hash                TEXT    NOT NULL,
     created_at                   INTEGER NOT NULL,
+    schema_version               TEXT    NOT NULL DEFAULT 'M2',
+    selected_mcp_servers_json    TEXT    NOT NULL DEFAULT '[]',
+    rejected_mcp_servers_json    TEXT    NOT NULL DEFAULT '[]',
+    runtime_enforcement_json     TEXT,
+    workspace_runtime_inventory_json TEXT NOT NULL DEFAULT '{}',
     PRIMARY KEY(run_id, stage, attempt_number),
     FOREIGN KEY(run_id, stage, attempt_number)
         REFERENCES harness_stage_attempt(run_id, stage, attempt_number) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_harness_capability_snapshot_hash
     ON harness_capability_snapshot(snapshot_hash);
+
+-- M3 RuntimeExecution 是独立聚合；一个 Attempt 最多绑定一次受控外部执行。
+CREATE TABLE IF NOT EXISTS harness_runtime_execution (
+    execution_id          TEXT PRIMARY KEY,
+    idempotency_key       TEXT    NOT NULL,
+    run_id                TEXT    NOT NULL,
+    stage                 TEXT    NOT NULL,
+    attempt_number        INTEGER NOT NULL,
+    snapshot_hash         TEXT    NOT NULL,
+    prompt_hash           TEXT    NOT NULL,
+    runtime               TEXT    NOT NULL,
+    status                TEXT    NOT NULL,
+    runtime_version       TEXT,
+    runtime_handle        TEXT,
+    last_event_sequence   INTEGER NOT NULL DEFAULT 0,
+    termination_reason    TEXT,
+    exit_code             INTEGER,
+    evidence_reference    TEXT,
+    cleanup_status        TEXT    NOT NULL,
+    prepared_at           INTEGER NOT NULL,
+    started_at            INTEGER,
+    cancel_requested_at   INTEGER,
+    finished_at           INTEGER,
+    UNIQUE(run_id, stage, attempt_number),
+    UNIQUE(run_id, idempotency_key),
+    FOREIGN KEY(run_id, stage, attempt_number)
+        REFERENCES harness_stage_attempt(run_id, stage, attempt_number) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_harness_runtime_execution_status
+    ON harness_runtime_execution(status, prepared_at);
+
+CREATE TABLE IF NOT EXISTS harness_runtime_event (
+    execution_id       TEXT    NOT NULL,
+    sequence           INTEGER NOT NULL,
+    event_type         TEXT    NOT NULL,
+    summary            TEXT,
+    evidence_reference TEXT,
+    occurred_at        INTEGER NOT NULL,
+    PRIMARY KEY(execution_id, sequence),
+    FOREIGN KEY(execution_id) REFERENCES harness_runtime_execution(execution_id) ON DELETE CASCADE
+);
 
 CREATE INDEX IF NOT EXISTS idx_workflow_step_execution_execution
     ON workflow_step_execution(execution_id, step_index);

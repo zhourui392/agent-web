@@ -3,7 +3,7 @@
 > 依据：2026-07-23 架构审查（domain 零污染、Repository 端口位置正确，债务集中在 worktree 子域、CLI 调用旁路、边界 DTO 泄漏）。
 > 原则：每步独立可合、行为不变优先、每步完成跑 `mvn test` 全绿再进下一步。**不自动打包/重启服务**。
 >
-> **完成状态（2026-07-23）：M1—M4 已全部完成并提交。** 下文“现状/步骤”保留为重构前基线与实施记录，实际结果以各 Phase 的“完成结果”和文末验证记录为准。
+> **完成状态（2026-07-23）：DDD-R1—DDD-R4 已全部完成并提交。** 下文“现状/步骤”保留为重构前基线与实施记录，实际结果以各 Phase 的“完成结果”和文末验证记录为准。为避免与 `docs/harness` 的产品里程碑 M0—M7 混淆，本文件历史里程碑统一使用 `DDD-R*`。
 
 ## 目标分层（不变）
 
@@ -136,12 +136,14 @@ interfaces/ → app/ → domain/ ← infra/(实现 domain 与 app 端口)
 
 | 里程碑 | 内容 | 状态 | 提交 | 风险控制结果 |
 |---|---|---|---|---|
-| M1 | Phase 1 Worktree | ✅ 完成 | `283800b`、`7c02a84` | 真实 Git 测试 + Worktree E2E 通过 |
-| M2 | Phase 2 CLI 端口 | ✅ 完成 | `843f959` | 编译期调用点与相关单测全量迁移 |
-| M3 | Phase 3 边界泄漏 | ✅ 完成 | `a2d6bea` | Domain/App/Controller 分层测试与 422 契约测试通过 |
-| M4 | Phase 4 包收尾 | ✅ 完成 | `f7c8250` | ArchUnit 严格零违例，冻结库删除 |
+| DDD-R1 | Phase 1 Worktree | ✅ 完成 | `283800b`、`7c02a84` | 真实 Git 测试 + Worktree E2E 通过 |
+| DDD-R2 | Phase 2 CLI 端口 | ✅ 完成 | `843f959` | 编译期调用点与相关单测全量迁移 |
+| DDD-R3 | Phase 3 边界泄漏 | ✅ 完成 | `a2d6bea` | Domain/App/Controller 分层测试与 422 契约测试通过 |
+| DDD-R4 | Phase 4 包收尾 | ✅ 完成 | `f7c8250` | ArchUnit 严格零违例，冻结库删除 |
 
-四个里程碑均按仓库现有 `refactor:` 风格独立提交；M1 的聚合边界补强作为同一里程碑的第二个独立提交完成。
+四个里程碑均按仓库现有 `refactor:` 风格独立提交；DDD-R1 的聚合边界补强作为同一里程碑的第二个独立提交完成。
+
+Harness M2 合并后新增的 `infra/harness/HarnessProperties` 未纳入当时的 Properties 迁移范围；该配置归位作为 Harness M3.0 的局部收尾，不影响本轮全局 App → Infra 零依赖结论。
 
 ## 最终验证记录（2026-07-23）
 

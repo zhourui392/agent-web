@@ -1,5 +1,6 @@
 package com.example.agentweb.infra.harness;
 
+import com.example.agentweb.config.harness.HarnessCatalogProperties;
 import com.example.agentweb.domain.harness.ArtifactContent;
 import com.example.agentweb.domain.harness.ArtifactDescriptor;
 import com.example.agentweb.domain.harness.ArtifactStore;
@@ -33,7 +34,7 @@ public class FileSystemArtifactStore implements ArtifactStore {
     private final Path root;
 
     @Autowired
-    public FileSystemArtifactStore(HarnessProperties properties) {
+    public FileSystemArtifactStore(HarnessCatalogProperties properties) {
         this(Paths.get(properties.getArtifactRoot()));
     }
 

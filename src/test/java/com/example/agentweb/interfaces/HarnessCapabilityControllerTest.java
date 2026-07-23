@@ -5,6 +5,9 @@ import com.example.agentweb.app.harness.CapabilitySnapshotView;
 import com.example.agentweb.app.harness.HarnessCapabilityService;
 import com.example.agentweb.app.harness.ResolveHarnessCapabilityCommand;
 import com.example.agentweb.domain.harness.CapabilityResolutionException;
+import com.example.agentweb.domain.harness.CapabilityAccess;
+import com.example.agentweb.domain.harness.McpCapability;
+import com.example.agentweb.domain.harness.McpCapabilityType;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -29,7 +32,10 @@ import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 
 /**
  * Capability Snapshot 管理 API 参数、状态码和错误映射测试。
@@ -65,6 +71,9 @@ class HarnessCapabilityControllerTest {
                                 + "\"readableFileRoots\":[\"workspace\"],"
                                 + "\"writableFileRoots\":[],"
                                 + "\"executableCommands\":[\"mvn-test\"],"
+                                + "\"explicitMcpServerIds\":[\"reader\"],"
+                                + "\"requiredMcpServerIds\":[\"reader\"],"
+                                + "\"grantedMcpServerIds\":[\"reader\"],"
                                 + "\"upstreamArtifacts\":\"approved upstream\","
                                 + "\"currentInput\":\"current input\"}"))
                 .andExpect(status().isCreated())
@@ -78,6 +87,12 @@ class HarnessCapabilityControllerTest {
         assertEquals(Collections.singleton("java"), captor.getValue().getTechnicalTags());
         assertTrue(captor.getValue().getCapabilityGrant().getReadableFileRoots().contains("workspace"));
         assertTrue(captor.getValue().getCapabilityGrant().getExecutableCommands().contains("mvn-test"));
+        assertEquals(Collections.singleton("reader"),
+                captor.getValue().getExplicitMcpServerIds());
+        assertEquals(Collections.singleton("reader"),
+                captor.getValue().getRequiredMcpServerIds());
+        assertEquals(Collections.singleton("reader"),
+                captor.getValue().getGrantedMcpServerIds());
     }
 
     @Test
@@ -90,7 +105,11 @@ class HarnessCapabilityControllerTest {
 
         mvc.perform(get("/api/harness/runs/run-1/stages/ANALYSIS/attempts/1/capability-snapshot"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.promptHash").value(repeat('b', 64)));
+                .andExpect(jsonPath("$.promptHash").value(repeat('b', 64)))
+                .andExpect(jsonPath("$.selectedMcpServers[0].id").value("reader"))
+                .andExpect(jsonPath("$.selectedMcpServers[0].command").doesNotExist())
+                .andExpect(jsonPath("$.selectedMcpServers[0].secretReferences").doesNotExist())
+                .andExpect(content().string(not(containsString("secret-value-never-persist"))));
         mvc.perform(get("/api/harness/runs/missing/stages/ANALYSIS/attempts/1/capability-snapshot"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("HARNESS_CAPABILITY_SNAPSHOT_NOT_FOUND"));
@@ -123,6 +142,15 @@ class HarnessCapabilityControllerTest {
         when(view.getCapabilityDecisions()).thenReturn(Collections.emptyList());
         when(view.getPromptParts()).thenReturn(Collections.emptyList());
         when(view.getPromptResourceHashes()).thenReturn(Collections.emptyMap());
+        CapabilitySnapshotView.McpServerView mcp =
+                mock(CapabilitySnapshotView.McpServerView.class);
+        when(mcp.getId()).thenReturn("reader");
+        when(mcp.getVersion()).thenReturn("1.0.0");
+        when(mcp.getCapabilities()).thenReturn(Collections.singletonList(
+                new McpCapability("search", McpCapabilityType.TOOL, CapabilityAccess.READ)));
+        when(mcp.getConfigurationHash()).thenReturn(repeat('c', 64));
+        when(view.getSelectedMcpServers()).thenReturn(Collections.singletonList(mcp));
+        when(view.getRejectedMcpServers()).thenReturn(Collections.emptyList());
         return view;
     }
 

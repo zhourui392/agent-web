@@ -148,9 +148,27 @@ agent:
     platform-skill-root: ${AGENT_HARNESS_PLATFORM_SKILL_ROOT:src/main/resources/harness/skills}
     approved-user-skill-root: ${AGENT_HARNESS_APPROVED_USER_SKILL_ROOT:}
     workspace-skill-root: ${AGENT_HARNESS_WORKSPACE_SKILL_ROOT:}
-    capability-policy-version: harness-capability-policy@1.0.0
-    platform-safety: 遵守平台权限边界；未明确授权的文件、命令和外部能力默认拒绝。
-    environment-guardrail: 只在 Run 声明的环境和工作目录内操作，不读取或输出敏感凭据。
+    mcp-server-root: ${AGENT_HARNESS_MCP_SERVER_ROOT:src/main/resources/harness/mcp-servers}
+    runtime:
+      codex-command: ${AGENT_HARNESS_CODEX_COMMAND:${CODEX_CMD:codex}}
+      temp-root: ${AGENT_HARNESS_RUNTIME_TEMP_ROOT:data/harness/runtime}
+      sandbox-mode: read-only
+      supported-codex-versions:
+        - "0.145.0"
+      compatibility-matrix-version: m0-2026-07-22
+      version-probe-timeout-seconds: 5
+      version-probe-max-bytes: 4096
+      idle-timeout-seconds: 300
+      max-runtime-seconds: 1800
+      max-output-bytes: 4194304
+    security:
+      capability-policy-version: harness-capability-policy@2.0.0
+      platform-safety: 遵守平台权限边界；未明确授权的文件、命令和外部能力默认拒绝。
+      environment-guardrail: 只在 Run 声明的环境和工作目录内操作，不读取或输出敏感凭据。
+      # Server 必须同时被 Catalog、请求 Grant 与此环境 allowlist 允许；默认空集合 fail-closed。
+      allowed-mcp-server-ids: ${AGENT_HARNESS_ALLOWED_MCP_SERVER_IDS:}
+      inherited-environment-variables:
+        - PATH
 
   # issue-log 写盘通道配置
   issue-log:

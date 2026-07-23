@@ -22,6 +22,9 @@ public class HarnessCapabilityResolveRequest {
     private List<String> readableFileRoots;
     private List<String> writableFileRoots;
     private List<String> executableCommands;
+    private List<String> explicitMcpServerIds;
+    private List<String> requiredMcpServerIds;
+    private List<String> grantedMcpServerIds;
 
     @NotBlank
     private String upstreamArtifacts;

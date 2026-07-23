@@ -33,7 +33,10 @@ public class SqliteCapabilitySnapshotQueryService implements CapabilitySnapshotQ
                         + "prompt_pack_id, prompt_pack_version, prompt_pack_hash, "
                         + "prompt_resource_hashes_json, selected_skills_json, rejected_skills_json, "
                         + "capability_decisions_json, prompt_parts_json, final_prompt, prompt_hash, "
-                        + "snapshot_hash, created_at FROM harness_capability_snapshot "
+                        + "snapshot_hash, created_at, schema_version, selected_mcp_servers_json, "
+                        + "rejected_mcp_servers_json, runtime_enforcement_json, "
+                        + "workspace_runtime_inventory_json "
+                        + "FROM harness_capability_snapshot "
                         + "WHERE run_id=? AND stage=? AND attempt_number=?",
                 (rs, rowNumber) -> new CapabilitySnapshotView(CapabilitySnapshotJdbcCodec.read(rs)),
                 runId, stage.name(), attemptNumber);

@@ -146,7 +146,7 @@ class HarnessAppServiceImplTest {
         when(repository.findById("missing")).thenReturn(Optional.<HarnessRun>empty());
 
         assertThrows(HarnessRunNotFoundException.class,
-                () -> service.cancel("missing", "admin stop"));
+                () -> service.startStage("missing", HarnessStage.ANALYSIS, "start-key"));
         verify(repository, never()).update(any(HarnessRun.class));
     }
 

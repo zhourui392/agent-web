@@ -154,16 +154,6 @@ public class HarnessAppServiceImpl implements HarnessAppService {
         return HarnessMutationResult.from(run, false);
     }
 
-    @Override
-    @Transactional
-    public HarnessMutationResult cancel(String runId, String reason) {
-        HarnessRun run = requireRun(runId);
-        if (run.cancel(currentUserProvider.currentUserId(), reason, clock.instant())) {
-            repository.update(run);
-        }
-        return HarnessMutationResult.from(run, false);
-    }
-
     private HarnessRun requireRun(String runId) {
         return repository.findById(runId)
                 .orElseThrow(() -> new HarnessRunNotFoundException(runId));

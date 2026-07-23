@@ -1,5 +1,7 @@
 package com.example.agentweb.app.harness;
 
+import com.example.agentweb.app.harness.port.RuntimePreflightGateway;
+import com.example.agentweb.app.harness.port.RuntimePreflightReport;
 import com.example.agentweb.domain.harness.AgentRuntime;
 import com.example.agentweb.domain.harness.CapabilityGrant;
 import com.example.agentweb.domain.harness.CapabilitySelectionRequest;
@@ -11,6 +13,11 @@ import com.example.agentweb.domain.harness.HarnessPromptAssembler;
 import com.example.agentweb.domain.harness.HarnessRun;
 import com.example.agentweb.domain.harness.HarnessRunRepository;
 import com.example.agentweb.domain.harness.HarnessStage;
+import com.example.agentweb.domain.harness.McpAuthorizationPolicy;
+import com.example.agentweb.domain.harness.McpCapability;
+import com.example.agentweb.domain.harness.McpCapabilityType;
+import com.example.agentweb.domain.harness.McpServerCatalog;
+import com.example.agentweb.domain.harness.McpServerDefinition;
 import com.example.agentweb.domain.harness.PromptPack;
 import com.example.agentweb.domain.harness.PromptPackCatalog;
 import com.example.agentweb.domain.harness.PromptPackManifest;
@@ -25,6 +32,11 @@ import com.example.agentweb.domain.harness.SkillSelection;
 import com.example.agentweb.domain.harness.SkillTrustSource;
 import com.example.agentweb.domain.harness.StageCapabilityPolicy;
 import com.example.agentweb.domain.harness.StageContract;
+import com.example.agentweb.domain.harness.RuntimeEnforcementProfile;
+import com.example.agentweb.domain.harness.WorkspaceBoundaryKind;
+import com.example.agentweb.domain.harness.WorkspaceRepoSkill;
+import com.example.agentweb.domain.harness.WorkspaceRuntimeInventory;
+import com.example.agentweb.domain.harness.WorkspaceSkillTrustPolicy;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -67,6 +79,10 @@ class HarnessCapabilityServiceImplTest {
     private PromptPackCatalog promptPackCatalog;
     @Mock
     private SkillCatalog skillCatalog;
+    @Mock
+    private McpServerCatalog mcpServerCatalog;
+    @Mock
+    private RuntimePreflightGateway runtimePreflightGateway;
 
     private HarnessCapabilityServiceImpl service;
     private HarnessRun run;
@@ -74,10 +90,13 @@ class HarnessCapabilityServiceImplTest {
     @BeforeEach
     void setUp() {
         HarnessCapabilitySettings settings = new HarnessCapabilitySettings(
-                "harness-capability-policy@1.0.0", "platform safety", "test guardrail");
+                "harness-capability-policy@2.0.0", "platform safety", "test guardrail",
+                Collections.singleton("reader"));
         service = new HarnessCapabilityServiceImpl(runRepository, snapshotRepository,
-                promptPackCatalog, skillCatalog, new SkillSelectionPolicy(),
-                new HarnessPromptAssembler(), settings, Clock.fixed(NOW, ZoneOffset.UTC));
+                promptPackCatalog, skillCatalog, mcpServerCatalog, new SkillSelectionPolicy(),
+                new WorkspaceSkillTrustPolicy(), new McpAuthorizationPolicy(),
+                new HarnessPromptAssembler(),
+                runtimePreflightGateway, settings, Clock.fixed(NOW, ZoneOffset.UTC));
         run = HarnessRun.create("run-1", "title", "/workspace", "CODEX", "test",
                 "harness@1.0.0", "admin", "create-1", StageContract.mvpDefaults(),
                 Instant.parse("2026-07-23T10:00:00Z"));
@@ -92,6 +111,9 @@ class HarnessCapabilityServiceImplTest {
         when(snapshotRepository.find("run-1", HarnessStage.ANALYSIS, 1)).thenReturn(Optional.empty());
         when(promptPackCatalog.resolve(HarnessStage.ANALYSIS)).thenReturn(promptPack);
         when(skillCatalog.discover()).thenReturn(Collections.singletonList(skillPackage));
+        when(mcpServerCatalog.discover()).thenReturn(Collections.singletonList(mcpServer()));
+        when(runtimePreflightGateway.preflight(AgentRuntime.CODEX, "/workspace"))
+                .thenReturn(new RuntimePreflightReport(enforcement(), workspaceInventory()));
         when(snapshotRepository.saveIfAbsent(any(CapabilitySnapshot.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -101,12 +123,19 @@ class HarnessCapabilityServiceImplTest {
         assertEquals(1, view.getAttemptNumber());
         assertEquals("analysis", view.getPromptPackId());
         assertEquals("domain-modeling-audit", view.getSelectedSkills().get(0).getId());
+        assertEquals(CapabilitySnapshot.SCHEMA_M3_1, view.getSchemaVersion());
+        assertEquals("reader", view.getSelectedMcpServers().get(0).getId());
+        assertEquals(workspaceInventory().getInventoryHash(),
+                view.getWorkspaceRuntimeInventoryHash());
         assertEquals(64, view.getSnapshotHash().length());
-        InOrder order = inOrder(runRepository, snapshotRepository, promptPackCatalog, skillCatalog);
+        InOrder order = inOrder(runRepository, snapshotRepository, promptPackCatalog,
+                skillCatalog, mcpServerCatalog, runtimePreflightGateway);
         order.verify(runRepository).findById("run-1");
         order.verify(snapshotRepository).find("run-1", HarnessStage.ANALYSIS, 1);
         order.verify(promptPackCatalog).resolve(HarnessStage.ANALYSIS);
         order.verify(skillCatalog).discover();
+        order.verify(mcpServerCatalog).discover();
+        order.verify(runtimePreflightGateway).preflight(AgentRuntime.CODEX, "/workspace");
         order.verify(snapshotRepository).saveIfAbsent(any(CapabilitySnapshot.class));
     }
 
@@ -122,6 +151,8 @@ class HarnessCapabilityServiceImplTest {
         assertEquals(existing.getSnapshotHash(), view.getSnapshotHash());
         verify(promptPackCatalog, never()).resolve(any(HarnessStage.class));
         verify(skillCatalog, never()).discover();
+        verify(mcpServerCatalog, never()).discover();
+        verify(runtimePreflightGateway, never()).preflight(any(), any());
         verify(snapshotRepository, never()).saveIfAbsent(any(CapabilitySnapshot.class));
     }
 
@@ -129,6 +160,8 @@ class HarnessCapabilityServiceImplTest {
         return new ResolveHarnessCapabilityCommand("run-1", HarnessStage.ANALYSIS,
                 Collections.<String>emptySet(), Collections.singleton("java"),
                 Collections.<String>emptySet(), CapabilityGrant.none(),
+                Collections.singleton("reader"), Collections.singleton("reader"),
+                Collections.singleton("reader"),
                 "approved upstream", "current input");
     }
 
@@ -177,6 +210,28 @@ class HarnessCapabilityServiceImplTest {
                 Collections.emptyList());
         return new SkillPackage(manifest, hash('b'), "# Domain modeling audit",
                 Collections.singletonMap("SKILL.md", hash('c')));
+    }
+
+    private McpServerDefinition mcpServer() {
+        return new McpServerDefinition("reader", "1.0.0", "reader",
+                Collections.singleton(HarnessStage.ANALYSIS), Collections.singleton(AgentRuntime.CODEX),
+                Arrays.asList("fake-mcp", "--stdio"), Collections.singletonList(
+                new McpCapability("search", McpCapabilityType.TOOL,
+                        com.example.agentweb.domain.harness.CapabilityAccess.READ)),
+                Collections.emptyList(), 10, 30,
+                com.example.agentweb.domain.harness.HarnessHashing.sha256("reader"));
+    }
+
+    private RuntimeEnforcementProfile enforcement() {
+        return new RuntimeEnforcementProfile("codex-runtime-enforcement@2",
+                "codex-harness-adapter@2", "0.145.0", "codex-m0@2026-07-22",
+                "read-only", true, true, true, true, true, true);
+    }
+
+    private WorkspaceRuntimeInventory workspaceInventory() {
+        return new WorkspaceRuntimeInventory(WorkspaceBoundaryKind.GIT_ROOT, true,
+                Collections.singletonList(new WorkspaceRepoSkill("domain-modeling-audit",
+                        ".agents/skills/domain-modeling-audit/SKILL.md", hash('c'))));
     }
 
     private String hash(char value) {

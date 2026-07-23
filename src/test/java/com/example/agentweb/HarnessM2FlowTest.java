@@ -49,6 +49,7 @@ class HarnessM2FlowTest {
     private static final Path WORKSPACE = createDirectory(ROOT.resolve("workspace"));
     private static final Path PROMPT_ROOT = copyCatalog("prompt-packs");
     private static final Path SKILL_ROOT = copyCatalog("skills");
+    private static final Path CODEX_STUB = createCodexStub();
 
     @Autowired
     private MockMvc mvc;
@@ -71,6 +72,7 @@ class HarnessM2FlowTest {
                 () -> ROOT.resolve("artifacts").toAbsolutePath().toString());
         registry.add("agent.harness.prompt-pack-root", () -> PROMPT_ROOT.toString());
         registry.add("agent.harness.platform-skill-root", () -> SKILL_ROOT.toString());
+        registry.add("agent.harness.runtime.codex-command", () -> CODEX_STUB.toString());
         registry.add("agent.public-access.enabled", () -> "false");
     }
 
@@ -202,6 +204,24 @@ class HarnessM2FlowTest {
             return Files.createTempDirectory("agent-web-harness-m2-flow-");
         } catch (IOException ex) {
             throw new IllegalStateException("could not create Harness M2 temp root", ex);
+        }
+    }
+
+    private static Path createCodexStub() {
+        Path stub = ROOT.resolve("codex-version-stub.sh");
+        try {
+            Files.write(stub, ("#!/bin/sh\n"
+                    + "if [ \"$1\" = \"--version\" ]; then\n"
+                    + "  printf '%s\\n' 'codex-cli 0.145.0'\n"
+                    + "  exit 0\n"
+                    + "fi\n"
+                    + "exit 31\n").getBytes(StandardCharsets.UTF_8));
+            if (!stub.toFile().setExecutable(true)) {
+                throw new IllegalStateException("could not make Codex version stub executable");
+            }
+            return stub;
+        } catch (IOException ex) {
+            throw new IllegalStateException("could not create Codex version stub", ex);
         }
     }
 

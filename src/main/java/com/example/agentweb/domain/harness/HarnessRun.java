@@ -173,6 +173,64 @@ public final class HarnessRun {
         return stage(stage).getContract();
     }
 
+    /**
+     * 校验 Snapshot 是否属于当前 Attempt，并把不可变 Snapshot Hash 收回聚合边界。
+     *
+     * @param stage 目标阶段
+     * @param snapshotReference Snapshot 引用
+     * @return 可创建 RuntimeExecution 的领域许可
+     */
+    public ExecutionPermit authorizeExecution(HarnessStage stage,
+                                              CapabilitySnapshotReference snapshotReference) {
+        requireMutable();
+        if (snapshotReference == null) {
+            throw new IllegalArgumentException("capability snapshot reference must not be null");
+        }
+        StageExecution execution = stage(stage);
+        StageAttempt attempt = execution.currentAttempt();
+        if (execution.getStatus() != StageStatus.RUNNING
+                || !id.equals(snapshotReference.getRunId())
+                || stage != snapshotReference.getStage()
+                || attempt.getNumber() != snapshotReference.getAttemptNumber()) {
+            throw new IllegalHarnessTransitionException(
+                    "capability snapshot does not belong to the current attempt");
+        }
+        if (attempt.getExecutionId() != null) {
+            throw new IllegalHarnessTransitionException(
+                    "current attempt already binds a runtime execution");
+        }
+        execution.bindSnapshot(snapshotReference.getSnapshotHash());
+        return new ExecutionPermit(id, stage, attempt.getNumber(),
+                snapshotReference.getSnapshotHash(), snapshotReference.getPromptHash(),
+                snapshotReference.getSelectedMcpServerIds());
+    }
+
+    /**
+     * 把独立 RuntimeExecution 引用绑定到当前 Attempt；一个 Attempt 只允许一次外部执行。
+     *
+     * @param reference Execution 引用
+     * @param now 绑定时间
+     */
+    public void bindExecution(ExecutionReference reference, Instant now) {
+        requireMutable();
+        if (reference == null) {
+            throw new IllegalArgumentException("execution reference must not be null");
+        }
+        StageExecution execution = stage(reference.getStage());
+        StageAttempt attempt = execution.currentAttempt();
+        if (!id.equals(reference.getRunId())
+                || attempt.getNumber() != reference.getAttemptNumber()
+                || attempt.getSnapshotHash() == null
+                || !attempt.getSnapshotHash().equals(reference.getSnapshotHash())) {
+            throw new IllegalHarnessTransitionException(
+                    "runtime execution does not match the current snapshot attempt");
+        }
+        execution.bindExecution(reference.getExecutionId());
+        touch(now);
+        addEvent("RUNTIME_EXECUTION_BOUND", reference.getStage(), createdBy,
+                reference.getExecutionId(), now);
+    }
+
     public boolean startStage(HarnessStage stage, String commandIdempotencyKey, Instant now) {
         return startStage(stage, commandIdempotencyKey, createdBy, now);
     }
@@ -372,10 +430,40 @@ public final class HarnessRun {
         if (status == HarnessRunStatus.CANCELLED) {
             return false;
         }
+        requestCancellation(actor, reason, now);
+        return true;
+    }
+
+    /**
+     * 先记录取消业务意图；有活动 Runtime 时返回提交后需要执行的终止指令。
+     *
+     * @param actor 操作者
+     * @param reason 原因
+     * @param now 时间
+     * @return 取消指令
+     */
+    public CancellationDirective requestCancellation(String actor, String reason, Instant now) {
+        if (status == HarnessRunStatus.CANCELLED) {
+            return CancellationDirective.completedWithoutRuntime();
+        }
+        if (status == HarnessRunStatus.CANCELLING) {
+            return CancellationDirective.cancelRuntime(activeExecutionId());
+        }
         requireMutable();
         String normalizedActor = DomainText.require(actor, "cancellation actor");
         String normalizedReason = DomainText.require(reason, "cancellation reason");
         Instant transitionTime = requireTime(now);
+        StageExecution active = activeExecutionWithRuntime();
+        if (active != null) {
+            active.requestCancellation();
+            invalidateApprovalsFrom(HarnessStage.ANALYSIS, transitionTime);
+            status = HarnessRunStatus.CANCELLING;
+            touch(transitionTime);
+            String executionId = active.currentAttempt().getExecutionId();
+            addEvent("RUN_CANCELLATION_REQUESTED", active.getStage(), normalizedActor,
+                    normalizedReason + ":execution=" + executionId, transitionTime);
+            return CancellationDirective.cancelRuntime(executionId);
+        }
         for (StageExecution execution : stages) {
             execution.cancel(transitionTime);
         }
@@ -383,7 +471,79 @@ public final class HarnessRun {
         status = HarnessRunStatus.CANCELLED;
         touch(transitionTime);
         addEvent("RUN_CANCELLED", null, normalizedActor, normalizedReason, transitionTime);
-        return true;
+        return CancellationDirective.completedWithoutRuntime();
+    }
+
+    public void confirmCancellation(ExecutionReference reference, Instant now) {
+        if (status != HarnessRunStatus.CANCELLING || !matchesActiveExecution(reference)) {
+            throw new IllegalHarnessTransitionException(
+                    "runtime cancellation does not match the active execution");
+        }
+        Instant transitionTime = requireTime(now);
+        StageExecution active = stage(reference.getStage());
+        active.confirmCancellation(transitionTime);
+        for (StageExecution execution : stages) {
+            if (execution != active) {
+                execution.cancel(transitionTime);
+            }
+        }
+        status = HarnessRunStatus.CANCELLED;
+        touch(transitionTime);
+        addEvent("RUN_CANCELLED", reference.getStage(), createdBy,
+                "execution=" + reference.getExecutionId(), transitionTime);
+    }
+
+    public void recordExecutionFailure(ExecutionReference reference, String reason, Instant now) {
+        requireMutable();
+        if (!matchesActiveExecution(reference)) {
+            throw new IllegalHarnessTransitionException(
+                    "runtime failure does not match the active execution");
+        }
+        StageExecution execution = stage(reference.getStage());
+        execution.failFromRuntime(reason, now);
+        status = HarnessRunStatus.FAILED;
+        touch(now);
+        addEvent("RUNTIME_EXECUTION_FAILED", reference.getStage(), createdBy,
+                reason, now);
+    }
+
+    public void recordExecutionSucceeded(ExecutionReference reference, Instant now) {
+        requireMutable();
+        if (!matchesActiveExecution(reference)) {
+            throw new IllegalHarnessTransitionException(
+                    "runtime success does not match the active execution");
+        }
+        touch(now);
+        addEvent("RUNTIME_EXECUTION_SUCCEEDED", reference.getStage(), createdBy,
+                reference.getExecutionId(), now);
+    }
+
+    /**
+     * 将独立 RuntimeExecution 的终态映射为 Run 业务结果；技术成功不等于 Stage 通过。
+     *
+     * @param execution RuntimeExecution 聚合
+     * @param now 映射时间
+     * @return 是否改变了 Run
+     */
+    public boolean applyRuntimeExecutionOutcome(RuntimeExecution execution, Instant now) {
+        if (execution == null || !execution.getStatus().isTerminal()) {
+            return false;
+        }
+        switch (execution.getStatus()) {
+            case SUCCEEDED:
+                recordExecutionSucceeded(execution.reference(), now);
+                return true;
+            case CANCELLED:
+                confirmCancellation(execution.reference(), now);
+                return true;
+            case FAILED:
+            case TIMED_OUT:
+            case LOST:
+                recordExecutionFailure(execution.reference(), execution.getTerminationReason(), now);
+                return true;
+            default:
+                return false;
+        }
     }
 
     public boolean isTerminal() {
@@ -500,7 +660,7 @@ public final class HarnessRun {
 
     private void requireNoWritableAttempt() {
         for (StageExecution execution : stages) {
-            if (execution.getStatus().isWritable()) {
+            if (execution.getStatus().occupiesActiveAttempt()) {
                 throw new IllegalHarnessTransitionException(
                         "run already has a writable attempt: " + execution.getStage());
             }
@@ -600,7 +760,7 @@ public final class HarnessRun {
     }
 
     private void requireMutable() {
-        if (status.isTerminal()) {
+        if (status.isTerminal() || status == HarnessRunStatus.CANCELLING) {
             throw new IllegalHarnessTransitionException(
                     "terminal run cannot execute ordinary actions: " + status);
         }
@@ -639,7 +799,7 @@ public final class HarnessRun {
     private void validateRestoredState() {
         int writable = 0;
         for (StageExecution execution : stages) {
-            if (execution.getStatus().isWritable()) {
+            if (execution.getStatus().occupiesActiveAttempt()) {
                 writable++;
             }
         }
@@ -649,6 +809,39 @@ public final class HarnessRun {
         if (status == HarnessRunStatus.COMPLETED && !allStagesPassed()) {
             throw new IllegalArgumentException("completed run requires all stages passed");
         }
+        if (status == HarnessRunStatus.CANCELLING && writable != 1) {
+            throw new IllegalArgumentException("cancelling run requires one active attempt");
+        }
+    }
+
+    private StageExecution activeExecutionWithRuntime() {
+        for (StageExecution execution : stages) {
+            if (execution.getStatus().isWritable()
+                    && execution.currentAttempt().getExecutionId() != null) {
+                return execution;
+            }
+        }
+        return null;
+    }
+
+    private String activeExecutionId() {
+        for (StageExecution execution : stages) {
+            if (execution.getStatus() == StageStatus.CANCELLING) {
+                return execution.currentAttempt().getExecutionId();
+            }
+        }
+        throw new IllegalStateException("cancelling run has no active execution");
+    }
+
+    private boolean matchesActiveExecution(ExecutionReference reference) {
+        if (reference == null || !id.equals(reference.getRunId())) {
+            return false;
+        }
+        StageExecution execution = stage(reference.getStage());
+        StageAttempt attempt = execution.currentAttempt();
+        return attempt.getNumber() == reference.getAttemptNumber()
+                && reference.getExecutionId().equals(attempt.getExecutionId())
+                && reference.getSnapshotHash().equals(attempt.getSnapshotHash());
     }
 
     private static <T> List<T> copy(List<T> values, String name) {

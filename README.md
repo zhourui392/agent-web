@@ -30,7 +30,7 @@
 
 - **管理台**（`/admin`，数据库 ADMIN 角色鉴权）— 使用概览、对话浏览、用户账号创建、工作流管理、用户建议 triage、RAG 语料维护、运行时设置（Agent 模型）
 - **工作流编排** — 定义可复用的多步 workflow（每步一个 prompt 模板），一键触发执行并按步记录结果
-- **研发交付 Harness（默认关闭）** — 独立于 Workflow 的四阶段控制平面；M1 已支持 Run/Stage/Attempt、Artifact/Gate/Approval，M2 已支持四阶段 Prompt Pack、可信 Skill Catalog、能力授权求交、不可变 Capability Snapshot、Hash 与 ADMIN 预览页；Runtime 接入按后续里程碑推进
+- **研发交付 Harness（默认关闭）** — 独立于 Workflow 的四阶段控制平面；M1 已支持 Run/Stage/Attempt、Artifact/Gate/Approval，M2 已支持四阶段 Prompt Pack、可信 Skill Catalog、能力授权求交、不可变 Capability Snapshot 与 ADMIN 预览页；M3 已完成只读 MCP、`RuntimeExecution`、提交后启动/取消、M3.1 Snapshot、单次 CLI 能力覆盖、工作区旁路防护、Codex 版本/PID 预检、Secret 脱敏和 Evidence Store，并通过重新验收，详见 [M3 设计](docs/harness/04-m3-detailed-design.md)、[实现记录](docs/harness/m3/README.md)与[自测报告](docs/harness/m3/test-report.md)
 - **用户建议** — 登录用户从聊天界面提交产品反馈，管理员分流处理
 - **每用户 Git 身份** — 各用户配置自己的 git identity 与 SCM 凭据（密码加密存储、不回显），用于交付时归属提交与解析凭据链
 
@@ -221,6 +221,10 @@ AGENT_BOOTSTRAP_ADMIN_PASSWORD=<仅首次公网启动使用的新管理员密码
 | `AGENT_HARNESS_PLATFORM_SKILL_ROOT` | `src/main/resources/harness/skills` | 平台可信 Skill 热读取根 |
 | `AGENT_HARNESS_APPROVED_USER_SKILL_ROOT` | _(无)_ | 管理员批准的用户 Skill 根；目录来源固定为 `APPROVED_USER`，Manifest 不可伪造来源 |
 | `AGENT_HARNESS_WORKSPACE_SKILL_ROOT` | _(无)_ | Workspace Skill 根；每个 Skill 仍需在 Snapshot 请求中做 Run 级显式批准 |
+| `AGENT_HARNESS_MCP_SERVER_ROOT` | `src/main/resources/harness/mcp-servers` | 管理员可信 MCP Server Catalog 根；只允许 Snapshot 选中的 Server 进入隔离配置 |
+| `AGENT_HARNESS_CODEX_COMMAND` | `CODEX_CMD`，未配置时为 `codex` | Harness 专用 Codex Runtime 命令；与普通聊天命令配置分离 |
+| `AGENT_HARNESS_RUNTIME_TEMP_ROOT` | `data/harness/runtime` | Harness 单次执行隔离 `HOME/CODEX_HOME/XDG_CONFIG_HOME` 的临时根，终态后清理 |
+| `AGENT_HARNESS_ALLOWED_MCP_SERVER_IDS` | _(无)_ | 当前环境允许挂载的 MCP Server ID 集合；空集合 fail-closed |
 | `CODEX_STREAM_IDLE_TIMEOUT_SECONDS` / `CLAUDE_STREAM_IDLE_TIMEOUT_SECONDS` | `900` | 普通流式聊天无 stdout 活动的终止期限；收到活动会续期，`0` 表示禁用 |
 | `CODEX_STREAM_MAX_RUNTIME_SECONDS` / `CLAUDE_STREAM_MAX_RUNTIME_SECONDS` | `7200` | 普通流式聊天绝对运行上限；stdout 活动不会续期，`0` 表示禁用 |
 
@@ -254,7 +258,7 @@ src/main/java/com/example/agentweb/
 │                 schedule、slashcommand、worktree、harness、shared
 ├── infra/        CLI 进程执行（cli/ 方言策略）、SQLite 仓储、auth/（本地会话登录 + context path 派生）、
 │                 workflow/、git/、schedule/、log/、suggestion/、metrics/、refinery/、issuelog/、harness/、setting/
-└── config/       Web MVC / Spring 装配、运行配置 Properties（含 refinery/）
+└── config/       Web MVC / Spring 装配、运行配置 Properties（含 refinery/、harness/）
 
 src/main/resources/
 ├── application.yml              主配置（各 agent.* 节点带内联注释）

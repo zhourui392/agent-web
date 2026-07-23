@@ -25,7 +25,9 @@ public class SqliteCapabilitySnapshotRepository implements CapabilitySnapshotRep
             + "policy_version, prompt_pack_id, prompt_pack_version, prompt_pack_hash, "
             + "prompt_resource_hashes_json, selected_skills_json, rejected_skills_json, "
             + "capability_decisions_json, prompt_parts_json, final_prompt, prompt_hash, "
-            + "snapshot_hash, created_at";
+            + "snapshot_hash, created_at, schema_version, selected_mcp_servers_json, "
+            + "rejected_mcp_servers_json, runtime_enforcement_json, "
+            + "workspace_runtime_inventory_json";
 
     private final JdbcTemplate jdbc;
 
@@ -44,10 +46,10 @@ public class SqliteCapabilitySnapshotRepository implements CapabilitySnapshotRep
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public CapabilitySnapshot saveIfAbsent(CapabilitySnapshot snapshot) {
         int inserted = jdbc.update("INSERT OR IGNORE INTO harness_capability_snapshot ("
-                        + COLUMNS + ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        + COLUMNS + ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 snapshot.getRunId(), snapshot.getStage().name(), snapshot.getAttemptNumber(),
                 snapshot.getRuntime().name(), snapshot.getEnvironment(), snapshot.getPolicyVersion(),
                 snapshot.getPromptPackId(), snapshot.getPromptPackVersion(), snapshot.getPromptPackHash(),
@@ -56,7 +58,12 @@ public class SqliteCapabilitySnapshotRepository implements CapabilitySnapshotRep
                 CapabilitySnapshotJdbcCodec.json(snapshot.getRejectedSkills()),
                 CapabilitySnapshotJdbcCodec.json(snapshot.getCapabilityDecisions()),
                 CapabilitySnapshotJdbcCodec.json(snapshot.getPromptParts()), snapshot.getFinalPrompt(),
-                snapshot.getPromptHash(), snapshot.getSnapshotHash(), snapshot.getCreatedAt().toEpochMilli());
+                snapshot.getPromptHash(), snapshot.getSnapshotHash(), snapshot.getCreatedAt().toEpochMilli(),
+                snapshot.getSchemaVersion(),
+                CapabilitySnapshotJdbcCodec.json(snapshot.getSelectedMcpServers()),
+                CapabilitySnapshotJdbcCodec.json(snapshot.getRejectedMcpServers()),
+                CapabilitySnapshotJdbcCodec.json(snapshot.getRuntimeEnforcementProfile()),
+                CapabilitySnapshotJdbcCodec.json(snapshot.getWorkspaceRuntimeInventory()));
         if (inserted == 1) {
             return snapshot;
         }

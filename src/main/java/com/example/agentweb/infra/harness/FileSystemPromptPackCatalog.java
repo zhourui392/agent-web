@@ -1,5 +1,6 @@
 package com.example.agentweb.infra.harness;
 
+import com.example.agentweb.config.harness.HarnessCatalogProperties;
 import com.example.agentweb.domain.harness.HarnessCatalogException;
 import com.example.agentweb.domain.harness.HarnessHashing;
 import com.example.agentweb.domain.harness.HarnessStage;
@@ -33,7 +34,7 @@ public class FileSystemPromptPackCatalog implements PromptPackCatalog {
     private final Path root;
 
     @Autowired
-    public FileSystemPromptPackCatalog(HarnessProperties properties) {
+    public FileSystemPromptPackCatalog(HarnessCatalogProperties properties) {
         this(Paths.get(properties.getPromptPackRoot()));
     }
 

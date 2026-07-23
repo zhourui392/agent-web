@@ -2,6 +2,7 @@ package com.example.agentweb.interfaces;
 
 import com.example.agentweb.app.harness.CreateHarnessRunCommand;
 import com.example.agentweb.app.harness.HarnessAppService;
+import com.example.agentweb.app.harness.HarnessExecutionService;
 import com.example.agentweb.app.harness.HarnessMutationResult;
 import com.example.agentweb.app.harness.HarnessRunQueryService;
 import com.example.agentweb.app.harness.HarnessRunView;
@@ -50,10 +51,13 @@ public class HarnessController {
 
     private final HarnessAppService appService;
     private final HarnessRunQueryService queryService;
+    private final HarnessExecutionService executionService;
 
-    public HarnessController(HarnessAppService appService, HarnessRunQueryService queryService) {
+    public HarnessController(HarnessAppService appService, HarnessRunQueryService queryService,
+                             HarnessExecutionService executionService) {
         this.appService = appService;
         this.queryService = queryService;
+        this.executionService = executionService;
     }
 
     @PostMapping
@@ -148,7 +152,7 @@ public class HarnessController {
     public ResponseEntity<HarnessMutationResult> cancel(
             @PathVariable("runId") String runId,
             @Valid @RequestBody HarnessCancelRequest request) {
-        return accepted(appService.cancel(runId, request.getReason()));
+        return accepted(executionService.cancel(runId, request.getReason()));
     }
 
     private ResponseEntity<HarnessMutationResult> accepted(HarnessMutationResult result) {

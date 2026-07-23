@@ -1,6 +1,6 @@
 # Harness M2 完成记录
 
-> 状态：Completed，允许进入 M3
+> 状态：Completed；M3.0 持久化缺口已于 2026-07-23 修复
 > 完成日期：2026-07-23
 > Feature Flag：`agent.harness.enabled=false`
 
@@ -9,6 +9,8 @@
 M2 已完成 Harness 的 Prompt/Skill 能力平面。处于 `RUNNING` 的 Stage Attempt 可以从管理员配置的文件 Catalog 热读取四阶段 Prompt Pack 与 Skill 包，经 Domain Policy 完成信任、阶段、Runtime、显式选择、技术标签、一层依赖、冲突和文件/命令授权求交，再把 Prompt Parts、资源 Hash、选择/拒绝原因和最终 Hash 固化为不可覆盖的 `CapabilitySnapshot`。
 
 M2 不启动 Agent、不执行 Skill 脚本、不挂载 MCP，也不把“Skill 已选中”解释成“命令已授权”。Codex Runtime Adapter、MCP Registry、Runtime Execution、取消和对账属于 M3。
+
+2026-07-23 的 M3 设计复核曾发现一个跨 Repository 测试缺口：旧 `HarnessRunRepository.update()` 删除并重插 Attempt 时，会触发 `harness_capability_snapshot` 外键的 `ON DELETE CASCADE`。因此 M2 当时的 Snapshot 独立保存、恢复和 `saveIfAbsent` 结论成立，但尚未证明后续 Run 更新也会保留 Snapshot。该问题已在 M3.0 通过真实 SQLite 红测复现，改为 Stage/Attempt 增量持久化后转绿；Artifact、Gate、Approval、取消更新现在均保持 Snapshot 存在且 Hash 不变。M3 的完整 Snapshot + RuntimeExecution 保留证据仍在重新验收，详见 [M3 记录](../m3/README.md)。
 
 ## 2. 分层与领域边界
 
@@ -117,6 +119,8 @@ Resolver 顺序为：
 
 Repository 使用 `INSERT OR IGNORE` 配合主键处理并发重复固化；竞争失败时读取并返回第一个 Snapshot，禁止用后到内容覆盖旧证据。
 
+M2 交付时上述结论只覆盖 Snapshot Repository 自身，旧 HarnessRun 聚合更新方式可能级联删除 Snapshot。M3.0 已改为 Stage/Attempt 增量更新，并补齐“Artifact/Gate/Approval/取消后 Snapshot 仍存在且 Hash 不变”的真实 SQLite 回归；本段保留原缺口的发现背景，不再代表当前实现风险。
+
 ## 7. 管理 API 与页面
 
 新增 ADMIN API：
@@ -155,7 +159,7 @@ agent:
 | 版本、依赖、循环、冲突、Runtime | `SkillSelectionPolicyTest` |
 | 路径/符号链接逃逸、原生规则文件隔离 | `FileSystemPromptPackCatalogTest`、`FileSystemSkillCatalogTest` |
 | Prompt 固定顺序与稳定 Hash | `HarnessPromptAssemblerTest` |
-| Snapshot SQLite 恢复与不可覆盖 | `SqliteCapabilitySnapshotRepositoryTest` |
+| Snapshot SQLite 独立恢复与 save-if-absent 不可覆盖 | `SqliteCapabilitySnapshotRepositoryTest` |
 | Application 只编排 | `HarnessCapabilityServiceImplTest`、`ArchitectureTest` |
 | API、错误映射、Feature Flag | `HarnessCapabilityControllerTest`、`HarnessCapabilityFeatureFlagTest` |
 | 管理页纯展示映射 | `harness-utils.spec.ts` |
@@ -173,4 +177,4 @@ agent:
     enabled: false
 ```
 
-关闭后不注册 M1/M2 Harness Bean；已写 SQLite Snapshot 和 Artifact 保留，不做破坏性清理。下一步进入 M3：建立 MCP Registry、Secret Reference/Redaction、统一 Agent Execution Spec 和 Codex Runtime Adapter，并确保 Runtime 启动前已保存 Snapshot 与 Execution 记录。
+关闭后不注册 Harness Bean；不主动清理 SQLite Snapshot、RuntimeExecution 或 Artifact。M3.0 增量持久化基线与 M3 Runtime 合同已完成重新验收；下一阶段按[里程碑](../03-milestones.md)进入 M4 四阶段纵向切片。

@@ -11,6 +11,7 @@ public enum StageStatus {
     RUNNING,
     WAITING_INPUT,
     WAITING_APPROVAL,
+    CANCELLING,
     PASSED,
     FAILED,
     INVALIDATED,
@@ -23,5 +24,14 @@ public enum StageStatus {
      */
     public boolean isWritable() {
         return this == RUNNING || this == WAITING_INPUT || this == WAITING_APPROVAL;
+    }
+
+    /**
+     * 是否仍占用 Run 的唯一活动 Attempt。
+     *
+     * @return 是否活动
+     */
+    public boolean occupiesActiveAttempt() {
+        return isWritable() || this == CANCELLING;
     }
 }

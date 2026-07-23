@@ -61,7 +61,7 @@ public class SqliteHarnessRunRepository implements HarnessRunRepository {
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void add(HarnessRun run) {
         try {
             jdbc.update("INSERT INTO harness_run (" + RUN_COLUMNS + ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -76,7 +76,7 @@ public class SqliteHarnessRunRepository implements HarnessRunRepository {
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public void update(HarnessRun run) {
         long expectedVersion = run.getVersion();
         int rows = jdbc.update("UPDATE harness_run SET title=?, working_dir=?, agent_type=?, "
@@ -88,8 +88,7 @@ public class SqliteHarnessRunRepository implements HarnessRunRepository {
         if (rows != 1) {
             throw new IllegalStateException("stale or missing harness run: " + run.getId());
         }
-        deleteChildren(run.getId());
-        insertChildren(run);
+        upsertChildren(run);
         run.synchronizeVersion(expectedVersion + 1L);
     }
 
@@ -132,12 +131,13 @@ public class SqliteHarnessRunRepository implements HarnessRunRepository {
                     writeJson(contract.getDeterministicGates()), contract.getApprovalType());
             for (StageAttempt attempt : execution.getAttempts()) {
                 jdbc.update("INSERT INTO harness_stage_attempt "
-                                + "(run_id, stage, attempt_number, idempotency_key, status, started_at, "
-                                + "finished_at, failure_reason) VALUES (?,?,?,?,?,?,?,?)",
+                                + "(run_id, stage, attempt_number, idempotency_key, status, "
+                                + "started_at, finished_at, failure_reason, snapshot_hash, "
+                                + "execution_id) VALUES (?,?,?,?,?,?,?,?,?,?)",
                         run.getId(), execution.getStage().name(), attempt.getNumber(),
                         attempt.getIdempotencyKey(), attempt.getStatus().name(),
                         toMillis(attempt.getStartedAt()), toMillis(attempt.getFinishedAt()),
-                        attempt.getFailureReason());
+                        attempt.getFailureReason(), attempt.getSnapshotHash(), attempt.getExecutionId());
             }
         }
         for (ArtifactDescriptor artifact : run.getArtifacts()) {
@@ -182,13 +182,79 @@ public class SqliteHarnessRunRepository implements HarnessRunRepository {
         }
     }
 
-    private void deleteChildren(String runId) {
-        jdbc.update("DELETE FROM harness_event WHERE run_id=?", runId);
-        jdbc.update("DELETE FROM harness_approval WHERE run_id=?", runId);
-        jdbc.update("DELETE FROM harness_gate_result WHERE run_id=?", runId);
-        jdbc.update("DELETE FROM harness_artifact WHERE run_id=?", runId);
-        jdbc.update("DELETE FROM harness_stage_attempt WHERE run_id=?", runId);
-        jdbc.update("DELETE FROM harness_stage_execution WHERE run_id=?", runId);
+    private void upsertChildren(HarnessRun run) {
+        for (StageExecution execution : run.getStages()) {
+            StageContract contract = execution.getContract();
+            jdbc.update("INSERT INTO harness_stage_execution "
+                            + "(run_id, stage, stage_order, status, required_inputs_json, "
+                            + "required_outputs_json, gates_json, approval_type) VALUES (?,?,?,?,?,?,?,?) "
+                            + "ON CONFLICT(run_id, stage) DO UPDATE SET "
+                            + "stage_order=excluded.stage_order, status=excluded.status, "
+                            + "required_inputs_json=excluded.required_inputs_json, "
+                            + "required_outputs_json=excluded.required_outputs_json, "
+                            + "gates_json=excluded.gates_json, approval_type=excluded.approval_type",
+                    run.getId(), execution.getStage().name(), execution.getStage().ordinal(),
+                    execution.getStatus().name(), writeEnumNames(contract.getRequiredInputArtifacts()),
+                    writeEnumNames(contract.getRequiredOutputArtifacts()),
+                    writeJson(contract.getDeterministicGates()), contract.getApprovalType());
+            for (StageAttempt attempt : execution.getAttempts()) {
+                jdbc.update("INSERT INTO harness_stage_attempt "
+                                + "(run_id, stage, attempt_number, idempotency_key, status, started_at, "
+                                + "finished_at, failure_reason, snapshot_hash, execution_id) "
+                                + "VALUES (?,?,?,?,?,?,?,?,?,?) "
+                                + "ON CONFLICT(run_id, stage, attempt_number) DO UPDATE SET "
+                                + "idempotency_key=excluded.idempotency_key, status=excluded.status, "
+                                + "started_at=excluded.started_at, finished_at=excluded.finished_at, "
+                                + "failure_reason=excluded.failure_reason, "
+                                + "snapshot_hash=excluded.snapshot_hash, execution_id=excluded.execution_id",
+                        run.getId(), execution.getStage().name(), attempt.getNumber(),
+                        attempt.getIdempotencyKey(), attempt.getStatus().name(),
+                        toMillis(attempt.getStartedAt()), toMillis(attempt.getFinishedAt()),
+                        attempt.getFailureReason(), attempt.getSnapshotHash(), attempt.getExecutionId());
+            }
+        }
+        for (ArtifactDescriptor artifact : run.getArtifacts()) {
+            jdbc.update("INSERT OR IGNORE INTO harness_artifact "
+                            + "(run_id, artifact_id, artifact_type, version, stage, attempt_number, "
+                            + "content_type, size_bytes, sha256, classification, created_by, created_at, "
+                            + "source_artifacts_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    run.getId(), artifact.getArtifactId(), artifact.getArtifactType().name(),
+                    artifact.getVersion(), artifact.getStage().name(), artifact.getAttempt(),
+                    artifact.getContentType(), artifact.getSizeBytes(), artifact.getSha256(),
+                    artifact.getClassification().name(), artifact.getCreatedBy(),
+                    toMillis(artifact.getCreatedAt()), writeJson(artifact.getSourceArtifacts()));
+        }
+        for (GateResult result : run.getGateResults()) {
+            jdbc.update("INSERT OR IGNORE INTO harness_gate_result "
+                            + "(result_id, run_id, stage, attempt_number, rule, passed, "
+                            + "artifact_baseline_hash, evidence_json, reason, evaluated_at) "
+                            + "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    result.getResultId(), run.getId(), result.getStage().name(), result.getAttempt(),
+                    result.getRule(), result.isPassed() ? 1 : 0,
+                    result.getArtifactBaselineHash(), writeJson(result.getEvidenceReferences()),
+                    result.getReason(), toMillis(result.getEvaluatedAt()));
+        }
+        for (Approval approval : run.getApprovals()) {
+            jdbc.update("INSERT INTO harness_approval "
+                            + "(approval_id, run_id, stage, attempt_number, approval_type, decision, "
+                            + "artifact_baseline_hash, decided_by, reason, decided_at, valid, invalidated_at) "
+                            + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?) "
+                            + "ON CONFLICT(approval_id) DO UPDATE SET valid=excluded.valid, "
+                            + "invalidated_at=excluded.invalidated_at",
+                    approval.getApprovalId(), run.getId(), approval.getStage().name(),
+                    approval.getAttempt(), approval.getApprovalType(), approval.getDecision().name(),
+                    approval.getArtifactBaselineHash(), approval.getDecidedBy(), approval.getReason(),
+                    toMillis(approval.getDecidedAt()), approval.isValid() ? 1 : 0,
+                    toMillis(approval.getInvalidatedAt()));
+        }
+        for (HarnessEvent event : run.getEvents()) {
+            jdbc.update("INSERT OR IGNORE INTO harness_event "
+                            + "(run_id, sequence, event_type, stage, actor, detail, occurred_at) "
+                            + "VALUES (?,?,?,?,?,?,?)",
+                    run.getId(), event.getSequence(), event.getEventType(),
+                    event.getStage() == null ? null : event.getStage().name(),
+                    event.getActor(), event.getDetail(), toMillis(event.getOccurredAt()));
+        }
     }
 
     private List<StageExecution> loadStages(String runId) {
@@ -213,7 +279,8 @@ public class SqliteHarnessRunRepository implements HarnessRunRepository {
         Map<HarnessStage, List<StageAttempt>> grouped = new EnumMap<HarnessStage, List<StageAttempt>>(
                 HarnessStage.class);
         jdbc.query("SELECT stage, attempt_number, idempotency_key, status, started_at, "
-                        + "finished_at, failure_reason FROM harness_stage_attempt "
+                        + "finished_at, failure_reason, snapshot_hash, execution_id "
+                        + "FROM harness_stage_attempt "
                         + "WHERE run_id=? ORDER BY stage, attempt_number",
                 rs -> {
                     HarnessStage stage = HarnessStage.valueOf(rs.getString("stage"));
@@ -221,7 +288,8 @@ public class SqliteHarnessRunRepository implements HarnessRunRepository {
                             .add(StageAttempt.restore(rs.getInt("attempt_number"),
                                     rs.getString("idempotency_key"), fromMillis(rs, "started_at"),
                                     StageAttemptStatus.valueOf(rs.getString("status")),
-                                    fromMillis(rs, "finished_at"), rs.getString("failure_reason")));
+                                    fromMillis(rs, "finished_at"), rs.getString("failure_reason"),
+                                    rs.getString("snapshot_hash"), rs.getString("execution_id")));
                 }, runId);
         return grouped;
     }

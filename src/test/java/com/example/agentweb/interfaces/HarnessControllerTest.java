@@ -2,6 +2,7 @@ package com.example.agentweb.interfaces;
 
 import com.example.agentweb.app.harness.HarnessAppService;
 import com.example.agentweb.app.harness.HarnessMutationResult;
+import com.example.agentweb.app.harness.HarnessExecutionService;
 import com.example.agentweb.app.harness.HarnessRunQueryService;
 import com.example.agentweb.app.harness.HarnessRunView;
 import com.example.agentweb.domain.harness.HarnessRunNotFoundException;
@@ -52,6 +53,9 @@ class HarnessControllerTest {
     @MockBean
     private HarnessRunQueryService queryService;
 
+    @MockBean
+    private HarnessExecutionService executionService;
+
     @Test
     void create_and_get_should_expose_management_contract() throws Exception {
         when(appService.create(any())).thenReturn(
@@ -98,7 +102,7 @@ class HarnessControllerTest {
         when(appService.approve(any(), any(), any(), any())).thenReturn(result);
         when(appService.reject(any(), any(), any(), any())).thenReturn(result);
         when(appService.retryStage(any(), any(), any())).thenReturn(result);
-        when(appService.cancel(any(), any())).thenReturn(result);
+        when(executionService.cancel(any(), any())).thenReturn(result);
 
         mvc.perform(post("/api/harness/runs/run-1/stages/ANALYSIS/start")
                         .header("Idempotency-Key", "start-key"))

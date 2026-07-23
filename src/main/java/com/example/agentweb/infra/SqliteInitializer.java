@@ -182,6 +182,7 @@ public class SqliteInitializer {
         }
         migrateChatRecallObservation();
         migrateWorkflowTables();
+        migrateHarnessM3();
     }
 
     private void migrateChatRecallObservation() {
@@ -328,6 +329,28 @@ public class SqliteInitializer {
                     + "ON workflow_step_execution(execution_id, step_index)");
         } catch (Exception ignored) {
             // 建表迁移失败交给后续仓储访问暴露真实错误,避免启动因老库单点脏状态直接中断。
+        }
+    }
+
+    private void migrateHarnessM3() {
+        addColumnIfMissing("harness_stage_attempt", "snapshot_hash TEXT");
+        addColumnIfMissing("harness_stage_attempt", "execution_id TEXT");
+        addColumnIfMissing("harness_capability_snapshot",
+                "schema_version TEXT NOT NULL DEFAULT 'M2'");
+        addColumnIfMissing("harness_capability_snapshot",
+                "selected_mcp_servers_json TEXT NOT NULL DEFAULT '[]'");
+        addColumnIfMissing("harness_capability_snapshot",
+                "rejected_mcp_servers_json TEXT NOT NULL DEFAULT '[]'");
+        addColumnIfMissing("harness_capability_snapshot", "runtime_enforcement_json TEXT");
+        addColumnIfMissing("harness_capability_snapshot",
+                "workspace_runtime_inventory_json TEXT NOT NULL DEFAULT '{}'");
+    }
+
+    private void addColumnIfMissing(String table, String definition) {
+        try {
+            jdbc.execute("ALTER TABLE " + table + " ADD COLUMN " + definition);
+        } catch (Exception ignored) {
+            // SQLite 没有 ADD COLUMN IF NOT EXISTS；重复初始化时已存在即视为成功。
         }
     }
 }

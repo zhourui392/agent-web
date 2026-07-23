@@ -33,6 +33,4 @@ public interface HarnessAppService {
                                  String artifactBaselineHash, String reason);
 
     HarnessMutationResult retryStage(String runId, HarnessStage stage, String idempotencyKey);
-
-    HarnessMutationResult cancel(String runId, String reason);
 }
