@@ -163,7 +163,17 @@ agent:
 
 > CLI 方言参数、知识精炼（`agent.refinery.*`）和 issue-log（`agent.issue-log.*`）的完整配置与内联注释见 `application.yml`。
 
-知识精炼默认关闭。开启知识精炼需经 `REFINERY_EMBED_API_KEY` 注入 embedding 鉴权，且 `agent.refinery.embedding.dimension` 须与模型维度一致（不一致启动 fail-fast）。凭证走环境变量，勿写进 `application.yml`。
+知识精炼默认关闭。开启知识精炼需经 `REFINERY_EMBED_API_KEY` 注入 embedding 鉴权，且 `agent.refinery.embedding.dimension` 须与模型维度一致（不一致启动 fail-fast）。凭证走环境变量或下述 Git 忽略配置，勿写进 `application.yml`。
+
+本机文件化的服务端敏感配置统一放在 Git 忽略的 `data/secrets.properties`，应用启动时会自动读取；外部环境变量优先级更高。Codex CLI 和 Claude Code 不读取该文件中的认证配置，仍使用各自的本机默认登录态。示例只列变量名，不要把真实值写入受 Git 跟踪的文件：
+
+```properties
+GIT_CRED_ENC_KEY=<32 字节密钥的 base64>
+REFINERY_EMBED_API_KEY=<embedding key>
+AGENT_BOOTSTRAP_ADMIN_PASSWORD=<仅首次公网启动使用的新管理员密码>
+```
+
+创建后应限制权限：`chmod 600 data/secrets.properties`。`AGENT_BOOTSTRAP_ADMIN_PASSWORD` 只用于首次替换种子密码，启动成功后应从文件删除。生产环境优先使用进程环境或 Secret Store。
 
 ### 环境变量
 
@@ -186,6 +196,7 @@ agent:
 | `AGENT_BOOTSTRAP_ADMIN_PASSWORD` | _(无)_ | 仅在数据库仍是公开种子哈希时使用一次的新管理员密码；至少 12、至多 256 字符 |
 | `AGENT_WORKTREE_ALLOWED_ROOT` | `/home/service/workspace` | Worktree 操作允许的单一工作区根 |
 | `AGENT_E2E_ADMIN_PASSWORD` | _(无)_ | Playwright 登录测试账户的密码；只用于测试进程，不写入仓库 |
+| `GIT_CRED_ENC_KEY` | _(无)_ | 用户 Git push 凭据的 AES-256-GCM 主密钥；支持环境变量或 `data/secrets.properties` |
 | `REFINERY_ENABLED` | `false` | 知识精炼子域总开关，`false` 时相关 bean 全不注册 |
 | `REFINERY_EMBED_API_KEY` | _(无)_ | embedding 鉴权（现 OpenRouter），`REFINERY_ENABLED=true` 时必填，严禁硬编码到 yml |
 | `REFINERY_EMBED_ENDPOINT` | `https://openrouter.ai/api/v1` | embedding base URL（OpenAI 兼容协议） |
@@ -286,9 +297,9 @@ cd tests && npm run e2e             # 前端 E2E（Playwright，自动启停 Spr
 ### 生产环境建议
 
 - 公网入口只开放 Caddy 的 HTTPS 443；Spring Boot 默认仅监听 `127.0.0.1:18092`，禁止覆盖成公网可达地址
-- 首次公网启动用 Secret / 权限为 600 的环境文件临时注入 `AGENT_BOOTSTRAP_ADMIN_PASSWORD`；成功写入 BCrypt 哈希后删除该明文环境变量
+- 首次公网启动用 Secret、进程环境或权限为 600 的 `data/secrets.properties` 临时注入 `AGENT_BOOTSTRAP_ADMIN_PASSWORD`；成功写入 BCrypt 哈希后删除该明文配置
 - 把 `agent.fs.roots`、`agent.worktree.allowed-roots` 限制到必要工作目录
-- 用户 Git 凭据使用 `GIT_CRED_ENC_KEY` 加密；密钥只通过受控环境注入，不写入仓库
+- 用户 Git 凭据使用 `GIT_CRED_ENC_KEY` 加密；密钥通过受控环境或 Git 忽略配置注入，不写入受版本控制的文件
 - TLS 在反向代理终止时保持 `SERVER_FORWARD_HEADERS_STRATEGY=framework`，并设置 `X-Forwarded-Proto=https`；部署样例和检查清单见 [公网 HTTPS 部署](docs/public-deployment.md)
 - CSP 为兼容当前无前端构建步骤的 Vue 运行时模板编译，暂时包含 `unsafe-inline` 与 `unsafe-eval`；后续改为预编译模板和外部脚本后应移除这两个兼容项
 - 不要开启 `CODEX_SANDBOX_BYPASS`，除非已经评估工作目录、CLI 登录态和子进程权限边界

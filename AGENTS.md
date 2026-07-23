@@ -258,6 +258,7 @@ config/       Spring MVC 和装配配置
 | `AGENT_AUTH_LOGIN_MAX_FAILURES` / `AGENT_AUTH_LOGIN_FAILURE_WINDOW_SECONDS` | 登录失败限流阈值 / 窗口 |
 | `AGENT_PUBLIC_ACCESS_ENABLED` / `AGENT_BOOTSTRAP_ADMIN_PASSWORD` | 公网启动门禁 / 首次替换公开种子密码的新密码 |
 | `AGENT_WORKTREE_ALLOWED_ROOT` | Worktree 操作允许的工作区根 |
+| `GIT_CRED_ENC_KEY` | 用户 Git push 凭据的 AES-256-GCM 主密钥 |
 | `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | 飞书凭据 |
 | `REFINERY_ENABLED` | Knowledge Refinery 总开关 |
 | `REFINERY_EMBED_API_KEY` | Ark embedding 凭据，refinery 开启时必填 |
@@ -267,7 +268,16 @@ config/       Spring MVC 和装配配置
 | `AGENT_RUN_WORKSPACE_KNOWLEDGE_ENABLED` | AgentRun workspace 知识预召回开关（默认 true） |
 | `AGENT_RUN_RECALL_TOP_K` | AgentRun 召回 top-K（默认 8） |
 
-`application.yml` 里可能有本地/测试部署用的占位密钥。不要新增硬编码凭据，新增敏感配置走环境变量或被 git ignore 的本地配置文件。
+`application.yml` 里可能有本地/测试部署用的占位密钥。不要新增硬编码凭据，新增敏感配置走环境变量或 Secret Store；需要文件化保存时遵循下方规则。
+
+### 敏感信息落盘
+
+- 服务端使用的 API Key、Token、Secret、私钥、密码和凭据导出文件等敏感信息，需要文件化保存时必须放在仓库根目录 `data/` 下；当前统一入口为 `data/secrets.properties`，由 Spring Boot 通过 `spring.config.import` 自动读取。禁止把敏感值放入源码、配置模板、文档、日志、测试 Fixture、Artifact 或仓库其他目录。
+- `data/` 必须整目录保持 Git 忽略；写入敏感文件前先用 `git check-ignore -q data/<path>` 验证，禁止使用 `git add -f`、Git ignore 例外或其他方式提交其中内容。
+- 敏感目录权限应为 `700`，敏感文件权限应为 `600`；代码、脚本、命令输出和回复中不得打印敏感值，只能核对变量名、是否存在或不可逆摘要。
+- Codex CLI 与 Claude Code 继续使用本机默认配置和登录态；不要移动、复制、读取或改写用户级 `~/.codex`、`~/.claude` 等认证目录，也不要把 `OPENAI_API_KEY`、`ANTHROPIC_API_KEY` 放入 `data/secrets.properties`，除非用户明确要求改变 CLI 鉴权方式。
+- `data/secrets.properties` 当前用于 `GIT_CRED_ENC_KEY`、`REFINERY_EMBED_API_KEY`（兼容 `CHAT_RAG_EMBED_API_KEY`）和一次性的 `AGENT_BOOTSTRAP_ADMIN_PASSWORD` 等服务端配置；同名外部环境变量优先级更高。生产环境优先使用进程环境或 Secret Store。
+- `env.local` 仅保留为历史防误提交规则，不再作为新增敏感信息的存放位置。
 
 ## 开发约定
 
@@ -279,7 +289,7 @@ config/       Spring MVC 和装配配置
 - 禁止通配符导入。
 - 保持 Java 8 兼容。
 - 除非测试明确标记为 `live`，单测和集成测试不要调用真实 DB/Redis/MQ/HTTP/CLI 外部服务。
-- 除任务明确要求外，不要修改 `agent-paths.yml`、`env.local`、本地 DB 文件或生成的测试产物。
+- 除任务明确要求外，不要修改 `agent-paths.yml`、`env.local`、`data/` 下的敏感文件或本地 DB，以及生成的测试产物。
 
 ## 测试选择
 

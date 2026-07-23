@@ -213,6 +213,8 @@ launch_app() {
 
     mkdir -p "$APP_DIR" "$LOG_DIR"
     printf '[3/3] Starting agent-web...\n'
+    # 固定进程工作目录，确保 Spring 始终从仓库根 ./data/secrets.properties 读取本地敏感配置。
+    cd "$PROJECT_DIR"
     nohup "$JAVA_HOME/bin/java" "${java_options[@]}" -jar "$RUNTIME_JAR" \
         "${app_arguments[@]}" >> "$SERVICE_LOG" 2>&1 &
     pid=$!

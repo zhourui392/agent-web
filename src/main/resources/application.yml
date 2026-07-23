@@ -188,7 +188,7 @@ agent:
       # qwen 4096 维 (存量 chunk 已全量重嵌入), 默认值若仍指 doubao 会在漏配 env 时维度错配.
       endpoint: ${CHAT_RAG_EMBED_ENDPOINT:${REFINERY_EMBED_ENDPOINT:https://openrouter.ai/api/v1}}
       model: ${CHAT_RAG_EMBED_MODEL:${REFINERY_EMBED_MODEL:qwen/qwen3-embedding-8b}}
-      api-key: ${CHAT_RAG_EMBED_API_KEY:${REFINERY_EMBED_API_KEY:}}     # 必填 (enabled=true 时), 仅从环境变量取, 严禁硬编码
+      api-key: ${CHAT_RAG_EMBED_API_KEY:${REFINERY_EMBED_API_KEY:}}     # 必填 (enabled=true 时), 从环境变量或 data/secrets.properties 取, 严禁硬编码
       dimension: ${REFINERY_EMBED_DIM:4096}   # qwen3-embedding-8b 返回 4096 维; 换模型须同步改并重嵌入存量 chunk
       max-input-chars: 8000                   # 超长输入前缀截断 + WARN
       http-connect-timeout-ms: 5000
@@ -231,10 +231,12 @@ agent:
 
 spring:
   config:
-    # 各机器易变的主机路径拆到 agent-paths.yml(resources),导入值覆盖本文件同名默认值。
+    # 各机器易变的主机路径拆到 agent-paths.yml(resources),服务端敏感配置放仓库根 data/secrets.properties。
+    # 外部环境变量仍具有更高优先级；生产优先使用环境变量或 Secret Store。
+    # Codex / Claude CLI 登录态不从该文件读取，继续使用本机默认配置。
     # 本机需要不同路径直接改那个文件(可 git update-index --skip-worktree 避免误提交)。
-    # optional: 文件缺失时回退用下方 agent.fs.* 的 Linux 默认值。
-    import: "optional:classpath:agent-paths.yml"
+    # optional: 文件缺失时使用环境变量或下方默认值，不阻断启动。
+    import: "optional:classpath:agent-paths.yml,optional:file:./data/secrets.properties"
   datasource:
     url: jdbc:sqlite:${AGENT_DB_PATH:data/agent-web.db}?busy_timeout=5000
     driver-class-name: org.sqlite.JDBC

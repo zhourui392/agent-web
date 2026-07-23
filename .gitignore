@@ -39,14 +39,14 @@ logs/
 # 运行时 jar 副本目录, 由服务脚本从 target/ 复制而来 (前导 / 锚定仓库根, 避免误伤 src/.../app/ 源码包)
 /app/
 
-# Data
-data/
+# Runtime data and file-based secrets (repository root only; never commit)
+/data/
 
 # Chat uploads (E2E / 本地运行副产物)
 upload_pic/
 upload_file/
 
-# Local secrets / env overrides (chat-rag embedding key 等), 切勿提交
+# Legacy local secrets / env overrides; new file-based secrets must use /data/
 env.local
 
 # Node

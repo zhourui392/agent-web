@@ -1,6 +1,7 @@
 package com.example.agentweb.infra.git;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import jakarta.annotation.PostConstruct;
@@ -14,8 +15,9 @@ import java.util.Arrays;
 import java.util.Base64;
 
 /**
- * push 凭证密码的 AES-256-GCM 加解密。密钥从环境变量 {@code GIT_CRED_ENC_KEY}（32 字节 base64）注入，
- * 绝不进 yml / 绝不回退默认密钥；缺失或长度不对 → 降级为「禁用」（仅身份可用），启动 WARN。
+ * push 凭证密码的 AES-256-GCM 加解密。密钥通过 Spring 配置项 {@code GIT_CRED_ENC_KEY}
+ * （32 字节 base64）注入，可来自环境变量或 Git 忽略的 {@code data/secrets.properties}；
+ * 绝不进入受 Git 跟踪的 yml，也不回退默认密钥。缺失或长度不对 → 降级为「禁用」（仅身份可用），启动 WARN。
  *
  * <p>密文格式 {@code v1:base64(iv(12) ‖ ciphertext ‖ tag(16))}，每条随机 12 字节 IV，
  * {@code v1:} 前缀留密钥轮转余地。封装密钥来源，将来换 KMS 仅改此类。</p>
@@ -29,7 +31,7 @@ import java.util.Base64;
 @Slf4j
 public class GitCredentialCipher {
 
-    /** 密钥环境变量名。绝不硬编码密钥本身。 */
+    /** 密钥配置名（同时兼容同名环境变量）。绝不硬编码密钥本身。 */
     public static final String ENV_KEY = "GIT_CRED_ENC_KEY";
 
     private static final String VERSION_PREFIX = "v1:";
@@ -42,17 +44,13 @@ public class GitCredentialCipher {
     private final byte[] key;
     private final SecureRandom random = new SecureRandom();
 
-    /** 生产构造：从环境变量读密钥。 */
-    public GitCredentialCipher() {
-        this(System.getenv(ENV_KEY));
-    }
-
     /**
-     * 显式密钥构造（供测试注入已知密钥，避免依赖进程环境变量）。
+     * 配置/显式密钥构造。生产由 Spring 从环境变量或 {@code data/secrets.properties} 注入，
+     * 测试直接传入已知密钥，不依赖进程环境。
      *
      * @param base64Key 32 字节密钥的 base64；{@code null}/空/长度非法 → 禁用
      */
-    public GitCredentialCipher(String base64Key) {
+    public GitCredentialCipher(@Value("${GIT_CRED_ENC_KEY:}") String base64Key) {
         this.key = decodeKey(base64Key);
     }
 
@@ -74,7 +72,7 @@ public class GitCredentialCipher {
     @PostConstruct
     void logStatus() {
         if (key == null) {
-            log.warn("git-cred-cipher-disabled env={} 缺失或非 32 字节 base64; push 凭证不可用, 仅 git 提交身份生效",
+            log.warn("git-cred-cipher-disabled config={} 缺失或非 32 字节 base64; push 凭证不可用, 仅 git 提交身份生效",
                     ENV_KEY);
         } else {
             log.info("git-cred-cipher-enabled keyBits={}", KEY_BYTES * 8);
