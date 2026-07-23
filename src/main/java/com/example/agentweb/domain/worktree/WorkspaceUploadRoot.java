@@ -12,7 +12,7 @@ import java.nio.file.Paths;
  * 故凡 {@code workingDir} 落在 {@code .worktrees} 之内,一律把上传根上提到其之上的 workspace 根
  * (例 {@code /ws}),使上传文件不随建删分支而消亡;非 worktree 路径本就稳定,原样返回。</p>
  *
- * <p>纯路径规则,不触碰文件系统;{@link com.example.agentweb.app.WorktreeService} 复用此处的
+ * <p>纯路径规则,不触碰文件系统;{@link com.example.agentweb.app.worktree.WorktreeAppService} 复用此处的
  * {@link #WORKTREE_DIR} 常量,避免目录约定在两处漂移。</p>
  *
  * @author zhourui(V33215020)

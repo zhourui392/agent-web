@@ -58,6 +58,18 @@ public final class UserBranchRef {
     }
 
     /**
+     * 判断 ref 是否为命名空间化私有 ref。
+     *
+     * <p>回收私有 ref 的不变量: 仅 {@code wt/} 前缀的私有分支可删, 绝不误删真实业务分支。</p>
+     *
+     * @param ref 分支 ref, 可为 null
+     * @return 是私有 ref 时返回 true
+     */
+    public static boolean isNamespaced(String ref) {
+        return ref != null && ref.startsWith(PREFIX);
+    }
+
+    /**
      * 从命名空间化 ref 反解逻辑分支名。
      *
      * @param ref {@code wt/{userSlug}/{logicalBranch}} 形式的私有 ref

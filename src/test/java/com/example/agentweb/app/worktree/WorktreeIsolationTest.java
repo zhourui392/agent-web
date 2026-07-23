@@ -1,10 +1,11 @@
-package com.example.agentweb;
+package com.example.agentweb.app.worktree;
 
-import com.example.agentweb.app.WorktreeService;
 import com.example.agentweb.domain.worktree.UserBranchRef;
 import com.example.agentweb.domain.worktree.UserSlug;
 import com.example.agentweb.infra.FsProperties;
 import com.example.agentweb.infra.RealPathWorkspacePolicy;
+import com.example.agentweb.infra.git.LocalWorktreeFileGateway;
+import com.example.agentweb.infra.git.ProcessGitWorktreeGateway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
@@ -18,7 +19,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Comparator;
-import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -40,14 +40,15 @@ class WorktreeIsolationTest {
     @TempDir
     Path tempDir;
 
-    private WorktreeService service;
+    private WorktreeAppService service;
     private Path workspace;
 
     @BeforeEach
     void setUp() throws Exception {
         FsProperties properties = new FsProperties();
         properties.getRoots().add(tempDir.toString());
-        service = new WorktreeService(new RealPathWorkspacePolicy(properties));
+        service = new WorktreeAppService(new RealPathWorkspacePolicy(properties),
+                new ProcessGitWorktreeGateway(), new LocalWorktreeFileGateway());
         workspace = tempDir.resolve("ws");
         Files.createDirectories(workspace);
     }
@@ -61,10 +62,10 @@ class WorktreeIsolationTest {
         String slugA = UserSlug.slug(userA);
         String slugB = UserSlug.slug(userB);
 
-        Map<String, Object> resA = service.switchBranch(userA, workspace.toString(), "feature/login");
-        Map<String, Object> resB = service.switchBranch(userB, workspace.toString(), "feature/login");
+        WorktreeSwitchView resA = service.switchBranch(userA, workspace.toString(), "feature/login");
+        WorktreeSwitchView resB = service.switchBranch(userB, workspace.toString(), "feature/login");
 
-        assertNotEquals(resA.get("worktreePath"), resB.get("worktreePath"));
+        assertNotEquals(resA.worktreePath(), resB.worktreePath());
         assertTrue(firstRepoCreated(resA), "userA 应创建成功");
         assertTrue(firstRepoCreated(resB), "userB 应创建成功");
 
@@ -109,9 +110,9 @@ class WorktreeIsolationTest {
         gitClone(bare, repo);
         git(repo, "fetch", "--all");
 
-        Map<String, Object> resA = service.switchBranch("ou_alice", workspace.toString(), "feature/login");
+        WorktreeSwitchView resA = service.switchBranch("ou_alice", workspace.toString(), "feature/login");
 
-        Path aliceRepo = Paths.get((String) resA.get("worktreePath"), "dep");
+        Path aliceRepo = Paths.get(resA.worktreePath(), "dep");
         assertFalse(isDirectoryLink(aliceRepo), "alice 的 fallback 仓应是隔离 worktree 而非共享链接");
         assertEquals(0, gitRc(repo, "show-ref", "--verify", "--quiet",
                 "refs/heads/wt/" + UserSlug.slug("ou_alice") + "/master"));
@@ -139,29 +140,26 @@ class WorktreeIsolationTest {
     @DisplayName("陈旧注册自愈: 目录被外部删但私有 ref 残留时, 再次 switch 不卡死")
     void reEntry_staleRegistration_selfHeals() throws Exception {
         createRepo("svc-a", "feature/login");
-        Map<String, Object> first = service.switchBranch("ou_alice", workspace.toString(), "feature/login");
-        Path wtDir = Paths.get((String) first.get("worktreePath"), "svc-a");
+        WorktreeSwitchView first = service.switchBranch("ou_alice", workspace.toString(), "feature/login");
+        Path wtDir = Paths.get(first.worktreePath(), "svc-a");
         assertTrue(Files.isDirectory(wtDir));
 
         // 模拟磁盘清理/失败的 remove: 目录没了但 git 注册与私有 ref 仍残留
         rmRf(wtDir);
 
-        Map<String, Object> second = service.switchBranch("ou_alice", workspace.toString(), "feature/login");
+        WorktreeSwitchView second = service.switchBranch("ou_alice", workspace.toString(), "feature/login");
         assertTrue(firstRepoCreated(second), "二次进入应 prune 自愈: " + firstRepoReason(second));
         assertTrue(Files.isDirectory(wtDir), "worktree 目录应被重建");
     }
 
     // ============ helpers ============
 
-    @SuppressWarnings("unchecked")
-    private boolean firstRepoCreated(Map<String, Object> result) {
-        return Boolean.TRUE.equals(
-                ((java.util.List<Map<String, Object>>) result.get("repos")).get(0).get("created"));
+    private boolean firstRepoCreated(WorktreeSwitchView result) {
+        return result.repos().get(0).created();
     }
 
-    @SuppressWarnings("unchecked")
-    private Object firstRepoReason(Map<String, Object> result) {
-        return ((java.util.List<Map<String, Object>>) result.get("repos")).get(0).get("reason");
+    private Object firstRepoReason(WorktreeSwitchView result) {
+        return result.repos().get(0).reason();
     }
 
     private Path createRepo(String name, String... branches) throws Exception {

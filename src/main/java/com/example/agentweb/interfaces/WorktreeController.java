@@ -1,6 +1,9 @@
 package com.example.agentweb.interfaces;
 
-import com.example.agentweb.app.WorktreeService;
+import com.example.agentweb.app.worktree.WorktreeAppService;
+import com.example.agentweb.app.worktree.WorktreeBranchView;
+import com.example.agentweb.app.worktree.WorktreeSwitchView;
+import com.example.agentweb.app.worktree.WorktreeUpdateView;
 import com.example.agentweb.domain.auth.CurrentUserProvider;
 import com.example.agentweb.domain.worktree.BranchNameValidator;
 import org.springframework.http.MediaType;
@@ -21,16 +24,16 @@ import java.util.Map;
 @RequestMapping(path = "/api/worktree", produces = MediaType.APPLICATION_JSON_VALUE)
 public class WorktreeController {
 
-    private final WorktreeService worktreeService;
+    private final WorktreeAppService worktreeAppService;
     private final CurrentUserProvider currentUserProvider;
 
-    public WorktreeController(WorktreeService worktreeService, CurrentUserProvider currentUserProvider) {
-        this.worktreeService = worktreeService;
+    public WorktreeController(WorktreeAppService worktreeAppService, CurrentUserProvider currentUserProvider) {
+        this.worktreeAppService = worktreeAppService;
         this.currentUserProvider = currentUserProvider;
     }
 
     @PostMapping("/switch")
-    public Map<String, Object> switchBranch(@RequestBody Map<String, String> req)
+    public WorktreeSwitchView switchBranch(@RequestBody Map<String, String> req)
             throws IOException, InterruptedException {
         String workspacePath = req.get("workspacePath");
         String branch = req.get("branch");
@@ -38,11 +41,11 @@ public class WorktreeController {
             throw new IllegalArgumentException("workspacePath and branch are required");
         }
         String normalizedBranch = BranchNameValidator.validateAndNormalize(branch);
-        return worktreeService.switchBranch(currentUserProvider.currentUserId(), workspacePath, normalizedBranch);
+        return worktreeAppService.switchBranch(currentUserProvider.currentUserId(), workspacePath, normalizedBranch);
     }
 
     @PostMapping("/update")
-    public Map<String, Object> updateBranch(@RequestBody Map<String, String> req)
+    public WorktreeUpdateView updateBranch(@RequestBody Map<String, String> req)
             throws IOException, InterruptedException {
         String workspacePath = req.get("workspacePath");
         String branch = req.get("branch");
@@ -50,13 +53,13 @@ public class WorktreeController {
             throw new IllegalArgumentException("workspacePath and branch are required");
         }
         String normalizedBranch = BranchNameValidator.validateAndNormalize(branch);
-        return worktreeService.updateBranch(currentUserProvider.currentUserId(), workspacePath, normalizedBranch);
+        return worktreeAppService.updateBranch(currentUserProvider.currentUserId(), workspacePath, normalizedBranch);
     }
 
     @GetMapping("/list")
-    public List<Map<String, Object>> list(@RequestParam("workspacePath") String workspacePath)
+    public List<WorktreeBranchView> list(@RequestParam("workspacePath") String workspacePath)
             throws IOException {
-        return worktreeService.listWorktrees(currentUserProvider.currentUserId(), workspacePath);
+        return worktreeAppService.listWorktrees(currentUserProvider.currentUserId(), workspacePath);
     }
 
     @DeleteMapping("/remove")
@@ -64,7 +67,7 @@ public class WorktreeController {
                                       @RequestParam("branch") String branch)
             throws IOException, InterruptedException {
         String normalizedBranch = BranchNameValidator.validateAndNormalize(branch);
-        worktreeService.removeWorktree(currentUserProvider.currentUserId(), workspacePath, normalizedBranch);
+        worktreeAppService.removeWorktree(currentUserProvider.currentUserId(), workspacePath, normalizedBranch);
         Map<String, Object> result = new HashMap<>(16);
         result.put("success", true);
         return result;

@@ -1,10 +1,11 @@
-package com.example.agentweb;
+package com.example.agentweb.interfaces;
 
-import com.example.agentweb.app.WorktreeService;
+import com.example.agentweb.app.worktree.WorktreeAppService;
+import com.example.agentweb.app.worktree.WorktreeBranchView;
+import com.example.agentweb.app.worktree.WorktreeRepoSwitchView;
+import com.example.agentweb.app.worktree.WorktreeSwitchView;
 import com.example.agentweb.domain.auth.CurrentUserProvider;
 import com.example.agentweb.infra.auth.AuthProperties;
-import com.example.agentweb.interfaces.GlobalExceptionHandler;
-import com.example.agentweb.interfaces.WorktreeController;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,8 +16,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.List;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasSize;
@@ -49,7 +49,7 @@ class WorktreeControllerTest {
     private MockMvc mvc;
 
     @MockBean
-    private WorktreeService worktreeService;
+    private WorktreeAppService worktreeAppService;
     @MockBean
     private CurrentUserProvider currentUserProvider;
     @MockBean
@@ -69,7 +69,7 @@ class WorktreeControllerTest {
     void switchBranch_returns200WithWorktreePath() throws Exception {
         // Given
         mockCurrentUser();
-        when(worktreeService.switchBranch(USER_ID, WORKSPACE, BRANCH)).thenReturn(buildSwitchResult());
+        when(worktreeAppService.switchBranch(USER_ID, WORKSPACE, BRANCH)).thenReturn(buildSwitchResult());
 
         // When & Then
         mvc.perform(post("/api/worktree/switch")
@@ -87,7 +87,7 @@ class WorktreeControllerTest {
     void listWorktrees_returnsCreatedBranches() throws Exception {
         // Given
         mockCurrentUser();
-        when(worktreeService.listWorktrees(USER_ID, WORKSPACE))
+        when(worktreeAppService.listWorktrees(USER_ID, WORKSPACE))
                 .thenReturn(Collections.singletonList(buildBranchItem()));
 
         // When & Then
@@ -111,7 +111,7 @@ class WorktreeControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true));
 
-        verify(worktreeService).removeWorktree(USER_ID, WORKSPACE, BRANCH);
+        verify(worktreeAppService).removeWorktree(USER_ID, WORKSPACE, BRANCH);
     }
 
     @Test
@@ -120,7 +120,7 @@ class WorktreeControllerTest {
         // Given
         mockCurrentUser();
         doThrow(new IllegalArgumentException("Workspace not found: /nonexistent/path"))
-                .when(worktreeService).switchBranch(eq(USER_ID), eq("/nonexistent/path"), anyString());
+                .when(worktreeAppService).switchBranch(eq(USER_ID), eq("/nonexistent/path"), anyString());
 
         // When & Then
         mvc.perform(post("/api/worktree/switch")
@@ -145,7 +145,7 @@ class WorktreeControllerTest {
     void switchBranch_trimsWhitespace() throws Exception {
         // Given
         mockCurrentUser();
-        when(worktreeService.switchBranch(USER_ID, WORKSPACE, BRANCH)).thenReturn(buildSwitchResult());
+        when(worktreeAppService.switchBranch(USER_ID, WORKSPACE, BRANCH)).thenReturn(buildSwitchResult());
 
         // When & Then
         mvc.perform(post("/api/worktree/switch")
@@ -154,7 +154,7 @@ class WorktreeControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.branch").value(BRANCH));
 
-        verify(worktreeService).switchBranch(USER_ID, WORKSPACE, BRANCH);
+        verify(worktreeAppService).switchBranch(USER_ID, WORKSPACE, BRANCH);
     }
 
     @Test
@@ -162,7 +162,7 @@ class WorktreeControllerTest {
     void listWorktrees_empty_returnsEmptyArray() throws Exception {
         // Given
         mockCurrentUser();
-        when(worktreeService.listWorktrees(USER_ID, WORKSPACE)).thenReturn(Collections.emptyList());
+        when(worktreeAppService.listWorktrees(USER_ID, WORKSPACE)).thenReturn(Collections.emptyList());
 
         // When & Then
         mvc.perform(get("/api/worktree/list").param("workspacePath", WORKSPACE))
@@ -178,21 +178,13 @@ class WorktreeControllerTest {
         return "{\"workspacePath\":\"" + workspacePath + "\",\"branch\":\"" + branch + "\"}";
     }
 
-    private Map<String, Object> buildSwitchResult() {
-        Map<String, Object> repo = new HashMap<>(8);
-        repo.put("name", "svc-alpha");
-        repo.put("created", true);
-        Map<String, Object> result = new HashMap<>(8);
-        result.put("worktreePath", "E:/repo/ws/.worktrees/u-ou_test/feature-test-branch");
-        result.put("branch", BRANCH);
-        result.put("repos", Collections.singletonList(repo));
-        return result;
+    private WorktreeSwitchView buildSwitchResult() {
+        WorktreeRepoSwitchView repo = new WorktreeRepoSwitchView("svc-alpha", BRANCH, true, null);
+        return new WorktreeSwitchView("E:/repo/ws/.worktrees/u-ou_test/feature-test-branch",
+                BRANCH, List.of(repo));
     }
 
-    private Map<String, Object> buildBranchItem() {
-        Map<String, Object> item = new HashMap<>(8);
-        item.put("branch", "feature-test-branch");
-        item.put("repoCount", 1);
-        return item;
+    private WorktreeBranchView buildBranchItem() {
+        return new WorktreeBranchView("feature-test-branch", "E:/repo/ws/.worktrees/u-ou_test/feature-test-branch", 1);
     }
 }

@@ -1,6 +1,8 @@
-package com.example.agentweb.app;
+package com.example.agentweb.app.worktree;
 
 import com.example.agentweb.domain.worktree.WorkspacePathPolicy;
+import com.example.agentweb.infra.git.LocalWorktreeFileGateway;
+import com.example.agentweb.infra.git.ProcessGitWorktreeGateway;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
@@ -9,7 +11,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -23,7 +24,7 @@ import static org.mockito.Mockito.when;
  * @since 2026-07-23
  */
 @ExtendWith(MockitoExtension.class)
-class WorktreeServicePathPolicyTest {
+class WorktreeAppServicePathPolicyTest {
 
     @Mock
     private WorkspacePathPolicy workspacePathPolicy;
@@ -31,16 +32,21 @@ class WorktreeServicePathPolicyTest {
     @TempDir
     private Path authorizedWorkspace;
 
+    private WorktreeAppService newService() {
+        return new WorktreeAppService(workspacePathPolicy,
+                new ProcessGitWorktreeGateway(), new LocalWorktreeFileGateway());
+    }
+
     @Test
     void listWorktrees_shouldUseSharedWorkspacePathPolicy() throws Exception {
         // Given
         String requestedWorkspace = "/requested/workspace";
         when(workspacePathPolicy.prepareWorkspaceDirectory(requestedWorkspace))
                 .thenReturn(authorizedWorkspace.toString());
-        WorktreeService service = new WorktreeService(workspacePathPolicy);
+        WorktreeAppService service = newService();
 
         // When
-        List<Map<String, Object>> result = service.listWorktrees(null, requestedWorkspace);
+        List<WorktreeBranchView> result = service.listWorktrees(null, requestedWorkspace);
 
         // Then
         assertTrue(result.isEmpty());
@@ -53,7 +59,7 @@ class WorktreeServicePathPolicyTest {
         String requestedWorkspace = "/denied/workspace";
         when(workspacePathPolicy.prepareWorkspaceDirectory(requestedWorkspace))
                 .thenThrow(new IllegalArgumentException("Path out of allowed roots"));
-        WorktreeService service = new WorktreeService(workspacePathPolicy);
+        WorktreeAppService service = newService();
 
         // When / Then
         assertThrows(IllegalArgumentException.class,
@@ -66,13 +72,13 @@ class WorktreeServicePathPolicyTest {
         String requestedWorkspace = "/requested/workspace";
         when(workspacePathPolicy.requireExistingDirectory(requestedWorkspace))
                 .thenReturn(authorizedWorkspace.toString());
-        WorktreeService service = new WorktreeService(workspacePathPolicy);
+        WorktreeAppService service = newService();
 
         // When
-        Map<String, Object> result = service.switchBranch(null, requestedWorkspace, "feature/path-policy");
+        WorktreeSwitchView result = service.switchBranch(null, requestedWorkspace, "feature/path-policy");
 
         // Then
-        assertTrue(String.valueOf(result.get("worktreePath")).startsWith(authorizedWorkspace.toString()));
+        assertTrue(result.worktreePath().startsWith(authorizedWorkspace.toString()));
         verify(workspacePathPolicy).requireExistingDirectory(requestedWorkspace);
     }
 }

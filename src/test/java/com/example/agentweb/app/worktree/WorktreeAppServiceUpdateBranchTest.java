@@ -1,8 +1,9 @@
-package com.example.agentweb;
+package com.example.agentweb.app.worktree;
 
-import com.example.agentweb.app.WorktreeService;
 import com.example.agentweb.infra.FsProperties;
 import com.example.agentweb.infra.RealPathWorkspacePolicy;
+import com.example.agentweb.infra.git.LocalWorktreeFileGateway;
+import com.example.agentweb.infra.git.ProcessGitWorktreeGateway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
@@ -11,40 +12,38 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
-import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * 补 WorktreeService.updateBranch / pullOne / removeWorktree 等未覆盖路径,
- * 用真 git 子进程跑,与 {@link WorktreeServiceTest} 同风格。
+ * 补 WorktreeAppService.updateBranch / pullOne / removeWorktree 等未覆盖路径,
+ * 用真 git 子进程跑,与 {@link WorktreeAppServiceTest} 同风格。
  *
  * @author zhourui(V33215020)
  * @since 2026-06-07
  */
 @Tag("git-integration")
-class WorktreeServiceUpdateBranchTest {
+class WorktreeAppServiceUpdateBranchTest {
 
     @TempDir
     Path tempDir;
 
-    private WorktreeService service;
+    private WorktreeAppService service;
     private Path workspace;
 
     @BeforeEach
     void setUp() throws Exception {
         FsProperties properties = new FsProperties();
         properties.getRoots().add(tempDir.toString());
-        service = new WorktreeService(new RealPathWorkspacePolicy(properties));
+        service = new WorktreeAppService(new RealPathWorkspacePolicy(properties),
+                new ProcessGitWorktreeGateway(), new LocalWorktreeFileGateway());
         workspace = tempDir.resolve("ws");
         Files.createDirectories(workspace);
     }
@@ -69,15 +68,10 @@ class WorktreeServiceUpdateBranchTest {
     // ============ updateBranch 正常路径(已是最新) ============
 
     @Test
-    @DisplayName("updateBranch: 刚 switchBranch 完, pull 后 'updated=true reason=已是最新'")
-    void updateBranch_freshWorktree_upToDate() throws Exception {
-        Method method = WorktreeService.class.getDeclaredMethod(
-                "pullSuccessReason", String.class, String.class);
-        method.setAccessible(true);
-
-        Object reason = method.invoke(service, "abc123", "abc123");
-
-        assertEquals("已是最新", reason);
+    @DisplayName("pullSuccessReason: HEAD 未变 → '已是最新'")
+    void pullSuccessReason_sameHead_upToDate() {
+        assertEquals("已是最新", WorktreeAppService.pullSuccessReason("abc123", "abc123"));
+        assertEquals("已更新", WorktreeAppService.pullSuccessReason("abc123", "def456"));
     }
 
     // ============ updateBranch: remote 有新提交 → '已更新' ============
@@ -100,13 +94,11 @@ class WorktreeServiceUpdateBranchTest {
         git(pusher, "commit", "-m", "new commit");
         git(pusher, "push", "origin", "feature/login");
 
-        Map<String, Object> result = service.updateBranch(null, workspace.toString(),"feature/login");
+        WorktreeUpdateView result = service.updateBranch(null, workspace.toString(),"feature/login");
 
-        @SuppressWarnings("unchecked")
-        List<Map<String, Object>> repos = (List<Map<String, Object>>) result.get("repos");
-        Map<String, Object> svcA = repos.get(0);
-        assertTrue((Boolean) svcA.get("updated"));
-        assertEquals("已更新", svcA.get("reason"));
+        WorktreeRepoUpdateView svcA = result.repos().get(0);
+        assertTrue(svcA.updated());
+        assertEquals("已更新", svcA.reason());
     }
 
     @Test
@@ -118,19 +110,18 @@ class WorktreeServiceUpdateBranchTest {
         Path worktreeBase = workspace.resolve(".worktrees").resolve("u-_local").resolve("feature-local-only");
         assertTrue(Files.isDirectory(worktreeBase));
 
-        Map<String, Object> result = service.updateBranch(null, workspace.toString(), "feature/local-only");
+        WorktreeUpdateView result = service.updateBranch(null, workspace.toString(), "feature/local-only");
 
-        @SuppressWarnings("unchecked")
-        List<Map<String, Object>> repos = (List<Map<String, Object>>) result.get("repos");
+        List<WorktreeRepoUpdateView> repos = result.repos();
         assertEquals(2, repos.size());
-        Map<String, Object> svcA = findRepo(repos, "svc-a");
-        Map<String, Object> svcB = findRepo(repos, "svc-b");
-        assertEquals(Boolean.FALSE, svcA.get("updated"));
-        assertEquals(Boolean.TRUE, svcA.get("skipped"));
-        assertEquals("本地分支，无远端可更新", svcA.get("reason"));
-        assertEquals(Boolean.FALSE, svcB.get("updated"));
-        assertEquals(Boolean.TRUE, svcB.get("skipped"));
-        assertEquals("回退分支，跳过", svcB.get("reason"));
+        WorktreeRepoUpdateView svcA = findRepo(repos, "svc-a");
+        WorktreeRepoUpdateView svcB = findRepo(repos, "svc-b");
+        assertFalse(svcA.updated());
+        assertEquals(Boolean.TRUE, svcA.skipped());
+        assertEquals("本地分支，无远端可更新", svcA.reason());
+        assertFalse(svcB.updated());
+        assertEquals(Boolean.TRUE, svcB.skipped());
+        assertEquals("回退分支，跳过", svcB.reason());
 
         service.removeWorktree(null, workspace.toString(), "feature/local-only");
 
@@ -146,9 +137,9 @@ class WorktreeServiceUpdateBranchTest {
                 service.removeWorktree(null, tempDir.resolve("ghost").toString(), "x"));
     }
 
-    private Map<String, Object> findRepo(List<Map<String, Object>> repos, String name) {
+    private WorktreeRepoUpdateView findRepo(List<WorktreeRepoUpdateView> repos, String name) {
         return repos.stream()
-                .filter(repo -> name.equals(repo.get("name")))
+                .filter(repo -> name.equals(repo.name()))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("repo not found: " + name));
     }
@@ -162,17 +153,15 @@ class WorktreeServiceUpdateBranchTest {
         Files.createDirectories(worktreeBase.resolve("svc-a/.git"));
         Files.createDirectories(worktreeBase.resolve("svc-b/.git"));
 
-        List<Map<String, Object>> list = service.listWorktrees(null, workspace.toString());
+        List<WorktreeBranchView> list = service.listWorktrees(null, workspace.toString());
         assertEquals(1, list.size());
-        Map<String, Object> branch = list.get(0);
-        Object count = branch.get("repoCount");
-        assertEquals(2, ((Number) count).intValue());
+        assertEquals(2, list.get(0).repoCount());
     }
 
     @Test
     @DisplayName("listWorktrees: 工作空间下没有 .worktrees 目录时返回空列表")
     void listWorktrees_noWorktreeDir_returnsEmpty() throws Exception {
-        List<Map<String, Object>> list = service.listWorktrees(null, workspace.toString());
+        List<WorktreeBranchView> list = service.listWorktrees(null, workspace.toString());
         assertTrue(list.isEmpty());
     }
 
@@ -181,10 +170,9 @@ class WorktreeServiceUpdateBranchTest {
     @Test
     @DisplayName("switchBranch: 分支名含 :/\\ 等 → 全部替换为 -")
     void switchBranch_branchNameWithSpecialChars_sanitized() throws Exception {
-        Map<String, Object> result = service.switchBranch(null, workspace.toString(),"release/v1.0");
+        WorktreeSwitchView result = service.switchBranch(null, workspace.toString(),"release/v1.0");
 
-        String path = (String) result.get("worktreePath");
-        String dirName = java.nio.file.Paths.get(path).getFileName().toString();
+        String dirName = java.nio.file.Paths.get(result.worktreePath()).getFileName().toString();
         assertFalse(dirName.contains("/"));
         assertFalse(dirName.contains(":"));
     }
@@ -228,14 +216,14 @@ class WorktreeServiceUpdateBranchTest {
         git(target, "config", "user.name", "t");
     }
 
-    /** 沿用 WorktreeServiceTest 的本地 init 风格,但带 origin。 */
+    /** 沿用 WorktreeAppServiceTest 的本地 init 风格,但带 origin。 */
     private Path createRepo(String name, String... branches) throws Exception {
         Path repoDir = workspace.resolve(name);
         Files.createDirectories(repoDir);
         git(repoDir, "init");
         git(repoDir, "config", "user.email", "t@t.com");
         git(repoDir, "config", "user.name", "t");
-        Files.write(repoDir.resolve("README.md"), ("# " + name).getBytes());
+        Files.write(repoDir.resolve("README.md"), "# test".getBytes());
         git(repoDir, "add", ".");
         git(repoDir, "commit", "-m", "init");
         for (String b : branches) {
