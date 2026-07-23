@@ -1,0 +1,17 @@
+schemaVersion: "1"
+id: domain-modeling-audit
+version: 1.0.0
+description: 提取不变量、聚合边界和业务变化点
+stages: [ANALYSIS]
+techTags: [java, ddd]
+explicitTriggers: [domain-audit]
+entry: SKILL.md
+resources: []
+dependencies: []
+conflicts: []
+runtimes: [CODEX, CLAUDE]
+trustSource: PLATFORM
+capabilities:
+  - kind: FILE
+    access: READ
+    resource: workspace

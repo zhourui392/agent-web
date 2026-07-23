@@ -139,10 +139,18 @@ agent:
       - /api/diagnose-history
       - /api/harness
 
-  # 研发交付 Harness，M1 默认关闭。关闭时不注册管理 API、Repository、Store 或执行入口。
+  # 研发交付 Harness，默认关闭。关闭时不注册管理 API、Repository、Catalog、Store 或执行入口。
   harness:
     enabled: ${AGENT_HARNESS_ENABLED:false}
     artifact-root: ${AGENT_HARNESS_ARTIFACT_ROOT:data/harness/artifacts}
+    # Catalog 在每次 Attempt 固化前热读取；打包部署应覆盖为管理员维护的外置只读目录。
+    prompt-pack-root: ${AGENT_HARNESS_PROMPT_PACK_ROOT:src/main/resources/harness/prompt-packs}
+    platform-skill-root: ${AGENT_HARNESS_PLATFORM_SKILL_ROOT:src/main/resources/harness/skills}
+    approved-user-skill-root: ${AGENT_HARNESS_APPROVED_USER_SKILL_ROOT:}
+    workspace-skill-root: ${AGENT_HARNESS_WORKSPACE_SKILL_ROOT:}
+    capability-policy-version: harness-capability-policy@1.0.0
+    platform-safety: 遵守平台权限边界；未明确授权的文件、命令和外部能力默认拒绝。
+    environment-guardrail: 只在 Run 声明的环境和工作目录内操作，不读取或输出敏感凭据。
 
   # issue-log 写盘通道配置
   issue-log:

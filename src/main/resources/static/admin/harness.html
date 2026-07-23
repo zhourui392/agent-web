@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Harness · Agent Q&A 管理后台</title>
+  <link rel="stylesheet" href="../vendor/element-plus.css">
+  <link rel="stylesheet" href="../css/admin.css?v=2026061101">
+</head>
+<body>
+  <div id="app" v-cloak>
+    <admin-shell active="harness">
+      <template #header-actions>
+        <el-button text @click="loadSnapshot" :loading="loading">刷新 Snapshot</el-button>
+      </template>
+
+      <div class="view-wrap">
+        <div class="section-title">Capability Snapshot 预览</div>
+        <el-form label-position="top" size="small">
+          <el-row :gutter="12">
+            <el-col :span="isMobile ? 24 : 12">
+              <el-form-item label="Run ID">
+                <el-input v-model="runId" data-test="harness-run-id"></el-input>
+              </el-form-item>
+            </el-col>
+            <el-col :span="isMobile ? 12 : 6">
+              <el-form-item label="Stage">
+                <el-select v-model="stage" style="width: 100%;">
+                  <el-option v-for="item in stages" :key="item" :label="item" :value="item"></el-option>
+                </el-select>
+              </el-form-item>
+            </el-col>
+            <el-col :span="isMobile ? 12 : 6">
+              <el-form-item label="Attempt">
+                <el-input-number v-model="attemptNumber" :min="1" style="width: 100%;"></el-input-number>
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-button @click="loadSnapshot" :loading="loading">读取已固化 Snapshot</el-button>
+        </el-form>
+
+        <el-divider></el-divider>
+        <div class="section-title">固化当前 Attempt</div>
+        <el-alert type="info" :closable="false" style="margin-bottom: 12px;"
+                  title="Skill 被选择不等于命令或文件写入已授权；授权结果以后端 Snapshot 为准。"></el-alert>
+        <el-form label-position="top" size="small">
+          <el-row :gutter="12">
+            <el-col :span="isMobile ? 24 : 12">
+              <el-form-item label="显式 Skill ID（逗号分隔）">
+                <el-input v-model="form.explicitSkillIds"></el-input>
+              </el-form-item>
+            </el-col>
+            <el-col :span="isMobile ? 24 : 12">
+              <el-form-item label="技术标签（逗号分隔）">
+                <el-input v-model="form.technicalTags" placeholder="java, spring"></el-input>
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-form-item label="Run 级批准的 Workspace Skill ID（逗号分隔）">
+            <el-input v-model="form.approvedWorkspaceSkillIds"></el-input>
+          </el-form-item>
+          <el-row :gutter="12">
+            <el-col :span="isMobile ? 24 : 8">
+              <el-form-item label="可读逻辑根">
+                <el-input v-model="form.readableFileRoots" placeholder="workspace"></el-input>
+              </el-form-item>
+            </el-col>
+            <el-col :span="isMobile ? 24 : 8">
+              <el-form-item label="可写逻辑根">
+                <el-input v-model="form.writableFileRoots"></el-input>
+              </el-form-item>
+            </el-col>
+            <el-col :span="isMobile ? 24 : 8">
+              <el-form-item label="逻辑命令白名单">
+                <el-input v-model="form.executableCommands" placeholder="mvn-test"></el-input>
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-form-item label="已批准上游 Artifact 摘要">
+            <el-input v-model="form.upstreamArtifacts" type="textarea" :rows="3"></el-input>
+          </el-form-item>
+          <el-form-item label="当前输入">
+            <el-input v-model="form.currentInput" type="textarea" :rows="4"></el-input>
+          </el-form-item>
+          <el-button type="primary" @click="resolveSnapshot" :loading="resolving"
+                     data-test="resolve-harness-snapshot">固化并预览</el-button>
+        </el-form>
+
+        <template v-if="snapshot">
+          <el-divider></el-divider>
+          <div class="section-title">Hash 与资源身份</div>
+          <el-descriptions :column="isMobile ? 1 : 2" border size="small">
+            <el-descriptions-item label="Snapshot Hash"><code>{{ snapshot.snapshotHash }}</code></el-descriptions-item>
+            <el-descriptions-item label="Prompt Hash"><code>{{ snapshot.promptHash }}</code></el-descriptions-item>
+            <el-descriptions-item label="Prompt Pack">
+              {{ snapshot.promptPackId }}@{{ snapshot.promptPackVersion }}
+            </el-descriptions-item>
+            <el-descriptions-item label="Package Hash"><code>{{ snapshot.promptPackHash }}</code></el-descriptions-item>
+            <el-descriptions-item label="Runtime / Environment">
+              {{ snapshot.runtime }} / {{ snapshot.environment }}
+            </el-descriptions-item>
+            <el-descriptions-item label="Policy">{{ snapshot.policyVersion }}</el-descriptions-item>
+          </el-descriptions>
+
+          <div class="section-title" style="margin-top: 18px;">已选择 Skill</div>
+          <el-table :data="snapshot.selectedSkills || []" size="small" empty-text="没有选中 Skill">
+            <el-table-column prop="id" label="ID" min-width="180"></el-table-column>
+            <el-table-column prop="version" label="Version" width="100"></el-table-column>
+            <el-table-column label="选择原因" min-width="140">
+              <template #default="{ row }">{{ selectionReasonLabel(row.reason) }}</template>
+            </el-table-column>
+            <el-table-column label="Package Hash" min-width="180">
+              <template #default="{ row }"><code :title="row.packageHash">{{ shortHash(row.packageHash) }}</code></template>
+            </el-table-column>
+          </el-table>
+
+          <div class="section-title" style="margin-top: 18px;">未选择 Skill</div>
+          <el-table :data="snapshot.rejectedSkills || []" size="small" empty-text="没有被拒 Skill">
+            <el-table-column prop="skillId" label="ID" min-width="180"></el-table-column>
+            <el-table-column prop="version" label="Version" width="100"></el-table-column>
+            <el-table-column label="拒绝原因" min-width="180">
+              <template #default="{ row }">{{ rejectionReasonLabel(row.reason) }}</template>
+            </el-table-column>
+          </el-table>
+
+          <div class="section-title" style="margin-top: 18px;">文件 / 命令能力决策</div>
+          <el-table :data="snapshot.capabilityDecisions || []" size="small" empty-text="没有能力请求">
+            <el-table-column prop="skillId" label="Skill" min-width="150"></el-table-column>
+            <el-table-column label="能力" min-width="220">
+              <template #default="{ row }">
+                {{ row.request.kind }} / {{ row.request.access }} / {{ row.request.resource }}
+              </template>
+            </el-table-column>
+            <el-table-column label="决策" min-width="140">
+              <template #default="{ row }">
+                <el-tag :type="row.authorized ? 'success' : 'danger'" size="small">
+                  {{ capabilityDecisionLabel(row.authorized, row.reason) }}
+                </el-tag>
+              </template>
+            </el-table-column>
+          </el-table>
+
+          <div class="section-title" style="margin-top: 18px;">Prompt 装配清单</div>
+          <el-collapse>
+            <el-collapse-item v-for="(part, index) in snapshot.promptParts || []"
+                              :key="part.type + index" :name="index"
+                              :title="(index + 1) + '. ' + part.type + ' · ' + shortHash(part.sha256)">
+              <div class="muted">来源：{{ part.source }} · SHA-256：{{ part.sha256 }}</div>
+              <pre style="white-space: pre-wrap; word-break: break-word;">{{ part.content }}</pre>
+            </el-collapse-item>
+          </el-collapse>
+          <div class="section-title" style="margin-top: 18px;">最终 Prompt</div>
+          <pre style="white-space: pre-wrap; word-break: break-word;">{{ snapshot.finalPrompt }}</pre>
+        </template>
+      </div>
+    </admin-shell>
+  </div>
+
+  <script src="../js/base.js?v=20260611"></script>
+  <script src="../vendor/vue.global.js"></script>
+  <script src="../vendor/element-plus.full.min.js"></script>
+  <script src="../vendor/element-plus-icons-vue.iife.min.js"></script>
+  <script src="../js/admin/shell.js?v=2026072301"></script>
+  <script src="../js/admin/harness-utils.js?v=2026072301"></script>
+  <script src="../js/admin/pages/harness.js?v=2026072301"></script>
+</body>
+</html>

@@ -431,6 +431,33 @@ CREATE TABLE IF NOT EXISTS harness_event (
     FOREIGN KEY(run_id) REFERENCES harness_run(id) ON DELETE CASCADE
 );
 
+-- M2 Capability Snapshot 与 Attempt 一对一绑定；资源变化必须新建 Attempt，禁止原地覆盖。
+CREATE TABLE IF NOT EXISTS harness_capability_snapshot (
+    run_id                       TEXT    NOT NULL,
+    stage                        TEXT    NOT NULL,
+    attempt_number               INTEGER NOT NULL,
+    runtime                      TEXT    NOT NULL,
+    environment                  TEXT    NOT NULL,
+    policy_version               TEXT    NOT NULL,
+    prompt_pack_id               TEXT    NOT NULL,
+    prompt_pack_version          TEXT    NOT NULL,
+    prompt_pack_hash             TEXT    NOT NULL,
+    prompt_resource_hashes_json  TEXT    NOT NULL,
+    selected_skills_json         TEXT    NOT NULL,
+    rejected_skills_json         TEXT    NOT NULL,
+    capability_decisions_json    TEXT    NOT NULL,
+    prompt_parts_json            TEXT    NOT NULL,
+    final_prompt                 TEXT    NOT NULL,
+    prompt_hash                  TEXT    NOT NULL,
+    snapshot_hash                TEXT    NOT NULL,
+    created_at                   INTEGER NOT NULL,
+    PRIMARY KEY(run_id, stage, attempt_number),
+    FOREIGN KEY(run_id, stage, attempt_number)
+        REFERENCES harness_stage_attempt(run_id, stage, attempt_number) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_harness_capability_snapshot_hash
+    ON harness_capability_snapshot(snapshot_hash);
+
 CREATE INDEX IF NOT EXISTS idx_workflow_step_execution_execution
     ON workflow_step_execution(execution_id, step_index);
 

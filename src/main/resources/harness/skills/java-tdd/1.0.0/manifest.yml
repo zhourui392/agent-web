@@ -1,0 +1,23 @@
+schemaVersion: "1"
+id: java-tdd
+version: 1.0.0
+description: 用红绿重构完成 Java 业务变更
+stages: [IMPLEMENTATION]
+techTags: [java, spring]
+explicitTriggers: [java-tdd]
+entry: SKILL.md
+resources: []
+dependencies: []
+conflicts: []
+runtimes: [CODEX, CLAUDE]
+trustSource: PLATFORM
+capabilities:
+  - kind: FILE
+    access: READ
+    resource: workspace
+  - kind: FILE
+    access: WRITE
+    resource: workspace
+  - kind: COMMAND
+    access: EXECUTE
+    resource: mvn-test

@@ -1,0 +1,9 @@
+schemaVersion: "1"
+id: analysis
+version: 1.0.0
+stage: ANALYSIS
+resources:
+  system: system.md
+  task: task.md
+  outputContract: output-contract.md
+  gateHints: gate-hints.md

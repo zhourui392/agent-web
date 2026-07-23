@@ -4,12 +4,15 @@ import com.example.agentweb.app.chatrun.EventCursorExpiredException;
 import com.example.agentweb.app.chatrun.InvalidIdempotencyKeyException;
 import com.example.agentweb.app.chatrun.RunCapacityExceededException;
 import com.example.agentweb.app.harness.InvalidHarnessIdempotencyKeyException;
+import com.example.agentweb.app.harness.HarnessCapabilitySnapshotNotFoundException;
 import com.example.agentweb.domain.auth.UsernameAlreadyExistsException;
 import com.example.agentweb.domain.chat.ChatSessionNotFoundException;
 import com.example.agentweb.domain.chat.SessionDeletionForbiddenException;
 import com.example.agentweb.domain.chatrun.ActiveChatRunExistsException;
 import com.example.agentweb.domain.chatrun.ChatRunNotFoundException;
 import com.example.agentweb.domain.harness.HarnessRunNotFoundException;
+import com.example.agentweb.domain.harness.CapabilityResolutionException;
+import com.example.agentweb.domain.harness.HarnessCatalogException;
 import com.example.agentweb.domain.harness.IllegalHarnessTransitionException;
 import com.example.agentweb.domain.harness.DuplicateHarnessRunException;
 import org.springframework.http.HttpStatus;
@@ -67,6 +70,32 @@ public class GlobalExceptionHandler {
         body.put("code", "HARNESS_RUN_NOT_FOUND");
         body.put("message", ex.getMessage());
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
+    }
+
+    @ExceptionHandler(HarnessCapabilitySnapshotNotFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleHarnessCapabilitySnapshotNotFound(
+            HarnessCapabilitySnapshotNotFoundException ex) {
+        Map<String, Object> body = new HashMap<String, Object>();
+        body.put("code", "HARNESS_CAPABILITY_SNAPSHOT_NOT_FOUND");
+        body.put("message", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
+    }
+
+    @ExceptionHandler(CapabilityResolutionException.class)
+    public ResponseEntity<Map<String, Object>> handleCapabilityResolution(
+            CapabilityResolutionException ex) {
+        Map<String, Object> body = new HashMap<String, Object>();
+        body.put("code", ex.getCode());
+        body.put("message", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(body);
+    }
+
+    @ExceptionHandler(HarnessCatalogException.class)
+    public ResponseEntity<Map<String, Object>> handleHarnessCatalog(HarnessCatalogException ex) {
+        Map<String, Object> body = new HashMap<String, Object>();
+        body.put("code", ex.getCode());
+        body.put("message", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(body);
     }
 
     @ExceptionHandler(InvalidHarnessIdempotencyKeyException.class)
