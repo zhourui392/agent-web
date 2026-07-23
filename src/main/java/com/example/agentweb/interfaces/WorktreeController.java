@@ -2,6 +2,7 @@ package com.example.agentweb.interfaces;
 
 import com.example.agentweb.app.worktree.WorktreeAppService;
 import com.example.agentweb.app.worktree.WorktreeBranchView;
+import com.example.agentweb.app.worktree.WorktreeRemovalView;
 import com.example.agentweb.app.worktree.WorktreeSwitchView;
 import com.example.agentweb.app.worktree.WorktreeUpdateView;
 import com.example.agentweb.domain.auth.CurrentUserProvider;
@@ -10,7 +11,6 @@ import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -63,13 +63,11 @@ public class WorktreeController {
     }
 
     @DeleteMapping("/remove")
-    public Map<String, Object> remove(@RequestParam("workspacePath") String workspacePath,
+    public WorktreeRemovalView remove(@RequestParam("workspacePath") String workspacePath,
                                       @RequestParam("branch") String branch)
             throws IOException, InterruptedException {
         String normalizedBranch = BranchNameValidator.validateAndNormalize(branch);
-        worktreeAppService.removeWorktree(currentUserProvider.currentUserId(), workspacePath, normalizedBranch);
-        Map<String, Object> result = new HashMap<>(16);
-        result.put("success", true);
-        return result;
+        return worktreeAppService.removeWorktree(
+                currentUserProvider.currentUserId(), workspacePath, normalizedBranch);
     }
 }

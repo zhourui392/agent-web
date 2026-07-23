@@ -1,10 +1,11 @@
 package com.example.agentweb.app.worktree;
 
-import com.example.agentweb.domain.worktree.UserBranchRef;
 import com.example.agentweb.domain.worktree.UserSlug;
+import com.example.agentweb.domain.worktree.UserBranchRef;
 import com.example.agentweb.domain.worktree.WorkspacePathPolicy;
 import com.example.agentweb.domain.worktree.WorkspaceUploadRoot;
 import com.example.agentweb.domain.worktree.WorktreeDirName;
+import com.example.agentweb.domain.worktree.Worktree;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
@@ -284,7 +285,7 @@ public class WorktreeAppService {
      * Remove all worktrees for a branch and clean up the directory, then recycle the
      * user's private refs so {@code wt/{slug}/*} does not accumulate unboundedly.
      */
-    public void removeWorktree(String userId, String workspacePath, String branch)
+    public WorktreeRemovalView removeWorktree(String userId, String workspacePath, String branch)
             throws IOException, InterruptedException {
 
         Path workspace = prepareWorkspace(workspacePath);
@@ -295,7 +296,7 @@ public class WorktreeAppService {
         Path legacyBase = dirName.resolveWithin(workspace.resolve(WORKTREE_DIR));
         final Path worktreeBase = fileGateway.isDirectory(userBase) ? userBase : legacyBase;
         if (!fileGateway.isDirectory(worktreeBase)) {
-            return;
+            return WorktreeRemovalView.removed();
         }
 
         WorktreeLeaves leaves = fileGateway.classifyLeaves(worktreeBase);
@@ -307,23 +308,27 @@ public class WorktreeAppService {
             if (fileGateway.isDirectory(originalRepo) && fileGateway.exists(originalRepo.resolve(".git"))) {
                 // 删除前取该 worktree 实际检出的分支, 才能精确回收私有 ref(覆盖 fallback 默认分支)
                 String checkedOutRef = gitGateway.currentBranchRef(wt);
+                Worktree worktree = Worktree.restore(userSlug, worktreeBase.relativize(wt).toString(),
+                        branch, wt, checkedOutRef, leaves.totalCount());
+                String privateRef = worktree.removablePrivateRef().orElse(null);
                 gitGateway.removeWorktree(originalRepo.toFile(), wt);
-                recyclePrivateRef(originalRepo.toFile(), checkedOutRef);
+                recyclePrivateRef(originalRepo.toFile(), privateRef);
             }
         }
 
         fileGateway.deleteRecursively(worktreeBase);
+        return WorktreeRemovalView.removed();
     }
 
     /**
-     * 回收私有 ref, best-effort。不变量由 {@link UserBranchRef#isNamespaced} 守护:
-     * 仅删 {@code wt/} 前缀的私有分支, 绝不误删真实业务分支;
+     * 回收私有 ref, best-effort。不变量由 {@link Worktree#requireRemovable()} 守护:
+     * 仅删当前用户 {@code wt/{userSlug}/} 下的私有分支, 绝不误删真实业务分支或其他用户分支;
      * {@code git branch -D} 失败(如 fallback 仓为 symlink 无私有 ref)无害忽略。
      */
-    private void recyclePrivateRef(File repoDir, String checkedOutRef)
+    private void recyclePrivateRef(File repoDir, String privateRef)
             throws IOException, InterruptedException {
-        if (UserBranchRef.isNamespaced(checkedOutRef)) {
-            gitGateway.deleteBranch(repoDir, checkedOutRef);
+        if (privateRef != null) {
+            gitGateway.deleteBranch(repoDir, privateRef);
         }
     }
 

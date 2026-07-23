@@ -3,6 +3,7 @@ package com.example.agentweb.interfaces;
 import com.example.agentweb.app.worktree.WorktreeAppService;
 import com.example.agentweb.app.worktree.WorktreeBranchView;
 import com.example.agentweb.app.worktree.WorktreeRepoSwitchView;
+import com.example.agentweb.app.worktree.WorktreeRemovalView;
 import com.example.agentweb.app.worktree.WorktreeSwitchView;
 import com.example.agentweb.domain.auth.CurrentUserProvider;
 import com.example.agentweb.infra.auth.AuthProperties;
@@ -103,6 +104,8 @@ class WorktreeControllerTest {
     void removeWorktree_deletesAndReturnsSuccess() throws Exception {
         // Given
         mockCurrentUser();
+        when(worktreeAppService.removeWorktree(USER_ID, WORKSPACE, BRANCH))
+                .thenReturn(WorktreeRemovalView.removed());
 
         // When & Then
         mvc.perform(delete("/api/worktree/remove")
