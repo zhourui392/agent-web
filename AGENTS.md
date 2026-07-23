@@ -165,19 +165,19 @@ JAVA_HOME=/usr/local/jdk-21 mvn test
 
 ```text
 interfaces/   REST Controller、请求/响应 DTO、异常处理
-app/          应用服务与流程编排
+app/          应用服务与流程编排，以及按子域组织的外部能力端口
 domain/       聚合根、值对象、策略、仓储端口
-adapter/      外部网关端口
-infra/        CLI 进程适配、SQLite 仓储、认证过滤器、配置、HTTP 客户端
-config/       Spring MVC 和装配配置
+infra/        CLI 进程适配、SQLite 仓储、认证过滤器、调度器、端口实现、HTTP 客户端
+config/       Spring MVC、Spring 装配和运行配置 Properties
 ```
 
 重要目录：
 
 - `interfaces`：`ChatController`、`FsController`、`AuthController`、`AdminAuthController`、`AdminConversationController`、`MetricsController`、`GitConfigController`、`DiagnoseController`、`DiagnoseHistoryController`、`Refinery*Controller`、`IssueLogBackfillController`
-- `app`：聊天/会话编排、流式处理、worktree、定时任务、诊断、IM 工单、refinery、issue-log、metrics、git config、agentrun（prompt 组装管线）
+- `app`：聊天/会话编排、流式处理、worktree、定时任务、诊断、IM 工单、refinery、issue-log、metrics、git config、agentrun（prompt 组装管线）；Agent/认证/日志等外部能力端口位于对应子域的 `port` 或边界包
 - `domain`：chat/session、auth、git、worktree、slash command、schedule、diagnose、ticket、messaging、refinery、issue-log
-- `infra`：`AgentCliGateway`、CLI dialect、SQLite repo、SSO/admin auth、Feishu client、Ark embedding client、issue-log 持久化、上传存储
+- `infra`：`AgentCliGateway`、CLI dialect、SQLite repo、SSO/admin auth、动态调度器、MDC 适配、Feishu client、Ark embedding client、issue-log 持久化、上传存储
+- `config`：Web/Spring 装配，以及 `AgentRunProperties`、`ChatProperties`、`EnvProperties`、`FsProperties`、`ResumableChatStreamProperties`、`RefineryProperties`
 - `src/main/resources/static`：静态前端页面、JS、CSS、vendor 文件
 - `tests`：独立 npm 测试工程，包含 Vitest 与 Playwright
 

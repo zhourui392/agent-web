@@ -248,13 +248,13 @@ src/main/java/com/example/agentweb/
 ├── interfaces/   REST Controller + DTO（Chat / Fs / Auth / Share / Worktree / ScheduledTask /
 │                 AdminWorkflow / GitConfig / UserSuggestion* / Metrics / RecallMetrics / Refinery* / Admin*）
 ├── app/          应用编排（无业务逻辑）：agentrun（prompt 组装）、chat、scheduled-task、
-│                 workflow、git、suggestion、metrics、refinery、harness（控制面与 Capability Resolver）
+│                 workflow、git、suggestion、metrics、refinery、harness；面向外部能力的端口位于
+│                 agentrun/port、auth/port、logging 等对应子域
 ├── domain/       聚合根 / 值对象 / 仓储端口：chat、workflow、git、suggestion、refinery、issuelog、auth、
 │                 schedule、slashcommand、worktree、harness、shared
-├── adapter/      外部网关端口：AgentGateway
 ├── infra/        CLI 进程执行（cli/ 方言策略）、SQLite 仓储、auth/（本地会话登录 + context path 派生）、
-│                 workflow/、git/、suggestion/、metrics/、refinery/、issuelog/、harness/、setting/、*Properties
-└── config/       Web MVC 配置
+│                 workflow/、git/、schedule/、log/、suggestion/、metrics/、refinery/、issuelog/、harness/、setting/
+└── config/       Web MVC / Spring 装配、运行配置 Properties（含 refinery/）
 
 src/main/resources/
 ├── application.yml              主配置（各 agent.* 节点带内联注释）

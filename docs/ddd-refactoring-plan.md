@@ -2,6 +2,8 @@
 
 > 依据：2026-07-23 架构审查（domain 零污染、Repository 端口位置正确，债务集中在 worktree 子域、CLI 调用旁路、边界 DTO 泄漏）。
 > 原则：每步独立可合、行为不变优先、每步完成跑 `mvn test` 全绿再进下一步。**不自动打包/重启服务**。
+>
+> **完成状态（2026-07-23）：M1—M4 已全部完成并提交。** 下文“现状/步骤”保留为重构前基线与实施记录，实际结果以各 Phase 的“完成结果”和文末验证记录为准。
 
 ## 目标分层（不变）
 
@@ -14,9 +16,9 @@ interfaces/ → app/ → domain/ ← infra/(实现 domain 与 app 端口)
 - infra：端口实现 + 进程/FS/HTTP/SQL 副作用
 - interfaces：HTTP DTO ⇄ app Command 转换，不直注 Repository
 
-## Phase 1：Worktree 子域重构（P1-1，收益最大）
+## Phase 1：Worktree 子域重构（P1-1，已完成）
 
-### 现状
+### 重构前基线
 
 `app/WorktreeService`（818 行）混合三类职责：
 
@@ -46,9 +48,17 @@ interfaces/ → app/ → domain/ ← infra/(实现 domain 与 app 端口)
 - 新增 Infra 轻量集成测试：`ProcessGitWorktreeExecutor` 对 `@TempDir` 真实 git repo 跑 add/prune（不起 Spring）
 - E2E：`cd tests && npx playwright test worktree.spec.ts`
 
-## Phase 2：统一 CLI 调用端口（P1-2）
+### 完成结果
 
-### 现状
+- Git/文件系统副作用分别落到 `ProcessGitWorktreeGateway`、`LocalWorktreeFileGateway`，App 只依赖 `GitWorktreeGateway`、`WorktreeFileGateway` 端口。
+- 新增 `Worktree` 聚合根与 `UserBranchRef`，私有 ref 回收、工作树可删除条件等不变量回到 Domain。
+- Controller 返回类型化 Worktree View，前端 JSON 契约保持不变。
+- `ProcessGitWorktreeGateway` 真实 Git add/prune 测试及 `worktree.spec.ts` Playwright E2E 通过。
+- 提交：`283800b`、`7c02a84`。
+
+## Phase 2：统一 CLI 调用端口（P1-2，已完成）
+
+### 重构前基线
 
 `AgentCliInvoker` 已是接口，但**定义在 `infra/cli/`**，且与 `adapter.AgentGateway`（流式）并存成两条无关联路径；`WorkflowRunner`、`ConversationRefinery` 直注 infra 接口。另 `ChatAppServiceImpl` 直注 `UploadPicStore`/`UploadFileStore` 具体类，`GitConfigAppService` 直注 `GitCredentialCipher`。
 
@@ -63,7 +73,15 @@ interfaces/ → app/ → domain/ ← infra/(实现 domain 与 app 端口)
 
 - `mvn test`；重点 `ChatFlowTest`（SSE 流）、workflow / refinery 相关用例
 
-## Phase 3：边界泄漏收敛（P2）
+### 完成结果
+
+- `AgentGateway`、`AgentCliInvoker`、`AgentStreamResult` 统一进入 `app/agentrun/port`，流式与同步调用职责分开、端口位置一致。
+- 上传图片/文件和 Git 凭证加密改为 App 端口，具体存储、加密实现留在 Infra。
+- 删除 `AgentTypeResolver`，Agent 类型选择规则由 Domain 承载。
+- `RefineryProperties`、`PromptTemplateLoader` 等配置组件归位。
+- 提交：`843f959`。
+
+## Phase 3：边界泄漏收敛（P2，已完成）
 
 ### 3.1 app 层去 interfaces DTO（P2-1）
 
@@ -89,22 +107,56 @@ interfaces/ → app/ → domain/ ← infra/(实现 domain 与 app 端口)
 - `@WebMvcTest(RefineryAdminController.class)` 验 422 契约不变
 - `mvn test` 全绿
 
-## Phase 4：包结构收尾（P3）
+### 完成结果
+
+- Chat App API 使用 `StartSessionCommand`、`SendMessageCommand`、App `TruncateResult`，Interface DTO 不再流入 App。
+- Refinery 管理读侧拆为 `RefineryAdminQueryService`，Infra 直接投影视图；Controller 不再注入 Domain Repository，Repository 只保留聚合生命周期方法。
+- Refinery 参数校验改为 Bean Validation，`GlobalExceptionHandler` 维持原 422 JSON 契约。
+- 新增 `CronExpression` VO；`ScheduledTask` 通过工厂、恢复工厂和行为方法维护构造/变更不变量，删除公开 setter。
+- `Workflow` 构造期校验步骤，`requireRunnable()` 收回启用状态规则；Application 只负责流程编排。
+- 提交：`a2d6bea`。
+
+## Phase 4：包结构收尾（P3，已完成）
 
 1. **`adapter/` 改名/归并**：该包放的是端口接口而非 adapter。方案 A（推荐）：并入 `app/` 对应子域的 `port` 子包；方案 B：改名 `port/`。`AgentGateway`/`UserDirectory`/`AgentStreamResult` 随迁
 2. **`infra/ChatProperties` 反向依赖**：`ChatPromptSettings` 从 `app.chatrun` 下沉为配置语义类型（移 `infra` 或 `config/`），切断 infra→app import
 3. **`*Properties` 归位**：`FsProperties`/`EnvProperties`/`RefineryProperties` 被 app 大量引用属配置横切，保留 infra 可接受，但在 CLAUDE.md 架构节注明为例外；或统一移 `config/`
 
+### 完成结果
+
+- 删除空的 `adapter/`：`UserDirectory` 迁入 `app/auth/port`；Agent 端口已在 Phase 2 迁入 `app/agentrun/port`。
+- `AgentRunProperties`、`ChatProperties`、`EnvProperties`、`FsProperties`、`ResumableChatStreamProperties` 统一迁入 `config/`；`RefineryProperties` 位于 `config/refinery/`。
+- App 通过 `TraceContext` 使用 MDC，`Slf4jMdcTraceContext` 留在 Infra；App 已无 `infra` import。
+- `DynamicTaskScheduler` 迁入 `infra/schedule` 并实现 `ScheduledTaskRegistrar`，定时触发按任务 ID 重新加载最新聚合。
+- ArchUnit 去掉冻结库，App → Infra 从“冻结存量”收紧为严格零违例；Domain 继续保持零外层依赖。
+- PMD 插件覆盖 ASM 9.7.1，使 PMD 6.53.0 能正确解析 Java 21 字节码。
+- 提交：`f7c8250`。
+
 ## 顺序与里程碑
 
-| 里程碑 | 内容 | 风险 |
-|---|---|---|
-| M1 | Phase 1 Worktree | 高（FS/进程行为）——平移不改逻辑，靠 E2E 兜底 |
-| M2 | Phase 2 CLI 端口 | 中（接口搬包，编译期全暴露） |
-| M3 | Phase 3 边界泄漏 | 低-中（Controller 契约靠切片测试锁定） |
-| M4 | Phase 4 包收尾 | 低 |
+| 里程碑 | 内容 | 状态 | 提交 | 风险控制结果 |
+|---|---|---|---|---|
+| M1 | Phase 1 Worktree | ✅ 完成 | `283800b`、`7c02a84` | 真实 Git 测试 + Worktree E2E 通过 |
+| M2 | Phase 2 CLI 端口 | ✅ 完成 | `843f959` | 编译期调用点与相关单测全量迁移 |
+| M3 | Phase 3 边界泄漏 | ✅ 完成 | `a2d6bea` | Domain/App/Controller 分层测试与 422 契约测试通过 |
+| M4 | Phase 4 包收尾 | ✅ 完成 | `f7c8250` | ArchUnit 严格零违例，冻结库删除 |
 
-每个里程碑单独提交，commit message 遵循仓库现有 `refactor:` 风格。M1 完成前不动 Phase 2/3，避免多线并发重构。
+四个里程碑均按仓库现有 `refactor:` 风格独立提交；M1 的聚合边界补强作为同一里程碑的第二个独立提交完成。
+
+## 最终验证记录（2026-07-23）
+
+| 检查项 | 结果 |
+|---|---|
+| `mvn -q test` | ✅ 默认后端快速测试集通过 |
+| `spring-flow` 分组 | ✅ 通过；业务链路测试关闭认证 Filter，认证本身由专门测试覆盖 |
+| `process-integration` 分组 | ✅ 通过；使用仓库测试桩，未调用真实外部 Agent |
+| `git-integration` 分组 | ✅ 通过 |
+| `cd tests && npx vitest run` | ✅ 7 个测试文件、102 个测试通过 |
+| Worktree Playwright E2E | ✅ `tests/e2e/worktree.spec.ts` 通过 |
+| `ArchitectureTest` | ✅ Domain → 外层、App → Infra、App → Interface 均为 0 |
+| 静态依赖扫描 | ✅ App 无 Infra/Interface import；Domain 无外层 import；Controller 无 Repository 注入；`adapter/` 与冻结库均无文件 |
+| `mvn pmd:check` | ✅ 完成有效 Java 21 扫描，`target/pmd.xml` 为 0 个 `<error>`；仍有 463 条全库存量 P3C 告警，因既有 `failOnViolation=false` 不阻断，本次未扩张清理范围 |
+| `git diff --check` / `git diff --cached --check` | ✅ 通过 |
 
 ## 明确不做
 
