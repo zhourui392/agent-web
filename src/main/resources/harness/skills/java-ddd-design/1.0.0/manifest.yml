@@ -1,0 +1,17 @@
+schemaVersion: "1"
+id: java-ddd-design
+version: 1.0.0
+description: 为 Java 系统生成 DDD 四层设计与追踪方案
+stages: [DESIGN]
+techTags: [java, ddd]
+explicitTriggers: [ddd-design]
+entry: SKILL.md
+resources: []
+dependencies: []
+conflicts: []
+runtimes: [CODEX, CLAUDE]
+trustSource: PLATFORM
+capabilities:
+  - kind: FILE
+    access: READ
+    resource: workspace

@@ -1,0 +1,20 @@
+schemaVersion: "1"
+id: release-verification
+version: 1.0.0
+description: 执行受控发布前检查与证据收集
+stages: [DEPLOYMENT]
+techTags: [release, spring]
+explicitTriggers: [release-verify]
+entry: SKILL.md
+resources: []
+dependencies: []
+conflicts: []
+runtimes: [CODEX, CLAUDE]
+trustSource: PLATFORM
+capabilities:
+  - kind: FILE
+    access: READ
+    resource: workspace
+  - kind: COMMAND
+    access: EXECUTE
+    resource: mvn-verify

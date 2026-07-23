@@ -30,7 +30,7 @@
 
 - **管理台**（`/admin`，数据库 ADMIN 角色鉴权）— 使用概览、对话浏览、用户账号创建、工作流管理、用户建议 triage、RAG 语料维护、运行时设置（Agent 模型）
 - **工作流编排** — 定义可复用的多步 workflow（每步一个 prompt 模板），一键触发执行并按步记录结果
-- **研发交付 Harness（默认关闭）** — 独立于 Workflow 的四阶段控制平面；M1 已支持 Run/Stage/Attempt、Artifact/Gate/Approval、SQLite 恢复、ADMIN API 与审计时间线，Runtime 接入按后续里程碑推进
+- **研发交付 Harness（默认关闭）** — 独立于 Workflow 的四阶段控制平面；M1 已支持 Run/Stage/Attempt、Artifact/Gate/Approval，M2 已支持四阶段 Prompt Pack、可信 Skill Catalog、能力授权求交、不可变 Capability Snapshot、Hash 与 ADMIN 预览页；Runtime 接入按后续里程碑推进
 - **用户建议** — 登录用户从聊天界面提交产品反馈，管理员分流处理
 - **每用户 Git 身份** — 各用户配置自己的 git identity 与 SCM 凭据（密码加密存储、不回显），用于交付时归属提交与解析凭据链
 
@@ -215,8 +215,12 @@ AGENT_BOOTSTRAP_ADMIN_PASSWORD=<仅首次公网启动使用的新管理员密码
 | `AGENT_RUN_WORKSPACE_CONTEXT_ENABLED` | `true` | AgentRun workspace context 注入总开关，紧急止血可关（`agent.run.*`） |
 | `AGENT_RUN_WORKSPACE_KNOWLEDGE_ENABLED` | `true` | AgentRun workspace 知识预召回开关 |
 | `AGENT_RUN_RECALL_TOP_K` | `8` | AgentRun 召回 top-K |
-| `AGENT_HARNESS_ENABLED` | `false` | Harness 管理 API、Repository、Artifact Store 总开关；M1 默认关闭 |
+| `AGENT_HARNESS_ENABLED` | `false` | Harness 管理 API、Repository、Catalog、Artifact Store 总开关；默认关闭 |
 | `AGENT_HARNESS_ARTIFACT_ROOT` | `data/harness/artifacts` | Harness Artifact 正文受控根目录 |
+| `AGENT_HARNESS_PROMPT_PACK_ROOT` | `src/main/resources/harness/prompt-packs` | 四阶段 Prompt Pack 热读取根；打包部署应覆盖为管理员维护的外置目录 |
+| `AGENT_HARNESS_PLATFORM_SKILL_ROOT` | `src/main/resources/harness/skills` | 平台可信 Skill 热读取根 |
+| `AGENT_HARNESS_APPROVED_USER_SKILL_ROOT` | _(无)_ | 管理员批准的用户 Skill 根；目录来源固定为 `APPROVED_USER`，Manifest 不可伪造来源 |
+| `AGENT_HARNESS_WORKSPACE_SKILL_ROOT` | _(无)_ | Workspace Skill 根；每个 Skill 仍需在 Snapshot 请求中做 Run 级显式批准 |
 | `CODEX_STREAM_IDLE_TIMEOUT_SECONDS` / `CLAUDE_STREAM_IDLE_TIMEOUT_SECONDS` | `900` | 普通流式聊天无 stdout 活动的终止期限；收到活动会续期，`0` 表示禁用 |
 | `CODEX_STREAM_MAX_RUNTIME_SECONDS` / `CLAUDE_STREAM_MAX_RUNTIME_SECONDS` | `7200` | 普通流式聊天绝对运行上限；stdout 活动不会续期，`0` 表示禁用 |
 
@@ -244,12 +248,12 @@ src/main/java/com/example/agentweb/
 ├── interfaces/   REST Controller + DTO（Chat / Fs / Auth / Share / Worktree / ScheduledTask /
 │                 AdminWorkflow / GitConfig / UserSuggestion* / Metrics / RecallMetrics / Refinery* / Admin*）
 ├── app/          应用编排（无业务逻辑）：agentrun（prompt 组装）、chat、scheduled-task、
-│                 workflow、git、suggestion、metrics、refinery
+│                 workflow、git、suggestion、metrics、refinery、harness（控制面与 Capability Resolver）
 ├── domain/       聚合根 / 值对象 / 仓储端口：chat、workflow、git、suggestion、refinery、issuelog、auth、
-│                 schedule、slashcommand、worktree、shared
+│                 schedule、slashcommand、worktree、harness、shared
 ├── adapter/      外部网关端口：AgentGateway
 ├── infra/        CLI 进程执行（cli/ 方言策略）、SQLite 仓储、auth/（本地会话登录 + context path 派生）、
-│                 workflow/、git/、suggestion/、metrics/、refinery/、issuelog/、setting/、*Properties
+│                 workflow/、git/、suggestion/、metrics/、refinery/、issuelog/、harness/、setting/、*Properties
 └── config/       Web MVC 配置
 
 src/main/resources/

@@ -93,6 +93,21 @@ public final class StageContract {
         return Collections.unmodifiableList(contracts);
     }
 
+    /**
+     * 生成可进入 Prompt 快照的稳定合同摘要，避免 Application 遍历 getter 重组规则。
+     *
+     * @return 固定字段顺序的合同文本
+     */
+    public String promptSummary() {
+        StringBuilder summary = new StringBuilder();
+        summary.append("stage: ").append(stage).append('\n');
+        summary.append("requiredInputs: ").append(enumNames(requiredInputArtifacts)).append('\n');
+        summary.append("requiredOutputs: ").append(enumNames(requiredOutputArtifacts)).append('\n');
+        summary.append("deterministicGates: ").append(String.join(",", deterministicGates)).append('\n');
+        summary.append("approvalType: ").append(approvalType);
+        return summary.toString();
+    }
+
     private static Set<ArtifactType> artifactTypes(ArtifactType... values) {
         return Collections.unmodifiableSet(EnumSet.copyOf(Arrays.asList(values)));
     }
@@ -125,5 +140,13 @@ public final class StageContract {
             copy.add(DomainText.require(value, "deterministic gate"));
         }
         return Collections.unmodifiableSet(copy);
+    }
+
+    private String enumNames(Set<ArtifactType> values) {
+        List<String> names = new ArrayList<String>();
+        for (ArtifactType value : values) {
+            names.add(value.name());
+        }
+        return String.join(",", names);
     }
 }

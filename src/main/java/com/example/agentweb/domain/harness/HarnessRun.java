@@ -146,6 +146,33 @@ public final class HarnessRun {
         throw new IllegalStateException("stage contract is missing: " + stage);
     }
 
+    /**
+     * 返回允许固化 Capability Snapshot 的当前 Attempt。
+     *
+     * @param stage 目标阶段
+     * @return 当前运行中的 Attempt 编号
+     */
+    public int capabilitySnapshotAttempt(HarnessStage stage) {
+        StageExecution execution = stage(stage);
+        if (execution.getStatus() != StageStatus.RUNNING) {
+            throw new IllegalHarnessTransitionException(
+                    "capability snapshot requires a running stage: " + stage + " is " + execution.getStatus());
+        }
+        return execution.currentAttempt().getNumber();
+    }
+
+    public AgentRuntime capabilityRuntime() {
+        return AgentRuntime.from(agentType);
+    }
+
+    public String capabilityEnvironment() {
+        return environment;
+    }
+
+    public StageContract capabilityStageContract(HarnessStage stage) {
+        return stage(stage).getContract();
+    }
+
     public boolean startStage(HarnessStage stage, String commandIdempotencyKey, Instant now) {
         return startStage(stage, commandIdempotencyKey, createdBy, now);
     }
