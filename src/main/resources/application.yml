@@ -61,19 +61,6 @@ agent:
 
       ## 处理建议
       ...
-  fs:
-    roots:
-      - "/home/service/workspace"
-      - "/home/service/.claude/skills"
-    # upload-roots 仅对 /api/fs/upload 生效,不开放 download/delete/list,
-    # 用于允许同步脚本写入 ~/.agent-web,但目录内文件不会被 download 接口下载。
-    upload-roots:
-      - "/home/service/.agent-web"
-  worktree:
-    # 允许作为 worktree workspace 根的目录白名单(绝对路径)。worktree 操作的 workspacePath 必须落在某个根下。
-    # 主配置 fail-closed 给出单一安全根；本机目录不同时用环境变量覆盖。
-    allowed-roots:
-      - ${AGENT_WORKTREE_ALLOWED_ROOT:/home/service/workspace}
   cli:
     codex:
       exec: ${CODEX_CMD:codex}
@@ -235,8 +222,8 @@ spring:
     # 外部环境变量仍具有更高优先级；生产优先使用环境变量或 Secret Store。
     # Codex / Claude CLI 登录态不从该文件读取，继续使用本机默认配置。
     # 本机需要不同路径直接改那个文件(可 git update-index --skip-worktree 避免误提交)。
-    # optional: 文件缺失时使用环境变量或下方默认值，不阻断启动。
-    import: "optional:classpath:agent-paths.yml,optional:file:./data/secrets.properties"
+    # agent-paths.yml 承载文件与 worktree 的授权边界，必须存在；本地敏感配置仍为可选。
+    import: "classpath:agent-paths.yml,optional:file:./data/secrets.properties"
   datasource:
     url: jdbc:sqlite:${AGENT_DB_PATH:data/agent-web.db}?busy_timeout=5000
     driver-class-name: org.sqlite.JDBC

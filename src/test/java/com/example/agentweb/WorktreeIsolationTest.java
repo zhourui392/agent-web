@@ -3,6 +3,8 @@ package com.example.agentweb;
 import com.example.agentweb.app.WorktreeService;
 import com.example.agentweb.domain.worktree.UserBranchRef;
 import com.example.agentweb.domain.worktree.UserSlug;
+import com.example.agentweb.infra.FsProperties;
+import com.example.agentweb.infra.RealPathWorkspacePolicy;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
@@ -43,7 +45,9 @@ class WorktreeIsolationTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        service = new WorktreeService();
+        FsProperties properties = new FsProperties();
+        properties.getRoots().add(tempDir.toString());
+        service = new WorktreeService(new RealPathWorkspacePolicy(properties));
         workspace = tempDir.resolve("ws");
         Files.createDirectories(workspace);
     }

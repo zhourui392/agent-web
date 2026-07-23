@@ -35,10 +35,6 @@ agent:
     roots:
       - "${user.dir}"
       - "${java.io.tmpdir}"
-  worktree:
-    allowed-roots:
-      - "${user.dir}"
-      - "${java.io.tmpdir}"
   cli:
     claude:
       # Windows: cmd /c echo

@@ -125,7 +125,19 @@ mvn spring-boot:run
 
 ### 基本配置
 
-编辑 `src/main/resources/application.yml`：
+机器相关路径编辑 `src/main/resources/agent-paths.yml`。`agent.fs.roots` 同时授权文件接口和 Git
+worktree 操作；`agent.fs.upload-roots` 仍只额外授权上传接口：
+
+```yaml
+agent:
+  fs:
+    roots:
+      - "${AGENT_WORKSPACE_ROOT:/home/service/workspace}"
+    upload-roots:
+      - "/home/service/.agent-web"
+```
+
+其他服务配置编辑 `src/main/resources/application.yml`：
 
 ```yaml
 server:
@@ -137,9 +149,6 @@ server:
 
 agent:
   default-type: CODEX               # 对话默认 CLI「首启种子」（CODEX / CLAUDE），落库后以管理后台为准
-  fs:
-    roots:
-      - "/home/service/workspace"   # 允许浏览的根目录白名单
   cli:                              # 各 CLI 方言的 exec / args / 超时 / 模式（完整见 application.yml）
     claude: { ... }                 # 默认 --output-format stream-json 流式
     codex:  { ... }                 # args 留空 → 真实 codex exec --json；填模板回退 legacy 文本路径
@@ -194,7 +203,8 @@ AGENT_BOOTSTRAP_ADMIN_PASSWORD=<仅首次公网启动使用的新管理员密码
 | `AGENT_AUTH_LOGIN_FAILURE_WINDOW_SECONDS` | `300` | 登录失败限流窗口（秒） |
 | `AGENT_PUBLIC_ACCESS_ENABLED` | `true` | 启用公网启动安全门禁；本机 loopback 开发才可关闭 |
 | `AGENT_BOOTSTRAP_ADMIN_PASSWORD` | _(无)_ | 仅在数据库仍是公开种子哈希时使用一次的新管理员密码；至少 12、至多 256 字符 |
-| `AGENT_WORKTREE_ALLOWED_ROOT` | `/home/service/workspace` | Worktree 操作允许的单一工作区根 |
+| `AGENT_WORKSPACE_ROOT` | `/home/service/workspace` | 文件接口与 Worktree 共用的主工作区根；写入 `agent-paths.yml` 的首个 `agent.fs.roots` |
+| `AGENT_WORKTREE_ALLOWED_ROOT` | `/home/service/workspace` | 旧部署兼容变量，仅在未设置 `AGENT_WORKSPACE_ROOT` 时作为共享主工作区根回退 |
 | `AGENT_E2E_ADMIN_PASSWORD` | _(无)_ | Playwright 登录测试账户的密码；只用于测试进程，不写入仓库 |
 | `GIT_CRED_ENC_KEY` | _(无)_ | 用户 Git push 凭据的 AES-256-GCM 主密钥；支持环境变量或 `data/secrets.properties` |
 | `REFINERY_ENABLED` | `false` | 知识精炼子域总开关，`false` 时相关 bean 全不注册 |
@@ -282,7 +292,7 @@ cd tests && npm run e2e             # 前端 E2E（Playwright，自动启停 Spr
 
 ### 当前实现
 
-- 路径验证防止目录穿越（`agent.fs.roots` 白名单；worktree 操作受 `agent.worktree.allowed-roots` 约束）
+- 路径验证防止目录穿越；文件接口和 worktree 操作统一受 `agent.fs.roots` 约束
 - 数据库用户名密码登录：BCrypt 哈希、256-bit 随机会话、`HttpOnly` / `SameSite=Strict` Cookie，默认 7 天；登录失败按来源和用户名限流
 - 公网模式在 Web Server 开始接收请求前检查 `admin` 种子哈希，未提供新密码或继续使用公开种子密码时拒绝启动；公网 Cookie 默认 `Secure` + `__Host-` 前缀
 - 会话可见性默认按用户隔离；**删除仅限会话创建者**（删他人会话返回 403）；管理接口在普通会话认证后再校验 `ADMIN` 角色
@@ -298,7 +308,7 @@ cd tests && npm run e2e             # 前端 E2E（Playwright，自动启停 Spr
 
 - 公网入口只开放 Caddy 的 HTTPS 443；Spring Boot 默认仅监听 `127.0.0.1:18092`，禁止覆盖成公网可达地址
 - 首次公网启动用 Secret、进程环境或权限为 600 的 `data/secrets.properties` 临时注入 `AGENT_BOOTSTRAP_ADMIN_PASSWORD`；成功写入 BCrypt 哈希后删除该明文配置
-- 把 `agent.fs.roots`、`agent.worktree.allowed-roots` 限制到必要工作目录
+- 把 `agent.fs.roots` 限制到确实允许浏览、修改和执行 worktree 操作的必要工作目录
 - 用户 Git 凭据使用 `GIT_CRED_ENC_KEY` 加密；密钥通过受控环境或 Git 忽略配置注入，不写入受版本控制的文件
 - TLS 在反向代理终止时保持 `SERVER_FORWARD_HEADERS_STRATEGY=framework`，并设置 `X-Forwarded-Proto=https`；部署样例和检查清单见 [公网 HTTPS 部署](docs/public-deployment.md)
 - CSP 为兼容当前无前端构建步骤的 Vue 运行时模板编译，暂时包含 `unsafe-inline` 与 `unsafe-eval`；后续改为预编译模板和外部脚本后应移除这两个兼容项

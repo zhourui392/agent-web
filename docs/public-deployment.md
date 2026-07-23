@@ -19,7 +19,7 @@ openssl rand -base64 32
 
 export AGENT_PUBLIC_ACCESS_ENABLED=true
 export AGENT_BOOTSTRAP_ADMIN_PASSWORD='<上一步生成的密码>'
-export AGENT_WORKTREE_ALLOWED_ROOT='/srv/agent-workspaces'
+export AGENT_WORKSPACE_ROOT='/srv/agent-workspaces'
 export SERVER_ADDRESS=127.0.0.1
 export SERVER_FORWARD_HEADERS_STRATEGY=framework
 ```
@@ -28,9 +28,8 @@ export SERVER_FORWARD_HEADERS_STRATEGY=framework
 
 同时收紧以下路径，不要把 `/`、用户主目录或凭据目录整体开放：
 
-- `agent.fs.roots`：浏览、下载、删除所允许的工作目录。
+- `agent.fs.roots` / `AGENT_WORKSPACE_ROOT`：浏览、下载、删除和 Git worktree 操作共用的工作目录边界。
 - `agent.fs.upload-roots`：仅上传通道允许写入的目录。
-- `agent.worktree.allowed-roots` / `AGENT_WORKTREE_ALLOWED_ROOT`：Git worktree 操作范围。
 - 服务进程的 OS 用户权限：应使用非 root 专用用户，只赋予实际需要的文件和 CLI 凭据权限。
 
 如果启用了用户 Git 凭据或 Refinery，还必须分别设置强随机加密密钥或 embedding key；凭据不能写进仓库配置。

@@ -1,9 +1,12 @@
 package com.example.agentweb;
 
 import com.example.agentweb.app.WorktreeService;
-import com.example.agentweb.infra.WorktreeProperties;
-import org.junit.jupiter.api.*;
+import com.example.agentweb.infra.FsProperties;
+import com.example.agentweb.infra.RealPathWorkspacePolicy;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.BufferedReader;
@@ -20,7 +23,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * TDD tests for WorktreeService.
@@ -37,7 +45,7 @@ class WorktreeServiceTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        service = new WorktreeService();
+        service = worktreeServiceAllowedUnder(tempDir);
         workspace = tempDir.resolve("workspace");
         Files.createDirectories(workspace);
     }
@@ -308,32 +316,33 @@ class WorktreeServiceTest {
         }
     }
 
-    // ========== workspace 根白名单 (P2) ==========
+    // ========== 复用 fs.roots 工作空间白名单 ==========
 
     @Test
-    @DisplayName("workspace 不在 allowed-roots 白名单下 → 拒绝(IllegalArgumentException)")
+    @DisplayName("workspace 不在 fs.roots 白名单下 → 拒绝(IllegalArgumentException)")
     void switchBranch_workspaceOutsideAllowedRoots_throws() {
-        WorktreeProperties props = new WorktreeProperties();
-        props.setAllowedRoots(java.util.Collections.singletonList(
-                tempDir.resolve("other-root").toString()));
-        WorktreeService restricted = new WorktreeService(props);
+        WorktreeService restricted = worktreeServiceAllowedUnder(tempDir.resolve("other-root"));
 
         assertThrows(IllegalArgumentException.class,
                 () -> restricted.switchBranch(null, workspace.toString(), "feature/login"));
     }
 
     @Test
-    @DisplayName("workspace 在 allowed-roots 白名单下 → 放行")
+    @DisplayName("workspace 在 fs.roots 白名单下 → 放行")
     void switchBranch_workspaceUnderAllowedRoot_ok() throws Exception {
-        WorktreeProperties props = new WorktreeProperties();
-        props.setAllowedRoots(java.util.Collections.singletonList(tempDir.toString()));
-        WorktreeService restricted = new WorktreeService(props);
+        WorktreeService restricted = worktreeServiceAllowedUnder(tempDir);
 
         Map<String, Object> result = restricted.switchBranch(null, workspace.toString(), "feature/login");
         assertNotNull(result.get("worktreePath"));
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> repos = (List<Map<String, Object>>) result.get("repos");
         assertTrue(repos.isEmpty());
+    }
+
+    private WorktreeService worktreeServiceAllowedUnder(Path root) {
+        FsProperties properties = new FsProperties();
+        properties.getRoots().add(root.toString());
+        return new WorktreeService(new RealPathWorkspacePolicy(properties));
     }
 
 }

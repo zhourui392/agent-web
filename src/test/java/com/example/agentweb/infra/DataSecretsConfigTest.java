@@ -8,6 +8,7 @@ import org.springframework.core.io.FileSystemResource;
 import java.io.IOException;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -28,6 +29,8 @@ class DataSecretsConfigTest {
         Object imports = sources.get(0).getProperty("spring.config.import");
 
         assertNotNull(imports);
+        assertTrue(imports.toString().contains("classpath:agent-paths.yml"));
+        assertFalse(imports.toString().contains("optional:classpath:agent-paths.yml"));
         assertTrue(imports.toString().contains("optional:file:./data/secrets.properties"));
     }
 }

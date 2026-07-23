@@ -2,13 +2,10 @@ package com.example.agentweb.app;
 
 import com.example.agentweb.domain.worktree.UserBranchRef;
 import com.example.agentweb.domain.worktree.UserSlug;
+import com.example.agentweb.domain.worktree.WorkspacePathPolicy;
 import com.example.agentweb.domain.worktree.WorkspaceUploadRoot;
-import com.example.agentweb.infra.WorktreeProperties;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
-import jakarta.annotation.PostConstruct;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
@@ -21,9 +18,23 @@ import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
-import java.util.*;
-import java.util.concurrent.*;
-import java.util.stream.Collectors;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Manages git worktrees for branch-level isolation across a workspace
@@ -35,7 +46,6 @@ import java.util.stream.Collectors;
  *
  * @author zhourui(V33215020)
  */
-@Slf4j
 @Service
 public class WorktreeService {
 
@@ -57,27 +67,15 @@ public class WorktreeService {
     private static final String ORIGIN_REF_PREFIX = "origin/";
     private static final String LF = "\n";
 
-    /** 允许作为 workspace 根的绝对路径(已归一化); 空表示不限制。 */
-    private final List<Path> allowedRoots;
+    private final WorkspacePathPolicy workspacePathPolicy;
 
-    /** 无参构造仅供单测: 不限制 workspace 根。 */
-    public WorktreeService() {
-        this.allowedRoots = Collections.emptyList();
-    }
-
-    @Autowired
-    public WorktreeService(WorktreeProperties properties) {
-        this.allowedRoots = properties.getAllowedRoots().stream()
-                .map(r -> Paths.get(r).toAbsolutePath().normalize())
-                .collect(Collectors.toList());
-    }
-
-    @PostConstruct
-    void warnIfUnrestricted() {
-        if (allowedRoots.isEmpty()) {
-            log.warn("worktree-workspace-unrestricted reason=agent.worktree.allowed-roots-empty "
-                    + "hint=配置该项可限制 workspace 根, 加固越权访问");
-        }
+    /**
+     * 所有 worktree 操作复用统一工作空间真实路径校验端口。
+     *
+     * @param workspacePathPolicy 工作空间路径端口
+     */
+    public WorktreeService(WorkspacePathPolicy workspacePathPolicy) {
+        this.workspacePathPolicy = Objects.requireNonNull(workspacePathPolicy, "workspacePathPolicy");
     }
 
     /**
@@ -89,11 +87,7 @@ public class WorktreeService {
     public Map<String, Object> switchBranch(String userId, String workspacePath, String branch)
             throws IOException, InterruptedException {
 
-        Path workspace = Paths.get(workspacePath).normalize();
-        assertWorkspaceAllowed(workspace);
-        if (!Files.isDirectory(workspace)) {
-            throw new IllegalArgumentException("Workspace not found: " + workspacePath);
-        }
+        Path workspace = requireWorkspace(workspacePath);
 
         String userSlug = UserSlug.slug(userId);
         String safeBranch = safeBranchName(branch);
@@ -210,11 +204,7 @@ public class WorktreeService {
     public Map<String, Object> updateBranch(String userId, String workspacePath, String branch)
             throws IOException, InterruptedException {
 
-        Path workspace = Paths.get(workspacePath).normalize();
-        assertWorkspaceAllowed(workspace);
-        if (!Files.isDirectory(workspace)) {
-            throw new IllegalArgumentException("Workspace not found: " + workspacePath);
-        }
+        Path workspace = requireWorkspace(workspacePath);
         String userSlug = UserSlug.slug(userId);
         String safeBranch = safeBranchName(branch);
         Path worktreeBase = resolveWithinBucket(userBucket(workspace, userSlug), safeBranch);
@@ -316,8 +306,7 @@ public class WorktreeService {
      * ({@code .worktrees/{branch}}) created before per-user isolation existed.
      */
     public List<Map<String, Object>> listWorktrees(String userId, String workspacePath) throws IOException {
-        Path workspace = Paths.get(workspacePath).normalize();
-        assertWorkspaceAllowed(workspace);
+        Path workspace = prepareWorkspace(workspacePath);
         Path worktreeRoot = workspace.resolve(WORKTREE_DIR);
         List<Map<String, Object>> result = new ArrayList<>();
         if (!Files.isDirectory(worktreeRoot)) {
@@ -437,8 +426,7 @@ public class WorktreeService {
     public void removeWorktree(String userId, String workspacePath, String branch)
             throws IOException, InterruptedException {
 
-        Path workspace = Paths.get(workspacePath).normalize();
-        assertWorkspaceAllowed(workspace);
+        Path workspace = prepareWorkspace(workspacePath);
         String userSlug = UserSlug.slug(userId);
         String safeBranch = safeBranchName(branch);
         Path userBase = resolveWithinBucket(userBucket(workspace, userSlug), safeBranch);
@@ -489,22 +477,12 @@ public class WorktreeService {
         return workspace.resolve(WORKTREE_DIR).resolve(USER_BUCKET_PREFIX + userSlug);
     }
 
-    /**
-     * 校验 workspace 是否落在配置的根白名单下。白名单为空时不限制(启动已 WARN)。
-     *
-     * @throws IllegalArgumentException workspace 不在任何允许根之下时
-     */
-    private void assertWorkspaceAllowed(Path workspace) {
-        if (allowedRoots.isEmpty()) {
-            return;
-        }
-        Path normalized = workspace.toAbsolutePath().normalize();
-        for (Path root : allowedRoots) {
-            if (normalized.startsWith(root)) {
-                return;
-            }
-        }
-        throw new IllegalArgumentException("Workspace not under an allowed root: " + workspace);
+    private Path requireWorkspace(String workspacePath) {
+        return Paths.get(workspacePathPolicy.requireExistingDirectory(workspacePath));
+    }
+
+    private Path prepareWorkspace(String workspacePath) {
+        return Paths.get(workspacePathPolicy.prepareWorkspaceDirectory(workspacePath));
     }
 
     private Map<String, Object> createWorktreeForRepo(RepoEntry entry, String branch,
