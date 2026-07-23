@@ -12,7 +12,7 @@ import org.sqlite.SQLiteDataSource;
 import java.io.File;
 import java.nio.file.Path;
 import java.time.Instant;
-import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -31,13 +31,14 @@ public class SqliteDiscardedRefineRepoTest {
     Path tempDir;
 
     private SqliteDiscardedRefineRepo repo;
+    private JdbcTemplate jdbc;
 
     @BeforeEach
     public void setUp() {
         File dbFile = tempDir.resolve("discarded-test.db").toFile();
         SQLiteDataSource ds = new SQLiteDataSource();
         ds.setUrl("jdbc:sqlite:" + dbFile.getAbsolutePath());
-        JdbcTemplate jdbc = new JdbcTemplate(ds);
+        jdbc = new JdbcTemplate(ds);
         jdbc.execute(
                 "CREATE TABLE chat_rag_discarded ("
                         + "id TEXT PRIMARY KEY,"
@@ -73,24 +74,21 @@ public class SqliteDiscardedRefineRepoTest {
     }
 
     @Test
-    public void save_then_find_page_should_round_trip_all_fields() {
+    public void save_should_persist_all_fields() {
         repo.save(base("a", T0).build());
 
-        List<DiscardedRefineRecord> page = repo.findPage(0, 10);
-        assertEquals(1, page.size());
-        DiscardedRefineRecord got = page.get(0);
-        assertEquals("a", got.getId());
-        assertEquals(SourceType.CHAT, got.getSourceType());
-        assertEquals("sess-a", got.getSourceSessionId());
-        assertEquals("低分会话 a", got.getTitle());
-        assertEquals("结论 a", got.getConclusion());
-        assertEquals(TtlCategory.GENERAL, got.getTtlCategory());
-        assertEquals(0.3d, got.getScore(), 1e-9);
-        assertEquals(0.5d, got.getThreshold(), 1e-9);
-        assertEquals("CLAUDE", got.getAgentType());
-        assertEquals("test", got.getEnv());
-        assertEquals(T0, got.getCreatedAt());
-        assertEquals(DiscardedRefineRecord.REASON_BELOW_THRESHOLD, got.getReason());
+        Map<String, Object> row = jdbc.queryForMap("SELECT * FROM chat_rag_discarded WHERE id = ?", "a");
+        assertEquals("CHAT", row.get("source_type"));
+        assertEquals("sess-a", row.get("source_session_id"));
+        assertEquals("低分会话 a", row.get("title"));
+        assertEquals("结论 a", row.get("conclusion"));
+        assertEquals("GENERAL", row.get("ttl_category"));
+        assertEquals(0.3d, ((Number) row.get("score")).doubleValue(), 1e-9);
+        assertEquals(0.5d, ((Number) row.get("threshold")).doubleValue(), 1e-9);
+        assertEquals("CLAUDE", row.get("agent_type"));
+        assertEquals("test", row.get("env"));
+        assertEquals(T0.toEpochMilli(), ((Number) row.get("created_at")).longValue());
+        assertEquals(DiscardedRefineRecord.REASON_BELOW_THRESHOLD, row.get("reason"));
     }
 
     @Test
@@ -105,38 +103,14 @@ public class SqliteDiscardedRefineRepoTest {
                 .createdAt(T0)
                 .build());
 
-        DiscardedRefineRecord got = repo.findPage(0, 10).get(0);
-        assertNull(got.getConclusion());
-        assertNull(got.getTtlCategory());
-        assertNull(got.getAgentType());
-        assertNull(got.getEnv());
-        assertEquals(SourceType.DIAGNOSE, got.getSourceType());
-        // reason 缺省应回退到默认值
-        assertEquals(DiscardedRefineRecord.REASON_BELOW_THRESHOLD, got.getReason());
-    }
-
-    @Test
-    public void find_page_should_order_by_created_at_desc_and_paginate() {
-        repo.save(base("old", T0).build());
-        repo.save(base("mid", T0.plusSeconds(60)).build());
-        repo.save(base("new", T0.plusSeconds(120)).build());
-
-        List<DiscardedRefineRecord> first = repo.findPage(0, 2);
-        assertEquals(2, first.size());
-        assertEquals("new", first.get(0).getId());
-        assertEquals("mid", first.get(1).getId());
-
-        List<DiscardedRefineRecord> second = repo.findPage(2, 2);
-        assertEquals(1, second.size());
-        assertEquals("old", second.get(0).getId());
-    }
-
-    @Test
-    public void count_should_tally_all_rows() {
-        assertEquals(0L, repo.count());
-        repo.save(base("a", T0).build());
-        repo.save(base("b", T0.plusSeconds(1)).build());
-        assertEquals(2L, repo.count());
+        Map<String, Object> row = jdbc.queryForMap(
+                "SELECT * FROM chat_rag_discarded WHERE id = ?", "nullable");
+        assertNull(row.get("conclusion"));
+        assertNull(row.get("ttl_category"));
+        assertNull(row.get("agent_type"));
+        assertNull(row.get("env"));
+        assertEquals("DIAGNOSE", row.get("source_type"));
+        assertEquals(DiscardedRefineRecord.REASON_BELOW_THRESHOLD, row.get("reason"));
     }
 
     @Test
@@ -145,8 +119,8 @@ public class SqliteDiscardedRefineRepoTest {
         repo.save(base("b", T0.plusSeconds(1)).build());
 
         assertTrue(repo.deleteById("a"));
-        assertEquals(1L, repo.count());
-        assertEquals("b", repo.findPage(0, 10).get(0).getId());
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM chat_rag_discarded", Integer.class));
+        assertEquals("b", jdbc.queryForObject("SELECT id FROM chat_rag_discarded", String.class));
     }
 
     @Test

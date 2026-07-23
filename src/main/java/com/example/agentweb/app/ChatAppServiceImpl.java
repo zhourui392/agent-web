@@ -16,10 +16,7 @@ import com.example.agentweb.domain.chat.SessionCache;
 import com.example.agentweb.domain.chatrun.ChatRunActivityGuard;
 import com.example.agentweb.domain.slashcommand.SlashCommandExpander;
 import com.example.agentweb.domain.worktree.WorkspacePathPolicy;
-import com.example.agentweb.infra.log.LogSafe;
-import com.example.agentweb.interfaces.dto.SendMessageRequest;
-import com.example.agentweb.interfaces.dto.StartSessionRequest;
-import com.example.agentweb.interfaces.dto.TruncateResult;
+import com.example.agentweb.app.logging.LogSafe;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -120,13 +117,13 @@ public class ChatAppServiceImpl implements ChatAppService {
     }
 
     @Override
-    public ChatSession startSession(StartSessionRequest req, String clientIp) {
-        Assert.notNull(req, "request is null");
-        AgentType type = AgentType.resolveSelection(req.getAgentType(), chatAgentDefaults.getChatDefaultAgent());
-        String workingDir = workspacePathPolicy.requireExistingDirectory(req.getWorkingDir());
+    public ChatSession startSession(StartSessionCommand command, String clientIp) {
+        Assert.notNull(command, "command is null");
+        AgentType type = AgentType.resolveSelection(command.agentType(), chatAgentDefaults.getChatDefaultAgent());
+        String workingDir = workspacePathPolicy.requireExistingDirectory(command.workingDir());
         ChatSession s = new ChatSession(type, workingDir);
         // 持久化创建时选定的环境, 用于后续恢复时回填; null/空串均按 "无环境" 处理
-        String reqEnv = req.getEnv();
+        String reqEnv = command.env();
         if (reqEnv != null && !reqEnv.isEmpty()) {
             s.setEnv(reqEnv);
         }
@@ -146,21 +143,21 @@ public class ChatAppServiceImpl implements ChatAppService {
     }
 
     @Override
-    public String sendMessage(String sessionId, SendMessageRequest req) throws IOException, InterruptedException {
+    public String sendMessage(String sessionId, SendMessageCommand command) throws IOException, InterruptedException {
         ChatSession s = getSession(sessionId);
         if (s == null) {
             log.warn("chat-send-rejected reason=session-not-found sessionId={}", sessionId);
             throw new IllegalArgumentException("Session not found: " + sessionId);
         }
         log.info("chat-send-once sessionId={} agentType={} messageLen={}",
-                sessionId, s.getAgentType(), LogSafe.safeLen(req.getMessage()));
+                sessionId, s.getAgentType(), LogSafe.safeLen(command.message()));
         // persist user message
-        ChatMessage userMsg = new ChatMessage("user", req.getMessage());
+        ChatMessage userMsg = new ChatMessage("user", command.message());
         sessionRepository.addMessage(sessionId, userMsg);
 
         long startMs = System.currentTimeMillis();
         // 注入会话 owner 的 git 身份: 该会话内 agent 的 git commit 用属主身份 (默认用户/未配置回落机器默认)
-        String output = gateway.runOnce(s.getAgentType(), s.getWorkingDir(), req.getMessage(), s.getUserId());
+        String output = gateway.runOnce(s.getAgentType(), s.getWorkingDir(), command.message(), s.getUserId());
         log.info("chat-send-once-done sessionId={} outputLen={} elapsedMs={}",
                 sessionId, LogSafe.safeLen(output), System.currentTimeMillis() - startMs);
 

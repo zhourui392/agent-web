@@ -140,16 +140,6 @@ public class CachingRagChunkRepo implements RagChunkRepository {
     }
 
     @Override
-    public List<RagChunk> findPage(boolean activeOnly, Instant now, int offset, int limit) {
-        return delegate.findPage(activeOnly, now, offset, limit);
-    }
-
-    @Override
-    public long count(boolean activeOnly, Instant now) {
-        return delegate.count(activeOnly, now);
-    }
-
-    @Override
     public Map<SourceType, Integer> countActiveBySourceType() {
         return delegate.countActiveBySourceType();
     }

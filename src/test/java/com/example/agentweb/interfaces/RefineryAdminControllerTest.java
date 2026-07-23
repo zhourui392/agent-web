@@ -2,18 +2,15 @@ package com.example.agentweb.interfaces;
 
 import com.example.agentweb.app.refinery.RefineryRebuildService;
 import com.example.agentweb.app.refinery.RebuildResult;
-import com.example.agentweb.domain.shared.AgentType;
-import com.example.agentweb.domain.refinery.DiscardedRefineRecord;
-import com.example.agentweb.domain.refinery.DiscardedRefineRepository;
-import com.example.agentweb.domain.refinery.RagChunk;
-import com.example.agentweb.domain.refinery.RagChunkRepository;
-import com.example.agentweb.domain.refinery.RefinedContent;
-import com.example.agentweb.domain.refinery.SourceType;
-import com.example.agentweb.domain.refinery.TtlCategory;
+import com.example.agentweb.app.refinery.DiscardedRefinePage;
+import com.example.agentweb.app.refinery.DiscardedRefineView;
+import com.example.agentweb.app.refinery.RefineryAdminQueryService;
+import com.example.agentweb.app.refinery.RefineryChunkPage;
+import com.example.agentweb.app.refinery.RefineryChunkView;
+import com.example.agentweb.app.refinery.RefineryDeleteResult;
 import com.example.agentweb.infra.auth.AuthProperties;
 import org.junit.jupiter.api.Test;
 
-import java.time.Instant;
 import java.util.Collections;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -22,10 +19,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -56,10 +50,7 @@ class RefineryAdminControllerTest {
     private RefineryRebuildService rebuildService;
 
     @MockBean
-    private RagChunkRepository chunkRepo;
-
-    @MockBean
-    private DiscardedRefineRepository discardedRepo;
+    private RefineryAdminQueryService queryService;
 
     @MockBean
     private com.example.agentweb.app.refinery.RefineryAppService refineryAppService;
@@ -124,7 +115,9 @@ class RefineryAdminControllerTest {
     void rebuildRecent_days_too_small_should_return_422_without_calling_service() throws Exception {
         mvc.perform(post("/api/refinery/rebuild-recent").param("days", "0"))
                 .andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.error").value("validation_failed"));
+                .andExpect(jsonPath("$.error").value("validation_failed"))
+                .andExpect(jsonPath("$.message").value("days 必须在 [1,90] 范围内"))
+                .andExpect(jsonPath("$.days").value(0));
 
         verify(rebuildService, never()).rebuildRecent(anyInt());
     }
@@ -140,10 +133,8 @@ class RefineryAdminControllerTest {
 
     @Test
     void listChunks_default_should_return_200_with_page_and_active_status() throws Exception {
-        when(chunkRepo.findPage(eq(false), any(Instant.class), eq(0), eq(20)))
-                .thenReturn(Collections.singletonList(
-                        chunk("c1", Instant.parse("2099-01-01T00:00:00Z"), null)));
-        when(chunkRepo.count(eq(false), any(Instant.class))).thenReturn(1L);
+        when(queryService.findChunks(1, 20, "all")).thenReturn(new RefineryChunkPage(
+                Collections.singletonList(chunk("c1", RefineryChunkView.STATUS_ACTIVE)), 1L, 1, 20));
 
         mvc.perform(get("/api/refinery/chunks"))
                 .andExpect(status().isOk())
@@ -157,36 +148,33 @@ class RefineryAdminControllerTest {
 
     @Test
     void listChunks_status_active_should_passthrough_activeOnly() throws Exception {
-        when(chunkRepo.findPage(eq(true), any(Instant.class), anyInt(), anyInt()))
-                .thenReturn(Collections.emptyList());
-        when(chunkRepo.count(eq(true), any(Instant.class))).thenReturn(0L);
+        when(queryService.findChunks(1, 20, "active"))
+                .thenReturn(new RefineryChunkPage(Collections.emptyList(), 0L, 1, 20));
 
         mvc.perform(get("/api/refinery/chunks").param("status", "active"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(0));
 
-        verify(chunkRepo).findPage(eq(true), any(Instant.class), anyInt(), anyInt());
+        verify(queryService).findChunks(1, 20, "active");
     }
 
     @Test
     void listChunks_size_over_max_should_clamp_to_100() throws Exception {
-        when(chunkRepo.findPage(anyBoolean(), any(Instant.class), anyInt(), anyInt()))
-                .thenReturn(Collections.emptyList());
-        when(chunkRepo.count(anyBoolean(), any(Instant.class))).thenReturn(0L);
+        when(queryService.findChunks(1, 999, "all"))
+                .thenReturn(new RefineryChunkPage(Collections.emptyList(), 0L, 1, 100));
 
         mvc.perform(get("/api/refinery/chunks").param("size", "999"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.size").value(100));
 
-        verify(chunkRepo).findPage(anyBoolean(), any(Instant.class), eq(0), eq(100));
+        verify(queryService).findChunks(1, 999, "all");
     }
 
     @Test
     void listChunks_archived_chunk_status_should_be_ARCHIVED() throws Exception {
-        when(chunkRepo.findPage(anyBoolean(), any(Instant.class), anyInt(), anyInt()))
-                .thenReturn(Collections.singletonList(
-                        chunk("c-arch", null, Instant.parse("2026-05-30T00:00:00Z"))));
-        when(chunkRepo.count(anyBoolean(), any(Instant.class))).thenReturn(1L);
+        when(queryService.findChunks(1, 20, "all")).thenReturn(new RefineryChunkPage(
+                Collections.singletonList(chunk("c-arch", RefineryChunkView.STATUS_ARCHIVED)),
+                1L, 1, 20));
 
         mvc.perform(get("/api/refinery/chunks"))
                 .andExpect(status().isOk())
@@ -195,19 +183,19 @@ class RefineryAdminControllerTest {
 
     @Test
     void deleteChunk_hit_should_return_200_with_deleted_true() throws Exception {
-        when(chunkRepo.deleteById("c1")).thenReturn(true);
+        when(refineryAppService.deleteChunk("c1")).thenReturn(new RefineryDeleteResult("c1", true));
 
         mvc.perform(delete("/api/refinery/chunks/{id}", "c1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value("c1"))
                 .andExpect(jsonPath("$.deleted").value(true));
 
-        verify(chunkRepo).deleteById("c1");
+        verify(refineryAppService).deleteChunk("c1");
     }
 
     @Test
     void deleteChunk_miss_should_return_404_with_deleted_false() throws Exception {
-        when(chunkRepo.deleteById("missing")).thenReturn(false);
+        when(refineryAppService.deleteChunk("missing")).thenReturn(new RefineryDeleteResult("missing", false));
 
         mvc.perform(delete("/api/refinery/chunks/{id}", "missing"))
                 .andExpect(status().isNotFound())
@@ -216,9 +204,8 @@ class RefineryAdminControllerTest {
 
     @Test
     void listDiscarded_default_should_return_200_with_page_and_DISCARDED_status() throws Exception {
-        when(discardedRepo.findPage(eq(0), eq(20)))
-                .thenReturn(Collections.singletonList(discarded("d1")));
-        when(discardedRepo.count()).thenReturn(1L);
+        when(queryService.findDiscarded(1, 20)).thenReturn(new DiscardedRefinePage(
+                Collections.singletonList(discarded("d1")), 1L, 1, 20));
 
         mvc.perform(get("/api/refinery/discarded"))
                 .andExpect(status().isOk())
@@ -234,70 +221,48 @@ class RefineryAdminControllerTest {
 
     @Test
     void listDiscarded_size_over_max_should_clamp_to_100() throws Exception {
-        when(discardedRepo.findPage(anyInt(), anyInt())).thenReturn(Collections.emptyList());
-        when(discardedRepo.count()).thenReturn(0L);
+        when(queryService.findDiscarded(1, 999))
+                .thenReturn(new DiscardedRefinePage(Collections.emptyList(), 0L, 1, 100));
 
         mvc.perform(get("/api/refinery/discarded").param("size", "999"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.size").value(100));
 
-        verify(discardedRepo).findPage(eq(0), eq(100));
+        verify(queryService).findDiscarded(1, 999);
     }
 
     @Test
     void deleteDiscarded_hit_should_return_200_with_deleted_true() throws Exception {
-        when(discardedRepo.deleteById("d1")).thenReturn(true);
+        when(refineryAppService.deleteDiscarded("d1")).thenReturn(new RefineryDeleteResult("d1", true));
 
         mvc.perform(delete("/api/refinery/discarded/{id}", "d1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value("d1"))
                 .andExpect(jsonPath("$.deleted").value(true));
 
-        verify(discardedRepo).deleteById("d1");
+        verify(refineryAppService).deleteDiscarded("d1");
     }
 
     @Test
     void deleteDiscarded_miss_should_return_404_with_deleted_false() throws Exception {
-        when(discardedRepo.deleteById("missing")).thenReturn(false);
+        when(refineryAppService.deleteDiscarded("missing"))
+                .thenReturn(new RefineryDeleteResult("missing", false));
 
         mvc.perform(delete("/api/refinery/discarded/{id}", "missing"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.deleted").value(false));
     }
 
-    private static DiscardedRefineRecord discarded(String id) {
-        return DiscardedRefineRecord.builder()
-                .id(id)
-                .sourceType(SourceType.CHAT)
-                .sourceSessionId("sess-1")
-                .title("低分标题")
-                .conclusion("结论")
-                .ttlCategory(TtlCategory.GENERAL)
-                .score(0.3d)
-                .threshold(0.5d)
-                .agentType("CLAUDE")
-                .env("test")
-                .createdAt(Instant.parse("2026-06-04T00:00:00Z"))
-                .reason(DiscardedRefineRecord.REASON_BELOW_THRESHOLD)
-                .build();
+    private static DiscardedRefineView discarded(String id) {
+        return new DiscardedRefineView(id, "低分标题", 0.3d, 0.5d, "GENERAL", "结论",
+                "CHAT", "sess-1", "CLAUDE", "test", "2026-06-04T00:00:00Z",
+                "score below threshold", DiscardedRefineView.STATUS_DISCARDED);
     }
 
-    private static RagChunk chunk(String id, Instant expiresAt, Instant archivedAt) {
-        return RagChunk.builder()
-                .id(id)
-                .sourceSessionId("sess-1")
-                .sourceMsgRange("msg_1..msg_3")
-                .agentType(AgentType.CLAUDE)
-                .content(new RefinedContent("标题",
-                        Collections.singletonList("信号1"), "ctx", "proc", "结论"))
-                .score(0.8)
-                .ttlCategory(TtlCategory.BUSINESS)
-                .createdAt(Instant.parse("2026-06-01T00:00:00Z"))
-                .expiresAt(expiresAt)
-                .archivedAt(archivedAt)
-                .embeddingModel("doubao-embedding-vision")
-                .embedding(new float[]{0.1f, 0.2f})
-                .build();
+    private static RefineryChunkView chunk(String id, String status) {
+        return new RefineryChunkView(id, "标题", 0.8d, "BUSINESS", "结论",
+                Collections.singletonList("信号1"), "sess-1", "msg_1..msg_3", "CLAUDE",
+                "2026-06-01T00:00:00Z", "2099-01-01T00:00:00Z", null, status);
     }
 
     @org.junit.jupiter.api.Test
@@ -309,7 +274,9 @@ class RefineryAdminControllerTest {
                 .andExpect(jsonPath("$.refreshed").value(7));
 
         mvc.perform(post("/api/refinery/reembed?limit=0"))
-                .andExpect(status().isUnprocessableEntity());
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.error").value("validation_failed"))
+                .andExpect(jsonPath("$.message").value("limit 必须在 [1,1000] 范围内"));
         verify(refineryAppService, never()).reembedActive(0);
     }
 }

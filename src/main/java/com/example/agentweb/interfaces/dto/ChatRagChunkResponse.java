@@ -1,17 +1,14 @@
 package com.example.agentweb.interfaces.dto;
 
 import lombok.Getter;
-import com.example.agentweb.domain.refinery.RagChunk;
+import com.example.agentweb.app.refinery.RefineryChunkView;
 
-import java.time.Instant;
 import java.util.List;
 
 /**
  * chat-rag 召回库存的列表项 (管理台展示用, 不含 embedding 向量).
  *
- * <p>{@code status} 在 {@link #from} 中按 (archivedAt, expiresAt, now) 实时算出, 与
- * {@code SqliteRagChunkRepo} 的 "可召回" 口径一致 ({@code expiresAt <= now} 即过期):
- * 即便 scheduler 尚未把过期行软删 (archived_at 仍空), 也会正确显示为 ARCHIVED。</p>
+ * <p>状态由 CQRS QueryService 按读模型口径投影，Interface 层只做边界转换。</p>
  *
  * @author zhourui(V33215020)
  * @since 2026-06-01
@@ -20,9 +17,9 @@ import java.util.List;
 public class ChatRagChunkResponse {
 
     /** 可召回: 未归档且未过期. */
-    public static final String STATUS_ACTIVE = "ACTIVE";
+    public static final String STATUS_ACTIVE = RefineryChunkView.STATUS_ACTIVE;
     /** 已归档或已过期, 不再参与召回. */
-    public static final String STATUS_ARCHIVED = "ARCHIVED";
+    public static final String STATUS_ARCHIVED = RefineryChunkView.STATUS_ARCHIVED;
 
     private final String id;
     private final String title;
@@ -38,25 +35,23 @@ public class ChatRagChunkResponse {
     private final String archivedAt;
     private final String status;
 
-    private ChatRagChunkResponse(RagChunk c, String status) {
-        this.id = c.getId();
-        this.title = c.getContent().getTitle();
-        this.score = c.getScore();
-        this.ttlCategory = c.getTtlCategory().name();
-        this.conclusion = c.getContent().getConclusion();
-        this.triggerSignals = c.getContent().getTriggerSignals();
-        this.sourceSessionId = c.getSourceSessionId();
-        this.sourceMsgRange = c.getSourceMsgRange();
-        this.agentType = c.getAgentType().name();
-        this.createdAt = c.getCreatedAt() == null ? null : c.getCreatedAt().toString();
-        this.expiresAt = c.getExpiresAt() == null ? null : c.getExpiresAt().toString();
-        this.archivedAt = c.getArchivedAt() == null ? null : c.getArchivedAt().toString();
-        this.status = status;
+    private ChatRagChunkResponse(RefineryChunkView view) {
+        this.id = view.id();
+        this.title = view.title();
+        this.score = view.score();
+        this.ttlCategory = view.ttlCategory();
+        this.conclusion = view.conclusion();
+        this.triggerSignals = view.triggerSignals();
+        this.sourceSessionId = view.sourceSessionId();
+        this.sourceMsgRange = view.sourceMsgRange();
+        this.agentType = view.agentType();
+        this.createdAt = view.createdAt();
+        this.expiresAt = view.expiresAt();
+        this.archivedAt = view.archivedAt();
+        this.status = view.status();
     }
 
-    public static ChatRagChunkResponse from(RagChunk c, Instant now) {
-        boolean expired = c.getExpiresAt() != null && !c.getExpiresAt().isAfter(now);
-        boolean archived = c.getArchivedAt() != null || expired;
-        return new ChatRagChunkResponse(c, archived ? STATUS_ARCHIVED : STATUS_ACTIVE);
+    public static ChatRagChunkResponse from(RefineryChunkView view) {
+        return new ChatRagChunkResponse(view);
     }
 }

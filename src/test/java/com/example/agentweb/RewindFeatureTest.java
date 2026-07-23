@@ -1,6 +1,7 @@
 package com.example.agentweb;
 
 import com.example.agentweb.app.ChatAppService;
+import com.example.agentweb.app.TruncateResult;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.chat.ChatMessage;
 import com.example.agentweb.domain.chat.ChatSession;
@@ -9,7 +10,6 @@ import com.example.agentweb.domain.slashcommand.SlashCommandExpander;
 import com.example.agentweb.infra.auth.AuthProperties;
 import com.example.agentweb.infra.EnvProperties;
 import com.example.agentweb.interfaces.ChatController;
-import com.example.agentweb.interfaces.dto.TruncateResult;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;

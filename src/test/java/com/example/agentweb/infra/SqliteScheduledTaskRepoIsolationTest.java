@@ -3,6 +3,7 @@ package com.example.agentweb.infra;
 import com.example.agentweb.domain.auth.CurrentUserProvider;
 import com.example.agentweb.domain.auth.LoginUser;
 import com.example.agentweb.domain.auth.UserContext;
+import com.example.agentweb.domain.schedule.CronExpression;
 import com.example.agentweb.domain.schedule.ScheduledTask;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -70,8 +71,8 @@ public class SqliteScheduledTaskRepoIsolationTest {
     }
 
     private void saveAs(String userId, String name) {
-        ScheduledTask t = new ScheduledTask(name, "0 0 1 * * ?", "p", "/tmp/wd");
-        t.setUserId(userId);
+        ScheduledTask t = ScheduledTask.create(name, CronExpression.parse("0 0 1 * * ?"),
+                "p", "/tmp/wd", userId, java.time.Instant.now());
         repo.save(t);
     }
 

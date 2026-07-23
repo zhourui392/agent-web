@@ -1,4 +1,4 @@
-package com.example.agentweb.infra.log;
+package com.example.agentweb.app.logging;
 
 import org.junit.jupiter.api.Test;
 

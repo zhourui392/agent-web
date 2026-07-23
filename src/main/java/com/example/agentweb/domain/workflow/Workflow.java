@@ -96,4 +96,11 @@ public class Workflow {
         }
         return value;
     }
+
+    /** 守护工作流只有在启用状态下才能开始一次执行。 */
+    public void requireRunnable() {
+        if (!enabled) {
+            throw new IllegalStateException("工作流已停用: " + id);
+        }
+    }
 }

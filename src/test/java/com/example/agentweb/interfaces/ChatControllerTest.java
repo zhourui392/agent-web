@@ -3,6 +3,9 @@ package com.example.agentweb.interfaces;
 import com.example.agentweb.app.ChatAppService;
 import com.example.agentweb.app.ChatMessageView;
 import com.example.agentweb.app.ChatSessionQueryService;
+import com.example.agentweb.app.SendMessageCommand;
+import com.example.agentweb.app.StartSessionCommand;
+import com.example.agentweb.app.TruncateResult;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.chat.ChatSession;
 import com.example.agentweb.domain.chat.Feedback;
@@ -13,7 +16,6 @@ import com.example.agentweb.infra.auth.AuthProperties;
 import com.example.agentweb.infra.EnvProperties;
 import com.example.agentweb.interfaces.dto.SendMessageRequest;
 import com.example.agentweb.interfaces.dto.StartSessionRequest;
-import com.example.agentweb.interfaces.dto.TruncateResult;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -106,7 +108,7 @@ class ChatControllerTest {
 
     @Test
     void startSession_should_return_session_metadata() throws Exception {
-        when(appService.startSession(any(StartSessionRequest.class), any()))
+        when(appService.startSession(any(StartSessionCommand.class), any()))
                 .thenReturn(session("sess-1", AgentType.CLAUDE, "test"));
 
         String body = "{\"agentType\":\"CLAUDE\",\"workingDir\":\"/tmp/work\",\"env\":\"test\"}";
@@ -123,7 +125,7 @@ class ChatControllerTest {
 
     @Test
     void startSession_should_pass_x_forwarded_for_ip_to_app_service() throws Exception {
-        when(appService.startSession(any(StartSessionRequest.class), any()))
+        when(appService.startSession(any(StartSessionCommand.class), any()))
                 .thenReturn(session("sess-1", AgentType.CLAUDE, "test"));
 
         String body = "{\"agentType\":\"CLAUDE\",\"workingDir\":\"/tmp/work\"}";
@@ -135,7 +137,10 @@ class ChatControllerTest {
                 .andExpect(status().isOk());
 
         ArgumentCaptor<String> ipCaptor = ArgumentCaptor.forClass(String.class);
-        verify(appService).startSession(any(StartSessionRequest.class), ipCaptor.capture());
+        ArgumentCaptor<StartSessionCommand> commandCaptor = ArgumentCaptor.forClass(StartSessionCommand.class);
+        verify(appService).startSession(commandCaptor.capture(), ipCaptor.capture());
+        org.junit.jupiter.api.Assertions.assertEquals("CLAUDE", commandCaptor.getValue().agentType());
+        org.junit.jupiter.api.Assertions.assertEquals("/tmp/work", commandCaptor.getValue().workingDir());
         org.junit.jupiter.api.Assertions.assertEquals("9.9.9.9", ipCaptor.getValue());
     }
 
@@ -155,7 +160,7 @@ class ChatControllerTest {
 
     @Test
     void sendMessage_should_return_output() throws Exception {
-        when(appService.sendMessage(eq("sess-1"), any(SendMessageRequest.class)))
+        when(appService.sendMessage(eq("sess-1"), any(SendMessageCommand.class)))
                 .thenReturn("hello");
 
         mvc.perform(post("/api/chat/session/sess-1/message")
@@ -173,7 +178,7 @@ class ChatControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("validation failed"));
 
-        verify(appService, never()).sendMessage(anyString(), any(SendMessageRequest.class));
+        verify(appService, never()).sendMessage(anyString(), any(SendMessageCommand.class));
     }
 
     @Test

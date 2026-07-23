@@ -30,27 +30,6 @@ public interface RagChunkRepository {
     List<RagChunk> findActive(Instant now);
 
     /**
-     * 管理台分页列表: 按 created_at 倒序翻页返回 chunk.
-     *
-     * @param activeOnly true 仅返回"可召回"(未归档且未过期, 与 {@link #findActive} 语义一致);
-     *                   false 返回全部 (含已归档/已过期)
-     * @param now        计算"可召回"用的当前时刻
-     * @param offset     跳过条数
-     * @param limit      本页最大条数
-     * @return 当前页 chunk 列表
-     */
-    List<RagChunk> findPage(boolean activeOnly, Instant now, int offset, int limit);
-
-    /**
-     * 配合 {@link #findPage} 的总数统计 (同一 activeOnly 过滤口径).
-     *
-     * @param activeOnly 与 {@link #findPage} 相同的过滤口径
-     * @param now        计算"可召回"用的当前时刻
-     * @return 满足条件的总行数
-     */
-    long count(boolean activeOnly, Instant now);
-
-    /**
      * 软删一条 chunk (写入 archived_at). 用于 TTL 维护脚本或手工归档.
      *
      * @return true 命中并归档, false 未找到或已归档

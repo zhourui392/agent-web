@@ -132,9 +132,7 @@ public class WorkflowAppService {
      */
     public WorkflowExecution run(String id, WorkflowRunCommand command) {
         Workflow workflow = requireWorkflow(id);
-        if (!workflow.isEnabled()) {
-            throw new IllegalStateException("工作流已停用: " + id);
-        }
+        workflow.requireRunnable();
         Map<String, Object> inputs = command == null ? Collections.emptyMap() : command.getInputs();
         WorkflowExecution execution = new WorkflowExecution(
                 UUID.randomUUID().toString(),

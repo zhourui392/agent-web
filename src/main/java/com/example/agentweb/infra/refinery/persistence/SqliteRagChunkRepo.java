@@ -117,32 +117,6 @@ public class SqliteRagChunkRepo implements RagChunkRepository {
     }
 
     @Override
-    public List<RagChunk> findPage(boolean activeOnly, Instant now, int offset, int limit) {
-        if (activeOnly) {
-            return jdbc.query(
-                    "SELECT " + COLUMNS + " FROM chat_rag_chunk WHERE " + ACTIVE_WHERE
-                            + " ORDER BY created_at DESC LIMIT ? OFFSET ?",
-                    ROW_MAPPER,
-                    now.toEpochMilli(), limit, offset);
-        }
-        return jdbc.query(
-                "SELECT " + COLUMNS + " FROM chat_rag_chunk "
-                        + "ORDER BY created_at DESC LIMIT ? OFFSET ?",
-                ROW_MAPPER,
-                limit, offset);
-    }
-
-    @Override
-    public long count(boolean activeOnly, Instant now) {
-        Long n = activeOnly
-                ? jdbc.queryForObject(
-                        "SELECT COUNT(*) FROM chat_rag_chunk WHERE " + ACTIVE_WHERE,
-                        Long.class, now.toEpochMilli())
-                : jdbc.queryForObject("SELECT COUNT(*) FROM chat_rag_chunk", Long.class);
-        return n == null ? 0L : n;
-    }
-
-    @Override
     public boolean markArchived(String id, Instant when, ArchiveReason reason) {
         int rows = jdbc.update(
                 "UPDATE chat_rag_chunk SET archived_at = ?, archive_reason = ? "

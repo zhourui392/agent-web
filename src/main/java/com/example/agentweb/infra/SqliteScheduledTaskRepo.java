@@ -1,6 +1,7 @@
 package com.example.agentweb.infra;
 
 import com.example.agentweb.domain.auth.CurrentUserProvider;
+import com.example.agentweb.domain.schedule.CronExpression;
 import com.example.agentweb.domain.schedule.ScheduledTask;
 import com.example.agentweb.domain.schedule.ScheduledTaskRepository;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -48,10 +49,10 @@ public class SqliteScheduledTaskRepo implements ScheduledTaskRepository {
         public ScheduledTask mapRow(ResultSet rs, int rowNum) throws SQLException {
             String lastRunStr = rs.getString("last_run_at");
             Instant lastRunAt = lastRunStr != null ? Instant.parse(lastRunStr) : null;
-            return new ScheduledTask(
+            return ScheduledTask.restore(
                     rs.getString("id"),
                     rs.getString("name"),
-                    rs.getString("cron_expr"),
+                    CronExpression.parse(rs.getString("cron_expr")),
                     rs.getString("prompt"),
                     rs.getString("working_dir"),
                     rs.getInt("enabled") == 1,
@@ -79,11 +80,13 @@ public class SqliteScheduledTaskRepo implements ScheduledTaskRepository {
     @Override
     public void update(ScheduledTask task) {
         jdbc.update(
-                "UPDATE scheduled_task SET name = ?, cron_expr = ?, prompt = ?, working_dir = ?, enabled = ?, updated_at = ? WHERE id = ?",
+                "UPDATE scheduled_task SET name = ?, cron_expr = ?, prompt = ?, working_dir = ?, "
+                        + "enabled = ?, updated_at = ?, last_run_at = ?, last_session_id = ? WHERE id = ?",
                 task.getName(), task.getCronExpr(), task.getPrompt(),
                 task.getWorkingDir(),
                 task.isEnabled() ? 1 : 0,
-                Instant.now().toString(), task.getId()
+                task.getUpdatedAt().toString(), toStringOrNull(task.getLastRunAt()),
+                task.getLastSessionId(), task.getId()
         );
     }
 
@@ -135,9 +138,7 @@ public class SqliteScheduledTaskRepo implements ScheduledTaskRepository {
         jdbc.update(sql, args.toArray());
     }
 
-    @Override
-    public void updateLastRun(String id, Instant lastRunAt, String lastSessionId) {
-        jdbc.update("UPDATE scheduled_task SET last_run_at = ?, last_session_id = ? WHERE id = ?",
-                lastRunAt.toString(), lastSessionId, id);
+    private String toStringOrNull(Instant instant) {
+        return instant == null ? null : instant.toString();
     }
 }

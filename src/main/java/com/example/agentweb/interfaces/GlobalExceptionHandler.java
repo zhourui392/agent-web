@@ -15,6 +15,9 @@ import com.example.agentweb.domain.harness.CapabilityResolutionException;
 import com.example.agentweb.domain.harness.HarnessCatalogException;
 import com.example.agentweb.domain.harness.IllegalHarnessTransitionException;
 import com.example.agentweb.domain.harness.DuplicateHarnessRunException;
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.ConstraintViolationException;
+import jakarta.validation.Path;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -167,11 +170,33 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
     }
 
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<Map<String, Object>> handleConstraintViolation(
+            ConstraintViolationException ex) {
+        ConstraintViolation<?> violation = ex.getConstraintViolations().iterator().next();
+        Map<String, Object> body = new HashMap<>(3);
+        body.put("error", "validation_failed");
+        body.put("message", violation.getMessage());
+        String parameterName = lastPathName(violation.getPropertyPath());
+        if ("days".equals(parameterName)) {
+            body.put("days", violation.getInvalidValue());
+        }
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(body);
+    }
+
     @ExceptionHandler(IllegalStateException.class)
     public ResponseEntity<Map<String, Object>> handleIllegalState(IllegalStateException ex) {
         Map<String, Object> body = new HashMap<>(16);
         body.put("error", ex.getMessage());
         return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
+    }
+
+    private String lastPathName(Path path) {
+        String name = null;
+        for (Path.Node node : path) {
+            name = node.getName();
+        }
+        return name;
     }
 
     @ExceptionHandler(SessionDeletionForbiddenException.class)

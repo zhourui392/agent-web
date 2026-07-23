@@ -1,6 +1,5 @@
 package com.example.agentweb.domain.schedule;
 
-import java.time.Instant;
 import java.util.List;
 
 /**
@@ -46,11 +45,4 @@ public interface ScheduledTaskRepository {
      */
     void deleteById(String id);
 
-    /**
-     * 更新最近一次执行的时间与对应 sessionId.
-     * @param id 任务 ID
-     * @param lastRunAt 触发时刻
-     * @param lastSessionId 触发产生的会话 ID
-     */
-    void updateLastRun(String id, Instant lastRunAt, String lastSessionId);
 }

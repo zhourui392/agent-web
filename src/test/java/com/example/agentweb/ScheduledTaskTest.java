@@ -2,6 +2,7 @@ package com.example.agentweb;
 
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.chat.ChatSession;
+import com.example.agentweb.domain.schedule.CronExpression;
 import com.example.agentweb.domain.schedule.ScheduledTask;
 import com.example.agentweb.domain.schedule.ScheduledTaskRepository;
 import com.example.agentweb.domain.chat.SessionRepository;
@@ -106,7 +107,7 @@ public class ScheduledTaskTest {
 
     @Test
     public void scheduledTask_should_generate_id_and_defaults() {
-        ScheduledTask task = new ScheduledTask("daily-report", "0 0 9 * * ?", "生成日报", "/tmp");
+        ScheduledTask task = task("daily-report", "0 0 9 * * ?", "生成日报", "/tmp");
         assertNotNull(task.getId());
         assertEquals("daily-report", task.getName());
         assertEquals("0 0 9 * * ?", task.getCronExpr());
@@ -137,7 +138,7 @@ public class ScheduledTaskTest {
 
     @Test
     public void save_and_findById_should_round_trip() {
-        ScheduledTask task = new ScheduledTask("test-save", "0 0 * * * ?", "hello", "/tmp");
+        ScheduledTask task = task("test-save", "0 0 * * * ?", "hello", "/tmp");
         taskRepo.save(task);
 
         ScheduledTask loaded = taskRepo.findById(task.getId());
@@ -151,12 +152,10 @@ public class ScheduledTaskTest {
 
     @Test
     public void update_should_persist_changes() {
-        ScheduledTask task = new ScheduledTask("test-update", "0 0 * * * ?", "original", "/tmp");
+        ScheduledTask task = task("test-update", "0 0 * * * ?", "original", "/tmp");
         taskRepo.save(task);
 
-        task.setName("updated-name");
-        task.setPrompt("updated prompt");
-        task.setCronExpr("0 */30 * * * ?");
+        task.revise("updated-name", "0 */30 * * * ?", "updated prompt", null, Instant.now());
         taskRepo.update(task);
 
         ScheduledTask loaded = taskRepo.findById(task.getId());
@@ -167,7 +166,7 @@ public class ScheduledTaskTest {
 
     @Test
     public void deleteById_should_remove_task() {
-        ScheduledTask task = new ScheduledTask("test-delete", "0 0 * * * ?", "bye", "/tmp");
+        ScheduledTask task = task("test-delete", "0 0 * * * ?", "bye", "/tmp");
         taskRepo.save(task);
         assertNotNull(taskRepo.findById(task.getId()));
 
@@ -177,15 +176,12 @@ public class ScheduledTaskTest {
 
     @Test
     public void findAllEnabled_should_filter_disabled() {
-        ScheduledTask enabled = new ScheduledTask("enabled-task", "0 0 * * * ?", "e", "/tmp");
+        ScheduledTask enabled = task("enabled-task", "0 0 * * * ?", "e", "/tmp");
         taskRepo.save(enabled);
 
-        ScheduledTask disabled = new ScheduledTask("disabled-task", "0 0 * * * ?", "d", "/tmp");
-        disabled.setEnabled(false);
-        // Need to save with enabled=false — save uses constructor default true,
-        // so update right after to flip it
+        ScheduledTask disabled = task("disabled-task", "0 0 * * * ?", "d", "/tmp");
+        disabled.toggle(Instant.now());
         taskRepo.save(disabled);
-        taskRepo.update(disabled);
 
         List<ScheduledTask> result = taskRepo.findAllEnabled();
         assertTrue(result.stream().anyMatch(t -> t.getId().equals(enabled.getId())));
@@ -194,11 +190,12 @@ public class ScheduledTaskTest {
 
     @Test
     public void updateLastRun_should_persist() {
-        ScheduledTask task = new ScheduledTask("test-lastrun", "0 0 * * * ?", "run", "/tmp");
+        ScheduledTask task = task("test-lastrun", "0 0 * * * ?", "run", "/tmp");
         taskRepo.save(task);
 
         Instant now = Instant.now();
-        taskRepo.updateLastRun(task.getId(), now, "session-abc");
+        task.recordRun("session-abc", now);
+        taskRepo.update(task);
 
         ScheduledTask loaded = taskRepo.findById(task.getId());
         assertNotNull(loaded.getLastRunAt());
@@ -373,5 +370,10 @@ public class ScheduledTaskTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.message").value("任务已触发"));
+    }
+
+    private ScheduledTask task(String name, String cron, String prompt, String workingDir) {
+        return ScheduledTask.create(name, CronExpression.parse(cron), prompt, workingDir,
+                null, Instant.now());
     }
 }

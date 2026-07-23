@@ -11,15 +11,16 @@ import com.example.agentweb.domain.refinery.SourceType;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.chat.ChatMessage;
 import com.example.agentweb.domain.chat.ChatSession;
+import com.example.agentweb.domain.schedule.CronExpression;
 import com.example.agentweb.domain.schedule.ScheduledTask;
 import com.example.agentweb.domain.schedule.ScheduledTaskRepository;
 import com.example.agentweb.domain.chat.SessionCache;
 import com.example.agentweb.domain.chat.SessionRepository;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.support.CronTrigger;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 
-import java.time.Instant;
+import java.time.Clock;
 import java.util.List;
 
 /**
@@ -39,6 +40,7 @@ public class ScheduledTaskServiceImpl implements ScheduledTaskService {
     private final CurrentUserProvider currentUserProvider;
     private final PromptAssemblyService promptAssemblyService;
     private final RunRecallPolicyFactory runRecallPolicyFactory;
+    private final Clock clock;
     private DynamicTaskScheduler dynamicScheduler;
 
     public ScheduledTaskServiceImpl(ScheduledTaskRepository taskRepo,
@@ -47,7 +49,8 @@ public class ScheduledTaskServiceImpl implements ScheduledTaskService {
                                     AgentGateway gateway,
                                     CurrentUserProvider currentUserProvider,
                                     PromptAssemblyService promptAssemblyService,
-                                    RunRecallPolicyFactory runRecallPolicyFactory) {
+                                    RunRecallPolicyFactory runRecallPolicyFactory,
+                                    @Qualifier("systemClock") Clock clock) {
         this.taskRepo = taskRepo;
         this.sessionRepository = sessionRepository;
         this.sessionCache = sessionCache;
@@ -55,6 +58,7 @@ public class ScheduledTaskServiceImpl implements ScheduledTaskService {
         this.currentUserProvider = currentUserProvider;
         this.promptAssemblyService = promptAssemblyService;
         this.runRecallPolicyFactory = runRecallPolicyFactory;
+        this.clock = clock;
     }
 
     /**
@@ -66,15 +70,8 @@ public class ScheduledTaskServiceImpl implements ScheduledTaskService {
 
     @Override
     public ScheduledTask create(String name, String cronExpr, String prompt, String workingDir) {
-        // Validate cron expression
-        try {
-            new CronTrigger(cronExpr);
-        } catch (IllegalArgumentException e) {
-            throw new IllegalArgumentException("无效的 Cron 表达式: " + cronExpr);
-        }
-        ScheduledTask task = new ScheduledTask(name, cronExpr, prompt, workingDir);
-        // 归属当前登录用户，用于任务列表隔离与执行归属
-        task.setUserId(currentUserProvider.currentUserId());
+        ScheduledTask task = ScheduledTask.create(name, CronExpression.parse(cronExpr), prompt,
+                workingDir, currentUserProvider.currentUserId(), clock.instant());
         taskRepo.save(task);
         if (dynamicScheduler != null) {
             dynamicScheduler.scheduleTask(task);
@@ -88,24 +85,7 @@ public class ScheduledTaskServiceImpl implements ScheduledTaskService {
         if (task == null) {
             throw new IllegalArgumentException("任务不存在: " + id);
         }
-        if (cronExpr != null) {
-            try {
-                new CronTrigger(cronExpr);
-            } catch (IllegalArgumentException e) {
-                throw new IllegalArgumentException("无效的 Cron 表达式: " + cronExpr);
-            }
-            task.setCronExpr(cronExpr);
-        }
-        if (name != null) {
-            task.setName(name);
-        }
-        if (prompt != null) {
-            task.setPrompt(prompt);
-        }
-        if (workingDir != null) {
-            task.setWorkingDir(workingDir);
-        }
-        task.setUpdatedAt(Instant.now());
+        task.revise(name, cronExpr, prompt, workingDir, clock.instant());
         taskRepo.update(task);
         if (dynamicScheduler != null) {
             dynamicScheduler.scheduleTask(task);
@@ -127,15 +107,10 @@ public class ScheduledTaskServiceImpl implements ScheduledTaskService {
         if (task == null) {
             throw new IllegalArgumentException("任务不存在: " + id);
         }
-        task.setEnabled(!task.isEnabled());
-        task.setUpdatedAt(Instant.now());
+        task.toggle(clock.instant());
         taskRepo.update(task);
         if (dynamicScheduler != null) {
-            if (task.isEnabled()) {
-                dynamicScheduler.scheduleTask(task);
-            } else {
-                dynamicScheduler.cancelTask(id);
-            }
+            dynamicScheduler.scheduleTask(task);
         }
     }
 
@@ -188,7 +163,8 @@ public class ScheduledTaskServiceImpl implements ScheduledTaskService {
             sessionRepository.addMessage(session.getId(), new ChatMessage("assistant", "[error] " + e.getMessage()));
         }
 
-        taskRepo.updateLastRun(task.getId(), Instant.now(), session.getId());
+        task.recordRun(session.getId(), clock.instant());
+        taskRepo.update(task);
         log.info("Scheduled task completed: {} -> session {}", task.getName(), session.getId());
         return session.getId();
     }

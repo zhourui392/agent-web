@@ -196,48 +196,6 @@ public class SqliteRagChunkRepoTest {
     }
 
     @Test
-    public void find_page_all_should_paginate_by_created_at_desc() {
-        repo.save(newMinimalChunk("c1").createdAt(NOW.minusSeconds(40)).build());
-        repo.save(newMinimalChunk("c2").createdAt(NOW.minusSeconds(30)).build());
-        repo.save(newMinimalChunk("c3").createdAt(NOW.minusSeconds(20)).build());
-        repo.save(newMinimalChunk("c4").createdAt(NOW.minusSeconds(10)).build());
-        repo.save(newMinimalChunk("c5").createdAt(NOW).build());
-
-        List<RagChunk> page1 = repo.findPage(false, NOW, 0, 2);
-        List<RagChunk> page2 = repo.findPage(false, NOW, 2, 2);
-
-        assertEquals(Arrays.asList("c5", "c4"),
-                page1.stream().map(RagChunk::getId).collect(java.util.stream.Collectors.toList()));
-        assertEquals(Arrays.asList("c3", "c2"),
-                page2.stream().map(RagChunk::getId).collect(java.util.stream.Collectors.toList()));
-    }
-
-    @Test
-    public void find_page_active_only_should_exclude_archived_and_expired() {
-        repo.save(newMinimalChunk("active").expiresAt(NOW.plusSeconds(3600)).build());
-        repo.save(newMinimalChunk("expired").expiresAt(NOW.minusSeconds(60)).build());
-        repo.save(newMinimalChunk("archived").archivedAt(NOW.minusSeconds(120)).build());
-        repo.save(newMinimalChunk("forever").build());
-
-        List<RagChunk> active = repo.findPage(true, NOW, 0, 10);
-
-        List<String> ids = active.stream().map(RagChunk::getId).sorted()
-                .collect(java.util.stream.Collectors.toList());
-        assertEquals(Arrays.asList("active", "forever"), ids);
-    }
-
-    @Test
-    public void count_should_tally_all_and_active_separately() {
-        repo.save(newMinimalChunk("active").expiresAt(NOW.plusSeconds(3600)).build());
-        repo.save(newMinimalChunk("expired").expiresAt(NOW.minusSeconds(60)).build());
-        repo.save(newMinimalChunk("archived").archivedAt(NOW.minusSeconds(120)).build());
-        repo.save(newMinimalChunk("forever").build());
-
-        assertEquals(4L, repo.count(false, NOW));
-        assertEquals(2L, repo.count(true, NOW));
-    }
-
-    @Test
     public void mark_archived_should_write_timestamp_and_return_true_on_match() {
         repo.save(newMinimalChunk("c-soft-del").build());
 

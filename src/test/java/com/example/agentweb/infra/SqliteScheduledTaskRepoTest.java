@@ -2,6 +2,7 @@ package com.example.agentweb.infra;
 
 import com.example.agentweb.domain.auth.CurrentUserProvider;
 import com.example.agentweb.domain.auth.LoginUser;
+import com.example.agentweb.domain.schedule.CronExpression;
 import com.example.agentweb.domain.schedule.ScheduledTask;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -63,7 +64,7 @@ public class SqliteScheduledTaskRepoTest {
 
     @Test
     public void save_then_findById_should_round_trip_all_fields() {
-        ScheduledTask task = new ScheduledTask("nightly-report", "0 0 2 * * ?",
+        ScheduledTask task = task("nightly-report", "0 0 2 * * ?",
                 "生成昨日报告", "D:/workspace/demo");
 
         repo.save(task);
@@ -84,15 +85,12 @@ public class SqliteScheduledTaskRepoTest {
 
     @Test
     public void update_should_persist_mutable_fields_and_keep_id() {
-        ScheduledTask task = new ScheduledTask("origin", "0 0 1 * * ?",
+        ScheduledTask task = task("origin", "0 0 1 * * ?",
                 "prompt-v1", "/tmp/v1");
         repo.save(task);
 
-        task.setName("renamed");
-        task.setCronExpr("0 0 3 * * ?");
-        task.setPrompt("prompt-v2");
-        task.setWorkingDir("/tmp/v2");
-        task.setEnabled(false);
+        task.revise("renamed", "0 0 3 * * ?", "prompt-v2", "/tmp/v2", Instant.now());
+        task.toggle(Instant.now());
         repo.update(task);
 
         ScheduledTask loaded = repo.findById(task.getId());
@@ -105,12 +103,12 @@ public class SqliteScheduledTaskRepoTest {
 
     @Test
     public void findAll_should_return_in_created_desc_order_and_findAllEnabled_filters_disabled() {
-        ScheduledTask older = new ScheduledTask("older", "0 0 1 * * ?", "p1", "/tmp/a");
+        ScheduledTask older = task("older", "0 0 1 * * ?", "p1", "/tmp/a");
         sleepMillis(20);
-        ScheduledTask newer = new ScheduledTask("newer", "0 0 2 * * ?", "p2", "/tmp/b");
-        newer.setEnabled(false);
+        ScheduledTask newer = task("newer", "0 0 2 * * ?", "p2", "/tmp/b");
+        newer.toggle(Instant.now());
         sleepMillis(20);
-        ScheduledTask newest = new ScheduledTask("newest", "0 0 3 * * ?", "p3", "/tmp/c");
+        ScheduledTask newest = task("newest", "0 0 3 * * ?", "p3", "/tmp/c");
 
         repo.save(older);
         repo.save(newer);
@@ -130,11 +128,12 @@ public class SqliteScheduledTaskRepoTest {
 
     @Test
     public void updateLastRun_should_persist_last_run_at_and_session_id() {
-        ScheduledTask task = new ScheduledTask("with-run", "0 0 1 * * ?", "p", "/tmp");
+        ScheduledTask task = task("with-run", "0 0 1 * * ?", "p", "/tmp");
         repo.save(task);
 
         Instant ranAt = Instant.parse("2026-05-25T08:30:00Z");
-        repo.updateLastRun(task.getId(), ranAt, "session-abc");
+        task.recordRun("session-abc", ranAt);
+        repo.update(task);
 
         ScheduledTask loaded = repo.findById(task.getId());
         assertEquals(ranAt, loaded.getLastRunAt());
@@ -143,7 +142,7 @@ public class SqliteScheduledTaskRepoTest {
 
     @Test
     public void deleteById_should_remove_record_and_findById_returns_null() {
-        ScheduledTask task = new ScheduledTask("to-be-deleted", "0 0 1 * * ?", "p", "/tmp");
+        ScheduledTask task = task("to-be-deleted", "0 0 1 * * ?", "p", "/tmp");
         repo.save(task);
         assertNotNull(repo.findById(task.getId()));
 
@@ -164,7 +163,7 @@ public class SqliteScheduledTaskRepoTest {
      */
     @Test
     public void deleteById_retry_backoff_scenario_should_succeed_after_initial_failures() {
-        ScheduledTask task = new ScheduledTask("retry-target", "0 0 1 * * ?", "p", "/tmp");
+        ScheduledTask task = task("retry-target", "0 0 1 * * ?", "p", "/tmp");
         repo.save(task);
 
         AtomicInteger attempts = new AtomicInteger();
@@ -210,6 +209,11 @@ public class SqliteScheduledTaskRepoTest {
             Thread.currentThread().interrupt();
             throw new RuntimeException(e);
         }
+    }
+
+    private ScheduledTask task(String name, String cron, String prompt, String workingDir) {
+        return ScheduledTask.create(name, CronExpression.parse(cron), prompt, workingDir,
+                null, Instant.now());
     }
 
     /**

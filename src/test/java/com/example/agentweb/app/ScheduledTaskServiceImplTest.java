@@ -12,12 +12,16 @@ import com.example.agentweb.domain.auth.UserContext;
 import com.example.agentweb.domain.chat.ChatSession;
 import com.example.agentweb.domain.chat.SessionCache;
 import com.example.agentweb.domain.chat.SessionRepository;
+import com.example.agentweb.domain.schedule.CronExpression;
 import com.example.agentweb.domain.schedule.ScheduledTask;
 import com.example.agentweb.domain.schedule.ScheduledTaskRepository;
 import com.example.agentweb.infra.AgentRunProperties;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -58,7 +62,8 @@ public class ScheduledTaskServiceImplTest {
                                                 PromptAssemblyService promptAssemblyService) {
         return new ScheduledTaskServiceImpl(taskRepo, sessionRepo, sessionCache, gateway,
                 new CurrentUserProvider(userContext), promptAssemblyService,
-                new RunRecallPolicyFactory(new AgentRunProperties()));
+                new RunRecallPolicyFactory(new AgentRunProperties()),
+                Clock.fixed(Instant.parse("2026-07-23T08:00:00Z"), ZoneOffset.UTC));
     }
 
     @Test
@@ -82,8 +87,7 @@ public class ScheduledTaskServiceImplTest {
         AgentGateway gateway = mock(AgentGateway.class);
         ScheduledTaskServiceImpl service = newService(taskRepo, sessionRepo, mock(SessionCache.class), gateway);
 
-        ScheduledTask task = new ScheduledTask("owned-task", "0 0 1 * * *", "p", "/tmp/wd");
-        task.setUserId("alice");
+        ScheduledTask task = task("owned-task", "p", "alice");
         when(taskRepo.findById("tid")).thenReturn(task);
         // 后台执行无登录上下文
         currentUserId = null;
@@ -97,7 +101,7 @@ public class ScheduledTaskServiceImplTest {
         assertEquals("alice", captor.getValue().getUserId(),
                 "执行产生的对话会话应归属到任务创建者, 而非匿名(null)");
         // 任务结束回写 last_run 仍按任务 id
-        verify(taskRepo).updateLastRun(eq(task.getId()), any(), any());
+        verify(taskRepo).update(task);
     }
 
     @Test
@@ -112,7 +116,7 @@ public class ScheduledTaskServiceImplTest {
         });
         ScheduledTaskServiceImpl service = newService(taskRepo, sessionRepo,
                 mock(SessionCache.class), gateway, promptAssemblyService);
-        ScheduledTask task = new ScheduledTask("owned-task", "0 0 1 * * *", "p", "/tmp/wd");
+        ScheduledTask task = task("owned-task", "p", null);
         when(taskRepo.findById("tid")).thenReturn(task);
 
         service.executeTask("tid");
@@ -140,5 +144,10 @@ public class ScheduledTaskServiceImplTest {
                 null,
                 java.util.Collections.emptyList(),
                 "none");
+    }
+
+    private ScheduledTask task(String name, String prompt, String owner) {
+        return ScheduledTask.create(name, CronExpression.parse("0 0 1 * * *"), prompt,
+                "/tmp/wd", owner, Instant.parse("2026-07-23T08:00:00Z"));
     }
 }

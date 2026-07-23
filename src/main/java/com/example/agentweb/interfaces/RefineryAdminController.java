@@ -1,17 +1,21 @@
 package com.example.agentweb.interfaces;
 
+import com.example.agentweb.app.refinery.DiscardedRefinePage;
+import com.example.agentweb.app.refinery.RefineryAdminQueryService;
+import com.example.agentweb.app.refinery.RefineryAppService;
+import com.example.agentweb.app.refinery.RefineryChunkPage;
+import com.example.agentweb.app.refinery.RefineryDeleteResult;
 import com.example.agentweb.app.refinery.RefineryRebuildService;
 import com.example.agentweb.app.refinery.RebuildResult;
-import com.example.agentweb.domain.refinery.DiscardedRefineRepository;
-import com.example.agentweb.domain.refinery.RagChunkRepository;
 import com.example.agentweb.interfaces.dto.ChatRagChunkPageResponse;
-import com.example.agentweb.interfaces.dto.ChatRagChunkResponse;
 import com.example.agentweb.interfaces.dto.DiscardedRecordPageResponse;
-import com.example.agentweb.interfaces.dto.DiscardedRecordResponse;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -20,11 +24,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.Instant;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * Knowledge Refinery 管理接口(仅供 Web 前端使用)。
@@ -40,27 +41,21 @@ import java.util.stream.Collectors;
 @RequestMapping(path = "/api/refinery", produces = MediaType.APPLICATION_JSON_VALUE)
 @ConditionalOnProperty(prefix = "agent.refinery", name = "enabled", havingValue = "true")
 @Slf4j
+@Validated
 public class RefineryAdminController {
 
     private static final int DEFAULT_DAYS = 7;
-    private static final int MIN_DAYS = 1;
-    private static final int MAX_DAYS = 90;
     private static final int DEFAULT_PAGE_SIZE = 20;
-    private static final int MAX_PAGE_SIZE = 100;
-    private static final String STATUS_ACTIVE = "active";
 
     private final RefineryRebuildService rebuildService;
-    private final RagChunkRepository chunkRepo;
-    private final DiscardedRefineRepository discardedRepo;
-    private final com.example.agentweb.app.refinery.RefineryAppService refineryAppService;
+    private final RefineryAdminQueryService queryService;
+    private final RefineryAppService refineryAppService;
 
     public RefineryAdminController(RefineryRebuildService rebuildService,
-                                   RagChunkRepository chunkRepo,
-                                   DiscardedRefineRepository discardedRepo,
-                                   com.example.agentweb.app.refinery.RefineryAppService refineryAppService) {
+                                   RefineryAdminQueryService queryService,
+                                   RefineryAppService refineryAppService) {
         this.rebuildService = rebuildService;
-        this.chunkRepo = chunkRepo;
-        this.discardedRepo = discardedRepo;
+        this.queryService = queryService;
         this.refineryAppService = refineryAppService;
     }
 
@@ -71,13 +66,9 @@ public class RefineryAdminController {
      */
     @PostMapping("/reembed")
     public ResponseEntity<Object> reembed(
-            @RequestParam(value = "limit", defaultValue = "100") int limit) {
-        if (limit < 1 || limit > 1000) {
-            Map<String, Object> err = new HashMap<>(2);
-            err.put("error", "validation_failed");
-            err.put("message", "limit 必须在 [1,1000] 范围内");
-            return ResponseEntity.status(422).body(err);
-        }
+            @RequestParam(value = "limit", defaultValue = "100")
+            @Min(value = 1, message = "limit 必须在 [1,1000] 范围内")
+            @Max(value = 1000, message = "limit 必须在 [1,1000] 范围内") int limit) {
         int refreshed = refineryAppService.reembedActive(limit);
         Map<String, Object> body = new HashMap<>(2);
         body.put("refreshed", refreshed);
@@ -92,14 +83,9 @@ public class RefineryAdminController {
      */
     @PostMapping("/rebuild-recent")
     public ResponseEntity<Object> rebuildRecent(
-            @RequestParam(value = "days", defaultValue = "" + DEFAULT_DAYS) int days) {
-        if (days < MIN_DAYS || days > MAX_DAYS) {
-            Map<String, Object> err = new HashMap<>(3);
-            err.put("error", "validation_failed");
-            err.put("message", "days 必须在 [" + MIN_DAYS + "," + MAX_DAYS + "] 范围内");
-            err.put("days", days);
-            return ResponseEntity.status(422).body(err);
-        }
+            @RequestParam(value = "days", defaultValue = "" + DEFAULT_DAYS)
+            @Min(value = 1, message = "days 必须在 [1,90] 范围内")
+            @Max(value = 90, message = "days 必须在 [1,90] 范围内") int days) {
         log.info("refinery-rebuild-request days={}", days);
         RebuildResult result = rebuildService.rebuildRecent(days);
         if (!result.isStarted()) {
@@ -113,7 +99,7 @@ public class RefineryAdminController {
      * 每项另带实时算出的 {@code status} (ACTIVE/ARCHIVED) 供前端"状态"列展示。
      *
      * @param page   页码, 从 1 起, 越界归一到 1
-     * @param size   每页条数, clamp 到 [1,{@value #MAX_PAGE_SIZE}]
+     * @param size   每页条数, clamp 到 [1,100]
      * @param status {@code active}=仅可召回; 其余 (默认 all)=全部
      */
     @GetMapping("/chunks")
@@ -121,17 +107,8 @@ public class RefineryAdminController {
             @RequestParam(value = "page", defaultValue = "1") int page,
             @RequestParam(value = "size", defaultValue = "" + DEFAULT_PAGE_SIZE) int size,
             @RequestParam(value = "status", defaultValue = "all") String status) {
-        int safePage = Math.max(1, page);
-        int safeSize = Math.min(Math.max(1, size), MAX_PAGE_SIZE);
-        boolean activeOnly = STATUS_ACTIVE.equalsIgnoreCase(status);
-        Instant now = Instant.now();
-        int offset = (safePage - 1) * safeSize;
-        List<ChatRagChunkResponse> items = chunkRepo.findPage(activeOnly, now, offset, safeSize)
-                .stream()
-                .map(c -> ChatRagChunkResponse.from(c, now))
-                .collect(Collectors.toList());
-        long total = chunkRepo.count(activeOnly, now);
-        return ResponseEntity.ok(new ChatRagChunkPageResponse(items, total, safePage, safeSize));
+        RefineryChunkPage result = queryService.findChunks(page, size, status);
+        return ResponseEntity.ok(ChatRagChunkPageResponse.from(result));
     }
 
     /**
@@ -141,12 +118,11 @@ public class RefineryAdminController {
      */
     @DeleteMapping("/chunks/{id}")
     public ResponseEntity<Object> deleteChunk(@PathVariable("id") String id) {
-        boolean deleted = chunkRepo.deleteById(id);
-        log.info("refinery-chunk-delete-request id={} deleted={}", id, deleted);
-        Map<String, Object> body = new HashMap<>(2);
-        body.put("id", id);
-        body.put("deleted", deleted);
-        return deleted ? ResponseEntity.ok(body) : ResponseEntity.status(404).body(body);
+        RefineryDeleteResult result = refineryAppService.deleteChunk(id);
+        log.info("refinery-chunk-delete-request id={} deleted={}", id, result.deleted());
+        return result.deleted()
+                ? ResponseEntity.ok(result)
+                : ResponseEntity.status(404).body(result);
     }
 
     /**
@@ -154,21 +130,14 @@ public class RefineryAdminController {
      * 供管理台"已丢弃(低分)"展示与阈值校准。按 created_at 倒序。
      *
      * @param page 页码, 从 1 起, 越界归一到 1
-     * @param size 每页条数, clamp 到 [1,{@value #MAX_PAGE_SIZE}]
+     * @param size 每页条数, clamp 到 [1,100]
      */
     @GetMapping("/discarded")
     public ResponseEntity<DiscardedRecordPageResponse> listDiscarded(
             @RequestParam(value = "page", defaultValue = "1") int page,
             @RequestParam(value = "size", defaultValue = "" + DEFAULT_PAGE_SIZE) int size) {
-        int safePage = Math.max(1, page);
-        int safeSize = Math.min(Math.max(1, size), MAX_PAGE_SIZE);
-        int offset = (safePage - 1) * safeSize;
-        List<DiscardedRecordResponse> items = discardedRepo.findPage(offset, safeSize)
-                .stream()
-                .map(DiscardedRecordResponse::from)
-                .collect(Collectors.toList());
-        long total = discardedRepo.count();
-        return ResponseEntity.ok(new DiscardedRecordPageResponse(items, total, safePage, safeSize));
+        DiscardedRefinePage result = queryService.findDiscarded(page, size);
+        return ResponseEntity.ok(DiscardedRecordPageResponse.from(result));
     }
 
     /**
@@ -178,11 +147,10 @@ public class RefineryAdminController {
      */
     @DeleteMapping("/discarded/{id}")
     public ResponseEntity<Object> deleteDiscarded(@PathVariable("id") String id) {
-        boolean deleted = discardedRepo.deleteById(id);
-        log.info("refinery-discarded-delete-request id={} deleted={}", id, deleted);
-        Map<String, Object> body = new HashMap<>(2);
-        body.put("id", id);
-        body.put("deleted", deleted);
-        return deleted ? ResponseEntity.ok(body) : ResponseEntity.status(404).body(body);
+        RefineryDeleteResult result = refineryAppService.deleteDiscarded(id);
+        log.info("refinery-discarded-delete-request id={} deleted={}", id, result.deleted());
+        return result.deleted()
+                ? ResponseEntity.ok(result)
+                : ResponseEntity.status(404).body(result);
     }
 }

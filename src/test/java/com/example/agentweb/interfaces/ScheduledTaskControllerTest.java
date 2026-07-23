@@ -1,6 +1,7 @@
 package com.example.agentweb.interfaces;
 
 import com.example.agentweb.app.ScheduledTaskService;
+import com.example.agentweb.domain.schedule.CronExpression;
 import com.example.agentweb.domain.schedule.ScheduledTask;
 import com.example.agentweb.infra.auth.AuthProperties;
 import org.junit.jupiter.api.Test;
@@ -72,7 +73,7 @@ class ScheduledTaskControllerTest {
     private com.example.agentweb.domain.auth.ManualSessionRepository manualSessionRepository;
 
     private ScheduledTask task(String id, String name, boolean enabled) {
-        return new ScheduledTask(id, name, "0 0 * * * *", "do something",
+        return ScheduledTask.restore(id, name, CronExpression.parse("0 0 * * * *"), "do something",
                 "/tmp/work", enabled,
                 Instant.parse("2026-05-26T08:00:00Z"),
                 Instant.parse("2026-05-26T09:00:00Z"),

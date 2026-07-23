@@ -1,7 +1,9 @@
 package com.example.agentweb.interfaces.dto;
 
+import com.example.agentweb.app.refinery.DiscardedRefinePage;
 import lombok.Getter;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * 丢弃记录的分页响应包装, 镜像 {@link ChatRagChunkPageResponse}.
@@ -22,5 +24,12 @@ public class DiscardedRecordPageResponse {
         this.total = total;
         this.page = page;
         this.size = size;
+    }
+
+    public static DiscardedRecordPageResponse from(DiscardedRefinePage page) {
+        List<DiscardedRecordResponse> items = page.items().stream()
+                .map(DiscardedRecordResponse::from)
+                .collect(Collectors.toList());
+        return new DiscardedRecordPageResponse(items, page.total(), page.page(), page.size());
     }
 }

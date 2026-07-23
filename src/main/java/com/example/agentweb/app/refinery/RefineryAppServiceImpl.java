@@ -298,6 +298,16 @@ public class RefineryAppServiceImpl implements RefineryAppService {
         return refreshed;
     }
 
+    @Override
+    public RefineryDeleteResult deleteChunk(String id) {
+        return new RefineryDeleteResult(id, chunkRepo.deleteById(id));
+    }
+
+    @Override
+    public RefineryDeleteResult deleteDiscarded(String id) {
+        return new RefineryDeleteResult(id, discardedRepo.deleteById(id));
+    }
+
     private long ttlDays(TtlCategory category) {
         switch (category) {
             case CODE:

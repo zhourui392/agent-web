@@ -44,4 +44,10 @@ public interface RefineryAppService {
      * @return 实际刷新条数
      */
     int reembedActive(int limit);
+
+    /** 硬删除单条召回 chunk。 */
+    RefineryDeleteResult deleteChunk(String id);
+
+    /** 硬删除单条低分丢弃记录。 */
+    RefineryDeleteResult deleteDiscarded(String id);
 }

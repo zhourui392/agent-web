@@ -1,7 +1,7 @@
 package com.example.agentweb.interfaces.dto;
 
 import lombok.Getter;
-import com.example.agentweb.domain.refinery.DiscardedRefineRecord;
+import com.example.agentweb.app.refinery.DiscardedRefineView;
 
 /**
  * below-threshold 丢弃记录的列表项. 字段形状刻意对齐 {@link ChatRagChunkResponse}
@@ -15,7 +15,7 @@ import com.example.agentweb.domain.refinery.DiscardedRefineRecord;
 public class DiscardedRecordResponse {
 
     /** 固定状态值: 低分被丢弃. */
-    public static final String STATUS_DISCARDED = "DISCARDED";
+    public static final String STATUS_DISCARDED = DiscardedRefineView.STATUS_DISCARDED;
 
     private final String id;
     private final String title;
@@ -31,23 +31,23 @@ public class DiscardedRecordResponse {
     private final String reason;
     private final String status;
 
-    private DiscardedRecordResponse(DiscardedRefineRecord r) {
-        this.id = r.getId();
-        this.title = r.getTitle();
-        this.score = r.getScore();
-        this.threshold = r.getThreshold();
-        this.ttlCategory = r.getTtlCategory() == null ? null : r.getTtlCategory().name();
-        this.conclusion = r.getConclusion();
-        this.sourceType = r.getSourceType().name();
-        this.sourceSessionId = r.getSourceSessionId();
-        this.agentType = r.getAgentType();
-        this.env = r.getEnv();
-        this.createdAt = r.getCreatedAt() == null ? null : r.getCreatedAt().toString();
-        this.reason = r.getReason();
-        this.status = STATUS_DISCARDED;
+    private DiscardedRecordResponse(DiscardedRefineView view) {
+        this.id = view.id();
+        this.title = view.title();
+        this.score = view.score();
+        this.threshold = view.threshold();
+        this.ttlCategory = view.ttlCategory();
+        this.conclusion = view.conclusion();
+        this.sourceType = view.sourceType();
+        this.sourceSessionId = view.sourceSessionId();
+        this.agentType = view.agentType();
+        this.env = view.env();
+        this.createdAt = view.createdAt();
+        this.reason = view.reason();
+        this.status = view.status();
     }
 
-    public static DiscardedRecordResponse from(DiscardedRefineRecord r) {
-        return new DiscardedRecordResponse(r);
+    public static DiscardedRecordResponse from(DiscardedRefineView view) {
+        return new DiscardedRecordResponse(view);
     }
 }

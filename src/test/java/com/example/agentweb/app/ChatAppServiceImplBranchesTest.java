@@ -11,9 +11,6 @@ import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.slashcommand.SlashCommand;
 import com.example.agentweb.domain.slashcommand.SlashCommandExpander;
 import com.example.agentweb.domain.worktree.WorkspacePathPolicy;
-import com.example.agentweb.interfaces.dto.SendMessageRequest;
-import com.example.agentweb.interfaces.dto.StartSessionRequest;
-import com.example.agentweb.interfaces.dto.TruncateResult;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -130,40 +127,38 @@ class ChatAppServiceImplBranchesTest {
 
     @Test
     void sendMessage_sessionNotFound_throws() {
-        SendMessageRequest request = new SendMessageRequest();
-        request.setMessage("hi");
+        SendMessageCommand command = new SendMessageCommand("hi");
 
         assertThrows(IllegalArgumentException.class,
-                () -> service.sendMessage("nope", request));
+                () -> service.sendMessage("nope", command));
     }
 
     @Test
     void startSession_workingDirNotExists_throws() {
-        StartSessionRequest request = startRequest(tempDir.resolve("nonexistent").toString());
-        when(workspacePathPolicy.requireExistingDirectory(request.getWorkingDir()))
+        StartSessionCommand command = startCommand(tempDir.resolve("nonexistent").toString(), null);
+        when(workspacePathPolicy.requireExistingDirectory(command.workingDir()))
                 .thenThrow(new IllegalArgumentException("Path out of allowed roots"));
 
         assertThrows(IllegalArgumentException.class,
-                () -> service.startSession(request, "1.2.3.4"));
+                () -> service.startSession(command, "1.2.3.4"));
     }
 
     @Test
     void startSession_should_use_canonicalAllowedWorkingDirectory() {
-        StartSessionRequest request = startRequest(tempDir.resolve("alias").toString());
-        when(workspacePathPolicy.requireExistingDirectory(request.getWorkingDir()))
+        StartSessionCommand command = startCommand(tempDir.resolve("alias").toString(), null);
+        when(workspacePathPolicy.requireExistingDirectory(command.workingDir()))
                 .thenReturn(tempDir.toString());
 
-        ChatSession session = service.startSession(request, null);
+        ChatSession session = service.startSession(command, null);
 
         assertEquals(tempDir.toString(), session.getWorkingDir());
     }
 
     @Test
     void startSession_envEmpty_doesNotPersistEnv() {
-        StartSessionRequest request = startRequest(tempDir.toString());
-        request.setEnv("");
+        StartSessionCommand command = startCommand(tempDir.toString(), "");
 
-        ChatSession session = service.startSession(request, null);
+        ChatSession session = service.startSession(command, null);
 
         assertNull(session.getEnv());
         verify(sessionRepository).saveSession(session);
@@ -171,28 +166,27 @@ class ChatAppServiceImplBranchesTest {
 
     @Test
     void startSession_envProvided_persistsEnv() {
-        StartSessionRequest request = startRequest(tempDir.toString());
-        request.setEnv("test");
+        StartSessionCommand command = startCommand(tempDir.toString(), "test");
 
-        ChatSession session = service.startSession(request, "1.2.3.4");
+        ChatSession session = service.startSession(command, "1.2.3.4");
 
         assertEquals("test", session.getEnv());
     }
 
     @Test
     void startSession_clientIpProvided_persistsClientIp() {
-        StartSessionRequest request = startRequest(tempDir.toString());
+        StartSessionCommand command = startCommand(tempDir.toString(), null);
 
-        ChatSession session = service.startSession(request, "9.9.9.9");
+        ChatSession session = service.startSession(command, "9.9.9.9");
 
         assertEquals("9.9.9.9", session.getClientIp());
     }
 
     @Test
     void startSession_clientIpBlank_doesNotPersistClientIp() {
-        StartSessionRequest request = startRequest(tempDir.toString());
+        StartSessionCommand command = startCommand(tempDir.toString(), null);
 
-        ChatSession session = service.startSession(request, "   ");
+        ChatSession session = service.startSession(command, "   ");
 
         assertNull(session.getClientIp());
     }
@@ -274,11 +268,8 @@ class ChatAppServiceImplBranchesTest {
         verify(uploadFileStore, never()).deleteSessionFiles(any(), any());
     }
 
-    private StartSessionRequest startRequest(String workingDir) {
-        StartSessionRequest request = new StartSessionRequest();
-        request.setAgentType("CLAUDE");
-        request.setWorkingDir(workingDir);
-        return request;
+    private StartSessionCommand startCommand(String workingDir, String env) {
+        return new StartSessionCommand("CLAUDE", workingDir, env);
     }
 
     private ChatSession session(String id, String workingDir) {

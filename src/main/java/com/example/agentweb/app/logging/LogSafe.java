@@ -1,4 +1,4 @@
-package com.example.agentweb.infra.log;
+package com.example.agentweb.app.logging;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -7,7 +7,7 @@ import java.util.List;
  * 日志脱敏与截断工具。
  * <p>所有对外日志一律走本工具做尺寸控制与敏感信息处理。</p>
  *
- * @author zhourui(V33215020)
+ * @author alex
  * @since 2026/05/19
  */
 public final class LogSafe {

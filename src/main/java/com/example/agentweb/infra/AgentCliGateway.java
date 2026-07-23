@@ -5,7 +5,7 @@ import com.example.agentweb.app.agentrun.port.AgentStreamResult;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.infra.cli.BuildContext;
 import com.example.agentweb.infra.cli.CliDialect;
-import com.example.agentweb.infra.log.LogSafe;
+import com.example.agentweb.app.logging.LogSafe;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.beans.factory.annotation.Autowired;

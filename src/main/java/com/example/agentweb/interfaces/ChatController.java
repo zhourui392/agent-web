@@ -4,13 +4,16 @@ import com.example.agentweb.app.ChatAppService;
 import com.example.agentweb.app.ChatMessageView;
 import com.example.agentweb.app.ChatSessionQueryService;
 import com.example.agentweb.app.ChatSessionSummary;
+import com.example.agentweb.app.SendMessageCommand;
+import com.example.agentweb.app.StartSessionCommand;
+import com.example.agentweb.app.TruncateResult;
 import com.example.agentweb.domain.chat.ChatSession;
 import com.example.agentweb.domain.chat.Feedback;
 import com.example.agentweb.domain.slashcommand.SlashCommand;
 import com.example.agentweb.infra.ClientIpResolver;
 import com.example.agentweb.infra.EnvProperties;
 import com.example.agentweb.infra.setting.RuntimeAgentSettings;
-import com.example.agentweb.infra.log.LogSafe;
+import com.example.agentweb.app.logging.LogSafe;
 import com.example.agentweb.infra.log.MdcContext;
 import com.example.agentweb.interfaces.dto.CommandDto;
 import com.example.agentweb.interfaces.dto.EnvDto;
@@ -21,7 +24,6 @@ import com.example.agentweb.interfaces.dto.SendMessageResponse;
 import com.example.agentweb.interfaces.dto.StartSessionRequest;
 import com.example.agentweb.interfaces.dto.StartSessionResponse;
 import com.example.agentweb.interfaces.dto.SuccessResponse;
-import com.example.agentweb.interfaces.dto.TruncateResult;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.validation.annotation.Validated;
@@ -65,7 +67,9 @@ public class ChatController {
         String clientIp = ClientIpResolver.resolve(httpRequest);
         log.info("chat-session-create-request agentType={} workingDir={} env={} clientIp={}",
                 req.getAgentType(), req.getWorkingDir(), req.getEnv(), clientIp);
-        ChatSession s = appService.startSession(req, clientIp);
+        StartSessionCommand command = new StartSessionCommand(
+                req.getAgentType(), req.getWorkingDir(), req.getEnv());
+        ChatSession s = appService.startSession(command, clientIp);
         MdcContext.putSessionId(s.getId());
         log.info("chat-session-created sessionId={} agentType={} workingDir={} env={} clientIp={}",
                 s.getId(), s.getAgentType(), s.getWorkingDir(), s.getEnv(), s.getClientIp());
@@ -76,7 +80,7 @@ public class ChatController {
     public SendMessageResponse send(@PathVariable("id") String id, @Valid @RequestBody SendMessageRequest req) throws IOException, InterruptedException {
         MdcContext.putSessionId(id);
         log.info("chat-message-request sessionId={} messageLen={}", id, LogSafe.safeLen(req.getMessage()));
-        String out = appService.sendMessage(id, req);
+        String out = appService.sendMessage(id, new SendMessageCommand(req.getMessage()));
         log.info("chat-message-response sessionId={} outputLen={}", id, LogSafe.safeLen(out));
         return new SendMessageResponse(out);
     }

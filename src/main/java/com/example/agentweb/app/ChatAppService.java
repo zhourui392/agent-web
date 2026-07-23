@@ -3,9 +3,6 @@ package com.example.agentweb.app;
 import com.example.agentweb.domain.chat.ChatSession;
 import com.example.agentweb.domain.chat.Feedback;
 import com.example.agentweb.domain.slashcommand.SlashCommand;
-import com.example.agentweb.interfaces.dto.SendMessageRequest;
-import com.example.agentweb.interfaces.dto.StartSessionRequest;
-import com.example.agentweb.interfaces.dto.TruncateResult;
 
 import java.io.IOException;
 import java.util.List;
@@ -22,7 +19,7 @@ public interface ChatAppService {
      * @param clientIp 发起会话的客户端来源 IP(由接口层从 HTTP 请求解析), 空白表示未采集
      * @return 新建的会话聚合根
      */
-    ChatSession startSession(StartSessionRequest req, String clientIp);
+    ChatSession startSession(StartSessionCommand command, String clientIp);
 
     /**
      * Send one message to an agent and get consolidated output.
@@ -33,7 +30,7 @@ public interface ChatAppService {
      * @throws IOException 进程启动失败或读 IO 异常
      * @throws InterruptedException 等待进程退出时被中断
      */
-    String sendMessage(String sessionId, SendMessageRequest req) throws IOException, InterruptedException;
+    String sendMessage(String sessionId, SendMessageCommand command) throws IOException, InterruptedException;
 
     /**
      * 按 sessionId 查询会话.
