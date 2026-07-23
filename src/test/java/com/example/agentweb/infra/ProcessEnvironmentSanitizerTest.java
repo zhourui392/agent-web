@@ -37,4 +37,16 @@ class ProcessEnvironmentSanitizerTest {
         assertFalse(env.containsKey("REFINERY_EMBED_API_KEY"));
         assertFalse(env.containsKey("AGENT_DB_PATH"));
     }
+
+    @Test
+    void sanitize_windowsPathCasing_shouldKeepPath() {
+        ProcessBuilder processBuilder = new ProcessBuilder("agent");
+        Map<String, String> env = processBuilder.environment();
+        env.clear();
+        env.put("Path", "C:\\Program Files\\nodejs;C:\\Windows\\System32");
+
+        new ProcessEnvironmentSanitizer().sanitize(processBuilder);
+
+        assertEquals("C:\\Program Files\\nodejs;C:\\Windows\\System32", env.get("Path"));
+    }
 }
