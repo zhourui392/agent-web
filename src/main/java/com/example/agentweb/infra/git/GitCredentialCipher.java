@@ -1,5 +1,6 @@
 package com.example.agentweb.infra.git;
 
+import com.example.agentweb.app.git.CredentialCipher;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -29,7 +30,7 @@ import java.util.Base64;
  */
 @Component
 @Slf4j
-public class GitCredentialCipher {
+public class GitCredentialCipher implements CredentialCipher {
 
     /** 密钥配置名（同时兼容同名环境变量）。绝不硬编码密钥本身。 */
     public static final String ENV_KEY = "GIT_CRED_ENC_KEY";

@@ -1,5 +1,6 @@
 package com.example.agentweb.infra.setting;
 
+import com.example.agentweb.app.ChatAgentDefaults;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.infra.AgentDefaultProperties;
 import lombok.extern.slf4j.Slf4j;
@@ -22,7 +23,7 @@ import java.util.Optional;
  */
 @Component
 @Slf4j
-public class RuntimeAgentSettings {
+public class RuntimeAgentSettings implements ChatAgentDefaults {
 
     /** 任何上游均缺失/非法时的最终兜底,与前端硬编码默认对齐。 */
     private static final AgentType HARD_DEFAULT = AgentType.CLAUDE;
@@ -44,6 +45,7 @@ public class RuntimeAgentSettings {
     }
 
     /** 对话默认 agent(请求未显式指定时的兜底,亦供前端预选)。 */
+    @Override
     public AgentType getChatDefaultAgent() {
         ensureLoaded();
         return chatDefaultAgent;

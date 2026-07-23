@@ -1,6 +1,6 @@
 package com.example.agentweb.app.chatrun;
 
-import com.example.agentweb.adapter.AgentStreamResult;
+import com.example.agentweb.app.agentrun.port.AgentStreamResult;
 import com.example.agentweb.domain.chat.ChatMessage;
 import com.example.agentweb.domain.chat.SessionRepository;
 import com.example.agentweb.domain.chatrun.ChatRun;

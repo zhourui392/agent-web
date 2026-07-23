@@ -2,8 +2,8 @@ package com.example.agentweb;
 
 import com.example.agentweb.infra.auth.AuthProperties;
 import com.example.agentweb.infra.FsProperties;
-import com.example.agentweb.infra.UploadFileStore;
-import com.example.agentweb.infra.UploadPicStore;
+import com.example.agentweb.app.UploadFileStorage;
+import com.example.agentweb.app.UploadPicStorage;
 import com.example.agentweb.infra.RealPathWorkspacePolicy;
 import com.example.agentweb.interfaces.FsController;
 import com.example.agentweb.interfaces.GlobalExceptionHandler;
@@ -51,7 +51,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  *
  * <p>{@code FsProperties} 通过 {@code @EnableConfigurationProperties} 显式拉入,
  * 再用 {@code @DynamicPropertySource} 把 {@code @TempDir} 注入 roots(Controller 构造期就读 roots,
- * 没法靠 {@code @MockBean} + {@code @BeforeEach} 装行为);{@code UploadPicStore} 走 {@code @MockBean},
+ * 没法靠 {@code @MockBean} + {@code @BeforeEach} 装行为);{@code UploadPicStorage} 走 {@code @MockBean},
  * 真实文件读取走 {@code @TempDir} 触发 Controller 的扩展名 / 越界 / 大小校验。</p>
  *
  * @author zhourui(V33215020)
@@ -77,11 +77,11 @@ public class FsControllerTest {
     private MockMvc mvc;
 
     @MockBean
-    private UploadPicStore uploadPicStore;
+    private UploadPicStorage uploadPicStore;
 
     /** FsController 构造依赖,1242e3d 后新增,本切片只验图片路径,文件附件不触发。 */
     @MockBean
-    private UploadFileStore uploadFileStore;
+    private UploadFileStorage uploadFileStore;
 
     /** {@code @WebMvcTest} 会扫描 Filter Bean,需补齐其构造依赖以免 ApplicationContext 加载失败。 */
     @MockBean
@@ -454,7 +454,7 @@ public class FsControllerTest {
     public void uploadFile_should_delegate_to_store() throws Exception {
         Path workDir = Files.createTempDirectory(fsRoot, "upfile-");
         try {
-            // 走 UploadFileStore mock,返回固定路径,验 Controller 透传 file.bytes/originalName/sessionId
+            // 走 UploadFileStorage mock,返回固定路径,验 Controller 透传 file.bytes/originalName/sessionId
             String realWorkDir = workDir.toRealPath().toString();
             String stubReturn = Paths.get(realWorkDir, "upload_file", "s", "app.log").toString();
             when(uploadFileStore.save(eq(realWorkDir), eq("s"), eq("app.log"), any(byte[].class)))

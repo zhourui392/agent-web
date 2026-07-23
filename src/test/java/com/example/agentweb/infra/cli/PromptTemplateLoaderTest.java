@@ -1,5 +1,6 @@
 package com.example.agentweb.infra.cli;
 
+import com.example.agentweb.config.PromptTemplateLoader;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;

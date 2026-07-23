@@ -58,4 +58,23 @@ class AgentTypeTest {
         // 即使是合法枚举值, NATIVE 也不可被选择
         assertThrows(IllegalArgumentException.class, () -> AgentType.parseSelectable("NATIVE"));
     }
+
+    @Test
+    void resolveSelection_blankInput_shouldUseSelectableDefault() {
+        assertEquals(AgentType.CODEX, AgentType.resolveSelection(null, AgentType.CODEX));
+        assertEquals(AgentType.CLAUDE, AgentType.resolveSelection("   ", AgentType.CLAUDE));
+    }
+
+    @Test
+    void resolveSelection_explicitInput_shouldOverrideDefault() {
+        assertEquals(AgentType.CODEX, AgentType.resolveSelection(" codex ", AgentType.CLAUDE));
+    }
+
+    @Test
+    void resolveSelection_invalidDefault_shouldFailClosed() {
+        assertThrows(IllegalArgumentException.class,
+                () -> AgentType.resolveSelection(null, AgentType.NATIVE));
+        assertThrows(IllegalArgumentException.class,
+                () -> AgentType.resolveSelection(null, null));
+    }
 }

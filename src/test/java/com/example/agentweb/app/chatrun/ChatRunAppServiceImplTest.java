@@ -1,6 +1,6 @@
 package com.example.agentweb.app.chatrun;
 
-import com.example.agentweb.adapter.AgentGateway;
+import com.example.agentweb.app.agentrun.port.AgentGateway;
 import com.example.agentweb.domain.chat.ChatSession;
 import com.example.agentweb.domain.chat.SessionRepository;
 import com.example.agentweb.domain.chatrun.ActiveChatRunExistsException;

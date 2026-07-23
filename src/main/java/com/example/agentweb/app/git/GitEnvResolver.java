@@ -4,7 +4,7 @@ import com.example.agentweb.domain.git.GitConfigPolicy;
 import com.example.agentweb.domain.git.GitIdentity;
 import com.example.agentweb.domain.git.UserGitConfig;
 import com.example.agentweb.domain.git.UserGitConfigRepository;
-import com.example.agentweb.infra.git.GitCredentialCipher;
+import com.example.agentweb.app.git.CredentialCipher;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -27,11 +27,11 @@ public class GitEnvResolver {
 
     private final UserGitConfigRepository repository;
     private final GitConfigPolicy policy;
-    private final GitCredentialCipher cipher;
+    private final CredentialCipher cipher;
 
     public GitEnvResolver(UserGitConfigRepository repository,
                           GitConfigPolicy policy,
-                          GitCredentialCipher cipher) {
+                          CredentialCipher cipher) {
         this.repository = repository;
         this.policy = policy;
         this.cipher = cipher;

@@ -4,7 +4,6 @@ import com.example.agentweb.domain.git.GitConfigPolicy;
 import com.example.agentweb.domain.git.GitIdentity;
 import com.example.agentweb.domain.git.UserGitConfig;
 import com.example.agentweb.domain.git.UserGitConfigRepository;
-import com.example.agentweb.infra.git.GitCredentialCipher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -32,13 +31,13 @@ class GitEnvResolverTest {
     private static final Instant NOW = Instant.parse("2026-06-07T10:00:00Z");
 
     private UserGitConfigRepository repository;
-    private GitCredentialCipher cipher;
+    private CredentialCipher cipher;
     private GitEnvResolver resolver;
 
     @BeforeEach
     void setUp() {
         repository = mock(UserGitConfigRepository.class);
-        cipher = mock(GitCredentialCipher.class);
+        cipher = mock(CredentialCipher.class);
         resolver = new GitEnvResolver(repository, new GitConfigPolicy(), cipher);
     }
 

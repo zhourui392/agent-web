@@ -1,14 +1,11 @@
 package com.example.agentweb.app;
 
-import com.example.agentweb.adapter.AgentGateway;
+import com.example.agentweb.app.agentrun.port.AgentGateway;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.chat.ChatSession;
 import com.example.agentweb.domain.chat.SessionCache;
 import com.example.agentweb.domain.chat.SessionRepository;
 import com.example.agentweb.domain.slashcommand.SlashCommandExpander;
-import com.example.agentweb.infra.AgentTypeResolver;
-import com.example.agentweb.infra.UploadFileStore;
-import com.example.agentweb.infra.UploadPicStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -45,11 +42,11 @@ public class ChatAppServiceImplShareTest {
         SessionCache sessionCache = mock(SessionCache.class);
         AgentGateway gateway = mock(AgentGateway.class);
         SlashCommandExpander commandExpander = mock(SlashCommandExpander.class);
-        AgentTypeResolver agentTypeResolver = mock(AgentTypeResolver.class);
-        UploadPicStore uploadPicStore = mock(UploadPicStore.class);
-        UploadFileStore uploadFileStore = mock(UploadFileStore.class);
+        ChatAgentDefaults chatAgentDefaults = mock(ChatAgentDefaults.class);
+        UploadPicStorage uploadPicStore = mock(UploadPicStorage.class);
+        UploadFileStorage uploadFileStore = mock(UploadFileStorage.class);
         service = new ChatAppServiceImpl(sessionCache, sessionRepository, gateway,
-                commandExpander, agentTypeResolver, uploadPicStore, uploadFileStore,
+                commandExpander, chatAgentDefaults, uploadPicStore, uploadFileStore,
                 java.util.Optional.empty(),
                 new com.example.agentweb.domain.auth.CurrentUserProvider(() -> java.util.Optional.empty()));
     }

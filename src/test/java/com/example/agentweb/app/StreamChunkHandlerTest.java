@@ -1,6 +1,6 @@
 package com.example.agentweb.app;
 
-import com.example.agentweb.adapter.AgentGateway;
+import com.example.agentweb.app.agentrun.port.AgentGateway;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.chat.ChatMessage;
 import com.example.agentweb.domain.chat.SessionRepository;

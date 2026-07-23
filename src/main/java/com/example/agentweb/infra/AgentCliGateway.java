@@ -1,7 +1,7 @@
 package com.example.agentweb.infra;
 
-import com.example.agentweb.adapter.AgentGateway;
-import com.example.agentweb.adapter.AgentStreamResult;
+import com.example.agentweb.app.agentrun.port.AgentGateway;
+import com.example.agentweb.app.agentrun.port.AgentStreamResult;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.infra.cli.BuildContext;
 import com.example.agentweb.infra.cli.CliDialect;

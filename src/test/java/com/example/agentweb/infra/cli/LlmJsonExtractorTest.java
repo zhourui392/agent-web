@@ -1,5 +1,6 @@
 package com.example.agentweb.infra.cli;
 
+import com.example.agentweb.app.agentrun.LlmJsonExtractor;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;

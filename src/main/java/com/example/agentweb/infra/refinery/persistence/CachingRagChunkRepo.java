@@ -5,7 +5,7 @@ import com.example.agentweb.domain.refinery.RagChunk;
 import com.example.agentweb.domain.refinery.RagChunkRepository;
 import com.example.agentweb.domain.refinery.SourceType;
 import com.example.agentweb.domain.refinery.TrustTier;
-import com.example.agentweb.infra.refinery.config.RefineryProperties;
+import com.example.agentweb.config.refinery.RefineryProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Repository;

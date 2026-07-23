@@ -24,7 +24,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "agent.fs.roots=/tmp",
         "agent.cli.codex.stdin=false"
 })
-@AutoConfigureMockMvc
+@AutoConfigureMockMvc(addFilters = false)
 @Transactional
 @Tag("spring-flow")
 @ResourceLock("spring-flow-sqlite")

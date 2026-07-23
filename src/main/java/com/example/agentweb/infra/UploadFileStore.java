@@ -1,5 +1,6 @@
 package com.example.agentweb.infra;
 
+import com.example.agentweb.app.UploadFileStorage;
 import com.example.agentweb.domain.worktree.WorkspaceUploadRoot;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -33,7 +34,7 @@ import java.util.stream.Stream;
  */
 @Component
 @Slf4j
-public class UploadFileStore {
+public class UploadFileStore implements UploadFileStorage {
 
     /** 工作空间下承载附件的固定子目录名。 */
     public static final String SUBDIR = "upload_file";

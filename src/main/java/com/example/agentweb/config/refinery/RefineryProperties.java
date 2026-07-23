@@ -1,4 +1,4 @@
-package com.example.agentweb.infra.refinery.config;
+package com.example.agentweb.config.refinery;
 
 import com.example.agentweb.domain.refinery.TrustTier;
 import lombok.Getter;

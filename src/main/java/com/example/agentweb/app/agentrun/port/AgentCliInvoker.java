@@ -1,4 +1,4 @@
-package com.example.agentweb.infra.cli;
+package com.example.agentweb.app.agentrun.port;
 
 import com.example.agentweb.domain.shared.AgentType;
 
@@ -7,7 +7,7 @@ import com.example.agentweb.domain.shared.AgentType;
  * "一次性请求-响应"场景而设;不创建 ChatSession / DiagnoseTask,
  * 阻塞直到子进程退出或超时。
  *
- * <p>与 {@link com.example.agentweb.adapter.AgentGateway#runOnce}的关键差异:</p>
+ * <p>与 {@link AgentGateway#runOnce} 的关键差异:</p>
  * <ul>
  *   <li>显式 {@code timeoutSeconds} 参数,不复用 agent 全局超时</li>
  *   <li>返回值已经过 stream-json 抽取,直接是 agent 最终结论文本</li>

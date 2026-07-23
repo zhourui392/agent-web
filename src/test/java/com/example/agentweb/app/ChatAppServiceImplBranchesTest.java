@@ -1,6 +1,6 @@
 package com.example.agentweb.app;
 
-import com.example.agentweb.adapter.AgentGateway;
+import com.example.agentweb.app.agentrun.port.AgentGateway;
 import com.example.agentweb.domain.chat.ChatMessage;
 import com.example.agentweb.domain.chat.ChatSession;
 import com.example.agentweb.domain.chat.SessionCache;
@@ -11,9 +11,6 @@ import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.slashcommand.SlashCommand;
 import com.example.agentweb.domain.slashcommand.SlashCommandExpander;
 import com.example.agentweb.domain.worktree.WorkspacePathPolicy;
-import com.example.agentweb.infra.AgentTypeResolver;
-import com.example.agentweb.infra.UploadFileStore;
-import com.example.agentweb.infra.UploadPicStore;
 import com.example.agentweb.interfaces.dto.SendMessageRequest;
 import com.example.agentweb.interfaces.dto.StartSessionRequest;
 import com.example.agentweb.interfaces.dto.TruncateResult;
@@ -57,9 +54,9 @@ class ChatAppServiceImplBranchesTest {
     private SessionCache sessionCache;
     private SessionRepository sessionRepository;
     private SlashCommandExpander commandExpander;
-    private AgentTypeResolver agentTypeResolver;
-    private UploadPicStore uploadPicStore;
-    private UploadFileStore uploadFileStore;
+    private ChatAgentDefaults chatAgentDefaults;
+    private UploadPicStorage uploadPicStore;
+    private UploadFileStorage uploadFileStore;
     private WorkspacePathPolicy workspacePathPolicy;
     private ChatRunActivityGuard chatRunActivityGuard;
     private ChatAppServiceImpl service;
@@ -72,15 +69,15 @@ class ChatAppServiceImplBranchesTest {
         sessionCache = mock(SessionCache.class);
         sessionRepository = mock(SessionRepository.class);
         commandExpander = mock(SlashCommandExpander.class);
-        agentTypeResolver = mock(AgentTypeResolver.class);
-        uploadPicStore = mock(UploadPicStore.class);
-        uploadFileStore = mock(UploadFileStore.class);
+        chatAgentDefaults = mock(ChatAgentDefaults.class);
+        uploadPicStore = mock(UploadPicStorage.class);
+        uploadFileStore = mock(UploadFileStorage.class);
         workspacePathPolicy = mock(WorkspacePathPolicy.class);
         chatRunActivityGuard = mock(ChatRunActivityGuard.class);
         when(workspacePathPolicy.requireExistingDirectory(anyString()))
                 .thenAnswer(invocation -> invocation.getArgument(0));
         service = new ChatAppServiceImpl(sessionCache, sessionRepository, mock(AgentGateway.class),
-                commandExpander, agentTypeResolver, uploadPicStore, uploadFileStore,
+                commandExpander, chatAgentDefaults, uploadPicStore, uploadFileStore,
                 Optional.empty(),
                 new com.example.agentweb.domain.auth.CurrentUserProvider(() -> Optional.empty()));
         service.configureWorkspacePathPolicy(workspacePathPolicy);
@@ -143,7 +140,6 @@ class ChatAppServiceImplBranchesTest {
     @Test
     void startSession_workingDirNotExists_throws() {
         StartSessionRequest request = startRequest(tempDir.resolve("nonexistent").toString());
-        when(agentTypeResolver.resolve("CLAUDE")).thenReturn(AgentType.CLAUDE);
         when(workspacePathPolicy.requireExistingDirectory(request.getWorkingDir()))
                 .thenThrow(new IllegalArgumentException("Path out of allowed roots"));
 
@@ -154,7 +150,6 @@ class ChatAppServiceImplBranchesTest {
     @Test
     void startSession_should_use_canonicalAllowedWorkingDirectory() {
         StartSessionRequest request = startRequest(tempDir.resolve("alias").toString());
-        when(agentTypeResolver.resolve("CLAUDE")).thenReturn(AgentType.CLAUDE);
         when(workspacePathPolicy.requireExistingDirectory(request.getWorkingDir()))
                 .thenReturn(tempDir.toString());
 
@@ -167,7 +162,6 @@ class ChatAppServiceImplBranchesTest {
     void startSession_envEmpty_doesNotPersistEnv() {
         StartSessionRequest request = startRequest(tempDir.toString());
         request.setEnv("");
-        when(agentTypeResolver.resolve("CLAUDE")).thenReturn(AgentType.CLAUDE);
 
         ChatSession session = service.startSession(request, null);
 
@@ -179,7 +173,6 @@ class ChatAppServiceImplBranchesTest {
     void startSession_envProvided_persistsEnv() {
         StartSessionRequest request = startRequest(tempDir.toString());
         request.setEnv("test");
-        when(agentTypeResolver.resolve("CLAUDE")).thenReturn(AgentType.CLAUDE);
 
         ChatSession session = service.startSession(request, "1.2.3.4");
 
@@ -189,7 +182,6 @@ class ChatAppServiceImplBranchesTest {
     @Test
     void startSession_clientIpProvided_persistsClientIp() {
         StartSessionRequest request = startRequest(tempDir.toString());
-        when(agentTypeResolver.resolve("CLAUDE")).thenReturn(AgentType.CLAUDE);
 
         ChatSession session = service.startSession(request, "9.9.9.9");
 
@@ -199,7 +191,6 @@ class ChatAppServiceImplBranchesTest {
     @Test
     void startSession_clientIpBlank_doesNotPersistClientIp() {
         StartSessionRequest request = startRequest(tempDir.toString());
-        when(agentTypeResolver.resolve("CLAUDE")).thenReturn(AgentType.CLAUDE);
 
         ChatSession session = service.startSession(request, "   ");
 

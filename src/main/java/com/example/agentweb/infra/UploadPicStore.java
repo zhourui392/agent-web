@@ -1,5 +1,6 @@
 package com.example.agentweb.infra;
 
+import com.example.agentweb.app.UploadPicStorage;
 import com.example.agentweb.domain.worktree.WorkspaceUploadRoot;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -25,7 +26,7 @@ import java.util.concurrent.ThreadLocalRandom;
  */
 @Component
 @Slf4j
-public class UploadPicStore {
+public class UploadPicStore implements UploadPicStorage {
 
     /** 工作空间下承载图片的固定子目录名。 */
     public static final String SUBDIR = "upload_pic";

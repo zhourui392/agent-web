@@ -8,7 +8,7 @@ import com.example.agentweb.domain.refinery.RefinedContent;
 import com.example.agentweb.domain.refinery.SourceType;
 import com.example.agentweb.domain.refinery.TrustTier;
 import com.example.agentweb.domain.refinery.TtlCategory;
-import com.example.agentweb.infra.refinery.config.RefineryProperties;
+import com.example.agentweb.config.refinery.RefineryProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;

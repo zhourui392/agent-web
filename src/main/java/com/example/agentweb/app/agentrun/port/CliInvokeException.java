@@ -1,4 +1,4 @@
-package com.example.agentweb.infra.cli;
+package com.example.agentweb.app.agentrun.port;
 
 /**
  * {@link AgentCliInvoker} 同步调用的统一失败包装。

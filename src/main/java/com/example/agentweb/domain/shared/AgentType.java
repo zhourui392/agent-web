@@ -46,4 +46,21 @@ public enum AgentType {
         }
         return type;
     }
+
+    /**
+     * 解析一次用户选择；请求未显式选择时使用运行时默认值。
+     *
+     * @param input       外部输入，允许为空
+     * @param defaultType 请求未选择时的默认值，必须是可选 CLI Agent
+     * @return 最终选中的 Agent 类型
+     */
+    public static AgentType resolveSelection(String input, AgentType defaultType) {
+        if (input != null && !input.trim().isEmpty()) {
+            return parseSelectable(input);
+        }
+        if (defaultType == null || !defaultType.isSelectable()) {
+            throw new IllegalArgumentException("default agentType is not selectable: " + defaultType);
+        }
+        return defaultType;
+    }
 }

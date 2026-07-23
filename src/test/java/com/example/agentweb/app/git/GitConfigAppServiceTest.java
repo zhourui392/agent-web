@@ -5,7 +5,6 @@ import com.example.agentweb.domain.git.GitConfigPolicy;
 import com.example.agentweb.domain.git.GitIdentity;
 import com.example.agentweb.domain.git.UserGitConfig;
 import com.example.agentweb.domain.git.UserGitConfigRepository;
-import com.example.agentweb.infra.git.GitCredentialCipher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -35,14 +34,14 @@ class GitConfigAppServiceTest {
 
     private UserGitConfigRepository repository;
     private CurrentUserProvider currentUserProvider;
-    private GitCredentialCipher cipher;
+    private CredentialCipher cipher;
     private GitConfigAppService service;
 
     @BeforeEach
     void setUp() {
         repository = mock(UserGitConfigRepository.class);
         currentUserProvider = mock(CurrentUserProvider.class);
-        cipher = mock(GitCredentialCipher.class);
+        cipher = mock(CredentialCipher.class);
         service = new GitConfigAppService(repository, new GitConfigPolicy(), currentUserProvider, cipher);
     }
 

@@ -1,14 +1,11 @@
 package com.example.agentweb.app;
 
-import com.example.agentweb.adapter.AgentGateway;
+import com.example.agentweb.app.agentrun.port.AgentGateway;
 import com.example.agentweb.domain.auth.CurrentUserProvider;
 import com.example.agentweb.domain.chat.ChatSession;
 import com.example.agentweb.domain.chat.SessionCache;
 import com.example.agentweb.domain.chat.SessionRepository;
 import com.example.agentweb.domain.shared.AgentType;
-import com.example.agentweb.infra.AgentTypeResolver;
-import com.example.agentweb.infra.UploadFileStore;
-import com.example.agentweb.infra.UploadPicStore;
 import com.example.agentweb.domain.slashcommand.SlashCommandExpander;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -49,8 +46,8 @@ class ChatAppServiceImplOwnershipTest {
         sessionRepository = mock(SessionRepository.class);
         currentUserProvider = mock(CurrentUserProvider.class);
         service = new ChatAppServiceImpl(sessionCache, sessionRepository, mock(AgentGateway.class),
-                mock(SlashCommandExpander.class), mock(AgentTypeResolver.class),
-                mock(UploadPicStore.class), mock(UploadFileStore.class), Optional.empty(), currentUserProvider);
+                mock(SlashCommandExpander.class), mock(ChatAgentDefaults.class),
+                mock(UploadPicStorage.class), mock(UploadFileStorage.class), Optional.empty(), currentUserProvider);
     }
 
     private ChatSession ownedBy(String owner) {

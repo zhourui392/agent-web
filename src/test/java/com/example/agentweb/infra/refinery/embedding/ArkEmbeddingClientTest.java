@@ -1,6 +1,6 @@
 package com.example.agentweb.infra.refinery.embedding;
 
-import com.example.agentweb.infra.refinery.config.RefineryProperties;
+import com.example.agentweb.config.refinery.RefineryProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;

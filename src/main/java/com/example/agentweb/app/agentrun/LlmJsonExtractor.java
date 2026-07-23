@@ -1,4 +1,4 @@
-package com.example.agentweb.infra.cli;
+package com.example.agentweb.app.agentrun;
 
 /**
  * 从 LLM 原始输出中裁出第一个完整 JSON 对象的字符串切片。统一 issue-log 子域内

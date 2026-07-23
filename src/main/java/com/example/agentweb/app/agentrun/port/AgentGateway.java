@@ -1,4 +1,4 @@
-package com.example.agentweb.adapter;
+package com.example.agentweb.app.agentrun.port;
 
 import com.example.agentweb.domain.shared.AgentType;
 

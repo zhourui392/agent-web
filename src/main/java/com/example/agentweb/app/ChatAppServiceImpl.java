@@ -1,6 +1,6 @@
 package com.example.agentweb.app;
 
-import com.example.agentweb.adapter.AgentGateway;
+import com.example.agentweb.app.agentrun.port.AgentGateway;
 import com.example.agentweb.app.refinery.RecallObservationRecorder;
 import com.example.agentweb.domain.auth.CurrentUserProvider;
 import com.example.agentweb.domain.shared.AgentType;
@@ -16,9 +16,6 @@ import com.example.agentweb.domain.chat.SessionCache;
 import com.example.agentweb.domain.chatrun.ChatRunActivityGuard;
 import com.example.agentweb.domain.slashcommand.SlashCommandExpander;
 import com.example.agentweb.domain.worktree.WorkspacePathPolicy;
-import com.example.agentweb.infra.AgentTypeResolver;
-import com.example.agentweb.infra.UploadFileStore;
-import com.example.agentweb.infra.UploadPicStore;
 import com.example.agentweb.infra.log.LogSafe;
 import com.example.agentweb.interfaces.dto.SendMessageRequest;
 import com.example.agentweb.interfaces.dto.StartSessionRequest;
@@ -46,9 +43,9 @@ public class ChatAppServiceImpl implements ChatAppService {
     private final SessionRepository sessionRepository;
     private final AgentGateway gateway;
     private final SlashCommandExpander commandExpander;
-    private final AgentTypeResolver agentTypeResolver;
-    private final UploadPicStore uploadPicStore;
-    private final UploadFileStore uploadFileStore;
+    private final ChatAgentDefaults chatAgentDefaults;
+    private final UploadPicStorage uploadPicStore;
+    private final UploadFileStorage uploadFileStore;
     private final Optional<RecallObservationRecorder> recallObservationRecorder;
     private final CurrentUserProvider currentUserProvider;
     private WorkspacePathPolicy workspacePathPolicy;
@@ -89,16 +86,16 @@ public class ChatAppServiceImpl implements ChatAppService {
                               SessionRepository sessionRepository,
                               AgentGateway gateway,
                               SlashCommandExpander commandExpander,
-                              AgentTypeResolver agentTypeResolver,
-                              UploadPicStore uploadPicStore,
-                              UploadFileStore uploadFileStore,
+                              ChatAgentDefaults chatAgentDefaults,
+                              UploadPicStorage uploadPicStore,
+                              UploadFileStorage uploadFileStore,
                               Optional<RecallObservationRecorder> recallObservationRecorder,
                               CurrentUserProvider currentUserProvider) {
         this.sessionCache = sessionCache;
         this.sessionRepository = sessionRepository;
         this.gateway = gateway;
         this.commandExpander = commandExpander;
-        this.agentTypeResolver = agentTypeResolver;
+        this.chatAgentDefaults = chatAgentDefaults;
         this.uploadPicStore = uploadPicStore;
         this.uploadFileStore = uploadFileStore;
         this.recallObservationRecorder = recallObservationRecorder;
@@ -125,7 +122,7 @@ public class ChatAppServiceImpl implements ChatAppService {
     @Override
     public ChatSession startSession(StartSessionRequest req, String clientIp) {
         Assert.notNull(req, "request is null");
-        AgentType type = agentTypeResolver.resolve(req.getAgentType());
+        AgentType type = AgentType.resolveSelection(req.getAgentType(), chatAgentDefaults.getChatDefaultAgent());
         String workingDir = workspacePathPolicy.requireExistingDirectory(req.getWorkingDir());
         ChatSession s = new ChatSession(type, workingDir);
         // 持久化创建时选定的环境, 用于后续恢复时回填; null/空串均按 "无环境" 处理

@@ -1,5 +1,6 @@
 package com.example.agentweb.infra.refinery.config;
 
+import com.example.agentweb.config.refinery.RefineryProperties;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;

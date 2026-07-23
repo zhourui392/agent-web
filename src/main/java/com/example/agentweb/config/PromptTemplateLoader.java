@@ -1,4 +1,4 @@
-package com.example.agentweb.infra.cli;
+package com.example.agentweb.config;
 
 import lombok.extern.slf4j.Slf4j;
 

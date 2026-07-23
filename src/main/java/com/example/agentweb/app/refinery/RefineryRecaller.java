@@ -8,7 +8,7 @@ import com.example.agentweb.app.agentrun.WorkspaceContext;
 import com.example.agentweb.app.agentrun.WorkspaceContextResolver;
 import com.example.agentweb.domain.refinery.SourceType;
 import com.example.agentweb.domain.refinery.TrustTier;
-import com.example.agentweb.infra.refinery.config.RefineryProperties;
+import com.example.agentweb.config.refinery.RefineryProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;

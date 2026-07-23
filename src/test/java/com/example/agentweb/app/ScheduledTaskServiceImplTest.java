@@ -1,6 +1,6 @@
 package com.example.agentweb.app;
 
-import com.example.agentweb.adapter.AgentGateway;
+import com.example.agentweb.app.agentrun.port.AgentGateway;
 import com.example.agentweb.app.agentrun.AgentRunContext;
 import com.example.agentweb.app.agentrun.PromptAssemblyResult;
 import com.example.agentweb.app.agentrun.PromptAssemblyService;

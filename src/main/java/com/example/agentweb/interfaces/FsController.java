@@ -1,5 +1,7 @@
 package com.example.agentweb.interfaces;
 
+import com.example.agentweb.app.UploadFileStorage;
+import com.example.agentweb.app.UploadPicStorage;
 import com.example.agentweb.domain.worktree.WorkspacePathPolicy;
 import com.example.agentweb.interfaces.dto.SuccessResponse;
 import com.example.agentweb.interfaces.dto.UploadResponse;
@@ -45,12 +47,12 @@ public class FsController {
 
     private final List<String> roots;
     private final WorkspacePathPolicy pathPolicy;
-    private final com.example.agentweb.infra.UploadPicStore uploadPicStore;
-    private final com.example.agentweb.infra.UploadFileStore uploadFileStore;
+    private final UploadPicStorage uploadPicStore;
+    private final UploadFileStorage uploadFileStore;
 
     public FsController(com.example.agentweb.infra.FsProperties fsProps,
-                        com.example.agentweb.infra.UploadPicStore uploadPicStore,
-                        com.example.agentweb.infra.UploadFileStore uploadFileStore,
+                        UploadPicStorage uploadPicStore,
+                        UploadFileStorage uploadFileStore,
                         WorkspacePathPolicy pathPolicy) {
         List<String> configured = fsProps.getRoots();
         this.roots = configured == null ? Collections.<String>emptyList() : configured;
@@ -152,7 +154,7 @@ public class FsController {
      * 上传聊天附件(文本类:log/txt/json/csv/...):落到 {@code <workingDir>/upload_file/<sessionId>/},
      * 返回服务器绝对路径,供前端拼进消息文本。
      *
-     * <p>5MB 上限、扩展名白名单、二进制嗅探拒绝、原文件名 sanitize 等校验全部在 {@link com.example.agentweb.infra.UploadFileStore} 中完成。</p>
+     * <p>5MB 上限、扩展名白名单、二进制嗅探拒绝、原文件名 sanitize 等校验由 {@link UploadFileStorage} 实现完成。</p>
      */
     @PostMapping(value = "/upload-file", produces = MediaType.APPLICATION_JSON_VALUE)
     public UploadResponse uploadChatFile(@RequestParam("path") String path,

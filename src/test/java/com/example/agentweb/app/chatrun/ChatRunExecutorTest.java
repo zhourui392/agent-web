@@ -1,7 +1,7 @@
 package com.example.agentweb.app.chatrun;
 
-import com.example.agentweb.adapter.AgentGateway;
-import com.example.agentweb.adapter.AgentStreamResult;
+import com.example.agentweb.app.agentrun.port.AgentGateway;
+import com.example.agentweb.app.agentrun.port.AgentStreamResult;
 import com.example.agentweb.app.refinery.RecallObservationRecorder;
 import com.example.agentweb.app.refinery.RefineryRecaller;
 import com.example.agentweb.domain.chat.SessionRepository;

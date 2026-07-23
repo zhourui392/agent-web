@@ -1,15 +1,15 @@
 package com.example.agentweb.app.refinery;
 
 import com.example.agentweb.app.StreamOutputExtractor;
+import com.example.agentweb.app.agentrun.LlmJsonExtractor;
+import com.example.agentweb.config.PromptTemplateLoader;
+import com.example.agentweb.config.refinery.RefineryProperties;
 import com.example.agentweb.domain.refinery.ConversationTurn;
 import com.example.agentweb.domain.refinery.ConversationView;
 import com.example.agentweb.domain.refinery.RefinedContent;
 import com.example.agentweb.domain.refinery.TtlCategory;
-import com.example.agentweb.infra.refinery.config.RefineryProperties;
-import com.example.agentweb.infra.cli.AgentCliInvoker;
-import com.example.agentweb.infra.cli.CliInvokeException;
-import com.example.agentweb.infra.cli.LlmJsonExtractor;
-import com.example.agentweb.infra.cli.PromptTemplateLoader;
+import com.example.agentweb.app.agentrun.port.AgentCliInvoker;
+import com.example.agentweb.app.agentrun.port.CliInvokeException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;

@@ -13,7 +13,7 @@ import com.example.agentweb.domain.refinery.RefinedContent;
 import com.example.agentweb.domain.refinery.TrustTier;
 import com.example.agentweb.domain.refinery.TrustTierPolicy;
 import com.example.agentweb.domain.refinery.TtlCategory;
-import com.example.agentweb.infra.refinery.config.RefineryProperties;
+import com.example.agentweb.config.refinery.RefineryProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;

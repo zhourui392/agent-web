@@ -4,7 +4,7 @@ import com.example.agentweb.app.refinery.RefineryAppService;
 import com.example.agentweb.domain.chat.SessionRepository;
 import com.example.agentweb.domain.refinery.RagChunkRepository;
 import com.example.agentweb.domain.refinery.SessionRefineryState;
-import com.example.agentweb.infra.refinery.config.RefineryProperties;
+import com.example.agentweb.config.refinery.RefineryProperties;
 import com.example.agentweb.infra.log.MdcContext;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;

@@ -12,7 +12,7 @@ import com.example.agentweb.domain.workflow.WorkflowExecutionRepository;
 import com.example.agentweb.domain.workflow.WorkflowStatus;
 import com.example.agentweb.domain.workflow.WorkflowStep;
 import com.example.agentweb.domain.workflow.WorkflowStepExecution;
-import com.example.agentweb.infra.cli.AgentCliInvoker;
+import com.example.agentweb.app.agentrun.port.AgentCliInvoker;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 

@@ -5,7 +5,7 @@ import com.example.agentweb.domain.git.GitConfigPolicy;
 import com.example.agentweb.domain.git.GitIdentity;
 import com.example.agentweb.domain.git.UserGitConfig;
 import com.example.agentweb.domain.git.UserGitConfigRepository;
-import com.example.agentweb.infra.git.GitCredentialCipher;
+import com.example.agentweb.app.git.CredentialCipher;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -27,12 +27,12 @@ public class GitConfigAppService {
     private final UserGitConfigRepository repository;
     private final GitConfigPolicy policy;
     private final CurrentUserProvider currentUserProvider;
-    private final GitCredentialCipher cipher;
+    private final CredentialCipher cipher;
 
     public GitConfigAppService(UserGitConfigRepository repository,
                                GitConfigPolicy policy,
                                CurrentUserProvider currentUserProvider,
-                               GitCredentialCipher cipher) {
+                               CredentialCipher cipher) {
         this.repository = repository;
         this.policy = policy;
         this.currentUserProvider = currentUserProvider;
@@ -89,7 +89,7 @@ public class GitConfigAppService {
             return;
         }
         if (!cipher.isEnabled()) {
-            throw new IllegalStateException("push 凭证存储未启用：" + GitCredentialCipher.ENV_KEY + " 未配置");
+            throw new IllegalStateException("push 凭证存储未启用：" + CredentialCipher.ENV_KEY + " 未配置");
         }
         if (credUsername == null || credUsername.trim().isEmpty()) {
             throw new IllegalArgumentException("git 凭证用户名不能为空");

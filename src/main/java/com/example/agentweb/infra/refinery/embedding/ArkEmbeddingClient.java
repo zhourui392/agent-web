@@ -1,7 +1,7 @@
 package com.example.agentweb.infra.refinery.embedding;
 
 import com.example.agentweb.domain.refinery.EmbeddingClient;
-import com.example.agentweb.infra.refinery.config.RefineryProperties;
+import com.example.agentweb.config.refinery.RefineryProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
