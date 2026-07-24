@@ -74,6 +74,7 @@ import java.util.regex.Pattern;
  */
 @Component
 @ConditionalOnProperty(prefix = "agent.harness", name = "enabled", havingValue = "true")
+@lombok.extern.slf4j.Slf4j
 public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
         RuntimePreflightGateway, AutoCloseable {
 
@@ -218,8 +219,14 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
                 try {
                     artifactBundle = readArtifactBundle(active);
                 } catch (RuntimeException | IOException ex) {
+                    // 原先只上报泛化 "validation failed"，吞掉具体原因，导致无法定位。
+                    // 现把具体异常文案拼进 failureReason（管理台可见），并落 WARN 日志含堆栈。
+                    log.warn("harness runtime artifact bundle validation failed for execution {}",
+                            active.getSpec().getExecutionId(), ex);
+                    String detail = ex.getMessage() != null ? ex.getMessage() : ex.getClass().getSimpleName();
                     outcome = TerminalOutcome.failed(
-                            "runtime artifact bundle validation failed", outcome.getExitCode());
+                            "runtime artifact bundle validation failed: " + detail,
+                            outcome.getExitCode());
                 }
             }
             String evidenceReference = persistEvidence(active);

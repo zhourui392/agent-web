@@ -223,8 +223,9 @@ public final class RuntimeExecution {
             bundle.requireStage(stage);
             return signal;
         } catch (IllegalArgumentException | IllegalHarnessTransitionException ex) {
+            String detail = ex.getMessage() != null ? ex.getMessage() : ex.getClass().getSimpleName();
             return RuntimeExecutionSignal.failed(signal.getSequence(), signal.getExitCode(),
-                    "runtime artifact bundle validation failed", signal.getEvidenceReference(),
+                    "runtime artifact bundle validation failed: " + detail, signal.getEvidenceReference(),
                     Boolean.TRUE.equals(signal.getTemporaryConfigCleaned()), signal.getOccurredAt());
         }
     }
