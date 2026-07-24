@@ -90,6 +90,11 @@ const app = createApp({
     });
     const taskLoading = ref(false);
     const workspaceDialogVisible = ref(false);
+    // md 文件预览视图状态:点预览后在工作空间弹窗内切换为渲染视图
+    const previewVisible = ref(false);
+    const previewTitle = ref('');
+    const previewHtml = ref('');
+    const previewLoading = ref(false);
     const taskManagerVisible = ref(false);
 
     // --- chat-rag 召回开关探测 (召回历史浏览已迁至管理后台 /admin/refinery.html) ---
@@ -264,8 +269,36 @@ const app = createApp({
       IMAGE_PATH_RE
     } = window.AgentFormatters;
 
+    // 仅 .md / .markdown 文件显示预览命令(不区分大小写)
+    const isMarkdown = (name) => /\.(md|markdown)$/i.test(name || '');
+
     const handleFileCommand = (command, item) => {
-      if (command === 'download') {
+      if (command === 'preview') {
+        // 1MB 大小闸:超过则提示下载后查看,避免拉超大文件渲染卡顿
+        if (item.size && item.size > 1048576) {
+          ElementPlus.ElMessage.warning('文件过大，建议下载后查看');
+          return;
+        }
+        previewLoading.value = true;
+        previewVisible.value = true;
+        previewTitle.value = item.name;
+        previewHtml.value = '';
+        fetch(window.withBase('/api/fs/download?path=' + encodeURIComponent(item.path)))
+          .then(r => {
+            if (!r.ok) throw new Error('加载失败');
+            return r.text();
+          })
+          .then(text => {
+            previewHtml.value = renderMarkdown(text);
+          })
+          .catch(e => {
+            ElementPlus.ElMessage.error('预览失败: ' + e.message);
+            previewVisible.value = false;
+          })
+          .finally(() => {
+            previewLoading.value = false;
+          });
+      } else if (command === 'download') {
         window.open(window.withBase('/api/fs/download?path=' + encodeURIComponent(item.path)), '_blank');
       } else if (command === 'delete') {
         ElementPlus.ElMessageBox.confirm('确定要删除 ' + item.name + ' 吗？', '确认删除', {
@@ -285,6 +318,12 @@ const app = createApp({
             .catch(e => ElementPlus.ElMessage.error(e.message));
         }).catch(() => {});
       }
+    };
+
+    const closePreview = () => {
+      previewVisible.value = false;
+      previewHtml.value = '';
+      previewTitle.value = '';
     };
 
     const onUploadSuccess = () => {
@@ -812,6 +851,12 @@ const app = createApp({
       workspaceCandidatePath,
       currentPath,
       folderList,
+      previewVisible,
+      previewTitle,
+      previewHtml,
+      previewLoading,
+      isMarkdown,
+      closePreview,
       agentType,
       activeSessionId,
       activeResumeId,
