@@ -94,6 +94,14 @@ public class SqliteRuntimeExecutionRepository implements RuntimeExecutionReposit
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public List<RuntimeExecution> findUnfinished() {
+        return jdbc.query("SELECT " + COLUMNS + " FROM harness_runtime_execution "
+                        + "WHERE status IN ('PREPARED','STARTING','RUNNING','CANCEL_REQUESTED') "
+                        + "ORDER BY prepared_at, execution_id", this::read);
+    }
+
+    @Override
     @Transactional(rollbackFor = Exception.class)
     public void appendEvent(RuntimeExecutionEvent event) {
         jdbc.update("INSERT OR IGNORE INTO harness_runtime_event "

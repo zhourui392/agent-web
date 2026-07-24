@@ -6,6 +6,8 @@ import com.example.agentweb.app.chatrun.RunCapacityExceededException;
 import com.example.agentweb.app.harness.InvalidHarnessIdempotencyKeyException;
 import com.example.agentweb.app.harness.HarnessCapabilitySnapshotNotFoundException;
 import com.example.agentweb.app.harness.HarnessRuntimeExecutionNotFoundException;
+import com.example.agentweb.app.harness.HarnessDeploymentExecutionNotFoundException;
+import com.example.agentweb.app.harness.HarnessArtifactNotFoundException;
 import com.example.agentweb.domain.auth.UsernameAlreadyExistsException;
 import com.example.agentweb.domain.chat.ChatSessionNotFoundException;
 import com.example.agentweb.domain.chat.SessionDeletionForbiddenException;
@@ -17,6 +19,7 @@ import com.example.agentweb.domain.harness.HarnessCatalogException;
 import com.example.agentweb.domain.harness.IllegalHarnessTransitionException;
 import com.example.agentweb.domain.harness.DuplicateHarnessRunException;
 import com.example.agentweb.domain.harness.RuntimeExecutionIdempotencyConflictException;
+import com.example.agentweb.domain.harness.DeploymentExecutionIdempotencyConflictException;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
 import jakarta.validation.Path;
@@ -95,6 +98,24 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
     }
 
+    @ExceptionHandler(HarnessDeploymentExecutionNotFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleHarnessDeploymentExecutionNotFound(
+            HarnessDeploymentExecutionNotFoundException ex) {
+        Map<String, Object> body = new HashMap<String, Object>(2);
+        body.put("code", "HARNESS_DEPLOYMENT_EXECUTION_NOT_FOUND");
+        body.put("message", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
+    }
+
+    @ExceptionHandler(HarnessArtifactNotFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleHarnessArtifactNotFound(
+            HarnessArtifactNotFoundException ex) {
+        Map<String, Object> body = new HashMap<String, Object>(2);
+        body.put("code", "HARNESS_ARTIFACT_NOT_FOUND");
+        body.put("message", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
+    }
+
     @ExceptionHandler(CapabilityResolutionException.class)
     public ResponseEntity<Map<String, Object>> handleCapabilityResolution(
             CapabilityResolutionException ex) {
@@ -135,6 +156,15 @@ public class GlobalExceptionHandler {
             RuntimeExecutionIdempotencyConflictException ex) {
         Map<String, Object> body = new HashMap<String, Object>(2);
         body.put("code", "HARNESS_EXECUTION_IDEMPOTENCY_CONFLICT");
+        body.put("message", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
+    }
+
+    @ExceptionHandler(DeploymentExecutionIdempotencyConflictException.class)
+    public ResponseEntity<Map<String, Object>> handleDeploymentExecutionIdempotencyConflict(
+            DeploymentExecutionIdempotencyConflictException ex) {
+        Map<String, Object> body = new HashMap<String, Object>(2);
+        body.put("code", "HARNESS_DEPLOYMENT_IDEMPOTENCY_CONFLICT");
         body.put("message", ex.getMessage());
         return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
     }

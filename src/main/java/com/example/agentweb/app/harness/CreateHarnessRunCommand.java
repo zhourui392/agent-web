@@ -17,15 +17,23 @@ public final class CreateHarnessRunCommand {
     private final String environment;
     private final String definitionVersion;
     private final String idempotencyKey;
+    private final String originalRequirement;
 
     public CreateHarnessRunCommand(String title, String workingDir, String agentType,
                                    String environment, String definitionVersion,
                                    String idempotencyKey) {
+        this(title, workingDir, agentType, environment, definitionVersion, idempotencyKey, title);
+    }
+
+    public CreateHarnessRunCommand(String title, String workingDir, String agentType,
+                                   String environment, String definitionVersion,
+                                   String idempotencyKey, String originalRequirement) {
         this.title = title;
         this.workingDir = workingDir;
         this.agentType = agentType;
         this.environment = environment;
         this.definitionVersion = definitionVersion;
         this.idempotencyKey = idempotencyKey;
+        this.originalRequirement = originalRequirement;
     }
 }

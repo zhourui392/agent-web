@@ -1,7 +1,9 @@
 package com.example.agentweb;
 
 import com.example.agentweb.domain.auth.CurrentUserProvider;
+import com.example.agentweb.app.harness.port.WorkspaceBaselineGateway;
 import com.example.agentweb.domain.harness.HarnessHashing;
+import com.example.agentweb.domain.harness.WorkspaceBaseline;
 import com.example.agentweb.domain.worktree.WorkspacePathPolicy;
 import com.example.agentweb.infra.harness.HarnessSecretResolver;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -23,6 +25,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
@@ -72,6 +75,9 @@ class HarnessM3FlowTest {
 
     @MockBean
     private HarnessSecretResolver secretResolver;
+
+    @MockBean
+    private WorkspaceBaselineGateway workspaceBaselineGateway;
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
@@ -183,6 +189,7 @@ class HarnessM3FlowTest {
         when(currentUserProvider.currentUserId()).thenReturn("admin");
         when(workspacePathPolicy.requireExistingDirectory(anyString()))
                 .thenReturn(WORKSPACE.toString());
+        when(workspaceBaselineGateway.capture(anyString())).thenReturn(workspaceBaseline());
         when(secretResolver.resolve("READER_TOKEN")).thenReturn(FAKE_SECRET);
     }
 
@@ -192,7 +199,8 @@ class HarnessM3FlowTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"title\":\"" + title + "\",\"workingDir\":\""
                                 + jsonEscape(WORKSPACE.toString())
-                                + "\",\"agentType\":\"CODEX\",\"environment\":\"test\"}"))
+                                + "\",\"agentType\":\"CODEX\",\"environment\":\"test\","
+                                + "\"originalRequirement\":\"Harness M3 flow\"}"))
                 .andExpect(status().isCreated()).andReturn();
         String runId = objectMapper.readTree(created.getResponse().getContentAsString())
                 .path("runId").asText();
@@ -211,7 +219,6 @@ class HarnessM3FlowTest {
                                 + "\"requiredMcpServerIds\":[\"reader\"],"
                                 + "\"grantedMcpServerIds\":[\"reader\"],"
                                 + "\"readableFileRoots\":[\"workspace\"],"
-                                + "\"upstreamArtifacts\":\"approved upstream\","
                                 + "\"currentInput\":\"" + input + "\"}"))
                 .andExpect(status().isCreated()).andReturn();
         return objectMapper.readTree(result.getResponse().getContentAsString());
@@ -329,9 +336,14 @@ class HarnessM3FlowTest {
                 + "  exit 0\n"
                 + "fi\n"
                 + "printf '%s\\n' 'LAUNCH' >> \"" + COMMAND_LOG.toAbsolutePath() + "\"\n"
+                + "previous=''\n"
                 + "for arg in \"$@\"; do\n"
                 + "  printf '<%s>\\n' \"$arg\" >> \""
                 + COMMAND_LOG.toAbsolutePath() + "\"\n"
+                + "  if [ \"$previous\" = \"--output-last-message\" ]; then\n"
+                + "    output_last_message=$arg\n"
+                + "  fi\n"
+                + "  previous=$arg\n"
                 + "done\n"
                 + "test ! -f \"$CODEX_HOME/config.toml\" || exit 31\n"
                 + "test \"$READER_API_KEY\" = 'secret-value-never-persist' || exit 35\n"
@@ -340,7 +352,10 @@ class HarnessM3FlowTest {
                 + "  *slow*) sleep 20 ;;\n"
                 + "  *) printf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"m3\","
                 + "\"secret\":\"secret-value-never-persist\"}' ;"
-                + " printf '%s\\n' '{\"type\":\"turn.completed\"}' ;;\n"
+                + " printf '%s\\n' '{\"type\":\"turn.completed\"}' ;"
+                + " printf '%s\\n' '"
+                + analysisArtifactBundle().replace("'", "'\\''")
+                + "' > \"$output_last_message\" ;;\n"
                 + "esac\n");
         if (!stub.toFile().setExecutable(true)) {
             throw new IllegalStateException("could not make Codex stub executable");
@@ -370,6 +385,34 @@ class HarnessM3FlowTest {
         } catch (IOException ex) {
             throw new IllegalStateException("could not write Harness M3 fixture", ex);
         }
+    }
+
+    private WorkspaceBaseline workspaceBaseline() {
+        return WorkspaceBaseline.capture(WORKSPACE.toString(), "main",
+                repeat('a', 40), true, repeat('b', 64), Instant.parse("2026-07-23T00:00:00Z"));
+    }
+
+    private String repeat(char value, int count) {
+        return String.join("", java.util.Collections.nCopies(count, String.valueOf(value)));
+    }
+
+    private static String analysisArtifactBundle() {
+        return "{\"schemaVersion\":\"harness-artifact-bundle@1\",\"stage\":\"ANALYSIS\","
+                + "\"artifacts\":["
+                + "{\"artifactId\":\"requirements\",\"artifactType\":\"REQUIREMENT\","
+                + "\"contentType\":\"application/json\",\"classification\":\"INTERNAL\","
+                + "\"content\":\"{\\\"requirements\\\":[{\\\"id\\\":\\\"REQ-1\\\"}]}\"},"
+                + "{\"artifactId\":\"acceptance\",\"artifactType\":\"ACCEPTANCE_CRITERIA\","
+                + "\"contentType\":\"application/json\",\"classification\":\"INTERNAL\","
+                + "\"content\":\"{\\\"acceptanceCriteria\\\":[{\\\"id\\\":\\\"AC-1\\\","
+                + "\\\"requirementId\\\":\\\"REQ-1\\\",\\\"description\\\":\\\"observable\\\","
+                + "\\\"verification\\\":\\\"test\\\"}]}\"},"
+                + "{\"artifactId\":\"impact\",\"artifactType\":\"IMPACT_ANALYSIS\","
+                + "\"contentType\":\"text/markdown\",\"classification\":\"INTERNAL\","
+                + "\"content\":\"impact\"},"
+                + "{\"artifactId\":\"questions\",\"artifactType\":\"OPEN_QUESTIONS\","
+                + "\"contentType\":\"application/json\",\"classification\":\"INTERNAL\","
+                + "\"content\":\"{\\\"questions\\\":[]}\"}]}";
     }
 
     private String jsonEscape(String value) {

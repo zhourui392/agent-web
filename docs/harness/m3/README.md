@@ -272,6 +272,7 @@ GET  /api/harness/runs/{runId}/stages/{stage}/attempts/{attemptNumber}/execution
 | `AGENT_HARNESS_ARTIFACT_ROOT` | `data/harness/artifacts` | Artifact/Evidence 受控根 |
 | `AGENT_HARNESS_MCP_SERVER_ROOT` | `src/main/resources/harness/mcp-servers` | 管理员可信 MCP Catalog 根 |
 | `AGENT_HARNESS_CODEX_COMMAND` | `CODEX_CMD` / `codex` | Harness 专用 Codex 命令 |
+| `AGENT_HARNESS_CODEX_CREDENTIAL_REFERENCE` | 空 | M4 新增的 Provider 凭据环境变量逻辑名；默认不注入、不读取用户认证目录 |
 | `AGENT_HARNESS_RUNTIME_TEMP_ROOT` | `data/harness/runtime` | 单次执行隔离临时根 |
 | `AGENT_HARNESS_ALLOWED_MCP_SERVER_IDS` | 空 | 环境 MCP allowlist；空即全部拒绝 |
 

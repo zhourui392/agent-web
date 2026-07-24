@@ -27,8 +27,5 @@ public class HarnessCapabilityResolveRequest {
     private List<String> grantedMcpServerIds;
 
     @NotBlank
-    private String upstreamArtifacts;
-
-    @NotBlank
     private String currentInput;
 }

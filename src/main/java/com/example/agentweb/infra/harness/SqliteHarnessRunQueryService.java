@@ -2,6 +2,7 @@ package com.example.agentweb.infra.harness;
 
 import com.example.agentweb.app.harness.HarnessRunQueryService;
 import com.example.agentweb.app.harness.HarnessRunView;
+import com.example.agentweb.app.harness.HarnessRunSummaryView;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -41,7 +42,8 @@ public class SqliteHarnessRunQueryService implements HarnessRunQueryService {
     public Optional<HarnessRunView> findById(String runId) {
         List<HarnessRunView> views = jdbc.query(
                 "SELECT id, title, working_dir, agent_type, environment, definition_version, "
-                        + "status, created_by, created_at, updated_at, version "
+                        + "status, created_by, created_at, updated_at, version, repository_root, "
+                        + "git_branch, git_head, git_clean, git_diff_hash, git_captured_at "
                         + "FROM harness_run WHERE id=?",
                 (rs, rowNumber) -> new HarnessRunView(
                         rs.getString("id"), rs.getString("title"), rs.getString("working_dir"),
@@ -49,9 +51,24 @@ public class SqliteHarnessRunQueryService implements HarnessRunQueryService {
                         rs.getString("definition_version"), rs.getString("status"),
                         rs.getString("created_by"), rs.getLong("created_at"),
                         rs.getLong("updated_at"), rs.getLong("version"),
-                        stages(runId), artifacts(runId), gates(runId), approvals(runId), events(runId)),
+                        new HarnessRunView.WorkspaceBaselineView(
+                                rs.getString("repository_root"), rs.getString("git_branch"),
+                                rs.getString("git_head"), rs.getInt("git_clean") != 0,
+                                rs.getString("git_diff_hash"), rs.getLong("git_captured_at")),
+                        stages(runId), artifacts(runId), gates(runId), approvals(runId),
+                        questions(runId), events(runId)),
                 runId);
         return views.isEmpty() ? Optional.<HarnessRunView>empty() : Optional.of(views.get(0));
+    }
+
+    @Override
+    public List<HarnessRunSummaryView> list() {
+        return jdbc.query("SELECT id, title, status, environment, created_by, updated_at "
+                        + "FROM harness_run ORDER BY updated_at DESC, id",
+                (rs, rowNumber) -> new HarnessRunSummaryView(
+                        rs.getString("id"), rs.getString("title"), rs.getString("status"),
+                        rs.getString("environment"), rs.getString("created_by"),
+                        rs.getLong("updated_at")));
     }
 
     private List<HarnessRunView.StageView> stages(String runId) {
@@ -130,6 +147,18 @@ public class SqliteHarnessRunQueryService implements HarnessRunQueryService {
                         rs.getString("decided_by"), rs.getString("reason"),
                         rs.getLong("decided_at"), rs.getInt("valid") != 0,
                         nullableLong(rs, "invalidated_at")), runId);
+    }
+
+    private List<HarnessRunView.QuestionView> questions(String runId) {
+        return jdbc.query("SELECT question_id, stage, attempt_number, question, blocking, asked_by, "
+                        + "asked_at, answer, answered_by, answered_at FROM harness_question "
+                        + "WHERE run_id=? ORDER BY asked_at, question_id",
+                (rs, rowNumber) -> new HarnessRunView.QuestionView(
+                        rs.getString("question_id"), rs.getString("stage"),
+                        rs.getInt("attempt_number"), rs.getString("question"),
+                        rs.getInt("blocking") != 0, rs.getString("asked_by"),
+                        rs.getLong("asked_at"), rs.getString("answer"),
+                        rs.getString("answered_by"), nullableLong(rs, "answered_at")), runId);
     }
 
     private List<HarnessRunView.EventView> events(String runId) {

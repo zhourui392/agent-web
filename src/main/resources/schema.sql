@@ -339,6 +339,12 @@ CREATE TABLE IF NOT EXISTS harness_run (
     created_at         INTEGER NOT NULL,
     updated_at         INTEGER NOT NULL,
     version            INTEGER NOT NULL DEFAULT 0,
+    repository_root    TEXT    NOT NULL DEFAULT 'UNKNOWN',
+    git_branch         TEXT    NOT NULL DEFAULT 'UNKNOWN',
+    git_head           TEXT    NOT NULL DEFAULT '0000000000000000000000000000000000000000',
+    git_clean          INTEGER NOT NULL DEFAULT 0,
+    git_diff_hash      TEXT    NOT NULL DEFAULT '0000000000000000000000000000000000000000000000000000000000000000',
+    git_captured_at    INTEGER NOT NULL DEFAULT 0,
     UNIQUE(created_by, idempotency_key)
 );
 CREATE INDEX IF NOT EXISTS idx_harness_run_status ON harness_run(status, updated_at);
@@ -420,6 +426,53 @@ CREATE TABLE IF NOT EXISTS harness_approval (
     invalidated_at        INTEGER,
     FOREIGN KEY(run_id) REFERENCES harness_run(id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS harness_question (
+    question_id    TEXT    NOT NULL,
+    run_id         TEXT    NOT NULL,
+    stage          TEXT    NOT NULL,
+    attempt_number INTEGER NOT NULL,
+    question       TEXT    NOT NULL,
+    blocking       INTEGER NOT NULL,
+    asked_by       TEXT    NOT NULL,
+    asked_at       INTEGER NOT NULL,
+    answer         TEXT,
+    answered_by    TEXT,
+    answered_at    INTEGER,
+    PRIMARY KEY(run_id, question_id),
+    FOREIGN KEY(run_id, stage, attempt_number)
+        REFERENCES harness_stage_attempt(run_id, stage, attempt_number) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS harness_deployment_execution (
+    execution_id                 TEXT PRIMARY KEY,
+    idempotency_key              TEXT    NOT NULL,
+    run_id                       TEXT    NOT NULL,
+    attempt_number               INTEGER NOT NULL,
+    approved_input_baseline_hash TEXT    NOT NULL,
+    repository_root              TEXT    NOT NULL,
+    git_branch                   TEXT    NOT NULL,
+    git_head                     TEXT    NOT NULL,
+    git_clean                    INTEGER NOT NULL,
+    git_diff_hash                TEXT    NOT NULL,
+    git_captured_at              INTEGER NOT NULL,
+    template_id                  TEXT    NOT NULL,
+    template_version             TEXT    NOT NULL,
+    template_hash                TEXT    NOT NULL,
+    rollback_configured          INTEGER NOT NULL,
+    status                       TEXT    NOT NULL,
+    failure_reason               TEXT,
+    prepared_at                  INTEGER NOT NULL,
+    started_at                   INTEGER,
+    finished_at                  INTEGER,
+    UNIQUE(run_id, idempotency_key),
+    FOREIGN KEY(run_id) REFERENCES harness_run(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_harness_deployment_unfinished
+    ON harness_deployment_execution(status, prepared_at);
+CREATE INDEX IF NOT EXISTS idx_harness_question_run
+    ON harness_question(run_id, stage, attempt_number, asked_at);
 
 CREATE TABLE IF NOT EXISTS harness_event (
     run_id      TEXT    NOT NULL,

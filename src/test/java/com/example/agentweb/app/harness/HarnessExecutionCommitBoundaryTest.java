@@ -7,6 +7,7 @@ import com.example.agentweb.domain.auth.CurrentUserProvider;
 import com.example.agentweb.domain.auth.LoginUser;
 import com.example.agentweb.domain.auth.UserContext;
 import com.example.agentweb.domain.harness.AgentRuntime;
+import com.example.agentweb.domain.harness.ArtifactStore;
 import com.example.agentweb.domain.harness.CapabilitySnapshot;
 import com.example.agentweb.domain.harness.CapabilitySnapshotRepository;
 import com.example.agentweb.domain.harness.HarnessHashing;
@@ -213,8 +214,22 @@ class HarnessExecutionCommitBoundaryTest {
 
         @Bean
         HarnessRuntimeEventService eventService(RuntimeExecutionRepository executionRepository,
-                                                HarnessRunRepository runRepository, Clock clock) {
-            return new HarnessRuntimeEventService(executionRepository, runRepository, clock);
+                                                HarnessRunRepository runRepository,
+                                                ArtifactStore artifactStore, Clock clock) {
+            return new HarnessRuntimeEventService(executionRepository, runRepository,
+                    artifactStore, (contentType, content) -> content,
+                    workingDir -> com.example.agentweb.domain.harness.WorkspaceBaseline.capture(
+                            workingDir, "UNKNOWN",
+                            String.join("", java.util.Collections.nCopies(40, "0")), false,
+                            String.join("", java.util.Collections.nCopies(64, "0")), NOW),
+                    new com.example.agentweb.domain.harness.ImplementationEvidenceFactory(),
+                    new com.example.agentweb.domain.harness.ImplementationCommandEvidenceFactory(),
+                    clock);
+        }
+
+        @Bean
+        ArtifactStore artifactStore() {
+            return org.mockito.Mockito.mock(ArtifactStore.class);
         }
 
         @Bean

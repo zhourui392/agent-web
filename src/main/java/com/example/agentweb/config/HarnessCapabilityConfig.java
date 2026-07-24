@@ -3,6 +3,11 @@ package com.example.agentweb.config;
 import com.example.agentweb.app.harness.HarnessCapabilitySettings;
 import com.example.agentweb.config.harness.HarnessSecurityProperties;
 import com.example.agentweb.domain.harness.HarnessPromptAssembler;
+import com.example.agentweb.domain.harness.DeploymentArtifactFactory;
+import com.example.agentweb.domain.harness.ImplementationEvidenceFactory;
+import com.example.agentweb.domain.harness.ImplementationCommandEvidenceFactory;
+import com.example.agentweb.domain.harness.HarnessDeterministicGatePolicy;
+import com.example.agentweb.domain.harness.HarnessArtifactPromptFormatter;
 import com.example.agentweb.domain.harness.McpAuthorizationPolicy;
 import com.example.agentweb.domain.harness.SkillSelectionPolicy;
 import com.example.agentweb.domain.harness.WorkspaceSkillTrustPolicy;
@@ -33,6 +38,31 @@ public class HarnessCapabilityConfig {
     @Bean
     public HarnessPromptAssembler harnessPromptAssembler() {
         return new HarnessPromptAssembler();
+    }
+
+    @Bean
+    public HarnessDeterministicGatePolicy harnessDeterministicGatePolicy() {
+        return new HarnessDeterministicGatePolicy();
+    }
+
+    @Bean
+    public HarnessArtifactPromptFormatter harnessArtifactPromptFormatter() {
+        return new HarnessArtifactPromptFormatter();
+    }
+
+    @Bean
+    public DeploymentArtifactFactory harnessDeploymentArtifactFactory() {
+        return new DeploymentArtifactFactory();
+    }
+
+    @Bean
+    public ImplementationEvidenceFactory harnessImplementationEvidenceFactory() {
+        return new ImplementationEvidenceFactory();
+    }
+
+    @Bean
+    public ImplementationCommandEvidenceFactory harnessImplementationCommandEvidenceFactory() {
+        return new ImplementationCommandEvidenceFactory();
     }
 
     @Bean

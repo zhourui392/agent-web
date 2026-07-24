@@ -1,6 +1,7 @@
 package com.example.agentweb.domain.harness;
 
 import java.util.Optional;
+import java.util.List;
 
 /**
  * RuntimeExecution 聚合生命周期写侧端口。
@@ -50,6 +51,8 @@ public interface RuntimeExecutionRepository {
      * @return 可选执行聚合
      */
     Optional<RuntimeExecution> findByIdempotencyKey(String runId, String idempotencyKey);
+
+    List<RuntimeExecution> findUnfinished();
 
     /**
      * 幂等追加非敏感执行事件。

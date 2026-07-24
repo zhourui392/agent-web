@@ -26,10 +26,12 @@ public final class HarnessRunView {
     private final long createdAt;
     private final long updatedAt;
     private final long version;
+    private final WorkspaceBaselineView workspaceBaseline;
     private final List<StageView> stages;
     private final List<ArtifactView> artifacts;
     private final List<GateView> gateResults;
     private final List<ApprovalView> approvals;
+    private final List<QuestionView> questions;
     private final List<EventView> events;
 
     public HarnessRunView(String runId, String title, String workingDir, String agentType,
@@ -38,6 +40,22 @@ public final class HarnessRunView {
                           List<StageView> stages, List<ArtifactView> artifacts,
                           List<GateView> gateResults, List<ApprovalView> approvals,
                           List<EventView> events) {
+        this(runId, title, workingDir, agentType, environment, definitionVersion, status,
+                createdBy, createdAt, updatedAt, version,
+                new WorkspaceBaselineView(workingDir, "UNKNOWN",
+                        "0000000000000000000000000000000000000000", false,
+                        "0000000000000000000000000000000000000000000000000000000000000000", createdAt),
+                stages, artifacts, gateResults, approvals,
+                Collections.<QuestionView>emptyList(), events);
+    }
+
+    public HarnessRunView(String runId, String title, String workingDir, String agentType,
+                          String environment, String definitionVersion, String status,
+                          String createdBy, long createdAt, long updatedAt, long version,
+                          WorkspaceBaselineView workspaceBaseline,
+                          List<StageView> stages, List<ArtifactView> artifacts,
+                          List<GateView> gateResults, List<ApprovalView> approvals,
+                          List<QuestionView> questions, List<EventView> events) {
         this.runId = runId;
         this.title = title;
         this.workingDir = workingDir;
@@ -49,15 +67,38 @@ public final class HarnessRunView {
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
         this.version = version;
+        this.workspaceBaseline = workspaceBaseline;
         this.stages = immutable(stages);
         this.artifacts = immutable(artifacts);
         this.gateResults = immutable(gateResults);
         this.approvals = immutable(approvals);
+        this.questions = immutable(questions);
         this.events = immutable(events);
     }
 
     private static <T> List<T> immutable(List<T> values) {
         return Collections.unmodifiableList(new ArrayList<T>(values));
+    }
+
+    /** 创建时 Git 基线投影。 */
+    @Getter
+    public static final class WorkspaceBaselineView {
+        private final String repositoryRoot;
+        private final String branch;
+        private final String head;
+        private final boolean clean;
+        private final String diffHash;
+        private final long capturedAt;
+
+        public WorkspaceBaselineView(String repositoryRoot, String branch, String head,
+                                     boolean clean, String diffHash, long capturedAt) {
+            this.repositoryRoot = repositoryRoot;
+            this.branch = branch;
+            this.head = head;
+            this.clean = clean;
+            this.diffHash = diffHash;
+            this.capturedAt = capturedAt;
+        }
     }
 
     /** Stage 及其不可覆盖 Attempt 的投影。 */
@@ -195,6 +236,36 @@ public final class HarnessRunView {
             this.decidedAt = decidedAt;
             this.valid = valid;
             this.invalidatedAt = invalidatedAt;
+        }
+    }
+
+    /** 补充输入问题及回答投影。 */
+    @Getter
+    public static final class QuestionView {
+        private final String questionId;
+        private final String stage;
+        private final int attempt;
+        private final String question;
+        private final boolean blocking;
+        private final String askedBy;
+        private final long askedAt;
+        private final String answer;
+        private final String answeredBy;
+        private final Long answeredAt;
+
+        public QuestionView(String questionId, String stage, int attempt, String question,
+                            boolean blocking, String askedBy, long askedAt, String answer,
+                            String answeredBy, Long answeredAt) {
+            this.questionId = questionId;
+            this.stage = stage;
+            this.attempt = attempt;
+            this.question = question;
+            this.blocking = blocking;
+            this.askedBy = askedBy;
+            this.askedAt = askedAt;
+            this.answer = answer;
+            this.answeredBy = answeredBy;
+            this.answeredAt = answeredAt;
         }
     }
 

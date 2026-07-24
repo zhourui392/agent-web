@@ -58,7 +58,7 @@ public class HarnessCapabilityController {
                 set(request.getApprovedWorkspaceSkillIds()), grant,
                 set(request.getExplicitMcpServerIds()), set(request.getRequiredMcpServerIds()),
                 set(request.getGrantedMcpServerIds()),
-                request.getUpstreamArtifacts(), request.getCurrentInput());
+                request.getCurrentInput());
         return ResponseEntity.status(HttpStatus.CREATED).body(capabilityService.resolve(command));
     }
 

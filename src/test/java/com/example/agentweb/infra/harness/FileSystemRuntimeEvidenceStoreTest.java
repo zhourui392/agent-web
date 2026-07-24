@@ -53,6 +53,8 @@ class FileSystemRuntimeEvidenceStoreTest {
                 AgentRuntime.CODEX, tempDir.toString(), prompt, HarnessHashing.sha256("snapshot"),
                 HarnessHashing.sha256(prompt), Collections.emptyList(),
                 new RuntimeEnforcementProfile("codex@1", "codex-test", "read-only",
-                        true, true, true), WorkspaceRuntimeInventory.empty());
+                        true, true, true), WorkspaceRuntimeInventory.empty(),
+                com.example.agentweb.domain.harness.StageContract.mvpDefaults().get(0)
+                        .getRequiredOutputArtifacts());
     }
 }

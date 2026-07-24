@@ -51,7 +51,7 @@
 | 进程取消 | OS 进程信号 | PASS，进程树停止 | 使用进程组 |
 | 取消退出码 | 未保证 | 实测可能为 0 | 禁止用退出码判成功 |
 | 取消终态事件 | 未保证 | 实测无 turn terminal event | 使用取消意图补终态 |
-| 在线 OpenAI Provider | 保存的本机 API Key | FAIL，HTTP 401 | M4 前修复，不阻塞 M1—M3 |
+| 在线 OpenAI Provider | M0 默认登录态 | FAIL，HTTP 401 | 不阻塞 M1—M3；M4 隔离 Runtime 必须显式提供受控凭据 |
 
 ## 3. 配置隔离结论
 

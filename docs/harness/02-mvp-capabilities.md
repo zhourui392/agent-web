@@ -1,10 +1,10 @@
 # 研发交付 Harness 首版能力范围
 
-> 状态：MVP 范围已按 M3 重新验收完成基线更新
-> 最后更新：2026-07-23
+> 状态：M4 功能集成、真实 Codex 离线合同与受控样例验收已完成；在线 Provider 与真实需求验收待完成
+> 最后更新：2026-07-24
 > 上位设计：[研发交付 Harness 目标架构](01-target-harness-architecture.md)
 > 建设顺序：[建设阶段与里程碑](03-milestones.md)
-> 当前执行平面设计：[M3 MCP 与 Runtime 执行平面](04-m3-detailed-design.md)（M3 已完成）
+> 当前实现记录：[M4 四阶段纵向切片](m4/README.md)；执行平面设计：[M3 MCP 与 Runtime](04-m3-detailed-design.md)
 
 ## 1. 首版定义
 
@@ -448,6 +448,7 @@ agent:
     policy: /etc/agent-web/harness/policy.yml
     runtime:
       codex-command: codex
+      provider-credential-reference: ""
       supported-codex-versions: ["0.145.0"]
       version-probe-timeout-seconds: 5
       version-probe-max-bytes: 4096
@@ -460,6 +461,7 @@ agent:
 - 默认关闭；
 - 路径必须规范化并通过白名单；
 - Secret 只通过环境变量、Secret Store 或现有安全引用提供；
+- `provider-credential-reference` 只保存环境变量逻辑名，默认空；Runtime 启动期解析值并只注入单次隔离进程，不回退用户认证目录；
 - 不在 `application.yml` 新增硬编码凭据；
 - `supported-codex-versions` 只能列入已更新兼容矩阵并通过契约测试的版本，不能作为绕过未验证版本门禁的临时开关；
 - 配置解析失败时 Harness 不可用，但不影响现有非 Harness 入口启动，除非显式配置为 fail-fast。
@@ -592,23 +594,23 @@ GET  /api/harness/runs/{runId}/report
 
 只有以下条件全部满足，首版才算完成：
 
-- [ ] Harness Feature Flag 默认关闭，开启后可创建 Run。
-- [ ] 四阶段领域状态机和 Repository 通过测试。
-- [ ] 四个 Prompt Pack 可热发现、版本化、快照和计算 Hash。
-- [ ] 至少两个阶段能动态选择不同 Skill，并记录选择原因和 Package Hash。
-- [ ] 至少一个只读 MCP 在允许阶段可用，在禁止阶段不挂载。
-- [ ] 首个 CLI Runtime 完成真实纵向验证，默认测试使用 Stub。
-- [ ] Snapshot 和 PREPARED RuntimeExecution 提交后才启动外部进程。
-- [ ] Artifact、Gate、Approval、取消等 Run 更新不会删除已固化 Snapshot/Execution。
-- [ ] 活动 Runtime 取消经过持久化意图和 `CANCELLING`，退出码不能覆盖取消语义。
-- [ ] 四阶段必需 Artifact、Gate、Approval 和失效传播可工作。
-- [ ] 实现阶段保存 Git 基线、Diff、聚焦测试红/绿证据和追踪矩阵。
-- [ ] 本机环境完成一次经批准的部署与业务验收。
-- [ ] 应用重启后可继续未完成 Run，且不会重复执行部署动作。
-- [ ] 管理 API 和最小管理页面可完成完整流程。
-- [ ] 安全检查证明不能通过需求/Skill 文本扩大文件、命令、MCP 或环境权限。
-- [ ] 相关 Domain、Application、Infrastructure、Interface 和 Playwright 测试通过。
-- [ ] README/运维文档说明开启、配置、限制、恢复和关闭方式。
+- [x] Harness Feature Flag 默认关闭，开启后可创建 Run。
+- [x] 四阶段领域状态机和 Repository 通过测试。
+- [x] 四个 Prompt Pack 可热发现、版本化、快照和计算 Hash。
+- [x] 至少两个阶段能动态选择不同 Skill，并记录选择原因和 Package Hash。
+- [x] 至少一个只读 MCP 在允许阶段可用，在禁止阶段不挂载。（Catalog/Stub/协议 Fixture 与真实 `codex-cli 0.145.0` + 本地确定性 Provider 均已通过）
+- [ ] 首个 CLI Runtime 完成真实纵向验证，默认测试使用 Stub。（默认 Stub 已通过；隔离 Runtime 的 Credential Reference 已实现，真实凭据尚未提供）
+- [x] Snapshot 和 PREPARED RuntimeExecution 提交后才启动外部进程。
+- [x] Artifact、Gate、Approval、取消等 Run 更新不会删除已固化 Snapshot/Execution。
+- [x] 活动 Runtime 取消经过持久化意图和 `CANCELLING`，退出码不能覆盖取消语义。
+- [x] 四阶段必需 Artifact、Gate、Approval 和失效传播可工作。
+- [x] 实现阶段保存 Git 基线、Diff、聚焦测试红/绿证据和追踪矩阵。
+- [ ] 本机环境完成一次经批准的部署与业务验收。（受控 E2E local 已通过，真实需求尚未执行）
+- [x] 应用重启后可继续未完成 Run，且不会重复执行部署动作。
+- [x] 管理 API 和最小管理页面可完成完整流程。
+- [x] 安全检查证明不能通过需求/Skill 文本扩大文件、命令、MCP 或环境权限。
+- [x] 相关 Domain、Application、Infrastructure、Interface 和 Playwright 测试通过。
+- [x] README/运维文档说明开启、配置、限制、恢复和关闭方式。
 - [ ] 四阶段功能完成后，一个真实需求的最终报告可以追踪需求到部署结果。
 
 ## 12. 首版后续演进接口

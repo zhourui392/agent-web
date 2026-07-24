@@ -34,6 +34,34 @@ public final class SkillSelection {
         return Collections.unmodifiableList(ids);
     }
 
+    public RuntimeEnforcementProfile enforceRuntimeProfile(
+            HarnessStage stage, RuntimeEnforcementProfile maximum) {
+        if (stage == null || maximum == null) {
+            throw new IllegalArgumentException("stage and runtime enforcement maximum are required");
+        }
+        if (stage == HarnessStage.IMPLEMENTATION && hasAuthorizedWorkspaceWrite()) {
+            if (!"workspace-write".equals(maximum.getSandboxMode())) {
+                throw new CapabilityResolutionException("RUNTIME_WRITE_UNAVAILABLE",
+                        "implementation WRITE grant cannot be enforced by runtime");
+            }
+            return maximum;
+        }
+        return "read-only".equals(maximum.getSandboxMode())
+                ? maximum : maximum.withSandboxMode("read-only");
+    }
+
+    private boolean hasAuthorizedWorkspaceWrite() {
+        for (CapabilityDecision decision : capabilityDecisions) {
+            CapabilityRequest request = decision.getRequest();
+            if (decision.isAuthorized() && request.getKind() == CapabilityKind.FILE
+                    && request.getAccess() == CapabilityAccess.WRITE
+                    && "workspace".equals(request.getResource())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private <T> List<T> immutable(List<T> values, String name) {
         if (values == null || values.contains(null)) {
             throw new IllegalArgumentException(name + " must not be null or contain null");

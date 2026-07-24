@@ -115,6 +115,16 @@ public final class StageAttempt {
         status = StageAttemptStatus.WAITING_APPROVAL;
     }
 
+    void waitForInput() {
+        requireStatus(StageAttemptStatus.RUNNING);
+        status = StageAttemptStatus.WAITING_INPUT;
+    }
+
+    void resumeAfterInput() {
+        requireStatus(StageAttemptStatus.WAITING_INPUT);
+        status = StageAttemptStatus.RUNNING;
+    }
+
     void resumeAfterRejection() {
         requireStatus(StageAttemptStatus.WAITING_APPROVAL);
         status = StageAttemptStatus.RUNNING;

@@ -6,6 +6,7 @@ import com.example.agentweb.domain.harness.AgentRuntime;
 import com.example.agentweb.domain.harness.CancellationDirective;
 import com.example.agentweb.domain.harness.HarnessStage;
 import com.example.agentweb.domain.harness.RuntimeEnforcementProfile;
+import com.example.agentweb.domain.harness.StageContract;
 import com.example.agentweb.domain.harness.WorkspaceRuntimeInventory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -122,7 +123,8 @@ class HarnessExecutionLauncherTest {
                 AgentRuntime.CODEX, "/workspace", "prompt", hash('a'), hash('b'),
                 Collections.emptyList(), new RuntimeEnforcementProfile(
                 "codex@1", "codex-test", "read-only", true, true, true),
-                WorkspaceRuntimeInventory.empty());
+                WorkspaceRuntimeInventory.empty(),
+                StageContract.mvpDefaults().get(0).getRequiredOutputArtifacts());
     }
 
     private HarnessExecutionResult result(String status, boolean duplicated) {

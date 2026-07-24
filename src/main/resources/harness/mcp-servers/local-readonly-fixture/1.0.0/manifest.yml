@@ -1,0 +1,16 @@
+schemaVersion: "1"
+id: local-readonly-fixture
+version: 1.0.0
+description: M4 真实 Codex 兼容性验收使用的无 Secret 静态只读 MCP
+stages: [ANALYSIS]
+runtimes: [CODEX]
+command:
+  - node
+  - src/main/resources/harness/mcp-servers/local-readonly-fixture/1.0.0/server.mjs
+startupTimeoutSeconds: 10
+toolTimeoutSeconds: 10
+capabilities:
+  - id: read_fixture
+    type: TOOL
+    access: READ
+secrets: []

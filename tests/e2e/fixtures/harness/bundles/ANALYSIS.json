@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "harness-artifact-bundle@1",
+  "stage": "ANALYSIS",
+  "artifacts": [
+    {
+      "artifactId": "analysis-requirement",
+      "artifactType": "REQUIREMENT",
+      "contentType": "text/markdown",
+      "classification": "INTERNAL",
+      "content": "# REQ-1 Harness M4 E2E\nDeliver one controlled local flow."
+    },
+    {
+      "artifactId": "analysis-acceptance",
+      "artifactType": "ACCEPTANCE_CRITERIA",
+      "contentType": "application/json",
+      "classification": "INTERNAL",
+      "content": "{\"acceptanceCriteria\":[{\"id\":\"AC-1\",\"requirementId\":\"REQ-1\",\"description\":\"controlled local flow succeeds\",\"verification\":\"safe acceptance template exits zero\"}]}"
+    },
+    {
+      "artifactId": "analysis-impact",
+      "artifactType": "IMPACT_ANALYSIS",
+      "contentType": "text/markdown",
+      "classification": "INTERNAL",
+      "content": "Impact is limited to the temporary E2E Git repository."
+    },
+    {
+      "artifactId": "analysis-questions",
+      "artifactType": "OPEN_QUESTIONS",
+      "contentType": "application/json",
+      "classification": "INTERNAL",
+      "content": "{\"questions\":[]}"
+    }
+  ]
+}

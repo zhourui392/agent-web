@@ -8,7 +8,7 @@
 
 M1 已完成独立 Harness 限界上下文的控制平面：`HarnessRun` 聚合负责四阶段顺序、唯一可写 Attempt、Gate、Artifact 版本、Approval Hash 绑定、Retry 留痕、取消和上游变化后的下游失效。Application 仅负责编排事务、Repository、Artifact Store 和路径授权端口。
 
-M1 不调用真实 Agent、MCP、构建或部署。Prompt Pack、Skill 和 Capability Snapshot 属于 M2；Codex Runtime Adapter 属于 M3。当前在线 Codex 凭据 HTTP 401 仍是 M4 真实需求验收前置条件，不阻塞 M1 完成。
+M1 不调用真实 Agent、MCP、构建或部署。Prompt Pack、Skill 和 Capability Snapshot 属于 M2；Codex Runtime Adapter 属于 M3。M0 默认 Codex 登录态访问在线 Provider 返回 HTTP 401；这不阻塞 M1，但 M4 真实需求验收必须另行提供有效的受控 Provider 凭据。
 
 ## 2. 交付物
 

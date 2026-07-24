@@ -11,6 +11,7 @@ import com.example.agentweb.domain.harness.HarnessRunStatus;
 import com.example.agentweb.domain.harness.HarnessStage;
 import com.example.agentweb.domain.harness.StageContract;
 import com.example.agentweb.domain.harness.StageStatus;
+import com.example.agentweb.domain.harness.WorkspaceBaseline;
 import com.example.agentweb.infra.SqliteInitializer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -115,6 +116,52 @@ class SqliteHarnessRunRepositoryTest {
         assertTrue(loaded.getStages().stream().allMatch(stage -> stage.getAttempts().isEmpty()));
         assertTrue(loaded.getStages().stream()
                 .allMatch(stage -> stage.getStatus() == StageStatus.CANCELLED));
+    }
+
+    @Test
+    void update_and_restart_should_restore_waiting_input_question_and_answer() {
+        HarnessRun run = newRun("run-question", "question-key");
+        run.startStage(HarnessStage.ANALYSIS, "start", NOW.plusSeconds(1));
+        run.requestInput(HarnessStage.ANALYSIS, "question-1", "Which tenant?", true,
+                "agent", NOW.plusSeconds(2));
+        repository.add(run);
+
+        HarnessRun waiting = new SqliteHarnessRunRepository(jdbc(jdbcUrl))
+                .findById("run-question").orElseThrow(AssertionError::new);
+        assertEquals(HarnessRunStatus.WAITING_INPUT, waiting.getStatus());
+        assertEquals(1, waiting.getQuestions().size());
+        assertFalse(waiting.getQuestions().get(0).isAnswered());
+
+        waiting.answerQuestion("question-1", "tenant-a", "admin", NOW.plusSeconds(3));
+        repository.update(waiting);
+        HarnessRun answered = new SqliteHarnessRunRepository(jdbc(jdbcUrl))
+                .findById("run-question").orElseThrow(AssertionError::new);
+
+        assertEquals(HarnessRunStatus.ACTIVE, answered.getStatus());
+        assertEquals("tenant-a", answered.getQuestions().get(0).getAnswer());
+        assertEquals("admin", answered.getQuestions().get(0).getAnsweredBy());
+        assertEquals(StageStatus.RUNNING, answered.stage(HarnessStage.ANALYSIS).getStatus());
+    }
+
+    @Test
+    void add_and_restart_should_restore_creation_git_baseline() {
+        WorkspaceBaseline baseline = WorkspaceBaseline.capture(tempDir.toString(), "feat/m4",
+                "0123456789012345678901234567890123456789", false,
+                String.join("", Collections.nCopies(64, "a")), NOW);
+        HarnessRun run = HarnessRun.create("run-baseline", "M4", tempDir.toString(), "CODEX",
+                "local", "harness@1.0.0", "admin", "baseline-key", baseline,
+                StageContract.mvpDefaults(), NOW);
+
+        repository.add(run);
+        HarnessRun loaded = new SqliteHarnessRunRepository(jdbc(jdbcUrl))
+                .findById("run-baseline").orElseThrow(AssertionError::new);
+
+        assertEquals("feat/m4", loaded.getWorkspaceBaseline().getBranch());
+        assertEquals("0123456789012345678901234567890123456789",
+                loaded.getWorkspaceBaseline().getHead());
+        assertFalse(loaded.getWorkspaceBaseline().isClean());
+        assertEquals(String.join("", Collections.nCopies(64, "a")),
+                loaded.getWorkspaceBaseline().getDiffHash());
     }
 
     private HarnessRun newRun(String runId, String idempotencyKey) {

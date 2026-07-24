@@ -1,6 +1,7 @@
 package com.example.agentweb.interfaces.dto;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -23,4 +24,7 @@ public class HarnessRunCreateRequest {
     @NotBlank
     private String environment;
     private String definitionVersion;
+    @NotBlank
+    @Size(max = 1048576)
+    private String originalRequirement;
 }

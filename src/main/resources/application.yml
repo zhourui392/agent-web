@@ -149,10 +149,17 @@ agent:
     approved-user-skill-root: ${AGENT_HARNESS_APPROVED_USER_SKILL_ROOT:}
     workspace-skill-root: ${AGENT_HARNESS_WORKSPACE_SKILL_ROOT:}
     mcp-server-root: ${AGENT_HARNESS_MCP_SERVER_ROOT:src/main/resources/harness/mcp-servers}
+    deployment-template-root: ${AGENT_HARNESS_DEPLOYMENT_TEMPLATE_ROOT:src/main/resources/harness/deployment-templates}
+    deployment:
+      command-timeout-seconds: ${AGENT_HARNESS_DEPLOYMENT_TIMEOUT_SECONDS:600}
+      max-output-bytes: ${AGENT_HARNESS_DEPLOYMENT_MAX_OUTPUT_BYTES:1048576}
     runtime:
       codex-command: ${AGENT_HARNESS_CODEX_COMMAND:${CODEX_CMD:codex}}
+      # 隔离 Runtime 不复用用户 CODEX_HOME。仅在显式配置逻辑引用时，启动期解析并注入单次 Codex 进程。
+      provider-credential-reference: ${AGENT_HARNESS_CODEX_CREDENTIAL_REFERENCE:}
       temp-root: ${AGENT_HARNESS_RUNTIME_TEMP_ROOT:data/harness/runtime}
       sandbox-mode: read-only
+      implementation-sandbox-mode: workspace-write
       supported-codex-versions:
         - "0.145.0"
       compatibility-matrix-version: m0-2026-07-22

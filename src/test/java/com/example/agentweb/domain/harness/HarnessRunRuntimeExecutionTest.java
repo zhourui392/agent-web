@@ -93,7 +93,10 @@ class HarnessRunRuntimeExecutionTest {
         execution.apply(RuntimeExecutionSignal.failed(2L, 1, "agent failed", true,
                 NOW.plusSeconds(5)));
 
-        assertTrue(run.applyRuntimeExecutionOutcome(execution, NOW.plusSeconds(5)));
+        RuntimeExecutionOutcome outcome = execution.outcome()
+                .orElseThrow(IllegalStateException::new);
+
+        assertTrue(run.applyRuntimeExecutionOutcome(outcome, NOW.plusSeconds(5)));
 
         assertEquals(HarnessRunStatus.FAILED, run.getStatus());
         assertEquals(StageAttemptStatus.FAILED,

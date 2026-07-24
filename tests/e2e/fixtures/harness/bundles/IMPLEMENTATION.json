@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "harness-artifact-bundle@1",
+  "stage": "IMPLEMENTATION",
+  "artifacts": [
+    {
+      "artifactId": "implementation-changed-files-declared",
+      "artifactType": "CHANGED_FILES",
+      "contentType": "application/json",
+      "classification": "INTERNAL",
+      "content": "{\"files\":[{\"path\":\"src/main/A.java\",\"sensitive\":false}]}"
+    },
+    {
+      "artifactId": "implementation-test-evidence-declared",
+      "artifactType": "TEST_EVIDENCE",
+      "contentType": "application/json",
+      "classification": "INTERNAL",
+      "content": "{\"commands\":[{\"command\":\"mvn -q -Dtest=RuleTest#red test\",\"phase\":\"RED\",\"exitCode\":1},{\"command\":\"mvn -q -Dtest=RuleTest#green test\",\"phase\":\"GREEN\",\"exitCode\":0}]}"
+    },
+    {
+      "artifactId": "implementation-summary",
+      "artifactType": "IMPLEMENTATION_SUMMARY",
+      "contentType": "text/markdown",
+      "classification": "INTERNAL",
+      "content": "Added the E2E domain implementation in src/main/A.java."
+    },
+    {
+      "artifactId": "implementation-traceability",
+      "artifactType": "TRACEABILITY",
+      "contentType": "application/json",
+      "classification": "INTERNAL",
+      "content": "{\"links\":[{\"requirementId\":\"REQ-1\",\"acceptanceCriteriaId\":\"AC-1\",\"designRef\":\"SOLUTION#domain\",\"testRef\":\"RuleTest\",\"implementationRef\":\"src/main/A.java\"}]}"
+    }
+  ]
+}

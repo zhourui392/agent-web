@@ -113,8 +113,8 @@ codex --ask-for-approval never exec ...
 处理策略：
 
 - M1—M3 使用确定性本地 Provider 和 Stub 继续开发；
-- M4 真实需求开始前重新登录或替换受控凭据；
-- 修复后运行单独标记为 `live` 的最小真实 Provider Smoke；
+- M4 真实需求开始前为隔离 Runtime 提供有效的受控 Provider Credential Reference；默认用户登录态不会被 Harness 读取；
+- 提供受控凭据后运行单独标记为 `live` 的最小真实 Provider Smoke；
 - 普通快速测试永远不依赖在线凭据。
 
 ## 6. 临时文件与外部影响
