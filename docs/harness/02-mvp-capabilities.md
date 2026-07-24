@@ -1,6 +1,6 @@
 # 研发交付 Harness 首版能力范围
 
-> 状态：M4 功能集成、真实 Codex 离线合同与受控样例验收已完成；在线 Provider 与真实需求验收待完成
+> 状态：M4 功能集成、真实 Codex 在线/离线合同与受控样例验收已完成；真实需求验收待完成
 > 最后更新：2026-07-24
 > 上位设计：[研发交付 Harness 目标架构](01-target-harness-architecture.md)
 > 建设顺序：[建设阶段与里程碑](03-milestones.md)

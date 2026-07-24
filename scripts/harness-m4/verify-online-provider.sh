@@ -5,10 +5,12 @@ set +x
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PROJECT_DIR=$(cd "$SCRIPT_DIR/../.." && pwd)
+AUTH_MODE=${AGENT_HARNESS_ONLINE_AUTH_MODE:-local-login}
 REFERENCE=${AGENT_HARNESS_CODEX_CREDENTIAL_REFERENCE:-}
 CODEX_COMMAND=${AGENT_HARNESS_CODEX_COMMAND:-codex}
 TEMP_ROOT=""
 PROVIDER_CREDENTIAL=""
+ISOLATED_CODEX_HOME=false
 
 configuration_error() {
   printf 'FAIL - %s\n' "$1" >&2
@@ -36,14 +38,24 @@ cleanup() {
   ' "$TEMP_ROOT"
 }
 
-[[ -n "$REFERENCE" ]] \
-  || configuration_error "provider credential reference is required"
-[[ "$REFERENCE" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] \
-  || configuration_error "provider credential reference is invalid"
-PROVIDER_CREDENTIAL=${!REFERENCE-}
-[[ -n "$PROVIDER_CREDENTIAL" ]] \
-  || configuration_error "referenced provider credential is unavailable"
-unset "$REFERENCE"
+case "$AUTH_MODE" in
+  local-login)
+    ;;
+  isolated-key)
+    ISOLATED_CODEX_HOME=true
+    [[ -n "$REFERENCE" ]] \
+      || configuration_error "provider credential reference is required"
+    [[ "$REFERENCE" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] \
+      || configuration_error "provider credential reference is invalid"
+    PROVIDER_CREDENTIAL=${!REFERENCE-}
+    [[ -n "$PROVIDER_CREDENTIAL" ]] \
+      || configuration_error "referenced provider credential is unavailable"
+    unset "$REFERENCE"
+    ;;
+  *)
+    configuration_error "online authentication mode is invalid"
+    ;;
+esac
 
 trap cleanup EXIT
 
@@ -100,7 +112,9 @@ for index in "${!STAGES[@]}"; do
     sed -n '1,240p' "$skill_entry"
     printf '\n\n## CURRENT_INPUT\n这是在线 Provider 只读兼容性验证。'
     printf '把所选 Skill 标题下的唯一一句正文原样复制到 skillEvidence；不要使用工具。\n'
-    printf '\n## LIVE_SMOKE_OUTPUT_CONTRACT\n只返回符合 output schema 的 JSON。\n'
+    printf '\n## LIVE_SMOKE_OUTPUT_CONTRACT\n只返回 JSON 对象，不要 Markdown 代码块或解释。'
+    printf '对象只能包含 stage 和 skillEvidence；stage 必须精确为 %s，' "$stage"
+    printf 'skillEvidence 必须是复制出的非空字符串。\n'
   } >"$prompt"
 
   STAGE="$stage" node -e '
@@ -117,26 +131,46 @@ for index in "${!STAGES[@]}"; do
     }));
   ' "$schema"
 
-  env -i \
-    PATH="${PATH:-/usr/bin:/bin}" \
-    HOME="$ISOLATED_HOME" \
-    CODEX_HOME="$ISOLATED_HOME" \
-    XDG_CONFIG_HOME="$ISOLATED_HOME" \
-    OPENAI_API_KEY="$PROVIDER_CREDENTIAL" \
+  if [[ "$AUTH_MODE" == "local-login" ]]; then
     timeout 180s "$CODEX_COMMAND" --ask-for-approval never exec \
-      --ignore-user-config --ignore-rules --ephemeral --json \
-      --skip-git-repo-check --sandbox read-only -C "$WORKSPACE" \
-      --output-schema "$schema" --output-last-message "$result" - \
-      <"$prompt" >"$events" 2>"$TEMP_ROOT/$slug.err" \
-    || fail "online Provider stage verification failed: $stage"
+        --ignore-rules --ephemeral --json \
+        --skip-git-repo-check --sandbox read-only -C "$WORKSPACE" \
+        --output-last-message "$result" - \
+        <"$prompt" >"$events" 2>"$TEMP_ROOT/$slug.err" \
+      || fail "online Provider stage verification failed: $stage"
+  else
+    env -i \
+      PATH="${PATH:-/usr/bin:/bin}" \
+      HOME="$ISOLATED_HOME" \
+      CODEX_HOME="$ISOLATED_HOME" \
+      XDG_CONFIG_HOME="$ISOLATED_HOME" \
+      OPENAI_API_KEY="$PROVIDER_CREDENTIAL" \
+      timeout 180s "$CODEX_COMMAND" --ask-for-approval never exec \
+        --ignore-user-config --ignore-rules --ephemeral --json \
+        --skip-git-repo-check --sandbox read-only -C "$WORKSPACE" \
+        --output-schema "$schema" --output-last-message "$result" - \
+        <"$prompt" >"$events" 2>"$TEMP_ROOT/$slug.err" \
+      || fail "online Provider stage verification failed: $stage"
+  fi
 
   STAGE="$stage" EXPECTED="$expected" SCAN_SECRET="$PROVIDER_CREDENTIAL" node -e '
     const fs = require("fs");
     const result = fs.readFileSync(process.argv[1], "utf8");
     const events = fs.readFileSync(process.argv[2], "utf8");
     const parsed = JSON.parse(result);
+    if (parsed === null || Array.isArray(parsed) || typeof parsed !== "object") {
+      throw new Error("stage output must be an object");
+    }
+    const fields = Object.keys(parsed).sort();
+    if (fields.length !== 2 || fields[0] !== "skillEvidence" || fields[1] !== "stage") {
+      throw new Error("stage output fields mismatch");
+    }
     if (parsed.stage !== process.env.STAGE) {
       throw new Error("stage output mismatch");
+    }
+    if (typeof parsed.skillEvidence !== "string"
+        || parsed.skillEvidence.length < 1 || parsed.skillEvidence.length > 500) {
+      throw new Error("selected Skill evidence must be a bounded string");
     }
     if (!parsed.skillEvidence.includes(process.env.EXPECTED)) {
       throw new Error("selected Skill evidence mismatch");
@@ -153,4 +187,5 @@ for index in "${!STAGES[@]}"; do
   printf 'PASS - online Provider received %s prompt and %s Skill\n' "$stage" "$skill"
 done
 
-printf 'M4 ONLINE PROVIDER PASS - stages=4 isolated_codex_home=true\n'
+printf 'M4 ONLINE PROVIDER PASS - stages=4 auth_mode=%s isolated_codex_home=%s\n' \
+  "$AUTH_MODE" "$ISOLATED_CODEX_HOME"

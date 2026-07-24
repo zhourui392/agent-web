@@ -181,7 +181,7 @@ agent:
 
 知识精炼默认关闭。开启知识精炼需经 `REFINERY_EMBED_API_KEY` 注入 embedding 鉴权，且 `agent.refinery.embedding.dimension` 须与模型维度一致（不一致启动 fail-fast）。凭证走环境变量或下述 Git 忽略配置，勿写进 `application.yml`。
 
-本机文件化的服务端敏感配置统一放在 Git 忽略的 `data/secrets.properties`，应用启动时会自动读取；外部环境变量优先级更高。普通 Codex CLI 和 Claude Code 不读取该文件中的认证配置，仍使用各自的本机默认登录态。Harness 是例外：它不读取用户认证目录，只在显式配置 Provider Credential Reference 时从服务进程环境解析并注入单次隔离进程。示例只列变量名，不要把真实值写入受 Git 跟踪的文件：
+本机文件化的服务端敏感配置统一放在 Git 忽略的 `data/secrets.properties`，应用启动时会自动读取；外部环境变量优先级更高。普通 Codex CLI 和 Claude Code 不读取该文件中的认证配置，仍使用各自的本机默认登录态。正式 Harness Runtime 是例外：它不读取用户认证目录，只在显式配置 Provider Credential Reference 时从服务进程环境解析并注入单次隔离进程。M4 在线验收脚本默认使用当前用户的 Codex 登录态，也可显式切换为隔离 Key 模式。示例只列变量名，不要把真实值写入受 Git 跟踪的文件：
 
 ```properties
 GIT_CRED_ENC_KEY=<32 字节密钥的 base64>
@@ -230,6 +230,7 @@ AGENT_BOOTSTRAP_ADMIN_PASSWORD=<仅首次公网启动使用的新管理员密码
 | `AGENT_HARNESS_MCP_SERVER_ROOT` | `src/main/resources/harness/mcp-servers` | 管理员可信 MCP Server Catalog 根；只允许 Snapshot 选中的 Server 进入隔离配置 |
 | `AGENT_HARNESS_DEPLOYMENT_TEMPLATE_ROOT` | `src/main/resources/harness/deployment-templates` | 管理员审核的 local 部署模板 Catalog；仓库默认不内置可执行模板 |
 | `AGENT_HARNESS_CODEX_COMMAND` | `CODEX_CMD`，未配置时为 `codex` | Harness 专用 Codex Runtime 命令；与普通聊天命令配置分离 |
+| `AGENT_HARNESS_ONLINE_AUTH_MODE` | `local-login` | 仅用于 M4 在线验收脚本；`local-login` 使用当前用户 Codex 登录态，`isolated-key` 使用显式凭据引用 |
 | `AGENT_HARNESS_CODEX_CREDENTIAL_REFERENCE` | _(无)_ | Harness Codex Provider 凭据的环境变量逻辑名；例如值为 `HARNESS_CODEX_PROVIDER_KEY` 时，只在单次隔离进程中将该变量的值注入 `OPENAI_API_KEY`，不读取用户 `CODEX_HOME` |
 | `AGENT_HARNESS_RUNTIME_TEMP_ROOT` | `data/harness/runtime` | Harness 单次执行隔离 `HOME/CODEX_HOME/XDG_CONFIG_HOME` 的临时根，终态后清理 |
 | `AGENT_HARNESS_ALLOWED_MCP_SERVER_IDS` | _(无)_ | 当前环境允许挂载的 MCP Server ID 集合；空集合 fail-closed |
