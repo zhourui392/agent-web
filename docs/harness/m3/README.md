@@ -272,8 +272,9 @@ GET  /api/harness/runs/{runId}/stages/{stage}/attempts/{attemptNumber}/execution
 | `AGENT_HARNESS_ARTIFACT_ROOT` | `data/harness/artifacts` | Artifact/Evidence 受控根 |
 | `AGENT_HARNESS_MCP_SERVER_ROOT` | `src/main/resources/harness/mcp-servers` | 管理员可信 MCP Catalog 根 |
 | `AGENT_HARNESS_CODEX_COMMAND` | `CODEX_CMD` / `codex` | Harness 专用 Codex 命令 |
-| `AGENT_HARNESS_CODEX_CREDENTIAL_REFERENCE` | 空 | M4 新增的 Provider 凭据环境变量逻辑名；默认不注入、不读取用户认证目录 |
-| `AGENT_HARNESS_RUNTIME_TEMP_ROOT` | `data/harness/runtime` | 单次执行隔离临时根 |
+| `AGENT_HARNESS_RUNTIME_AUTH_MODE` | `local-login` | M4 正式 Runtime 认证模式；可选本机登录态或隔离 Key |
+| `AGENT_HARNESS_CODEX_CREDENTIAL_REFERENCE` | 空 | 仅 `isolated-key` 使用的 Provider 凭据环境变量逻辑名 |
+| `AGENT_HARNESS_RUNTIME_TEMP_ROOT` | `data/harness/runtime` | 单次输出/配置临时根；隔离模式同时作为临时 Home |
 | `AGENT_HARNESS_ALLOWED_MCP_SERVER_IDS` | 空 | 环境 MCP allowlist；空即全部拒绝 |
 
 Feature Flag 关闭时，Execution Controller、MCP Catalog、Codex Gateway、Runtime Repository/QueryService、Evidence Store 和 Runtime 线程池均不注册，不影响现有 Chat、Workflow 或 Diagnose。

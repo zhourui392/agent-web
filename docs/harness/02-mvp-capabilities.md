@@ -448,6 +448,7 @@ agent:
     policy: /etc/agent-web/harness/policy.yml
     runtime:
       codex-command: codex
+      auth-mode: local-login
       provider-credential-reference: ""
       supported-codex-versions: ["0.145.0"]
       version-probe-timeout-seconds: 5
@@ -461,7 +462,9 @@ agent:
 - 默认关闭；
 - 路径必须规范化并通过白名单；
 - Secret 只通过环境变量、Secret Store 或现有安全引用提供；
-- `provider-credential-reference` 只保存环境变量逻辑名，默认空；Runtime 启动期解析值并只注入单次隔离进程，不回退用户认证目录；
+- `auth-mode` 默认 `local-login`，由系统 `codex` 使用服务账户的本机登录态；Adapter 不直接读取、复制或修改认证文件；
+- `isolated-key` 使用临时 `HOME/CODEX_HOME/XDG_CONFIG_HOME`，并要求 `provider-credential-reference` 保存合法环境变量逻辑名；Runtime 启动期解析值并只注入单次隔离进程；
+- 两种模式不静默回退；本机受控试点可使用 `local-login`，生产多用户部署优先评估 `isolated-key`；
 - 不在 `application.yml` 新增硬编码凭据；
 - `supported-codex-versions` 只能列入已更新兼容矩阵并通过契约测试的版本，不能作为绕过未验证版本门禁的临时开关；
 - 配置解析失败时 Harness 不可用，但不影响现有非 Harness 入口启动，除非显式配置为 fail-fast。
@@ -599,7 +602,7 @@ GET  /api/harness/runs/{runId}/report
 - [x] 四个 Prompt Pack 可热发现、版本化、快照和计算 Hash。
 - [x] 至少两个阶段能动态选择不同 Skill，并记录选择原因和 Package Hash。
 - [x] 至少一个只读 MCP 在允许阶段可用，在禁止阶段不挂载。（Catalog/Stub/协议 Fixture 与真实 `codex-cli 0.145.0` + 本地确定性 Provider 均已通过）
-- [ ] 首个 CLI Runtime 完成真实纵向验证，默认测试使用 Stub。（默认 Stub 已通过；隔离 Runtime 的 Credential Reference 已实现，真实凭据尚未提供）
+- [ ] 首个 CLI Runtime 完成真实纵向验证，默认测试使用 Stub。（Stub 与 `local-login` 在线 Prompt/Skill 已通过；一个真实需求的四阶段纵向交付尚未完成）
 - [x] Snapshot 和 PREPARED RuntimeExecution 提交后才启动外部进程。
 - [x] Artifact、Gate、Approval、取消等 Run 更新不会删除已固化 Snapshot/Execution。
 - [x] 活动 Runtime 取消经过持久化意图和 `CANCELLING`，退出码不能覆盖取消语义。

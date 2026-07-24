@@ -18,19 +18,28 @@ for argument in "$@"; do
   previous=$argument
 done
 
-if [ -z "$schema" ] || [ -z "$output" ]; then
-  printf '%s\n' 'missing output contract paths' >&2
+if [ -z "$output" ]; then
+  printf '%s\n' 'missing output path' >&2
   exit 2
 fi
 
 prompt=$(cat)
 stage=''
-for candidate in ANALYSIS DESIGN IMPLEMENTATION DEPLOYMENT; do
-  if grep -q "\"const\":\"$candidate\"" "$schema"; then
-    stage=$candidate
-    break
-  fi
-done
+if [ -n "$schema" ]; then
+  for candidate in ANALYSIS DESIGN IMPLEMENTATION DEPLOYMENT; do
+    if grep -q "\"const\":\"$candidate\"" "$schema"; then
+      stage=$candidate
+      break
+    fi
+  done
+else
+  for candidate in ANALYSIS DESIGN IMPLEMENTATION DEPLOYMENT; do
+    if printf '%s\n' "$prompt" | grep -q "^stage: $candidate$"; then
+      stage=$candidate
+      break
+    fi
+  done
+fi
 if [ -z "$stage" ]; then
   printf '%s\n' 'could not resolve stage from output schema' >&2
   exit 3

@@ -25,15 +25,21 @@ shift
 goto args
 
 :args_done
-if not defined schema exit /b 2
 if not defined output exit /b 2
 set "prompt_file=%TEMP%\harness-prompt-%RANDOM%-%RANDOM%.txt"
 more > "%prompt_file%"
 set "stage="
-findstr /C:"ANALYSIS" "%schema%" >nul && set "stage=ANALYSIS"
-findstr /C:"DESIGN" "%schema%" >nul && set "stage=DESIGN"
-findstr /C:"IMPLEMENTATION" "%schema%" >nul && set "stage=IMPLEMENTATION"
-findstr /C:"DEPLOYMENT" "%schema%" >nul && set "stage=DEPLOYMENT"
+if defined schema (
+  findstr /C:"ANALYSIS" "%schema%" >nul && set "stage=ANALYSIS"
+  findstr /C:"DESIGN" "%schema%" >nul && set "stage=DESIGN"
+  findstr /C:"IMPLEMENTATION" "%schema%" >nul && set "stage=IMPLEMENTATION"
+  findstr /C:"DEPLOYMENT" "%schema%" >nul && set "stage=DEPLOYMENT"
+) else (
+  findstr /R /C:"^stage: ANALYSIS$" "%prompt_file%" >nul && set "stage=ANALYSIS"
+  findstr /R /C:"^stage: DESIGN$" "%prompt_file%" >nul && set "stage=DESIGN"
+  findstr /R /C:"^stage: IMPLEMENTATION$" "%prompt_file%" >nul && set "stage=IMPLEMENTATION"
+  findstr /R /C:"^stage: DEPLOYMENT$" "%prompt_file%" >nul && set "stage=DEPLOYMENT"
+)
 if not defined stage exit /b 3
 set "bundle=%~dp0bundles\%stage%.json"
 if "%stage%"=="ANALYSIS" (

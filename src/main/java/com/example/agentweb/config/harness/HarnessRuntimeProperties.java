@@ -21,7 +21,16 @@ import java.util.Set;
 @Setter
 public class HarnessRuntimeProperties {
 
+    /**
+     * Codex Runtime 的认证与用户配置隔离模式。
+     */
+    public enum AuthMode {
+        LOCAL_LOGIN,
+        ISOLATED_KEY
+    }
+
     private String codexCommand = "codex";
+    private AuthMode authMode = AuthMode.LOCAL_LOGIN;
     private String providerCredentialReference = "";
     private String tempRoot = "data/harness/runtime";
     private String sandboxMode = "read-only";

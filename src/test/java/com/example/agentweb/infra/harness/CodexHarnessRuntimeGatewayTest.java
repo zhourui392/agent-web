@@ -5,6 +5,7 @@ import com.example.agentweb.app.harness.port.AgentRuntimeStartException;
 import com.example.agentweb.app.harness.port.RuntimeEvent;
 import com.example.agentweb.app.harness.port.RuntimePreflightReport;
 import com.example.agentweb.config.harness.HarnessRuntimeProperties;
+import com.example.agentweb.config.harness.HarnessRuntimeProperties.AuthMode;
 import com.example.agentweb.config.harness.HarnessSecurityProperties;
 import com.example.agentweb.domain.harness.AgentRuntime;
 import com.example.agentweb.domain.harness.CapabilityAccess;
@@ -108,6 +109,7 @@ class CodexHarnessRuntimeGatewayTest {
                 "artifact:runtime-jsonl-exec-success:1:"));
         assertTrue(events.started().getSignal().getRuntimeHandle().matches("pid:[0-9]+"));
         List<String> actualArguments = Files.readAllLines(arguments, StandardCharsets.UTF_8);
+        assertTrue(actualArguments.contains("--ignore-user-config"));
         assertTrue(actualArguments.contains("--output-schema"));
         assertTrue(actualArguments.contains("--output-last-message"));
         assertOverride(actualArguments, "mcp_servers.reader.command=\"fake-mcp\"");
@@ -123,6 +125,40 @@ class CodexHarnessRuntimeGatewayTest {
         String evidence = evidenceText("exec-success");
         assertFalse(evidence.contains(SECRET));
         assertTrue(evidence.contains("[REDACTED]"));
+        assertRuntimeRootEmpty();
+    }
+
+    @Test
+    void defaultLocalLoginShouldUseSystemCodexConfigurationWithoutProviderCredential()
+            throws Exception {
+        Path arguments = tempDir.resolve("local-login-arguments.txt");
+        Path environment = tempDir.resolve("local-login-environment.txt");
+        Path stub = script("local-login.sh", "#!/bin/sh\n"
+                + "printf '%s\\n' \"${HOME-}\" \"${CODEX_HOME-}\" \"${XDG_CONFIG_HOME-}\" "
+                + "\"${OPENAI_API_KEY-}\" > '" + environment + "'\n"
+                + "printf '%s\\n' \"$@\" > '" + arguments + "'\n"
+                + "cat >/dev/null\n"
+                + "printf '%s\\n' '{\"type\":\"turn.completed\"}'\n");
+        HarnessRuntimeProperties defaults = new HarnessRuntimeProperties();
+        assertEquals(AuthMode.LOCAL_LOGIN, defaults.getAuthMode());
+        gateway = gateway(stub, 5L);
+        gatewayProperties.setAuthMode(AuthMode.LOCAL_LOGIN);
+        gatewayProperties.setProviderCredentialReference("SHOULD_NOT_BE_RESOLVED");
+        Events events = new Events();
+
+        gateway.start(spec("exec-local-login", Collections.emptyList()), events);
+        events.awaitTerminal();
+
+        assertEquals(RuntimeExecutionSignalType.SUCCEEDED, events.terminal().getSignal().getType());
+        List<String> actualArguments = Files.readAllLines(arguments, StandardCharsets.UTF_8);
+        assertFalse(actualArguments.contains("--ignore-user-config"));
+        assertFalse(actualArguments.contains("--output-schema"));
+        assertTrue(actualArguments.contains("--output-last-message"));
+        List<String> actualEnvironment = Files.readAllLines(environment, StandardCharsets.UTF_8);
+        assertEquals(System.getenv("HOME"), actualEnvironment.get(0));
+        assertEquals(environmentValue("CODEX_HOME"), actualEnvironment.get(1));
+        assertEquals(environmentValue("XDG_CONFIG_HOME"), actualEnvironment.get(2));
+        assertEquals("", actualEnvironment.get(3));
         assertRuntimeRootEmpty();
     }
 
@@ -147,6 +183,22 @@ class CodexHarnessRuntimeGatewayTest {
         String evidence = evidenceText("exec-provider-credential");
         assertFalse(evidence.contains(PROVIDER_SECRET));
         assertTrue(evidence.contains("[REDACTED]"));
+    }
+
+    @Test
+    void isolatedKeyShouldFailBeforeLaunchWhenCredentialReferenceIsMissing() throws Exception {
+        Path launchMarker = tempDir.resolve("isolated-launch-marker.txt");
+        Path stub = script("isolated-missing-reference.sh", "#!/bin/sh\n"
+                + "printf 'launched' > '" + launchMarker + "'\n"
+                + "exit 0\n");
+        gateway = gateway(stub, 5L);
+        gatewayProperties.setProviderCredentialReference(" ");
+
+        IllegalStateException error = assertThrows(IllegalStateException.class,
+                () -> gateway.preflight(AgentRuntime.CODEX, tempDir.toString()));
+
+        assertTrue(error.getMessage().contains("credential reference"));
+        assertFalse(Files.exists(launchMarker));
     }
 
     @Test
@@ -182,6 +234,42 @@ class CodexHarnessRuntimeGatewayTest {
 
         assertEquals(RuntimeExecutionSignalType.FAILED, events.terminal().getSignal().getType());
         assertTrue(events.terminal().getSummary().contains("artifact bundle"));
+    }
+
+    @Test
+    void localLoginShouldRejectAdditionalBundleAndArtifactFields() throws Exception {
+        String valid = analysisArtifactBundle();
+        String rootExtra = valid.substring(0, valid.length() - 1)
+                + ",\"unexpected\":true}";
+        Path rootExtraStub = script("root-extra-bundle.sh", "#!/bin/sh\n"
+                + "cat >/dev/null\n"
+                + "printf '%s\\n' '{\"type\":\"turn.completed\"}'\n", rootExtra);
+        gateway = gateway(rootExtraStub, 5L);
+        gatewayProperties.setAuthMode(AuthMode.LOCAL_LOGIN);
+        Events rootEvents = new Events();
+
+        gateway.start(spec("exec-root-extra", Collections.emptyList()), rootEvents);
+        rootEvents.awaitTerminal();
+
+        assertEquals(RuntimeExecutionSignalType.FAILED,
+                rootEvents.terminal().getSignal().getType());
+        gateway.close();
+
+        String artifactExtra = valid.replaceFirst(
+                "\\\"content\\\":\\\"\\{\\}\\\"\\}",
+                "\\\"content\\\":\\\"{}\\\",\\\"unexpected\\\":true}");
+        Path artifactExtraStub = script("artifact-extra-bundle.sh", "#!/bin/sh\n"
+                + "cat >/dev/null\n"
+                + "printf '%s\\n' '{\"type\":\"turn.completed\"}'\n", artifactExtra);
+        gateway = gateway(artifactExtraStub, 5L);
+        gatewayProperties.setAuthMode(AuthMode.LOCAL_LOGIN);
+        Events artifactEvents = new Events();
+
+        gateway.start(spec("exec-artifact-extra", Collections.emptyList()), artifactEvents);
+        artifactEvents.awaitTerminal();
+
+        assertEquals(RuntimeExecutionSignalType.FAILED,
+                artifactEvents.terminal().getSignal().getType());
     }
 
     @Test
@@ -511,6 +599,8 @@ class CodexHarnessRuntimeGatewayTest {
         runtime.setMaxRuntimeSeconds(maxRuntimeSeconds);
         runtime.setIdleTimeoutSeconds(idleTimeoutSeconds);
         runtime.setMaxOutputBytes(maxOutputBytes);
+        runtime.setAuthMode(AuthMode.ISOLATED_KEY);
+        runtime.setProviderCredentialReference("CODEX_PROVIDER_CREDENTIAL");
         gatewayProperties = runtime;
         HarnessSecurityProperties security = new HarnessSecurityProperties();
         security.setInheritedEnvironmentVariables(Collections.singleton("PATH"));
@@ -563,6 +653,10 @@ class CodexHarnessRuntimeGatewayTest {
     }
 
     private Path script(String name, String content) throws Exception {
+        return script(name, content, analysisArtifactBundle());
+    }
+
+    private Path script(String name, String content, String artifactBundle) throws Exception {
         String shebang = "#!/bin/sh\n";
         if (!content.startsWith(shebang)) {
             throw new IllegalArgumentException("runtime stub must start with a shell shebang");
@@ -571,7 +665,19 @@ class CodexHarnessRuntimeGatewayTest {
                 + "  printf '%s\\n' 'codex-cli 0.145.0'\n"
                 + "  exit 0\n"
                 + "fi\n";
-        String artifactBundle = "{\"schemaVersion\":\"harness-artifact-bundle@1\","
+        String outputHandler = "previous=''\n"
+                + "for argument in \"$@\"; do\n"
+                + "  if [ \"$previous\" = \"--output-last-message\" ]; then\n"
+                + "    printf '%s\\n' '" + artifactBundle + "' > \"$argument\"\n"
+                + "  fi\n"
+                + "  previous=\"$argument\"\n"
+                + "done\n";
+        return rawScript(name, shebang + versionHandler + outputHandler
+                + content.substring(shebang.length()));
+    }
+
+    private String analysisArtifactBundle() {
+        return "{\"schemaVersion\":\"harness-artifact-bundle@1\","
                 + "\"stage\":\"ANALYSIS\",\"artifacts\":["
                 + "{\"artifactId\":\"requirements\",\"artifactType\":\"REQUIREMENT\","
                 + "\"contentType\":\"application/json\",\"classification\":\"INTERNAL\","
@@ -585,15 +691,6 @@ class CodexHarnessRuntimeGatewayTest {
                 + "{\"artifactId\":\"questions\",\"artifactType\":\"OPEN_QUESTIONS\","
                 + "\"contentType\":\"application/json\",\"classification\":\"INTERNAL\","
                 + "\"content\":\"{}\"}]}";
-        String outputHandler = "previous=''\n"
-                + "for argument in \"$@\"; do\n"
-                + "  if [ \"$previous\" = \"--output-last-message\" ]; then\n"
-                + "    printf '%s\\n' '" + artifactBundle + "' > \"$argument\"\n"
-                + "  fi\n"
-                + "  previous=\"$argument\"\n"
-                + "done\n";
-        return rawScript(name, shebang + versionHandler + outputHandler
-                + content.substring(shebang.length()));
     }
 
     private Path rawScript(String name, String content) throws Exception {
@@ -605,6 +702,11 @@ class CodexHarnessRuntimeGatewayTest {
 
     private HarnessRuntimeProperties gatewayProperties() {
         return gatewayProperties;
+    }
+
+    private String environmentValue(String name) {
+        String value = System.getenv(name);
+        return value == null ? "" : value;
     }
 
     private void assertOverride(List<String> arguments, String expected) {

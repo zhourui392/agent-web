@@ -155,7 +155,9 @@ agent:
       max-output-bytes: ${AGENT_HARNESS_DEPLOYMENT_MAX_OUTPUT_BYTES:1048576}
     runtime:
       codex-command: ${AGENT_HARNESS_CODEX_COMMAND:${CODEX_CMD:codex}}
-      # 隔离 Runtime 不复用用户 CODEX_HOME。仅在显式配置逻辑引用时，启动期解析并注入单次 Codex 进程。
+      # local-login 使用服务账户的本机 Codex CLI 登录态；isolated-key 使用临时 Home 和显式凭据引用。
+      auth-mode: ${AGENT_HARNESS_RUNTIME_AUTH_MODE:local-login}
+      # 仅 isolated-key 使用：启动期解析逻辑引用并注入单次 Codex 进程；local-login 不解析该配置。
       provider-credential-reference: ${AGENT_HARNESS_CODEX_CREDENTIAL_REFERENCE:}
       temp-root: ${AGENT_HARNESS_RUNTIME_TEMP_ROOT:data/harness/runtime}
       sandbox-mode: read-only

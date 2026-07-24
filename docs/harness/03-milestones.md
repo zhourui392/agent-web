@@ -542,9 +542,9 @@ CLI/MCP Spike
 M4 固定四阶段、`WAITING_INPUT`、Artifact 追踪、Git/TDD 证据、确定性 Gate、独立 local
 部署 Approval、恢复对账、最小页面和受控样例已经通过，下一步关闭真实退出项：
 
-1. 执行默认 `local-login` 的 `scripts/harness-m4/verify-online-provider.sh`，使用当前用户 Codex 登录态验证在线 Prompt/四阶段 Skill；真实 Codex 只读 MCP 与取消离线合同已通过；
-2. 正式启用隔离 Harness Runtime 前，由部署系统提供受控 Provider 凭据并把 `AGENT_HARNESS_CODEX_CREDENTIAL_REFERENCE` 设置为承载该凭据的环境变量名；Runtime 不读取或改写用户级认证目录，可用脚本的 `isolated-key` 模式复核；
-3. 使用仓库内无 Secret 的 `local-readonly-fixture` 证明 ANALYSIS 可调用、禁止阶段不挂载；
-4. 选择一个真实且风险可控的需求，完成四阶段、独立 local Approval、部署、业务 AC 和最终报告；
-5. 对照 MVP DoD 和 M4 Exit 补齐直接证据后再关闭 M4；期间保持
+1. 以正式 Runtime 默认 `local-login` 打开 Harness；在线 Prompt/四阶段 Skill、真实 Codex 只读 MCP 与取消合同已经通过；
+2. 使用仓库内无 Secret 的 `local-readonly-fixture` 证明 ANALYSIS 可调用、禁止阶段不挂载；
+3. 选择一个真实且风险可控的需求，完成四阶段、独立 local Approval、部署、业务 AC 和最终报告；
+4. 进入生产多用户试点前，由部署系统提供受控 Provider 凭据并切换 `AGENT_HARNESS_RUNTIME_AUTH_MODE=isolated-key`，复核临时 Home、显式凭据引用和 Output Schema 路径；
+5. 对照 MVP DoD 和 M4 Exit 补齐直接证据后再关闭 M4；配置默认值仍保持
    `agent.harness.enabled=false`，不开放 test/production 部署。

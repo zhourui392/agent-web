@@ -88,6 +88,9 @@ class HarnessM3FlowTest {
                 () -> ROOT.resolve("artifacts").toAbsolutePath().toString());
         registry.add("agent.harness.mcp-server-root", () -> MCP_ROOT.toString());
         registry.add("agent.harness.runtime.codex-command", () -> CODEX_STUB.toString());
+        registry.add("agent.harness.runtime.auth-mode", () -> "isolated-key");
+        registry.add("agent.harness.runtime.provider-credential-reference",
+                () -> "CODEX_PROVIDER_CREDENTIAL");
         registry.add("agent.harness.runtime.temp-root",
                 () -> ROOT.resolve("runtime").toAbsolutePath().toString());
         registry.add("agent.harness.runtime.idle-timeout-seconds", () -> "5");
@@ -190,6 +193,8 @@ class HarnessM3FlowTest {
         when(workspacePathPolicy.requireExistingDirectory(anyString()))
                 .thenReturn(WORKSPACE.toString());
         when(workspaceBaselineGateway.capture(anyString())).thenReturn(workspaceBaseline());
+        when(secretResolver.resolve("CODEX_PROVIDER_CREDENTIAL"))
+                .thenReturn("provider-secret-never-persist");
         when(secretResolver.resolve("READER_TOKEN")).thenReturn(FAKE_SECRET);
     }
 

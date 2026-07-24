@@ -9,6 +9,7 @@ import com.example.agentweb.app.harness.port.RuntimePreflightReport;
 import com.example.agentweb.app.harness.port.RuntimeEvidenceStore;
 import com.example.agentweb.app.harness.port.RuntimePreflightGateway;
 import com.example.agentweb.config.harness.HarnessRuntimeProperties;
+import com.example.agentweb.config.harness.HarnessRuntimeProperties.AuthMode;
 import com.example.agentweb.config.harness.HarnessSecurityProperties;
 import com.example.agentweb.domain.harness.AgentRuntime;
 import com.example.agentweb.domain.harness.ArtifactClassification;
@@ -49,6 +50,7 @@ import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -65,7 +67,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Harness 专用 Codex Runtime Adapter：隔离配置、最小环境、JSONL、终止和幂等清理。
+ * Harness 专用 Codex Runtime Adapter：受控本地登录/隔离凭据、最小环境、JSONL、终止和幂等清理。
  *
  * @author zhourui(V33215020)
  * @since 2026-07-23
@@ -139,9 +141,12 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
         try {
             Files.createDirectories(executionRoot);
             secureDirectory(executionRoot);
-            Path outputSchema = executionRoot.resolve("artifact-bundle-schema.json");
+            Path outputSchema = null;
             Path outputLastMessage = executionRoot.resolve("artifact-bundle.json");
-            writeArtifactBundleSchema(outputSchema, spec);
+            if (authMode() == AuthMode.ISOLATED_KEY) {
+                outputSchema = executionRoot.resolve("artifact-bundle-schema.json");
+                writeArtifactBundleSchema(outputSchema, spec);
+            }
             Files.write(outputLastMessage, new byte[0]);
             secureFile(outputLastMessage);
             List<String> secrets = new ArrayList<String>();
@@ -175,7 +180,7 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
                 destroyProcessTree(active.getProcess());
             }
             boolean cleaned = cleanup(executionRoot);
-            throw new AgentRuntimeStartException("could not start isolated Codex runtime",
+            throw new AgentRuntimeStartException("could not start Codex runtime",
                     cleaned, ex);
         }
     }
@@ -330,9 +335,15 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
                                  Path outputSchema, Path outputLastMessage) {
         List<String> command = new ArrayList<String>();
         command.add(runtimeProperties.getCodexCommand());
-        Collections.addAll(command, "--ask-for-approval", "never", "exec",
-                "--ignore-user-config", "--ignore-rules", "--ephemeral", "--json",
-                "--output-schema", outputSchema.toString(),
+        Collections.addAll(command, "--ask-for-approval", "never", "exec");
+        if (authMode() == AuthMode.ISOLATED_KEY) {
+            command.add("--ignore-user-config");
+        }
+        Collections.addAll(command, "--ignore-rules", "--ephemeral", "--json");
+        if (authMode() == AuthMode.ISOLATED_KEY) {
+            Collections.addAll(command, "--output-schema", outputSchema.toString());
+        }
+        Collections.addAll(command,
                 "--output-last-message", outputLastMessage.toString(),
                 "--sandbox", spec.getEnforcementProfile().getSandboxMode(),
                 "-C", spec.getWorkingDir());
@@ -384,7 +395,8 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
             throw new IllegalStateException("runtime artifact bundle file is invalid");
         }
         JsonNode root = MAPPER.readTree(Files.readAllBytes(path));
-        if (root == null || !root.isObject() || !root.path("artifacts").isArray()) {
+        requireExactFields(root, "bundle", "schemaVersion", "stage", "artifacts");
+        if (!root.path("artifacts").isArray()) {
             throw new IllegalStateException("runtime artifact bundle JSON is invalid");
         }
         String schemaVersion = requiredText(root, "schemaVersion");
@@ -393,6 +405,8 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
         Iterator<JsonNode> values = root.path("artifacts").elements();
         while (values.hasNext()) {
             JsonNode item = values.next();
+            requireExactFields(item, "artifact", "artifactId", "artifactType",
+                    "contentType", "classification", "content");
             artifacts.add(new RuntimeProducedArtifact(requiredText(item, "artifactId"),
                     ArtifactType.valueOf(requiredText(item, "artifactType")),
                     requiredText(item, "contentType"),
@@ -404,6 +418,21 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
                 artifacts, active.getSpec().getRequiredOutputArtifacts());
         bundle.requireStage(active.getSpec().getStage());
         return bundle;
+    }
+
+    private void requireExactFields(JsonNode node, String name, String... fields) {
+        if (node == null || !node.isObject()) {
+            throw new IllegalStateException("runtime artifact " + name + " must be an object");
+        }
+        Set<String> expected = new java.util.HashSet<String>(Arrays.asList(fields));
+        Set<String> actual = new java.util.HashSet<String>();
+        Iterator<String> names = node.fieldNames();
+        while (names.hasNext()) {
+            actual.add(names.next());
+        }
+        if (!actual.equals(expected)) {
+            throw new IllegalStateException("runtime artifact " + name + " fields are invalid");
+        }
     }
 
     private String requiredText(JsonNode node, String field) {
@@ -478,7 +507,9 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
                                   List<SelectedMcpServer> servers, List<String> resolvedSecrets) {
         applyBaseEnvironment(processBuilder, executionRoot);
         Map<String, String> environment = processBuilder.environment();
-        applyProviderCredential(environment, resolvedSecrets);
+        if (authMode() == AuthMode.ISOLATED_KEY) {
+            applyProviderCredential(environment, resolvedSecrets);
+        }
         for (SelectedMcpServer server : servers) {
             for (McpSecretReference reference : server.getSecretReferences()) {
                 requireEnvironmentVariable(reference.getEnvironmentVariable());
@@ -520,10 +551,30 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
                 environment.put(name, value);
             }
         }
+        if (authMode() == AuthMode.LOCAL_LOGIN) {
+            inheritLocalConfiguration(environment, inherited, "HOME");
+            inheritLocalConfiguration(environment, inherited, "CODEX_HOME");
+            inheritLocalConfiguration(environment, inherited, "XDG_CONFIG_HOME");
+            if (!environment.containsKey("HOME")) {
+                String userHome = System.getProperty("user.home");
+                if (userHome != null && !userHome.trim().isEmpty()) {
+                    environment.put("HOME", userHome);
+                }
+            }
+            return;
+        }
         String isolatedHome = isolatedRoot.toAbsolutePath().toString();
         environment.put("HOME", isolatedHome);
         environment.put("CODEX_HOME", isolatedHome);
         environment.put("XDG_CONFIG_HOME", isolatedHome);
+    }
+
+    private void inheritLocalConfiguration(Map<String, String> environment,
+                                           Map<String, String> inherited, String name) {
+        String value = inherited.get(name);
+        if (value != null && !value.trim().isEmpty()) {
+            environment.put(name, value);
+        }
     }
 
     private void writePrompt(Process process, String prompt) throws IOException {
@@ -572,6 +623,7 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
         if (runtime != AgentRuntime.CODEX) {
             throw new IllegalStateException("Harness M3 only supports the Codex runtime");
         }
+        requireAuthenticationConfiguration();
         Path root = runtimeRoot();
         try {
             Files.createDirectories(root);
@@ -592,6 +644,26 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
                 workspace.getInventory().isProjectConfigAbsent(), true, true);
         return new PreflightInspection(new RuntimePreflightReport(
                 profile, workspace.getInventory()), workspace);
+    }
+
+    private void requireAuthenticationConfiguration() {
+        if (authMode() != AuthMode.ISOLATED_KEY) {
+            return;
+        }
+        String reference = runtimeProperties.getProviderCredentialReference();
+        if (reference == null || reference.trim().isEmpty()) {
+            throw new IllegalStateException(
+                    "isolated Codex provider credential reference is required");
+        }
+        requireEnvironmentVariable(reference.trim());
+    }
+
+    private AuthMode authMode() {
+        AuthMode configured = runtimeProperties.getAuthMode();
+        if (configured == null) {
+            throw new IllegalStateException("Codex runtime authentication mode is required");
+        }
+        return configured;
     }
 
     private String sandboxMode(HarnessStage stage) {
@@ -884,7 +956,7 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
 
     private void requireEnvironmentVariable(String value) {
         if (value == null || !value.matches(SAFE_ENVIRONMENT_VARIABLE_PATTERN)) {
-            throw new IllegalStateException("MCP environment variable is unsafe");
+            throw new IllegalStateException("runtime environment variable is unsafe");
         }
     }
 

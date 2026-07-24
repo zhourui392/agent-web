@@ -30,7 +30,7 @@
 
 - **管理台**（`/admin`，数据库 ADMIN 角色鉴权）— 使用概览、对话浏览、用户账号创建、工作流管理、用户建议 triage、RAG 语料维护、运行时设置（Agent 模型、默认工作空间与目录授权）
 - **工作流编排** — 定义可复用的多步 workflow（每步一个 prompt 模板），一键触发执行并按步记录结果
-- **研发交付 Harness（默认关闭）** — 独立于 Workflow 的固定四阶段控制平面；M1—M3 已完成领域内核、Prompt/Skill/MCP Snapshot 和 Codex Runtime，M4 已打通 `ANALYSIS → DESIGN → IMPLEMENTATION → DEPLOYMENT`、`WAITING_INPUT`、确定性 Gate、Artifact 修订/失效、Git/TDD 证据、独立 local 部署 Approval、重启人工对账、管理页面和最终追踪报告。受控自动化已通过；隔离 Runtime 已支持受控 Provider Credential Reference，但当前尚未提供可用凭据和真实试点需求，真实验收前不能关闭 M4，详见 [M4 实现记录](docs/harness/m4/README.md)与[自测报告](docs/harness/m4/test-report.md)
+- **研发交付 Harness（默认关闭）** — 独立于 Workflow 的固定四阶段控制平面；M1—M3 已完成领域内核、Prompt/Skill/MCP Snapshot 和 Codex Runtime，M4 已打通 `ANALYSIS → DESIGN → IMPLEMENTATION → DEPLOYMENT`、`WAITING_INPUT`、确定性 Gate、Artifact 修订/失效、Git/TDD 证据、独立 local 部署 Approval、重启人工对账、管理页面和最终追踪报告。正式 Runtime 默认使用服务账户的本机 Codex CLI 登录态，也可切换到隔离 Key；自动化和真实在线 Prompt/Skill 已通过，但真实试点需求尚未完成，真实验收前不能关闭 M4，详见 [M4 实现记录](docs/harness/m4/README.md)与[自测报告](docs/harness/m4/test-report.md)
 - **用户建议** — 登录用户从聊天界面提交产品反馈，管理员分流处理
 - **每用户 Git 身份** — 各用户配置自己的 git identity 与 SCM 凭据（密码加密存储、不回显），用于交付时归属提交与解析凭据链
 
@@ -181,7 +181,7 @@ agent:
 
 知识精炼默认关闭。开启知识精炼需经 `REFINERY_EMBED_API_KEY` 注入 embedding 鉴权，且 `agent.refinery.embedding.dimension` 须与模型维度一致（不一致启动 fail-fast）。凭证走环境变量或下述 Git 忽略配置，勿写进 `application.yml`。
 
-本机文件化的服务端敏感配置统一放在 Git 忽略的 `data/secrets.properties`，应用启动时会自动读取；外部环境变量优先级更高。普通 Codex CLI 和 Claude Code 不读取该文件中的认证配置，仍使用各自的本机默认登录态。正式 Harness Runtime 是例外：它不读取用户认证目录，只在显式配置 Provider Credential Reference 时从服务进程环境解析并注入单次隔离进程。M4 在线验收脚本默认使用当前用户的 Codex 登录态，也可显式切换为隔离 Key 模式。示例只列变量名，不要把真实值写入受 Git 跟踪的文件：
+本机文件化的服务端敏感配置统一放在 Git 忽略的 `data/secrets.properties`，应用启动时会自动读取；外部环境变量优先级更高。普通 Codex CLI 和 Claude Code 不读取该文件中的认证配置，仍使用各自的本机默认登录态。正式 Harness Runtime 默认也是 `local-login`：Adapter 不直接读取、复制或修改认证文件，而是让系统 `codex` 按服务账户的 `HOME/CODEX_HOME` 正常使用现有登录态。需要生产多用户隔离时，显式切换为 `isolated-key`，此时 Runtime 使用临时 Home，只从 Provider Credential Reference 解析并注入单次进程。M4 在线验收脚本同样支持这两种模式。示例只列变量名，不要把真实值写入受 Git 跟踪的文件：
 
 ```properties
 GIT_CRED_ENC_KEY=<32 字节密钥的 base64>
@@ -230,9 +230,10 @@ AGENT_BOOTSTRAP_ADMIN_PASSWORD=<仅首次公网启动使用的新管理员密码
 | `AGENT_HARNESS_MCP_SERVER_ROOT` | `src/main/resources/harness/mcp-servers` | 管理员可信 MCP Server Catalog 根；只允许 Snapshot 选中的 Server 进入隔离配置 |
 | `AGENT_HARNESS_DEPLOYMENT_TEMPLATE_ROOT` | `src/main/resources/harness/deployment-templates` | 管理员审核的 local 部署模板 Catalog；仓库默认不内置可执行模板 |
 | `AGENT_HARNESS_CODEX_COMMAND` | `CODEX_CMD`，未配置时为 `codex` | Harness 专用 Codex Runtime 命令；与普通聊天命令配置分离 |
+| `AGENT_HARNESS_RUNTIME_AUTH_MODE` | `local-login` | 正式 Runtime 认证模式；`local-login` 使用服务账户的本机 Codex 登录态，`isolated-key` 使用临时 Home 与显式凭据引用 |
 | `AGENT_HARNESS_ONLINE_AUTH_MODE` | `local-login` | 仅用于 M4 在线验收脚本；`local-login` 使用当前用户 Codex 登录态，`isolated-key` 使用显式凭据引用 |
-| `AGENT_HARNESS_CODEX_CREDENTIAL_REFERENCE` | _(无)_ | Harness Codex Provider 凭据的环境变量逻辑名；例如值为 `HARNESS_CODEX_PROVIDER_KEY` 时，只在单次隔离进程中将该变量的值注入 `OPENAI_API_KEY`，不读取用户 `CODEX_HOME` |
-| `AGENT_HARNESS_RUNTIME_TEMP_ROOT` | `data/harness/runtime` | Harness 单次执行隔离 `HOME/CODEX_HOME/XDG_CONFIG_HOME` 的临时根，终态后清理 |
+| `AGENT_HARNESS_CODEX_CREDENTIAL_REFERENCE` | _(无)_ | 仅 `isolated-key` 使用的环境变量逻辑名；例如值为 `HARNESS_CODEX_PROVIDER_KEY` 时，只在单次隔离进程中将该变量的值注入 `OPENAI_API_KEY` |
+| `AGENT_HARNESS_RUNTIME_TEMP_ROOT` | `data/harness/runtime` | Harness 单次执行输出/配置临时根，终态后清理；`isolated-key` 同时把它作为隔离 Home |
 | `AGENT_HARNESS_ALLOWED_MCP_SERVER_IDS` | _(无)_ | 当前环境允许挂载的 MCP Server ID 集合；空集合 fail-closed |
 | `AGENT_HARNESS_DEPLOYMENT_TIMEOUT_SECONDS` | `600` | local 部署模板每个步骤的超时上限 |
 | `AGENT_HARNESS_DEPLOYMENT_MAX_OUTPUT_BYTES` | `1048576` | local 部署模板每个步骤的输出上限 |
