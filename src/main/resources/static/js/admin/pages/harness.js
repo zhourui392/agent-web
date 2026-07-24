@@ -22,6 +22,8 @@ bootstrapAdminApp({
     const deploymentReadiness = ref(null);
     const snapshot = ref(null);
     const runtime = ref(null);
+    // 当前已加载资源的 stage#attempt 键，用于区分"阶段切换"与"同阶段轮询刷新"
+    const loadedStageKey = ref('');
     const conversationMessages = ref([]);
     const conversationDraft = ref('');
     const conversationNonce = ref('');
@@ -65,6 +67,21 @@ bootstrapAdminApp({
     const approvalForm = reactive({ reason: '' });
     const questionForm = reactive({ questionId: '', question: '', blocking: true });
     const deploymentForm = reactive({ templateId: 'local-default' });
+    const auditExpanded = ref(false);
+    const openCapabilityPanel = ref(false);
+    // Run 列表筛选 / 搜索
+    const runFilter = ref('all'); // all / running / waiting / done / failed
+    const runFilterOptions = [
+      { value: 'all', label: '全部' },
+      { value: 'running', label: '进行中' },
+      { value: 'waiting', label: '待审批' },
+      { value: 'done', label: '已完成' },
+      { value: 'failed', label: '失败' }
+    ];
+    const runSearch = ref('');
+    const runSearchOpen = ref(false);
+    // Artifact 消息卡片折叠态（messageId -> 是否折叠）
+    const artifactCollapsed = reactive({});
 
     window.addEventListener('resize', () => { isMobile.value = window.innerWidth <= 768; });
 
@@ -119,6 +136,36 @@ bootstrapAdminApp({
       item => !item.answeredAt));
     const stageConversationMessages = computed(() => conversationMessages.value.filter(
       item => item.stage === selectedStageName.value));
+    // Run 列表：按 updatedAt 倒序 + 状态筛选 + 关键字搜索
+    const filteredRuns = computed(() => {
+      const keyword = runSearch.value.trim().toLowerCase();
+      const filtered = runSummaries.value.filter(run => {
+        if (keyword) {
+          const hay = ((run.title || '') + ' ' + (run.runId || '')).toLowerCase();
+          if (!hay.includes(keyword)) {
+            return false;
+          }
+        }
+        if (runFilter.value === 'all') {
+          return true;
+        }
+        return runBucket(run) === runFilter.value;
+      });
+      return filtered.slice().sort((left, right) => {
+        const ta = left.updatedAt ? new Date(left.updatedAt).getTime() : 0;
+        const tb = right.updatedAt ? new Date(right.updatedAt).getTime() : 0;
+        return tb - ta;
+      });
+    });
+    const workingDirSuggestions = computed(() => {
+      const set = new Set();
+      runSummaries.value.forEach(run => {
+        if (run && run.workingDir) {
+          set.add(run.workingDir);
+        }
+      });
+      return Array.from(set);
+    });
     const runtimeBusy = computed(() => HarnessAdminUtils.runtimeBusy(runtime.value));
     const canSendConversation = computed(() => HarnessAdminUtils.canSendConversation(
       selectedStage.value, runtime.value));
@@ -136,6 +183,17 @@ bootstrapAdminApp({
         return '当前 Run 或阶段已不可修改';
       }
       return '系统自动使用阶段默认 Skill 与本机 Codex CLI';
+    });
+    // 执行中状态文案：按阶段给出更具体的提示，替代单一固定文案
+    const runtimeHint = computed(() => {
+      const stage = selectedStageName.value;
+      const hints = {
+        ANALYSIS: '正在读取上下文并分析需求、产出可验收标准…',
+        DESIGN: '正在设计方案、追踪矩阵与变更点…',
+        IMPLEMENTATION: '正在按 TDD 编写代码与测试，留下 RED/GREEN 证据…',
+        DEPLOYMENT: '正在执行本机 local 部署并采集证据…'
+      };
+      return hints[stage] || '正在读取上下文并执行本阶段任务，结果会自动回到这里…';
     });
     const finalReport = computed(() => latestArtifact('FINAL_REPORT'));
     const canStartStage = computed(() => selectedStage.value && selectedStage.value.status === 'PENDING');
@@ -266,6 +324,7 @@ bootstrapAdminApp({
       deploymentReadiness.value = null;
       snapshot.value = null;
       runtime.value = null;
+      loadedStageKey.value = '';
       conversationMessages.value = [];
       conversationDraft.value = '';
       originalRequirement.value = '';
@@ -281,6 +340,8 @@ bootstrapAdminApp({
           api(base + '/deployments')
         ]);
         selectedRun.value = values[0];
+        // 切换 Run 时重置已加载键，强制 loadStageResources 重新干净加载新 Run 的资源
+        loadedStageKey.value = '';
         events.value = Array.isArray(values[1]) ? values[1] : [];
         deployments.value = Array.isArray(values[2]) ? values[2] : [];
         if (!selectedRun.value.stages.some(item => item.stage === selectedStageName.value)) {
@@ -356,15 +417,26 @@ bootstrapAdminApp({
     }
 
     async function loadStageResources() {
-      snapshot.value = null;
-      runtime.value = null;
-      deploymentReadiness.value = null;
       const run = selectedRun.value;
       const stage = selectedStage.value;
       const attempt = HarnessAdminUtils.currentAttempt(stage);
       if (!run || !stage || !attempt) {
+        loadedStageKey.value = '';
+        snapshot.value = null;
+        runtime.value = null;
+        deploymentReadiness.value = null;
         return;
       }
+      const stageKey = stage.stage + '#' + attempt.number;
+      // 仅在阶段/Attempt 真正切换时清空旧值。轮询每 2s 调一次本函数，
+      // 若每次都先清 runtime，会让 runtimeBusy 短暂变 false，导致工作指示器、
+      // 输入框可用态、conversationHint 每 2s 闪烁。
+      if (loadedStageKey.value !== stageKey) {
+        snapshot.value = null;
+        runtime.value = null;
+        deploymentReadiness.value = null;
+      }
+      loadedStageKey.value = stageKey;
       const base = stageUrl(stage.stage) + '/attempts/' + attempt.number;
       const selectedStageAtStart = stage.stage;
       const values = await Promise.all([
@@ -422,6 +494,7 @@ bootstrapAdminApp({
         createOpen.value = false;
         ElementPlus.ElMessage.success('Harness Run 已创建');
         await loadRuns(result.runId);
+        scrollSelectedRunIntoView();
       } catch (error) {
         showError('创建 Run 失败', error);
       } finally {
@@ -468,6 +541,11 @@ bootstrapAdminApp({
     }
 
     async function resolveSnapshot() {
+      // 兼容旧入口（已迁移到对话框 confirmResolveSnapshot）
+      await confirmResolveSnapshot();
+    }
+
+    async function confirmResolveSnapshot() {
       if (!capabilityForm.currentInput.trim()) {
         ElementPlus.ElMessage.warning('当前阶段输入不能为空');
         return;
@@ -486,6 +564,7 @@ bootstrapAdminApp({
           grantedMcpServerIds: csv(capabilityForm.grantedMcpServerIds),
           currentInput: capabilityForm.currentInput
         });
+        openCapabilityPanel.value = false;
         ElementPlus.ElMessage.success('Capability Snapshot 已固化');
       } catch (error) {
         showError('固化 Snapshot 失败', error);
@@ -707,8 +786,103 @@ bootstrapAdminApp({
       return HarnessAdminUtils.stageStatusMeta(status);
     }
 
+    // Markdown 渲染（复用主站 formatters.js：marked + DOMPurify 净化）
+    function renderMarkdown(text) {
+      return window.AgentFormatters ? window.AgentFormatters.renderMarkdown(text) : String(text || '');
+    }
+
+    // Artifact 消息的类型文案与是否渲染为卡片
+    const artifactCardTypes = ['REQUIREMENT', 'DESIGN_DOC', 'IMPLEMENTATION_SUMMARY',
+      'FINAL_REPORT', 'ORIGINAL_REQUIREMENT'];
+    const artifactTypeLabels = {
+      REQUIREMENT: '需求基线',
+      DESIGN_DOC: '方案设计',
+      IMPLEMENTATION_SUMMARY: '实现总结',
+      FINAL_REPORT: '最终报告',
+      ORIGINAL_REQUIREMENT: '原始需求'
+    };
+    function isArtifactMessage(message) {
+      return Boolean(message && artifactCardTypes.includes(message.artifactType));
+    }
+    function artifactTypeLabel(message) {
+      return artifactTypeLabels[message && message.artifactType] || (message && message.artifactType) || '产物';
+    }
+    // 消息只带 artifactType 标签；从当前 Run 的 artifacts 里按 stage+attempt+type 反查完整产物（hash/version/下载）
+    function messageArtifact(message) {
+      if (!selectedRun.value || !message || !message.artifactType) {
+        return null;
+      }
+      return (selectedRun.value.artifacts || [])
+        .filter(a => a.stage === message.stage
+          && Number(a.attempt) === Number(message.attemptNumber)
+          && a.artifactType === message.artifactType)
+        .sort((left, right) => right.version - left.version)[0] || null;
+    }
+
     function stageLabel(stage) {
       return stageLabels[stage] || stage;
+    }
+
+    // Stepper 状态图标（用 SVG/Unicode 字符，避免额外依赖）
+    const stageStatusIcons = {
+      PASSED: '<svg viewBox="0 0 24 24" width="16" height="16"><polyline points="5,12 10,17 19,7" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+      RUNNING: '<span class="harness-stepper-dot"></span>',
+      WAITING_APPROVAL: '<svg viewBox="0 0 24 24" width="16" height="16"><path d="M12 2 L22 20 L2 20 Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><line x1="12" y1="10" x2="12" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="17" r="1" fill="currentColor"/></svg>',
+      WAITING_INPUT: '<svg viewBox="0 0 24 24" width="16" height="16"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><text x="12" y="16" text-anchor="middle" font-size="12" font-weight="700" fill="currentColor">?</text></svg>',
+      FAILED: '<svg viewBox="0 0 24 24" width="16" height="16"><line x1="6" y1="6" x2="18" y2="18" stroke="currentColor" stroke-width="3" stroke-linecap="round"/><line x1="18" y1="6" x2="6" y2="18" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>',
+      INVALIDATED: '<svg viewBox="0 0 24 24" width="16" height="16"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="4 3"/><line x1="7" y1="7" x2="17" y2="17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+      PENDING: '',
+      CANCELLED: '<svg viewBox="0 0 24 24" width="14" height="14"><rect x="5" y="5" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"/></svg>',
+      CANCELLING: '<span class="harness-stepper-dot"></span>'
+    };
+
+    function stageStatusIcon(status) {
+      return stageStatusIcons[status] || '';
+    }
+
+    function stageAttemptNumber(stage) {
+      if (!stage || !Array.isArray(stage.attempts) || stage.attempts.length === 0) {
+        return null;
+      }
+      return stage.attempts[stage.attempts.length - 1].number;
+    }
+
+    // Stepper 连接线状态：当前阶段及之前为实线激活
+    function isConnectorActive(index) {
+      const stages = selectedRun.value ? selectedRun.value.stages : [];
+      if (!stages.length) return false;
+      const currentIdx = stages.findIndex(s => s.stage === selectedStageName.value);
+      // 索引小于当前选中阶段的连接线为激活
+      return index < currentIdx;
+    }
+
+    // Stepper 连接线失效：下游阶段 INVALIDATED 时连接线变虚线
+    function isConnectorInvalidated(index) {
+      const stages = selectedRun.value ? selectedRun.value.stages : [];
+      if (!stages.length || index + 1 >= stages.length) return false;
+      const nextStage = stages[index + 1];
+      return nextStage.status === 'INVALIDATED';
+    }
+
+    // 阶段产物摘要：从该阶段最新已批准 Artifact 中提取关键指标
+    function stageSummary(stage) {
+      if (!stage || !selectedRun.value) return '';
+      const artifacts = (selectedRun.value.artifacts || [])
+        .filter(a => a.stage === stage.stage && a.classification === 'APPROVED');
+      if (artifacts.length === 0) return '';
+      // 优先取主产物做摘要
+      const summaryArtifact = artifacts.find(a =>
+        a.artifactType === 'REQUIREMENT'
+        || a.artifactType === 'DESIGN_DOC'
+        || a.artifactType === 'IMPLEMENTATION_SUMMARY');
+      if (!summaryArtifact) return '';
+      // 从 contentSize 或 version 推断信息密度（MVP 阶段先用版本号+类型提示）
+      const typeLabel = {
+        REQUIREMENT: '需求基线',
+        DESIGN_DOC: '方案基线',
+        IMPLEMENTATION_SUMMARY: '实现基线'
+      }[summaryArtifact.artifactType] || summaryArtifact.artifactType;
+      return typeLabel + ' v' + summaryArtifact.version;
     }
 
     function fmtTime(value) {
@@ -718,6 +892,140 @@ bootstrapAdminApp({
       const date = typeof value === 'number' ? new Date(value) : new Date(String(value));
       return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString('zh-CN', { hour12: false });
     }
+
+    // 相对时间（"2 小时前"），hover 由 title 显示绝对时间
+    function fmtRelative(value) {
+      if (!value) {
+        return '-';
+      }
+      const date = typeof value === 'number' ? new Date(value) : new Date(String(value));
+      if (Number.isNaN(date.getTime())) {
+        return String(value);
+      }
+      const diff = Date.now() - date.getTime();
+      if (diff < 0) {
+        return fmtTime(value);
+      }
+      const sec = Math.floor(diff / 1000);
+      if (sec < 60) {
+        return '刚刚';
+      }
+      const min = Math.floor(sec / 60);
+      if (min < 60) {
+        return min + ' 分钟前';
+      }
+      const hr = Math.floor(min / 60);
+      if (hr < 24) {
+        return hr + ' 小时前';
+      }
+      const day = Math.floor(hr / 24);
+      if (day < 30) {
+        return day + ' 天前';
+      }
+      return fmtTime(value);
+    }
+
+    // Run 归类到筛选桶（防御式：summary 无 stages 时退回 run.status）
+    function runBucket(run) {
+      const status = String((run && run.status) || '').toUpperCase();
+      if (status === 'COMPLETED') {
+        return 'done';
+      }
+      if (status === 'FAILED' || status === 'CANCELLED') {
+        return 'failed';
+      }
+      const stages = run && Array.isArray(run.stages) ? run.stages : [];
+      if (stages.some(s => ['WAITING_APPROVAL', 'WAITING_INPUT'].includes(s.status))) {
+        return 'waiting';
+      }
+      if (stages.some(s => ['RUNNING', 'CANCELLING'].includes(s.status)) || status === 'RUNNING') {
+        return 'running';
+      }
+      return 'all';
+    }
+
+    // Run 列表条目左侧的"当前阶段"小圆点颜色
+    function runStageDotClass(run) {
+      const stages = run && Array.isArray(run.stages) ? run.stages : [];
+      const active = stages.find(s => s.status !== 'PASSED' && s.status !== 'CANCELLED');
+      const status = active ? active.status : ((run && run.status) || '');
+      if (['WAITING_APPROVAL', 'WAITING_INPUT'].includes(status)) {
+        return 'is-waiting';
+      }
+      if (['RUNNING', 'CANCELLING'].includes(status)) {
+        return 'is-running';
+      }
+      if (status === 'FAILED') {
+        return 'is-failed';
+      }
+      if (status === 'INVALIDATED') {
+        return 'is-invalidated';
+      }
+      if (status === 'PASSED' || (run && run.status) === 'COMPLETED') {
+        return 'is-passed';
+      }
+      return '';
+    }
+
+    // 新建 Run 原始需求结构化模板
+    const requirementTemplate = '## 背景\n\n<描述问题背景与动机>\n\n## 目标\n\n<本 Run 要达成的可观测目标>\n\n## 验收标准\n\n- AC-1: <可验证的验收条件>\n- AC-2: <可验证的验收条件>\n\n## 范围\n\n- 包含: <本 Run 范围内的事项>\n- 不包含: <明确排除的事项>';
+    function insertRequirementTemplate() {
+      createForm.originalRequirement = requirementTemplate;
+    }
+
+    // 工作目录自动联想（从历史 Run 的工作目录中过滤）
+    function queryWorkingDir(queryString, callback) {
+      const suggestions = workingDirSuggestions.value;
+      const keyword = (queryString || '').toLowerCase();
+      const results = keyword
+        ? suggestions.filter(value => value.toLowerCase().includes(keyword))
+        : suggestions;
+      callback(results.map(value => ({ value })));
+    }
+
+    // 新建 Run 后自动滚动到左侧选中项
+    function scrollSelectedRunIntoView() {
+      nextTick(() => {
+        const el = document.querySelector('.harness-run-item.selected');
+        if (el && el.scrollIntoView) {
+          el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+      });
+    }
+
+    // 对话输入框：Ctrl/Cmd+Enter 发送，普通 Enter 换行
+    function onComposerEnter(event) {
+      if (event.ctrlKey || event.metaKey) {
+        event.preventDefault();
+        sendConversation();
+      }
+    }
+
+    // 全局数字键 1/2/3/4 切换阶段（焦点在输入框时不响应）
+    function onGlobalKeydown(event) {
+      if (!selectedRun.value) {
+        return;
+      }
+      const target = event.target;
+      const tag = target && target.tagName;
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag) || (target && target.isContentEditable)) {
+        return;
+      }
+      if (event.ctrlKey || event.metaKey || event.altKey) {
+        return;
+      }
+      const map = { '1': 'ANALYSIS', '2': 'DESIGN', '3': 'IMPLEMENTATION', '4': 'DEPLOYMENT' };
+      const stage = map[event.key];
+      if (!stage) {
+        return;
+      }
+      const stages = selectedRun.value.stages || [];
+      if (stages.some(s => s.stage === stage)) {
+        event.preventDefault();
+        selectStage(stage);
+      }
+    }
+    window.addEventListener('keydown', onGlobalKeydown);
 
     function deploymentStatusType(status) {
       return {
@@ -761,8 +1069,16 @@ bootstrapAdminApp({
         if (!selectedRun.value || selectedRun.value.runId !== runId) {
           return;
         }
-        selectedRun.value = values[0];
-        conversationMessages.value = Array.isArray(values[1]) ? values[1] : [];
+        const nextRun = values[0];
+        const prevRun = selectedRun.value;
+        // 仅在 run 实质变化（updatedAt/status）时才替换 selectedRun 与消息列表，
+        // 避免每 2s 全量替换触发 el-descriptions/el-table/v-html 重渲染造成抖动。
+        // runtime 状态由 loadStageResources 每 tick 单独刷新，不受此影响。
+        if (!prevRun || prevRun.updatedAt !== nextRun.updatedAt
+            || prevRun.status !== nextRun.status) {
+          selectedRun.value = nextRun;
+          conversationMessages.value = Array.isArray(values[1]) ? values[1] : [];
+        }
         await loadStageResources();
         scrollConversationToEnd();
       } catch (error) {
@@ -771,7 +1087,10 @@ bootstrapAdminApp({
         runtimePollInFlight = false;
       }
     }, 2000);
-    onBeforeUnmount(() => window.clearInterval(runtimePollTimer));
+    onBeforeUnmount(() => {
+      window.clearInterval(runtimePollTimer);
+      window.removeEventListener('keydown', onGlobalKeydown);
+    });
 
     return {
       stageNames,
@@ -807,7 +1126,16 @@ bootstrapAdminApp({
       approvalForm,
       questionForm,
       deploymentForm,
+      auditExpanded,
+      openCapabilityPanel,
       answerDrafts,
+      runFilter,
+      runFilterOptions,
+      runSearch,
+      runSearchOpen,
+      artifactCollapsed,
+      filteredRuns,
+      workingDirSuggestions,
       currentGates,
       gateFailures,
       stageArtifacts,
@@ -819,6 +1147,7 @@ bootstrapAdminApp({
       canSendConversation,
       canValidateConversation,
       conversationHint,
+      runtimeHint,
       finalReport,
       canStartStage,
       canRetryStage,
@@ -835,6 +1164,7 @@ bootstrapAdminApp({
       retryStage,
       cancelRun,
       resolveSnapshot,
+      confirmResolveSnapshot,
       launchRuntime,
       sendConversation,
       runGates,
@@ -851,7 +1181,21 @@ bootstrapAdminApp({
       reconcileDeployment,
       stageMeta,
       stageLabel,
+      stageStatusIcon,
+      stageAttemptNumber,
+      isConnectorActive,
+      isConnectorInvalidated,
+      stageSummary,
       fmtTime,
+      fmtRelative,
+      renderMarkdown,
+      isArtifactMessage,
+      artifactTypeLabel,
+      messageArtifact,
+      runStageDotClass,
+      insertRequirementTemplate,
+      queryWorkingDir,
+      onComposerEnter,
       deploymentStatusType,
       runtimeStatusType,
       artifactUrl,

@@ -92,7 +92,7 @@ test('Gate 失败后新 Attempt 修订，且上游重试使已通过下游失效
 
   await startAndRunStage(page, request, runId, 'ANALYSIS', '[E2E_GATE_FAIL] 生成缺少 REQ ID 的修订');
   await selectRunAndStage(page, runId, 'ANALYSIS');
-  await page.getByRole('tab', { name: 'Artifact 与 Gate' }).click();
+  await openArtifactTab(page);
   await page.getByTestId('harness-run-gates').click();
   await expect.poll(async () => stage(await getRun(request, runId), 'ANALYSIS').status)
     .toBe('FAILED');
@@ -136,7 +136,7 @@ async function createGitRepository(prefix: string): Promise<string> {
 async function createRun(page: Page, repository: string, title: string): Promise<string> {
   await page.getByTestId('harness-create-run').click();
   await page.getByTestId('harness-create-title').fill(title);
-  await page.getByTestId('harness-create-working-dir').fill(repository);
+  await formInput(page, 'Git 工作目录').fill(repository);
   await page.getByTestId('harness-create-requirement').fill(
     'REQ-1: 用 Harness 完成受控 local 交付，并生成 AC-1 的完整追踪证据。');
   await page.getByTestId('harness-submit-create').click();
@@ -163,7 +163,6 @@ async function completeAgentStage(page: Page, request: APIRequestContext, runId:
     await expect.poll(async () => stage(await getRun(request, runId), stageName).status)
       .toBe('WAITING_INPUT');
     await selectRunAndStage(page, runId, stageName);
-    await page.getByRole('tab', { name: '补充输入' }).click();
     const question = page.getByTestId('harness-question');
     await question.locator('textarea').fill('确认：仅 local，禁止 test/production。');
     await question.getByTestId('harness-answer-question').click();
@@ -178,13 +177,7 @@ async function completeAgentStage(page: Page, request: APIRequestContext, runId:
 async function completeRunningStage(page: Page, request: APIRequestContext, runId: string,
                                     stageName: string, input: string): Promise<void> {
   await selectRunAndStage(page, runId, stageName);
-  await page.getByTestId('harness-current-input').fill(input);
-  if (stageName === 'IMPLEMENTATION') {
-    await formInput(page, '可写逻辑根').fill('workspace');
-    await formInput(page, '逻辑命令白名单').fill('mvn-test');
-  }
-  await page.getByTestId('harness-resolve-snapshot').click();
-  await expect(page.getByText('Capability Snapshot 已固化')).toBeVisible();
+  await resolveCapabilitySnapshot(page, input, stageName);
   await page.getByTestId('harness-launch-runtime').click();
   const attempt = stage(await getRun(request, runId), stageName).attempts.at(-1)!.number;
   await expect.poll(async () => runtimeStatus(request, runId, stageName, attempt), {
@@ -196,7 +189,7 @@ async function completeRunningStage(page: Page, request: APIRequestContext, runI
   }, { timeout: 20_000 }).toBeGreaterThan(0);
 
   await selectRunAndStage(page, runId, stageName);
-  await page.getByRole('tab', { name: 'Artifact 与 Gate' }).click();
+  await openArtifactTab(page);
   await page.getByTestId('harness-run-gates').click();
   await expect.poll(async () => stage(await getRun(request, runId), stageName).status)
     .toBe('RUNNING');
@@ -204,7 +197,7 @@ async function completeRunningStage(page: Page, request: APIRequestContext, runI
   await expect.poll(async () => stage(await getRun(request, runId), stageName).status)
     .toBe('WAITING_APPROVAL');
   await selectRunAndStage(page, runId, stageName);
-  await page.getByRole('tab', { name: 'Artifact 与 Gate' }).click();
+  await openArtifactTab(page);
   await page.getByTestId('harness-approve').click();
   const approvalDialog = page.getByRole('dialog', { name: '批准当前 Artifact 基线' });
   await approvalDialog.locator('textarea').fill('E2E 批准当前 Hash');
@@ -218,8 +211,7 @@ async function startAndRunStage(page: Page, request: APIRequestContext, runId: s
   await page.getByTestId('harness-stage-start').click();
   await expect.poll(async () => stage(await getRun(request, runId), stageName).status).toBe('RUNNING');
   await selectRunAndStage(page, runId, stageName);
-  await page.getByTestId('harness-current-input').fill(input);
-  await page.getByTestId('harness-resolve-snapshot').click();
+  await resolveCapabilitySnapshot(page, input, stageName);
   await page.getByTestId('harness-launch-runtime').click();
   const attempt = stage(await getRun(request, runId), stageName).attempts.at(-1)!.number;
   await expect.poll(async () => runtimeStatus(request, runId, stageName, attempt), {
@@ -234,7 +226,7 @@ async function completeDeploymentStage(page: Page, request: APIRequestContext,
   await expect.poll(async () => stage(await getRun(request, runId), 'DEPLOYMENT').status)
     .toBe('RUNNING');
   await selectRunAndStage(page, runId, 'DEPLOYMENT');
-  await page.getByRole('tab', { name: '部署' }).click();
+  await openAuditTraceTab(page);
   await page.getByTestId('harness-deployment-approval').click();
   const messageBox = page.locator('.el-message-box');
   await messageBox.getByRole('textbox').fill('E2E 独立批准当前 local 输入 Hash');
@@ -246,7 +238,7 @@ async function completeDeploymentStage(page: Page, request: APIRequestContext,
   }).toBe(true);
 
   await selectRunAndStage(page, runId, 'DEPLOYMENT');
-  await page.getByRole('tab', { name: '部署' }).click();
+  await openAuditTraceTab(page);
   await page.getByTestId('harness-start-deployment').click();
   const deploymentDialog = page.getByRole('dialog', { name: '执行受控 local 部署' });
   await expect(deploymentDialog.getByTestId('harness-deployment-template')).toHaveValue('local-default');
@@ -258,13 +250,13 @@ async function completeDeploymentStage(page: Page, request: APIRequestContext,
   }, { timeout: 20_000 }).toBe('SUCCEEDED');
 
   await selectRunAndStage(page, runId, 'DEPLOYMENT');
-  await page.getByRole('tab', { name: 'Artifact 与 Gate' }).click();
+  await openArtifactTab(page);
   await page.getByTestId('harness-run-gates').click();
   await page.getByTestId('harness-request-approval').click();
   await expect.poll(async () => stage(await getRun(request, runId), 'DEPLOYMENT').status)
     .toBe('WAITING_APPROVAL');
   await selectRunAndStage(page, runId, 'DEPLOYMENT');
-  await page.getByRole('tab', { name: 'Artifact 与 Gate' }).click();
+  await openArtifactTab(page);
   await page.getByTestId('harness-approve').click();
   const approvalDialog = page.getByRole('dialog', { name: '批准当前 Artifact 基线' });
   await approvalDialog.locator('textarea').fill('E2E 确认最终交付');
@@ -277,6 +269,37 @@ async function selectRunAndStage(page: Page, runId: string, stageName: string): 
   await expect(row).toBeVisible();
   await row.click();
   await page.getByTestId(`harness-stage-${stageName.toLowerCase()}`).click();
+}
+
+// 审计面板默认折叠；访问其中的 Tab/按钮前先展开并切到目标 Tab。
+// 每次 selectRunAndStage 都会 reload，故此处可假定面板处于折叠态，单击即展开。
+async function expandAudit(page: Page): Promise<void> {
+  await page.getByTestId('harness-audit-toggle').click();
+}
+async function openCapabilityTab(page: Page): Promise<void> {
+  await expandAudit(page);
+  await page.getByRole('tab', { name: '能力快照' }).click();
+}
+async function openArtifactTab(page: Page): Promise<void> {
+  await expandAudit(page);
+  await page.getByRole('tab', { name: '产物与审批' }).click();
+}
+async function openAuditTraceTab(page: Page): Promise<void> {
+  await expandAudit(page);
+  await page.getByRole('tab', { name: '审计追踪' }).click();
+}
+
+// 固化 Capability Snapshot：展开能力快照 Tab -> 打开配置对话框 -> 填输入 -> 确认固化。
+async function resolveCapabilitySnapshot(page: Page, input: string, stageName: string): Promise<void> {
+  await openCapabilityTab(page);
+  await page.getByTestId('harness-resolve-snapshot').click();
+  await page.getByTestId('harness-current-input').fill(input);
+  if (stageName === 'IMPLEMENTATION') {
+    await formInput(page, '可写逻辑根').fill('workspace');
+    await formInput(page, '逻辑命令白名单').fill('mvn-test');
+  }
+  await page.getByTestId('harness-confirm-snapshot').click();
+  await expect(page.getByText('Capability Snapshot 已固化')).toBeVisible();
 }
 
 async function getRun(request: APIRequestContext, runId: string): Promise<HarnessRun> {
