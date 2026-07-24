@@ -5,6 +5,10 @@ import com.example.agentweb.app.harness.port.RuntimePreflightReport;
 import com.example.agentweb.domain.harness.CapabilitySelectionRequest;
 import com.example.agentweb.domain.harness.CapabilitySnapshot;
 import com.example.agentweb.domain.harness.CapabilitySnapshotRepository;
+import com.example.agentweb.domain.harness.ArtifactDescriptor;
+import com.example.agentweb.domain.harness.ArtifactStore;
+import com.example.agentweb.domain.harness.GateArtifact;
+import com.example.agentweb.domain.harness.HarnessArtifactPromptFormatter;
 import com.example.agentweb.domain.harness.HarnessPromptAssembler;
 import com.example.agentweb.domain.harness.HarnessPromptAssembly;
 import com.example.agentweb.domain.harness.HarnessPromptAssemblyRequest;
@@ -31,6 +35,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Optional;
 
 /**
@@ -52,6 +57,8 @@ public class HarnessCapabilityServiceImpl implements HarnessCapabilityService {
     private final WorkspaceSkillTrustPolicy workspaceSkillTrustPolicy;
     private final McpAuthorizationPolicy mcpAuthorizationPolicy;
     private final HarnessPromptAssembler promptAssembler;
+    private final ArtifactStore artifactStore;
+    private final HarnessArtifactPromptFormatter artifactPromptFormatter;
     private final RuntimePreflightGateway runtimePreflightGateway;
     private final HarnessCapabilitySettings settings;
     private final Clock clock;
@@ -65,6 +72,8 @@ public class HarnessCapabilityServiceImpl implements HarnessCapabilityService {
                                         WorkspaceSkillTrustPolicy workspaceSkillTrustPolicy,
                                         McpAuthorizationPolicy mcpAuthorizationPolicy,
                                         HarnessPromptAssembler promptAssembler,
+                                        ArtifactStore artifactStore,
+                                        HarnessArtifactPromptFormatter artifactPromptFormatter,
                                         RuntimePreflightGateway runtimePreflightGateway,
                                         HarnessCapabilitySettings settings, Clock clock) {
         this.runRepository = runRepository;
@@ -76,6 +85,8 @@ public class HarnessCapabilityServiceImpl implements HarnessCapabilityService {
         this.workspaceSkillTrustPolicy = workspaceSkillTrustPolicy;
         this.mcpAuthorizationPolicy = mcpAuthorizationPolicy;
         this.promptAssembler = promptAssembler;
+        this.artifactStore = artifactStore;
+        this.artifactPromptFormatter = artifactPromptFormatter;
         this.runtimePreflightGateway = runtimePreflightGateway;
         this.settings = settings;
         this.clock = clock;
@@ -102,18 +113,24 @@ public class HarnessCapabilityServiceImpl implements HarnessCapabilityService {
         List<SkillPackage> skillPackages = skillCatalog.discover();
         List<McpServerDefinition> mcpCatalog = mcpServerCatalog.discover();
         RuntimePreflightReport preflightReport = runtimePreflightGateway.preflight(
-                run.capabilityRuntime(), run.getWorkingDir());
+                run.capabilityRuntime(), command.getStage(), run.getWorkingDir());
         workspaceSkillTrustPolicy.requireTrusted(preflightReport.getWorkspaceInventory(), skillPackages);
         SkillSelection selection = selectionPolicy.select(selectionRequest, skillPackages);
-        RuntimeEnforcementProfile enforcementProfile = preflightReport.getEnforcementProfile();
+        RuntimeEnforcementProfile enforcementProfile = selection.enforceRuntimeProfile(
+                command.getStage(), preflightReport.getEnforcementProfile());
         McpSelection mcpSelection = mcpAuthorizationPolicy.select(new McpSelectionRequest(
                 command.getStage(), run.capabilityRuntime(), command.getExplicitMcpServerIds(),
                 command.getRequiredMcpServerIds(), command.getGrantedMcpServerIds(),
                 settings.getAllowedMcpServerIds(), enforcementProfile), mcpCatalog);
+        List<GateArtifact> approvedInputs = new ArrayList<GateArtifact>();
+        for (ArtifactDescriptor descriptor : run.approvedInputArtifacts(command.getStage())) {
+            approvedInputs.add(new GateArtifact(descriptor, artifactStore.read(descriptor)));
+        }
+        String upstreamArtifacts = artifactPromptFormatter.format(approvedInputs);
         HarnessPromptAssembly assembly = promptAssembler.assemble(new HarnessPromptAssemblyRequest(
                 settings.getPlatformSafety(), settings.getEnvironmentGuardrail(),
                 run.capabilityStageContract(command.getStage()).promptSummary(), promptPack,
-                selection, command.getUpstreamArtifacts(), command.getCurrentInput()));
+                selection, upstreamArtifacts, command.getCurrentInput()));
         CapabilitySnapshot snapshot = CapabilitySnapshot.create(run.getId(), command.getStage(),
                 attemptNumber, run.capabilityRuntime(), run.capabilityEnvironment(),
                 settings.getPolicyVersion(), promptPack, selection, mcpSelection,

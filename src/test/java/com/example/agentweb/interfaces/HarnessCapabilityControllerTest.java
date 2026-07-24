@@ -74,7 +74,6 @@ class HarnessCapabilityControllerTest {
                                 + "\"explicitMcpServerIds\":[\"reader\"],"
                                 + "\"requiredMcpServerIds\":[\"reader\"],"
                                 + "\"grantedMcpServerIds\":[\"reader\"],"
-                                + "\"upstreamArtifacts\":\"approved upstream\","
                                 + "\"currentInput\":\"current input\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.runId").value("run-1"))
@@ -122,13 +121,13 @@ class HarnessCapabilityControllerTest {
 
         mvc.perform(post("/api/harness/runs/run-1/stages/ANALYSIS/capability-snapshot")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"upstreamArtifacts\":\"approved\",\"currentInput\":\"input\"}"))
+                        .content("{\"currentInput\":\"input\"}"))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("SKILL_CONFLICT"));
 
         mvc.perform(post("/api/harness/runs/run-1/stages/ANALYSIS/capability-snapshot")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"upstreamArtifacts\":\"\",\"currentInput\":\"\"}"))
+                        .content("{\"currentInput\":\"\"}"))
                 .andExpect(status().isBadRequest());
     }
 

@@ -32,10 +32,12 @@ public final class HarnessRun {
     private final String createdBy;
     private final String idempotencyKey;
     private final Instant createdAt;
+    private final WorkspaceBaseline workspaceBaseline;
     private final List<StageExecution> stages;
     private final List<ArtifactDescriptor> artifacts;
     private final List<GateResult> gateResults;
     private final List<Approval> approvals;
+    private final List<HarnessQuestion> questions;
     private final List<HarnessEvent> events;
     private HarnessRunStatus status;
     private Instant updatedAt;
@@ -44,9 +46,11 @@ public final class HarnessRun {
     private HarnessRun(String id, String title, String workingDir, String agentType,
                        String environment, String definitionVersion, String createdBy,
                        String idempotencyKey, HarnessRunStatus status, Instant createdAt,
-                       Instant updatedAt, long version, List<StageExecution> stages,
+                       Instant updatedAt, long version, WorkspaceBaseline workspaceBaseline,
+                       List<StageExecution> stages,
                        List<ArtifactDescriptor> artifacts, List<GateResult> gateResults,
-                       List<Approval> approvals, List<HarnessEvent> events) {
+                       List<Approval> approvals, List<HarnessQuestion> questions,
+                       List<HarnessEvent> events) {
         this.id = DomainText.require(id, "run id", 128);
         this.title = DomainText.require(title, "run title");
         this.workingDir = DomainText.require(workingDir, "working directory");
@@ -60,6 +64,10 @@ public final class HarnessRun {
         }
         this.status = status;
         this.createdAt = DomainText.requireTime(createdAt, "run created time");
+        if (workspaceBaseline == null) {
+            throw new IllegalArgumentException("workspace baseline must not be null");
+        }
+        this.workspaceBaseline = workspaceBaseline;
         this.updatedAt = DomainText.requireTime(updatedAt, "run updated time");
         if (updatedAt.isBefore(createdAt)) {
             throw new IllegalArgumentException("run updated time must not precede creation");
@@ -72,6 +80,7 @@ public final class HarnessRun {
         this.artifacts = copy(artifacts, "artifacts");
         this.gateResults = copy(gateResults, "gate results");
         this.approvals = copy(approvals, "approvals");
+        this.questions = copy(questions, "questions");
         this.events = copy(events, "events");
         validateStageSet();
         validateRestoredState();
@@ -80,6 +89,14 @@ public final class HarnessRun {
     public static HarnessRun create(String id, String title, String workingDir, String agentType,
                                     String environment, String definitionVersion, String createdBy,
                                     String idempotencyKey, List<StageContract> contracts, Instant now) {
+        return create(id, title, workingDir, agentType, environment, definitionVersion,
+                createdBy, idempotencyKey, WorkspaceBaseline.legacy(workingDir, now), contracts, now);
+    }
+
+    public static HarnessRun create(String id, String title, String workingDir, String agentType,
+                                    String environment, String definitionVersion, String createdBy,
+                                    String idempotencyKey, WorkspaceBaseline workspaceBaseline,
+                                    List<StageContract> contracts, Instant now) {
         List<StageExecution> stageExecutions = new ArrayList<StageExecution>();
         if (contracts == null) {
             throw new IllegalArgumentException("stage contracts must not be null");
@@ -89,9 +106,10 @@ public final class HarnessRun {
         }
         HarnessRun run = new HarnessRun(id, title, workingDir, agentType, environment,
                 definitionVersion, createdBy, idempotencyKey, HarnessRunStatus.DRAFT,
-                now, now, 0L, stageExecutions,
+                now, now, 0L, workspaceBaseline, stageExecutions,
                 Collections.<ArtifactDescriptor>emptyList(),
                 Collections.<GateResult>emptyList(), Collections.<Approval>emptyList(),
+                Collections.<HarnessQuestion>emptyList(),
                 Collections.<HarnessEvent>emptyList());
         run.addEvent("RUN_CREATED", null, createdBy, definitionVersion, now);
         return run;
@@ -103,9 +121,36 @@ public final class HarnessRun {
                                      Instant updatedAt, long version, List<StageExecution> stages,
                                      List<ArtifactDescriptor> artifacts, List<GateResult> gateResults,
                                      List<Approval> approvals, List<HarnessEvent> events) {
+        return restore(id, title, workingDir, agentType, environment, definitionVersion,
+                createdBy, idempotencyKey, status, createdAt, updatedAt, version, stages,
+                artifacts, gateResults, approvals, Collections.<HarnessQuestion>emptyList(),
+                WorkspaceBaseline.legacy(workingDir, createdAt), events);
+    }
+
+    public static HarnessRun restore(String id, String title, String workingDir, String agentType,
+                                     String environment, String definitionVersion, String createdBy,
+                                     String idempotencyKey, HarnessRunStatus status, Instant createdAt,
+                                     Instant updatedAt, long version, List<StageExecution> stages,
+                                     List<ArtifactDescriptor> artifacts, List<GateResult> gateResults,
+                                     List<Approval> approvals, List<HarnessQuestion> questions,
+                                     List<HarnessEvent> events) {
+        return restore(id, title, workingDir, agentType, environment, definitionVersion,
+                createdBy, idempotencyKey, status, createdAt, updatedAt, version, stages,
+                artifacts, gateResults, approvals, questions,
+                WorkspaceBaseline.legacy(workingDir, createdAt), events);
+    }
+
+    public static HarnessRun restore(String id, String title, String workingDir, String agentType,
+                                     String environment, String definitionVersion, String createdBy,
+                                     String idempotencyKey, HarnessRunStatus status, Instant createdAt,
+                                     Instant updatedAt, long version, List<StageExecution> stages,
+                                     List<ArtifactDescriptor> artifacts, List<GateResult> gateResults,
+                                     List<Approval> approvals, List<HarnessQuestion> questions,
+                                     WorkspaceBaseline workspaceBaseline,
+                                     List<HarnessEvent> events) {
         return new HarnessRun(id, title, workingDir, agentType, environment,
                 definitionVersion, createdBy, idempotencyKey, status, createdAt, updatedAt,
-                version, stages, artifacts, gateResults, approvals, events);
+                version, workspaceBaseline, stages, artifacts, gateResults, approvals, questions, events);
     }
 
     public List<StageExecution> getStages() {
@@ -122,6 +167,35 @@ public final class HarnessRun {
 
     public List<Approval> getApprovals() {
         return Collections.unmodifiableList(approvals);
+    }
+
+    public List<HarnessQuestion> getQuestions() {
+        return Collections.unmodifiableList(questions);
+    }
+
+    /**
+     * Run 创建事务内登记原始需求，后续 ANALYSIS Attempt 只消费该不可变版本。
+     */
+    public ArtifactDescriptor registerOriginalRequirement(String artifactId,
+                                                          ArtifactContent content,
+                                                          String actor, Instant now) {
+        requireMutable();
+        if (status != HarnessRunStatus.DRAFT || content == null
+                || !artifactVersions(ArtifactType.ORIGINAL_REQUIREMENT).isEmpty()) {
+            throw new IllegalHarnessTransitionException(
+                    "original requirement can only be registered once while run is draft");
+        }
+        ArtifactDescriptor descriptor = new ArtifactDescriptor(
+                DomainText.require(artifactId, "original requirement artifact id", 128),
+                ArtifactType.ORIGINAL_REQUIREMENT, 1, id, HarnessStage.ANALYSIS, 1,
+                "text/markdown", content.getSizeBytes(), content.getSha256(),
+                ArtifactClassification.INTERNAL, actor, requireTime(now),
+                Collections.<ArtifactReference>emptyList());
+        artifacts.add(descriptor);
+        touch(now);
+        addEvent("ORIGINAL_REQUIREMENT_REGISTERED", HarnessStage.ANALYSIS, actor,
+                descriptor.getSha256(), now);
+        return descriptor;
     }
 
     public List<HarnessEvent> getEvents() {
@@ -322,6 +396,52 @@ public final class HarnessRun {
         return descriptor;
     }
 
+    /**
+     * IMPLEMENTATION Attempt 打开后固定真实 Git 基线；其他阶段不生成 Artifact。
+     */
+    public HarnessGeneratedArtifact captureImplementationBaseline(HarnessStage stage,
+                                                                  WorkspaceBaseline baseline,
+                                                                  Instant now) {
+        if (stage != HarnessStage.IMPLEMENTATION) {
+            return null;
+        }
+        if (baseline == null || !workspaceBaseline.belongsToSameRepository(baseline)) {
+            throw new IllegalHarnessTransitionException(
+                    "implementation baseline does not match run repository");
+        }
+        ArtifactContent content = new ImplementationEvidenceFactory().baseline(baseline);
+        ArtifactDescriptor descriptor = registerArtifact(HarnessStage.IMPLEMENTATION,
+                "implementation-workspace-baseline", ArtifactType.CHANGED_FILES, content,
+                "application/json", ArtifactClassification.INTERNAL, "harness-baseline",
+                artifactSourceReferences(HarnessStage.IMPLEMENTATION), now);
+        return new HarnessGeneratedArtifact(descriptor, content);
+    }
+
+    /**
+     * 返回当前实现 Attempt 在 Runtime 写入前固化的 Git 基线 Artifact。
+     */
+    public ArtifactDescriptor implementationBaselineArtifact(RuntimeArtifactBundle bundle) {
+        if (bundle == null || bundle.getStage() != HarnessStage.IMPLEMENTATION) {
+            return null;
+        }
+        StageExecution implementation = stage(HarnessStage.IMPLEMENTATION);
+        ArtifactDescriptor baseline = null;
+        for (ArtifactDescriptor descriptor : artifacts) {
+            if (descriptor.getStage() == HarnessStage.IMPLEMENTATION
+                    && descriptor.getAttempt() == implementation.currentAttempt().getNumber()
+                    && descriptor.getArtifactType() == ArtifactType.CHANGED_FILES
+                    && "harness-baseline".equals(descriptor.getCreatedBy())
+                    && (baseline == null || descriptor.getVersion() > baseline.getVersion())) {
+                baseline = descriptor;
+            }
+        }
+        if (baseline == null) {
+            throw new IllegalHarnessTransitionException(
+                    "implementation runtime result has no captured Git baseline");
+        }
+        return baseline;
+    }
+
     public List<ArtifactDescriptor> artifactVersions(ArtifactType artifactType) {
         List<ArtifactDescriptor> versions = new ArrayList<ArtifactDescriptor>();
         for (ArtifactDescriptor descriptor : artifacts) {
@@ -331,6 +451,228 @@ public final class HarnessRun {
         }
         versions.sort(Comparator.comparingInt(ArtifactDescriptor::getVersion));
         return Collections.unmodifiableList(versions);
+    }
+
+    /**
+     * 将阻断性问题收回当前 Attempt，并把 Run/Stage 同步置为等待补充输入。
+     */
+    public boolean requestInput(HarnessStage stage, String questionId, String question,
+                                boolean blocking, String actor, Instant now) {
+        requireMutable();
+        StageExecution execution = stage(stage);
+        String normalizedId = DomainText.require(questionId, "question id", 128);
+        HarnessQuestion existing = question(normalizedId);
+        if (existing != null) {
+            if (!existing.matchesRequest(stage, execution.currentAttempt().getNumber(),
+                    question, blocking)) {
+                throw new IllegalHarnessTransitionException(
+                        "question id already belongs to a different request");
+            }
+            return false;
+        }
+        if (execution.getStatus() != StageStatus.RUNNING) {
+            throw new IllegalHarnessTransitionException(
+                    "question can only be requested for a running stage: " + stage);
+        }
+        if (hasOpenBlockingQuestion(execution)) {
+            throw new IllegalHarnessTransitionException(
+                    "current attempt already has a blocking question");
+        }
+        Instant transitionTime = requireTime(now);
+        questions.add(HarnessQuestion.ask(normalizedId, stage,
+                execution.currentAttempt().getNumber(), question, blocking, actor, transitionTime));
+        if (blocking) {
+            execution.waitForInput();
+            status = HarnessRunStatus.WAITING_INPUT;
+        }
+        touch(transitionTime);
+        addEvent("INPUT_REQUESTED", stage, actor, normalizedId, transitionTime);
+        return true;
+    }
+
+    /**
+     * 回答当前 Attempt 的问题；最后一个阻断问题回答后恢复原 Attempt，不创建新 Attempt。
+     */
+    public boolean answerQuestion(String questionId, String answer, String actor, Instant now) {
+        requireMutable();
+        HarnessQuestion target = question(DomainText.require(questionId, "question id", 128));
+        if (target == null) {
+            throw new IllegalHarnessTransitionException("question does not exist: " + questionId);
+        }
+        StageExecution execution = stage(target.getStage());
+        if (!target.belongsTo(target.getStage(), execution.currentAttempt().getNumber())) {
+            throw new IllegalHarnessTransitionException("question does not belong to the current attempt");
+        }
+        Instant transitionTime = requireTime(now);
+        if (!target.answer(answer, actor, transitionTime)) {
+            return false;
+        }
+        if (target.isBlocking() && execution.getStatus() == StageStatus.WAITING_INPUT
+                && !hasOpenBlockingQuestion(execution)) {
+            execution.resumeAfterInput();
+            status = HarnessRunStatus.ACTIVE;
+        }
+        touch(transitionTime);
+        addEvent("INPUT_ANSWERED", target.getStage(), actor, target.getQuestionId(), transitionTime);
+        return true;
+    }
+
+    /**
+     * 返回目标阶段可消费的已批准上游 Artifact 当前版本。
+     */
+    public List<ArtifactDescriptor> approvedInputArtifacts(HarnessStage target) {
+        StageExecution targetExecution = stage(target);
+        List<ArtifactDescriptor> inputs = new ArrayList<ArtifactDescriptor>();
+        for (ArtifactType required : targetExecution.getContract().getRequiredInputArtifacts()) {
+            ArtifactDescriptor descriptor = approvedInputArtifact(target, required);
+            if (descriptor == null) {
+                throw new IllegalHarnessTransitionException(
+                        "approved input artifact is missing for " + target + ": " + required);
+            }
+            inputs.add(descriptor);
+        }
+        inputs.sort(Comparator.comparing(item -> item.getArtifactType().name()));
+        return Collections.unmodifiableList(inputs);
+    }
+
+    /**
+     * 对已批准输入引用计算稳定 Hash，部署动作 Approval 只对该基线有效。
+     */
+    public String approvedInputBaselineHash(HarnessStage target) {
+        StringBuilder canonical = new StringBuilder();
+        for (ArtifactDescriptor descriptor : approvedInputArtifacts(target)) {
+            canonical.append(descriptor.getArtifactType()).append(':')
+                    .append(descriptor.getArtifactId()).append(':')
+                    .append(descriptor.getVersion()).append(':')
+                    .append(descriptor.getSha256()).append('\n');
+        }
+        return ArtifactContent.sha256(canonical.toString().getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * 新输出必须引用其阶段合同输入；没有 ORIGINAL_REQUIREMENT 的 M1/M2 历史 Run 保持空引用兼容。
+     */
+    public List<ArtifactReference> artifactSourceReferences(HarnessStage target) {
+        if (target == HarnessStage.ANALYSIS
+                && artifactVersions(ArtifactType.ORIGINAL_REQUIREMENT).isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<ArtifactReference> references = new ArrayList<ArtifactReference>();
+        for (ArtifactDescriptor descriptor : approvedInputArtifacts(target)) {
+            references.add(descriptor.reference());
+        }
+        return Collections.unmodifiableList(references);
+    }
+
+    /**
+     * 批准一次 local 部署动作；它独立于 DEPLOYMENT 阶段最终交付 Approval。
+     */
+    public boolean approveDeployment(String approvalId, String approvedInputBaselineHash,
+                                     String actor, String reason, Instant now) {
+        String normalizedId = DomainText.require(approvalId, "deployment approval id", 128);
+        if (hasApproval(normalizedId)) {
+            return false;
+        }
+        requireMutable();
+        StageExecution deployment = stage(HarnessStage.DEPLOYMENT);
+        if (deployment.getStatus() != StageStatus.RUNNING || !"local".equalsIgnoreCase(environment)) {
+            throw new IllegalHarnessTransitionException(
+                    "deployment action approval requires a running local deployment stage");
+        }
+        String requestedHash = DomainText.requireSha256(
+                approvedInputBaselineHash, "deployment input baseline hash");
+        if (!approvedInputBaselineHash(HarnessStage.DEPLOYMENT).equals(requestedHash)) {
+            throw new IllegalHarnessTransitionException("deployment input baseline hash is stale");
+        }
+        Instant transitionTime = requireTime(now);
+        approvals.add(Approval.approveAction(normalizedId, deployment, "LOCAL_DEPLOY",
+                requestedHash, actor, reason, transitionTime));
+        touch(transitionTime);
+        addEvent("DEPLOYMENT_APPROVED", HarnessStage.DEPLOYMENT, actor,
+                requestedHash, transitionTime);
+        return true;
+    }
+
+    public boolean hasDeploymentApproval(String inputBaselineHash) {
+        String normalizedHash = DomainText.requireSha256(
+                inputBaselineHash, "deployment input baseline hash");
+        for (Approval approval : approvals) {
+            if (approval.isValid() && approval.getDecision() == ApprovalDecision.APPROVED
+                    && approval.getStage() == HarnessStage.DEPLOYMENT
+                    && approval.getAttempt() == stage(HarnessStage.DEPLOYMENT)
+                    .currentAttempt().getNumber()
+                    && "LOCAL_DEPLOY".equals(approval.getApprovalType())
+                    && normalizedHash.equals(approval.getArtifactBaselineHash())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 返回当前 local DEPLOYMENT Attempt 的领域输入基线和独立 Approval 状态。
+     */
+    public DeploymentReadiness deploymentReadiness() {
+        StageExecution deployment = stage(HarnessStage.DEPLOYMENT);
+        if (deployment.getStatus() != StageStatus.RUNNING
+                || !"local".equalsIgnoreCase(environment)) {
+            throw new IllegalHarnessTransitionException(
+                    "deployment readiness requires a running local deployment stage");
+        }
+        String inputBaselineHash = approvedInputBaselineHash(HarnessStage.DEPLOYMENT);
+        return new DeploymentReadiness(id, environment,
+                deployment.currentAttempt().getNumber(), inputBaselineHash,
+                hasDeploymentApproval(inputBaselineHash));
+    }
+
+    /**
+     * 校验 local、当前 Attempt、独立 Approval 与仓库身份后签发部署许可。
+     */
+    public DeploymentPermit authorizeDeployment(WorkspaceBaseline currentBaseline) {
+        return authorizeDeployment(approvedInputBaselineHash(HarnessStage.DEPLOYMENT),
+                currentBaseline);
+    }
+
+    public DeploymentPermit authorizeDeployment(String requestedInputBaselineHash,
+                                                 WorkspaceBaseline currentBaseline) {
+        requireMutable();
+        StageExecution deployment = stage(HarnessStage.DEPLOYMENT);
+        if (deployment.getStatus() != StageStatus.RUNNING
+                || !"local".equalsIgnoreCase(environment)) {
+            throw new IllegalHarnessTransitionException(
+                    "deployment execution requires a running local deployment stage");
+        }
+        if (currentBaseline == null
+                || !workspaceBaseline.belongsToSameRepository(currentBaseline)) {
+            throw new IllegalHarnessTransitionException(
+                    "deployment workspace does not match the run repository");
+        }
+        String inputHash = approvedInputBaselineHash(HarnessStage.DEPLOYMENT);
+        if (!inputHash.equals(DomainText.requireSha256(
+                requestedInputBaselineHash, "requested deployment input baseline hash"))) {
+            throw new IllegalHarnessTransitionException(
+                    "requested deployment input baseline hash is stale");
+        }
+        if (!hasDeploymentApproval(inputHash)) {
+            throw new IllegalHarnessTransitionException(
+                    "deployment execution requires a valid independent approval");
+        }
+        return new DeploymentPermit(id, deployment.currentAttempt().getNumber(),
+                inputHash, currentBaseline);
+    }
+
+    public void recordDeploymentPrepared(String deploymentExecutionId, Instant now) {
+        requireMutable();
+        StageExecution deployment = stage(HarnessStage.DEPLOYMENT);
+        if (deployment.getStatus() != StageStatus.RUNNING) {
+            throw new IllegalHarnessTransitionException(
+                    "deployment execution can only be prepared for a running stage");
+        }
+        Instant transitionTime = requireTime(now);
+        touch(transitionTime);
+        addEvent("DEPLOYMENT_EXECUTION_PREPARED", HarnessStage.DEPLOYMENT, createdBy,
+                DomainText.require(deploymentExecutionId, "deployment execution id", 128),
+                transitionTime);
     }
 
     public String currentArtifactBaselineHash(HarnessStage stage) {
@@ -355,6 +697,48 @@ public final class HarnessRun {
                     .append(descriptor.getSha256()).append('\n');
         }
         return ArtifactContent.sha256(canonical.toString().getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * 提供当前 Attempt 的最新输出版本给确定性 Gate；选择规则仍封装在聚合内。
+     */
+    public List<ArtifactDescriptor> gateArtifactDescriptors(HarnessStage stage) {
+        StageExecution execution = stage(stage);
+        if (execution.getStatus() != StageStatus.RUNNING) {
+            throw new IllegalHarnessTransitionException(
+                    "gate artifacts require a running stage: " + stage);
+        }
+        List<ArtifactDescriptor> descriptors = currentArtifacts(
+                stage, execution.currentAttempt().getNumber());
+        descriptors.sort(Comparator.comparing(item -> item.getArtifactType().name()));
+        return Collections.unmodifiableList(descriptors);
+    }
+
+    /**
+     * 返回最终交付报告可消费的三阶段已批准最新 Artifact。
+     */
+    public List<ArtifactDescriptor> deliveryReportArtifactDescriptors() {
+        if (stage(HarnessStage.DEPLOYMENT).getStatus() != StageStatus.RUNNING) {
+            throw new IllegalHarnessTransitionException(
+                    "delivery report requires a running deployment stage");
+        }
+        List<ArtifactDescriptor> descriptors = new ArrayList<ArtifactDescriptor>();
+        HarnessStage[] producers = {
+                HarnessStage.ANALYSIS, HarnessStage.DESIGN, HarnessStage.IMPLEMENTATION
+        };
+        for (HarnessStage producerStage : producers) {
+            StageExecution producer = stage(producerStage);
+            if (producer.getStatus() != StageStatus.PASSED || !hasValidStageApproval(producer)) {
+                throw new IllegalHarnessTransitionException(
+                        "delivery report requires approved stage: " + producerStage);
+            }
+            descriptors.addAll(currentArtifacts(
+                    producerStage, producer.currentAttempt().getNumber()));
+        }
+        descriptors.sort(Comparator
+                .comparing((ArtifactDescriptor item) -> item.getStage().ordinal())
+                .thenComparing(item -> item.getArtifactType().name()));
+        return Collections.unmodifiableList(descriptors);
     }
 
     public boolean recordGate(HarnessStage stage, String resultId, String rule, boolean passed,
@@ -525,25 +909,50 @@ public final class HarnessRun {
      * @param now 映射时间
      * @return 是否改变了 Run
      */
-    public boolean applyRuntimeExecutionOutcome(RuntimeExecution execution, Instant now) {
-        if (execution == null || !execution.getStatus().isTerminal()) {
+    public boolean applyRuntimeExecutionOutcome(RuntimeExecutionOutcome outcome, Instant now) {
+        if (outcome == null) {
             return false;
         }
-        switch (execution.getStatus()) {
+        switch (outcome.getStatus()) {
             case SUCCEEDED:
-                recordExecutionSucceeded(execution.reference(), now);
+                recordExecutionSucceeded(outcome.getReference(), now);
                 return true;
             case CANCELLED:
-                confirmCancellation(execution.reference(), now);
+                confirmCancellation(outcome.getReference(), now);
                 return true;
             case FAILED:
             case TIMED_OUT:
             case LOST:
-                recordExecutionFailure(execution.reference(), execution.getTerminationReason(), now);
+                recordExecutionFailure(outcome.getReference(), outcome.getTerminationReason(), now);
                 return true;
             default:
                 return false;
         }
+    }
+
+    /**
+     * 将独立部署执行终态映射为 Run；成功仍需 Artifact Gate 和最终人工 Approval。
+     */
+    public boolean applyDeploymentExecutionOutcome(DeploymentExecutionOutcome outcome, Instant now) {
+        if (outcome == null || !id.equals(outcome.getRunId())) {
+            throw new IllegalArgumentException("deployment execution does not belong to run");
+        }
+        if (outcome.isSuccessful()) {
+            touch(now);
+            addEvent("DEPLOYMENT_EXECUTION_SUCCEEDED", HarnessStage.DEPLOYMENT, createdBy,
+                    outcome.getExecutionId(), now);
+            return true;
+        }
+        if (outcome.getStatus() == DeploymentExecutionStatus.FAILED) {
+            StageExecution deployment = stage(HarnessStage.DEPLOYMENT);
+            deployment.failFromRuntime(outcome.getFailureReason(), now);
+            status = HarnessRunStatus.FAILED;
+            touch(now);
+            addEvent("DEPLOYMENT_EXECUTION_FAILED", HarnessStage.DEPLOYMENT, createdBy,
+                    outcome.getFailureReason(), now);
+            return true;
+        }
+        return false;
     }
 
     public boolean isTerminal() {
@@ -733,6 +1142,69 @@ public final class HarnessRun {
         return false;
     }
 
+    private HarnessQuestion question(String questionId) {
+        for (HarnessQuestion item : questions) {
+            if (item.getQuestionId().equals(questionId)) {
+                return item;
+            }
+        }
+        return null;
+    }
+
+    private boolean hasOpenBlockingQuestion(StageExecution execution) {
+        int attempt = execution.currentAttempt().getNumber();
+        for (HarnessQuestion item : questions) {
+            if (item.belongsTo(execution.getStage(), attempt)
+                    && item.isBlocking() && !item.isAnswered()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private ArtifactDescriptor approvedInputArtifact(HarnessStage target, ArtifactType type) {
+        ArtifactDescriptor latest = null;
+        for (ArtifactDescriptor descriptor : artifacts) {
+            if (descriptor.getArtifactType() != type) {
+                continue;
+            }
+            if (target == HarnessStage.ANALYSIS && type == ArtifactType.ORIGINAL_REQUIREMENT) {
+                if (latest == null || descriptor.getVersion() > latest.getVersion()) {
+                    latest = descriptor;
+                }
+                continue;
+            }
+            if (descriptor.getStage().ordinal() >= target.ordinal()) {
+                continue;
+            }
+            StageExecution producer = stage(descriptor.getStage());
+            if (producer.getStatus() != StageStatus.PASSED
+                    || producer.currentAttempt().getNumber() != descriptor.getAttempt()
+                    || !hasValidStageApproval(producer)) {
+                continue;
+            }
+            if (latest == null || descriptor.getVersion() > latest.getVersion()) {
+                latest = descriptor;
+            }
+        }
+        return latest;
+    }
+
+    private boolean hasValidStageApproval(StageExecution execution) {
+        int attempt = execution.currentAttempt().getNumber();
+        String baselineHash = currentArtifactBaselineHash(execution.getStage());
+        for (Approval approval : approvals) {
+            if (approval.isValid() && approval.getDecision() == ApprovalDecision.APPROVED
+                    && approval.getStage() == execution.getStage()
+                    && approval.getAttempt() == attempt
+                    && execution.getContract().getApprovalType().equals(approval.getApprovalType())
+                    && baselineHash.equals(approval.getArtifactBaselineHash())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private void invalidateApprovalsFrom(HarnessStage stage, Instant now) {
         for (Approval approval : approvals) {
             if (approval.getStage().ordinal() >= stage.ordinal()) {
@@ -811,6 +1283,12 @@ public final class HarnessRun {
         }
         if (status == HarnessRunStatus.CANCELLING && writable != 1) {
             throw new IllegalArgumentException("cancelling run requires one active attempt");
+        }
+        Set<String> questionIds = new java.util.HashSet<String>();
+        for (HarnessQuestion item : questions) {
+            if (!questionIds.add(item.getQuestionId())) {
+                throw new IllegalArgumentException("question ids must be unique");
+            }
         }
     }
 

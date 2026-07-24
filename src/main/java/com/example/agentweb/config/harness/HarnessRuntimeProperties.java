@@ -22,8 +22,10 @@ import java.util.Set;
 public class HarnessRuntimeProperties {
 
     private String codexCommand = "codex";
+    private String providerCredentialReference = "";
     private String tempRoot = "data/harness/runtime";
     private String sandboxMode = "read-only";
+    private String implementationSandboxMode = "workspace-write";
     private Set<String> supportedCodexVersions = new LinkedHashSet<String>(
             Collections.singleton("0.145.0"));
     private String compatibilityMatrixVersion = "m0-2026-07-22";

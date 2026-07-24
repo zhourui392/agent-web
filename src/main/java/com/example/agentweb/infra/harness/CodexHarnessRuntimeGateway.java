@@ -11,9 +11,16 @@ import com.example.agentweb.app.harness.port.RuntimePreflightGateway;
 import com.example.agentweb.config.harness.HarnessRuntimeProperties;
 import com.example.agentweb.config.harness.HarnessSecurityProperties;
 import com.example.agentweb.domain.harness.AgentRuntime;
+import com.example.agentweb.domain.harness.ArtifactClassification;
+import com.example.agentweb.domain.harness.ArtifactContent;
+import com.example.agentweb.domain.harness.ArtifactType;
+import com.example.agentweb.domain.harness.HarnessStage;
 import com.example.agentweb.domain.harness.McpSecretReference;
 import com.example.agentweb.domain.harness.RuntimeEnforcementProfile;
 import com.example.agentweb.domain.harness.RuntimeExecutionSignal;
+import com.example.agentweb.domain.harness.RuntimeArtifactBundle;
+import com.example.agentweb.domain.harness.RuntimeCommandObservation;
+import com.example.agentweb.domain.harness.RuntimeProducedArtifact;
 import com.example.agentweb.domain.harness.SelectedMcpServer;
 import com.example.agentweb.domain.harness.WorkspaceBoundaryKind;
 import com.example.agentweb.domain.harness.WorkspaceRepoSkill;
@@ -31,6 +38,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
@@ -47,6 +55,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Iterator;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -75,6 +84,7 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
     private static final String ENFORCEMENT_PROFILE_VERSION = "codex-runtime-enforcement@1";
     private static final String SAFE_IDENTIFIER_PATTERN = "[A-Za-z0-9_-]+";
     private static final String SAFE_ENVIRONMENT_VARIABLE_PATTERN = "[A-Za-z_][A-Za-z0-9_]*";
+    private static final String CODEX_PROVIDER_CREDENTIAL_ENVIRONMENT_VARIABLE = "OPENAI_API_KEY";
     private static final Pattern CODEX_VERSION_PATTERN = Pattern.compile(
             "codex-cli[ \\t]+([0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][A-Za-z0-9.-]+)?)");
     private static final char NEWLINE = '\n';
@@ -107,13 +117,20 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
 
     @Override
     public RuntimePreflightReport preflight(AgentRuntime runtime, String workingDir) {
-        return inspectPreflight(runtime, workingDir).getReport();
+        return inspectPreflight(runtime, HarnessStage.ANALYSIS, workingDir).getReport();
+    }
+
+    @Override
+    public RuntimePreflightReport preflight(AgentRuntime runtime, HarnessStage stage,
+                                            String workingDir) {
+        return inspectPreflight(runtime, stage, workingDir).getReport();
     }
 
     @Override
     public void start(AgentExecutionSpec spec, RuntimeEventSink eventSink) {
         requireLaunchable(spec, eventSink);
-        PreflightInspection preflight = inspectPreflight(spec.getRuntime(), spec.getWorkingDir());
+        PreflightInspection preflight = inspectPreflight(
+                spec.getRuntime(), spec.getStage(), spec.getWorkingDir());
         requireUnchangedPreflight(spec, preflight.getReport());
         Path executionRoot = runtimeRoot().resolve("exec-"
                 + com.example.agentweb.domain.harness.HarnessHashing.sha256(
@@ -122,9 +139,14 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
         try {
             Files.createDirectories(executionRoot);
             secureDirectory(executionRoot);
+            Path outputSchema = executionRoot.resolve("artifact-bundle-schema.json");
+            Path outputLastMessage = executionRoot.resolve("artifact-bundle.json");
+            writeArtifactBundleSchema(outputSchema, spec);
+            Files.write(outputLastMessage, new byte[0]);
+            secureFile(outputLastMessage);
             List<String> secrets = new ArrayList<String>();
             ProcessBuilder processBuilder = new ProcessBuilder(command(spec,
-                    preflight.getWorkspace().getBoundaryRoot()));
+                    preflight.getWorkspace().getBoundaryRoot(), outputSchema, outputLastMessage));
             processBuilder.directory(Paths.get(spec.getWorkingDir()).toFile());
             processBuilder.redirectErrorStream(true);
             applyEnvironment(processBuilder, executionRoot, spec.getSelectedMcpServers(), secrets);
@@ -137,7 +159,7 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
                 throw ex;
             }
             active = new ActiveExecution(spec, eventSink, process, executionRoot, secrets,
-                    handle, System.nanoTime());
+                    outputLastMessage, handle, System.nanoTime());
             ActiveExecution previous = activeExecutions.putIfAbsent(spec.getExecutionId(), active);
             if (previous != null) {
                 destroyProcessTree(process);
@@ -186,33 +208,42 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(
                 active.getProcess().getInputStream(), StandardCharsets.UTF_8))) {
             TerminalOutcome outcome = awaitOutcome(active, reader, outputState);
+            RuntimeArtifactBundle artifactBundle = null;
+            if (outcome.getKind() == TerminalKind.SUCCEEDED) {
+                try {
+                    artifactBundle = readArtifactBundle(active);
+                } catch (RuntimeException | IOException ex) {
+                    outcome = TerminalOutcome.failed(
+                            "runtime artifact bundle validation failed", outcome.getExitCode());
+                }
+            }
             String evidenceReference = persistEvidence(active);
             if (evidenceReference == null) {
                 outcome = outcome.evidencePersistenceFailed();
             }
             boolean cleaned = cleanup(active.getExecutionRoot());
             active.emitTerminal(outcome.getKind(), outcome.getExitCode(), outcome.getReason(),
-                    evidenceReference, cleaned, clock.instant());
+                    evidenceReference, cleaned, artifactBundle, clock.instant());
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             destroyProcessTree(active.getProcess());
             String evidenceReference = persistEvidence(active);
             boolean cleaned = cleanup(active.getExecutionRoot());
             active.emitTerminal(TerminalKind.CANCELLED, null,
-                    "runtime monitor interrupted", evidenceReference, cleaned, clock.instant());
+                    "runtime monitor interrupted", evidenceReference, cleaned, null, clock.instant());
         } catch (IOException ex) {
             destroyProcessTree(active.getProcess());
             String evidenceReference = persistEvidence(active);
             boolean cleaned = cleanup(active.getExecutionRoot());
             active.emitTerminal(active.isCancellationRequested()
                             ? TerminalKind.CANCELLED : TerminalKind.FAILED,
-                    null, "runtime stream failed", evidenceReference, cleaned, clock.instant());
+                    null, "runtime stream failed", evidenceReference, cleaned, null, clock.instant());
         } catch (RuntimeException ex) {
             destroyProcessTree(active.getProcess());
             String evidenceReference = persistEvidence(active);
             boolean cleaned = cleanup(active.getExecutionRoot());
             active.emitTerminal(TerminalKind.FAILED, null,
-                    "runtime event callback failed", evidenceReference, cleaned, clock.instant());
+                    "runtime event callback failed", evidenceReference, cleaned, null, clock.instant());
         } finally {
             activeExecutions.remove(active.getSpec().getExecutionId(), active);
         }
@@ -295,17 +326,92 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
         }
     }
 
-    private List<String> command(AgentExecutionSpec spec, Path workspaceBoundary) {
+    private List<String> command(AgentExecutionSpec spec, Path workspaceBoundary,
+                                 Path outputSchema, Path outputLastMessage) {
         List<String> command = new ArrayList<String>();
         command.add(runtimeProperties.getCodexCommand());
         Collections.addAll(command, "--ask-for-approval", "never", "exec",
                 "--ignore-user-config", "--ignore-rules", "--ephemeral", "--json",
+                "--output-schema", outputSchema.toString(),
+                "--output-last-message", outputLastMessage.toString(),
                 "--sandbox", spec.getEnforcementProfile().getSandboxMode(),
                 "-C", spec.getWorkingDir());
         addSkillOverrides(command, spec, workspaceBoundary);
         addMcpOverrides(command, spec.getSelectedMcpServers());
         command.add("-");
         return command;
+    }
+
+    private void writeArtifactBundleSchema(Path path, AgentExecutionSpec spec) throws IOException {
+        com.fasterxml.jackson.databind.node.ObjectNode root = MAPPER.createObjectNode();
+        root.put("type", "object");
+        root.put("additionalProperties", false);
+        root.putArray("required").add("schemaVersion").add("stage").add("artifacts");
+        com.fasterxml.jackson.databind.node.ObjectNode properties = root.putObject("properties");
+        properties.putObject("schemaVersion").put("const", RuntimeArtifactBundle.SCHEMA_VERSION);
+        properties.putObject("stage").put("const", spec.getStage().name());
+        com.fasterxml.jackson.databind.node.ObjectNode artifacts = properties.putObject("artifacts");
+        artifacts.put("type", "array");
+        artifacts.put("minItems", spec.getRequiredOutputArtifacts().size());
+        artifacts.put("maxItems", spec.getRequiredOutputArtifacts().size());
+        com.fasterxml.jackson.databind.node.ObjectNode item = artifacts.putObject("items");
+        item.put("type", "object");
+        item.put("additionalProperties", false);
+        item.putArray("required").add("artifactId").add("artifactType")
+                .add("contentType").add("classification").add("content");
+        com.fasterxml.jackson.databind.node.ObjectNode itemProperties = item.putObject("properties");
+        itemProperties.putObject("artifactId").put("type", "string")
+                .put("minLength", 1).put("maxLength", 128);
+        com.fasterxml.jackson.databind.node.ArrayNode artifactTypes =
+                itemProperties.putObject("artifactType").putArray("enum");
+        for (ArtifactType type : spec.getRequiredOutputArtifacts()) {
+            artifactTypes.add(type.name());
+        }
+        itemProperties.putObject("contentType").putArray("enum")
+                .add("application/json").add("text/markdown").add("text/plain");
+        itemProperties.putObject("classification").putArray("enum")
+                .add("PUBLIC").add("INTERNAL").add("SENSITIVE");
+        itemProperties.putObject("content").put("type", "string").put("minLength", 1);
+        Files.write(path, MAPPER.writeValueAsBytes(root));
+        secureFile(path);
+    }
+
+    private RuntimeArtifactBundle readArtifactBundle(ActiveExecution active) throws IOException {
+        Path path = active.getOutputLastMessage();
+        if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)
+                || Files.size(path) < 1L
+                || Files.size(path) > runtimeProperties.getMaxOutputBytes()) {
+            throw new IllegalStateException("runtime artifact bundle file is invalid");
+        }
+        JsonNode root = MAPPER.readTree(Files.readAllBytes(path));
+        if (root == null || !root.isObject() || !root.path("artifacts").isArray()) {
+            throw new IllegalStateException("runtime artifact bundle JSON is invalid");
+        }
+        String schemaVersion = requiredText(root, "schemaVersion");
+        HarnessStage stage = HarnessStage.valueOf(requiredText(root, "stage"));
+        List<RuntimeProducedArtifact> artifacts = new ArrayList<RuntimeProducedArtifact>();
+        Iterator<JsonNode> values = root.path("artifacts").elements();
+        while (values.hasNext()) {
+            JsonNode item = values.next();
+            artifacts.add(new RuntimeProducedArtifact(requiredText(item, "artifactId"),
+                    ArtifactType.valueOf(requiredText(item, "artifactType")),
+                    requiredText(item, "contentType"),
+                    ArtifactClassification.valueOf(requiredText(item, "classification")),
+                    ArtifactContent.from(requiredText(item, "content")
+                            .getBytes(StandardCharsets.UTF_8))));
+        }
+        RuntimeArtifactBundle bundle = RuntimeArtifactBundle.create(schemaVersion, stage,
+                artifacts, active.getSpec().getRequiredOutputArtifacts());
+        bundle.requireStage(active.getSpec().getStage());
+        return bundle;
+    }
+
+    private String requiredText(JsonNode node, String field) {
+        JsonNode value = node.get(field);
+        if (value == null || !value.isTextual() || value.asText().trim().isEmpty()) {
+            throw new IllegalStateException("runtime artifact bundle field is invalid: " + field);
+        }
+        return value.asText();
     }
 
     private void addSkillOverrides(List<String> command, AgentExecutionSpec spec,
@@ -372,6 +478,7 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
                                   List<SelectedMcpServer> servers, List<String> resolvedSecrets) {
         applyBaseEnvironment(processBuilder, executionRoot);
         Map<String, String> environment = processBuilder.environment();
+        applyProviderCredential(environment, resolvedSecrets);
         for (SelectedMcpServer server : servers) {
             for (McpSecretReference reference : server.getSecretReferences()) {
                 requireEnvironmentVariable(reference.getEnvironmentVariable());
@@ -385,11 +492,29 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
         }
     }
 
+    private void applyProviderCredential(Map<String, String> environment,
+                                         List<String> resolvedSecrets) {
+        String reference = runtimeProperties.getProviderCredentialReference();
+        if (reference == null || reference.trim().isEmpty()) {
+            return;
+        }
+        String value = secretResolver.resolve(reference.trim());
+        if (value == null || value.isEmpty()) {
+            throw new IllegalStateException("resolved provider credential must not be empty");
+        }
+        environment.put(CODEX_PROVIDER_CREDENTIAL_ENVIRONMENT_VARIABLE, value);
+        resolvedSecrets.add(value);
+    }
+
     private void applyBaseEnvironment(ProcessBuilder processBuilder, Path isolatedRoot) {
         Map<String, String> environment = processBuilder.environment();
         Map<String, String> inherited = new HashMap<String, String>(System.getenv());
         environment.clear();
         for (String name : securityProperties.getInheritedEnvironmentVariables()) {
+            if (CODEX_PROVIDER_CREDENTIAL_ENVIRONMENT_VARIABLE.equals(name)) {
+                throw new IllegalStateException(
+                        "provider credential must use an explicit credential reference");
+            }
             String value = inherited.get(name);
             if (value != null) {
                 environment.put(name, value);
@@ -427,8 +552,10 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
         if (TURN_FAILED_EVENT.equals(type)) {
             outputState.markTurnFailed();
         }
-        String redacted = redact(line, active.getSecrets());
-        active.emitOutput(redacted, outputSummary(type), runtimeProperties.getMaxOutputBytes(),
+        String redacted = redactSecrets(line, active.getSecrets());
+        observeCompletedCommand(redacted, active);
+        active.emitOutput(boundedEvidenceLine(redacted), outputSummary(type),
+                runtimeProperties.getMaxOutputBytes(),
                 clock.instant());
     }
 
@@ -440,7 +567,8 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
         }
     }
 
-    private PreflightInspection inspectPreflight(AgentRuntime runtime, String workingDir) {
+    private PreflightInspection inspectPreflight(AgentRuntime runtime, HarnessStage stage,
+                                                 String workingDir) {
         if (runtime != AgentRuntime.CODEX) {
             throw new IllegalStateException("Harness M3 only supports the Codex runtime");
         }
@@ -456,13 +584,30 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
         if (!supportsProcessTreeCancellation()) {
             throw new IllegalStateException("runtime process tree cancellation is unavailable");
         }
+        String sandboxMode = sandboxMode(stage);
         RuntimeEnforcementProfile profile = new RuntimeEnforcementProfile(
                 ENFORCEMENT_PROFILE_VERSION, ADAPTER_VERSION, version.getDisplayVersion(),
                 runtimeProperties.getCompatibilityMatrixVersion(),
-                runtimeProperties.getSandboxMode(), true, true, true,
+                sandboxMode, true, true, true,
                 workspace.getInventory().isProjectConfigAbsent(), true, true);
         return new PreflightInspection(new RuntimePreflightReport(
                 profile, workspace.getInventory()), workspace);
+    }
+
+    private String sandboxMode(HarnessStage stage) {
+        if (stage == null) {
+            throw new IllegalStateException("runtime stage is required");
+        }
+        String configured = stage == HarnessStage.IMPLEMENTATION
+                ? runtimeProperties.getImplementationSandboxMode()
+                : runtimeProperties.getSandboxMode();
+        String required = stage == HarnessStage.IMPLEMENTATION
+                ? "workspace-write" : "read-only";
+        if (!required.equals(configured)) {
+            throw new IllegalStateException(
+                    "runtime sandbox configuration exceeds or misses stage boundary");
+        }
+        return required;
     }
 
     private RuntimeVersion probeRuntimeVersion(Path root) {
@@ -680,12 +825,36 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
         return process.isAlive() ? -1 : process.exitValue();
     }
 
-    private String redact(String value, List<String> secrets) {
+    private String redactSecrets(String value, List<String> secrets) {
         String redacted = value;
         for (String secret : secrets) {
             redacted = redacted.replace(secret, "[REDACTED]");
         }
-        return redacted.length() <= 4000 ? redacted : redacted.substring(0, 4000);
+        return redacted;
+    }
+
+    private String boundedEvidenceLine(String value) {
+        return value.length() <= 4000 ? value : value.substring(0, 4000);
+    }
+
+    private void observeCompletedCommand(String redactedLine, ActiveExecution active) {
+        try {
+            JsonNode root = MAPPER.readTree(redactedLine);
+            JsonNode item = root == null ? null : root.path("item");
+            JsonNode exitCode = item == null ? null : item.get("exit_code");
+            if (!"item.completed".equals(root.path("type").asText())
+                    || !"command_execution".equals(item.path("type").asText())
+                    || !item.path("command").isTextual()
+                    || item.path("command").asText().trim().isEmpty()
+                    || exitCode == null || !exitCode.canConvertToInt()) {
+                return;
+            }
+            active.observeCommand(item.path("command").asText(), exitCode.asInt(),
+                    com.example.agentweb.domain.harness.HarnessHashing.sha256(
+                            item.path("aggregated_output").asText("")));
+        } catch (RuntimeException | IOException ignored) {
+            // 非法或非命令 JSON 仍保留为脱敏 Runtime Evidence，不进入命令证据。
+        }
     }
 
     private String array(List<String> values) {
@@ -736,7 +905,7 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
                 }
             });
             return true;
-        } catch (IOException | CleanupException ex) {
+        } catch (IOException | UncheckedIOException | CleanupException ex) {
             return false;
         }
     }
@@ -893,21 +1062,25 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
         private final Process process;
         private final Path executionRoot;
         private final List<String> secrets;
+        private final Path outputLastMessage;
         private final String runtimeHandle;
         private final long startedNanos;
         private final AtomicLong sequence = new AtomicLong();
         private final AtomicBoolean cancellationRequested = new AtomicBoolean();
         private final AtomicBoolean terminalEmitted = new AtomicBoolean();
         private final ByteArrayOutputStream evidence = new ByteArrayOutputStream();
+        private final List<RuntimeCommandObservation> commandObservations =
+                new ArrayList<RuntimeCommandObservation>();
 
         private ActiveExecution(AgentExecutionSpec spec, RuntimeEventSink eventSink,
                                 Process process, Path executionRoot, List<String> secrets,
-                                String runtimeHandle, long startedNanos) {
+                                Path outputLastMessage, String runtimeHandle, long startedNanos) {
             this.spec = spec;
             this.eventSink = eventSink;
             this.process = process;
             this.executionRoot = executionRoot;
             this.secrets = Collections.unmodifiableList(new ArrayList<String>(secrets));
+            this.outputLastMessage = outputLastMessage;
             this.runtimeHandle = runtimeHandle;
             this.startedNanos = startedNanos;
         }
@@ -928,8 +1101,9 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
         }
 
         private void emitTerminal(TerminalKind terminal, Integer exitCode, String reason,
-                                  String evidenceReference, boolean cleaned, Instant now) {
-            if (!terminalEmitted.compareAndSet(false, true)) {
+                                  String evidenceReference, boolean cleaned,
+                                  RuntimeArtifactBundle artifactBundle, Instant now) {
+            if (terminalEmitted.get()) {
                 return;
             }
             long next = sequence.incrementAndGet();
@@ -954,7 +1128,18 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
                             evidenceReference, cleaned, now);
                     break;
             }
-            eventSink.onEvent(new RuntimeEvent(spec.getExecutionId(), signal, reason));
+            eventSink.onEvent(new RuntimeEvent(spec.getExecutionId(), signal, reason,
+                    artifactBundle, commandObservations()));
+            terminalEmitted.set(true);
+        }
+
+        private void observeCommand(String command, int exitCode, String outputHash) {
+            commandObservations.add(new RuntimeCommandObservation(
+                    commandObservations.size() + 1, command, exitCode, outputHash));
+        }
+
+        private List<RuntimeCommandObservation> commandObservations() {
+            return new ArrayList<RuntimeCommandObservation>(commandObservations);
         }
 
         private void requestCancellation() {
@@ -975,6 +1160,10 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
 
         private Path getExecutionRoot() {
             return executionRoot;
+        }
+
+        private Path getOutputLastMessage() {
+            return outputLastMessage;
         }
 
         private List<String> getSecrets() {

@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.Collections;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -47,11 +48,35 @@ class RuntimeExecutionTest {
                 NOW.plusSeconds(2)));
         execution.requestCancellation("admin", "stop", NOW.plusSeconds(3));
 
-        execution.apply(RuntimeExecutionSignal.succeeded(2L, 0, "result-artifact",
-                true, NOW.plusSeconds(4)));
+        RuntimeExecutionSignal successfulExit = RuntimeExecutionSignal.succeeded(
+                2L, 0, "result-artifact", true, NOW.plusSeconds(4));
+        RuntimeExecutionSignal normalized = execution.enforceArtifactBundle(
+                successfulExit, null);
+        execution.apply(normalized);
 
+        assertEquals(RuntimeExecutionSignalType.SUCCEEDED, normalized.getType());
         assertEquals(RuntimeExecutionStatus.CANCELLED, execution.getStatus());
         assertEquals("stop", execution.getTerminationReason());
+    }
+
+    @Test
+    void successfulExitWithoutArtifactBundleShouldBecomeExplicitFailure() {
+        RuntimeExecution execution = execution();
+        execution.markStarting(NOW.plusSeconds(1));
+        execution.apply(RuntimeExecutionSignal.started(1L, "codex-test", "pid-1",
+                NOW.plusSeconds(2)));
+
+        RuntimeExecutionSignal normalized = execution.enforceArtifactBundle(
+                RuntimeExecutionSignal.succeeded(2L, 0, "result-artifact",
+                        true, NOW.plusSeconds(3)), null);
+        execution.apply(normalized);
+        Optional<RuntimeExecutionOutcome> outcome = execution.outcome();
+
+        assertEquals(RuntimeExecutionSignalType.FAILED, normalized.getType());
+        assertTrue(outcome.isPresent());
+        assertEquals(RuntimeExecutionStatus.FAILED, outcome.get().getStatus());
+        assertEquals("exec-1", outcome.get().getReference().getExecutionId());
+        assertFalse(outcome.get().producesArtifacts());
     }
 
     @Test
@@ -102,6 +127,22 @@ class RuntimeExecutionTest {
                 () -> execution.requireSameStartRequest("run-1", HarnessStage.DESIGN));
         assertThrows(RuntimeExecutionIdempotencyConflictException.class,
                 () -> execution.requireSameStartRequest("run-2", HarnessStage.ANALYSIS));
+    }
+
+    @Test
+    void unfinishedExecutionShouldBecomeLostAfterApplicationRestartWithoutReplay() {
+        RuntimeExecution prepared = execution();
+        RuntimeExecution running = RuntimeExecution.prepare("exec-2", "launch-2", permit(),
+                AgentRuntime.CODEX, NOW);
+        running.markStarting(NOW.plusSeconds(1));
+        running.apply(RuntimeExecutionSignal.started(1L, "codex-test", "pid-2",
+                NOW.plusSeconds(2)));
+
+        assertTrue(prepared.markLostAfterRestart("application restarted", NOW.plusSeconds(3)));
+        assertTrue(running.markLostAfterRestart("application restarted", NOW.plusSeconds(3)));
+        assertFalse(running.markLostAfterRestart("again", NOW.plusSeconds(4)));
+        assertEquals(RuntimeExecutionStatus.LOST, prepared.getStatus());
+        assertEquals(RuntimeExecutionStatus.LOST, running.getStatus());
     }
 
     private RuntimeExecution execution() {

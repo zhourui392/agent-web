@@ -9,6 +9,7 @@ import com.example.agentweb.domain.harness.ArtifactType;
 import com.example.agentweb.domain.harness.DuplicateHarnessRunException;
 import com.example.agentweb.domain.harness.GateResult;
 import com.example.agentweb.domain.harness.HarnessEvent;
+import com.example.agentweb.domain.harness.HarnessQuestion;
 import com.example.agentweb.domain.harness.HarnessRun;
 import com.example.agentweb.domain.harness.HarnessRunRepository;
 import com.example.agentweb.domain.harness.HarnessRunStatus;
@@ -18,6 +19,7 @@ import com.example.agentweb.domain.harness.StageAttemptStatus;
 import com.example.agentweb.domain.harness.StageContract;
 import com.example.agentweb.domain.harness.StageExecution;
 import com.example.agentweb.domain.harness.StageStatus;
+import com.example.agentweb.domain.harness.WorkspaceBaseline;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -52,7 +54,8 @@ public class SqliteHarnessRunRepository implements HarnessRunRepository {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final String RUN_COLUMNS = "id, title, working_dir, agent_type, environment, "
-            + "definition_version, created_by, idempotency_key, status, created_at, updated_at, version";
+            + "definition_version, created_by, idempotency_key, status, created_at, updated_at, version, "
+            + "repository_root, git_branch, git_head, git_clean, git_diff_hash, git_captured_at";
 
     private final JdbcTemplate jdbc;
 
@@ -64,11 +67,15 @@ public class SqliteHarnessRunRepository implements HarnessRunRepository {
     @Transactional(rollbackFor = Exception.class)
     public void add(HarnessRun run) {
         try {
-            jdbc.update("INSERT INTO harness_run (" + RUN_COLUMNS + ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            WorkspaceBaseline baseline = run.getWorkspaceBaseline();
+            jdbc.update("INSERT INTO harness_run (" + RUN_COLUMNS
+                            + ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     run.getId(), run.getTitle(), run.getWorkingDir(), run.getAgentType(),
                     run.getEnvironment(), run.getDefinitionVersion(), run.getCreatedBy(),
                     run.getIdempotencyKey(), run.getStatus().name(), toMillis(run.getCreatedAt()),
-                    toMillis(run.getUpdatedAt()), run.getVersion());
+                    toMillis(run.getUpdatedAt()), run.getVersion(), baseline.getRepositoryRoot(),
+                    baseline.getBranch(), baseline.getHead(), baseline.isClean() ? 1 : 0,
+                    baseline.getDiffHash(), toMillis(baseline.getCapturedAt()));
             insertChildren(run);
         } catch (DataAccessException ex) {
             throw translateInsertFailure(run, ex);
@@ -106,7 +113,7 @@ public class SqliteHarnessRunRepository implements HarnessRunRepository {
                 row.definitionVersion, row.createdBy, row.idempotencyKey, row.status,
                 row.createdAt, row.updatedAt, row.version, loadStages(row.id),
                 loadArtifacts(row.id), loadGateResults(row.id), loadApprovals(row.id),
-                loadEvents(row.id)));
+                loadQuestions(row.id), row.workspaceBaseline, loadEvents(row.id)));
     }
 
     @Override
@@ -171,6 +178,9 @@ public class SqliteHarnessRunRepository implements HarnessRunRepository {
                     approval.getArtifactBaselineHash(), approval.getDecidedBy(), approval.getReason(),
                     toMillis(approval.getDecidedAt()), approval.isValid() ? 1 : 0,
                     toMillis(approval.getInvalidatedAt()));
+        }
+        for (HarnessQuestion question : run.getQuestions()) {
+            insertQuestion(run.getId(), question);
         }
         for (HarnessEvent event : run.getEvents()) {
             jdbc.update("INSERT INTO harness_event "
@@ -246,6 +256,18 @@ public class SqliteHarnessRunRepository implements HarnessRunRepository {
                     approval.getArtifactBaselineHash(), approval.getDecidedBy(), approval.getReason(),
                     toMillis(approval.getDecidedAt()), approval.isValid() ? 1 : 0,
                     toMillis(approval.getInvalidatedAt()));
+        }
+        for (HarnessQuestion question : run.getQuestions()) {
+            jdbc.update("INSERT INTO harness_question "
+                            + "(question_id, run_id, stage, attempt_number, question, blocking, "
+                            + "asked_by, asked_at, answer, answered_by, answered_at) "
+                            + "VALUES (?,?,?,?,?,?,?,?,?,?,?) "
+                            + "ON CONFLICT(run_id, question_id) DO UPDATE SET answer=excluded.answer, "
+                            + "answered_by=excluded.answered_by, answered_at=excluded.answered_at",
+                    question.getQuestionId(), run.getId(), question.getStage().name(),
+                    question.getAttempt(), question.getQuestion(), question.isBlocking() ? 1 : 0,
+                    question.getAskedBy(), toMillis(question.getAskedAt()), question.getAnswer(),
+                    question.getAnsweredBy(), toMillis(question.getAnsweredAt()));
         }
         for (HarnessEvent event : run.getEvents()) {
             jdbc.update("INSERT OR IGNORE INTO harness_event "
@@ -336,6 +358,29 @@ public class SqliteHarnessRunRepository implements HarnessRunRepository {
                         rs.getInt("valid") != 0, fromMillis(rs, "invalidated_at")), runId);
     }
 
+    private List<HarnessQuestion> loadQuestions(String runId) {
+        return jdbc.query("SELECT question_id, stage, attempt_number, question, blocking, asked_by, "
+                        + "asked_at, answer, answered_by, answered_at FROM harness_question "
+                        + "WHERE run_id=? ORDER BY asked_at, question_id",
+                (rs, rowNumber) -> HarnessQuestion.restore(
+                        rs.getString("question_id"), HarnessStage.valueOf(rs.getString("stage")),
+                        rs.getInt("attempt_number"), rs.getString("question"),
+                        rs.getInt("blocking") != 0, rs.getString("asked_by"),
+                        fromMillis(rs, "asked_at"), rs.getString("answer"),
+                        rs.getString("answered_by"), fromMillis(rs, "answered_at")), runId);
+    }
+
+    private void insertQuestion(String runId, HarnessQuestion question) {
+        jdbc.update("INSERT INTO harness_question "
+                        + "(question_id, run_id, stage, attempt_number, question, blocking, "
+                        + "asked_by, asked_at, answer, answered_by, answered_at) "
+                        + "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                question.getQuestionId(), runId, question.getStage().name(), question.getAttempt(),
+                question.getQuestion(), question.isBlocking() ? 1 : 0, question.getAskedBy(),
+                toMillis(question.getAskedAt()), question.getAnswer(), question.getAnsweredBy(),
+                toMillis(question.getAnsweredAt()));
+    }
+
     private List<HarnessEvent> loadEvents(String runId) {
         return jdbc.query("SELECT sequence, event_type, stage, actor, detail, occurred_at "
                         + "FROM harness_event WHERE run_id=? ORDER BY sequence",
@@ -348,13 +393,20 @@ public class SqliteHarnessRunRepository implements HarnessRunRepository {
     }
 
     private RunRow mapRunRow(ResultSet rs, int rowNumber) throws SQLException {
+        String workingDir = rs.getString("working_dir");
+        String repositoryRoot = rs.getString("repository_root");
+        WorkspaceBaseline baseline = WorkspaceBaseline.capture(
+                "UNKNOWN".equals(repositoryRoot) ? workingDir : repositoryRoot,
+                rs.getString("git_branch"), rs.getString("git_head"),
+                rs.getInt("git_clean") != 0, rs.getString("git_diff_hash"),
+                Instant.ofEpochMilli(rs.getLong("git_captured_at")));
         return new RunRow(rs.getString("id"), rs.getString("title"),
-                rs.getString("working_dir"), rs.getString("agent_type"),
+                workingDir, rs.getString("agent_type"),
                 rs.getString("environment"), rs.getString("definition_version"),
                 rs.getString("created_by"), rs.getString("idempotency_key"),
                 HarnessRunStatus.valueOf(rs.getString("status")),
                 fromMillis(rs, "created_at"), fromMillis(rs, "updated_at"),
-                rs.getLong("version"));
+                rs.getLong("version"), baseline);
     }
 
     private Set<ArtifactType> readArtifactTypes(String json) {
@@ -452,11 +504,12 @@ public class SqliteHarnessRunRepository implements HarnessRunRepository {
         private final Instant createdAt;
         private final Instant updatedAt;
         private final long version;
+        private final WorkspaceBaseline workspaceBaseline;
 
         private RunRow(String id, String title, String workingDir, String agentType,
                        String environment, String definitionVersion, String createdBy,
                        String idempotencyKey, HarnessRunStatus status, Instant createdAt,
-                       Instant updatedAt, long version) {
+                       Instant updatedAt, long version, WorkspaceBaseline workspaceBaseline) {
             this.id = id;
             this.title = title;
             this.workingDir = workingDir;
@@ -469,6 +522,7 @@ public class SqliteHarnessRunRepository implements HarnessRunRepository {
             this.createdAt = createdAt;
             this.updatedAt = updatedAt;
             this.version = version;
+            this.workspaceBaseline = workspaceBaseline;
         }
     }
 }

@@ -62,6 +62,14 @@ public final class Approval {
                 decidedBy, reason, decidedAt, true, null);
     }
 
+    public static Approval approveAction(String approvalId, StageExecution stage,
+                                         String approvalType, String artifactBaselineHash,
+                                         String decidedBy, String reason, Instant decidedAt) {
+        return new Approval(approvalId, stage.getStage(), stage.currentAttempt().getNumber(),
+                approvalType, ApprovalDecision.APPROVED, artifactBaselineHash,
+                decidedBy, reason, decidedAt, true, null);
+    }
+
     void invalidate(Instant now) {
         if (valid) {
             valid = false;

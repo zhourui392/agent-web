@@ -78,6 +78,18 @@ public final class StageExecution {
         status = StageStatus.WAITING_APPROVAL;
     }
 
+    void waitForInput() {
+        requireStatus(StageStatus.RUNNING);
+        currentAttempt().waitForInput();
+        status = StageStatus.WAITING_INPUT;
+    }
+
+    void resumeAfterInput() {
+        requireStatus(StageStatus.WAITING_INPUT);
+        currentAttempt().resumeAfterInput();
+        status = StageStatus.RUNNING;
+    }
+
     void resumeAfterRejection() {
         requireStatus(StageStatus.WAITING_APPROVAL);
         currentAttempt().resumeAfterRejection();

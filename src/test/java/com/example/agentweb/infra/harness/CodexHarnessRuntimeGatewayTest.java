@@ -39,6 +39,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -51,12 +52,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class CodexHarnessRuntimeGatewayTest {
 
     private static final String SECRET = "secret-value-never-persist";
+    private static final String PROVIDER_SECRET = "provider-secret-never-persist";
 
     @TempDir
     Path tempDir;
 
     private CodexHarnessRuntimeGateway gateway;
     private HarnessRuntimeProperties gatewayProperties;
+    private HarnessSecurityProperties gatewaySecurityProperties;
 
     @AfterEach
     void tearDown() {
@@ -75,6 +78,10 @@ class CodexHarnessRuntimeGatewayTest {
                 + "printf '%s\\n' \"$@\" > '" + arguments + "'\n"
                 + "cat >/dev/null\n"
                 + "printf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"t-1\"}'\n"
+                + "printf '%s\\n' '{\"type\":\"item.completed\",\"item\":{"
+                + "\"type\":\"command_execution\",\"command\":\"mvn focused\","
+                + "\"aggregated_output\":\"" + SECRET + " output\","
+                + "\"exit_code\":0,\"status\":\"completed\"}}'\n"
                 + "printf '%s\\n' '{\"type\":\"item.completed\",\"secret\":\"" + SECRET + "\"}'\n"
                 + "printf '%s\\n' '{\"type\":\"turn.completed\"}'\n");
         gateway = gateway(stub, 5L);
@@ -84,6 +91,15 @@ class CodexHarnessRuntimeGatewayTest {
         events.awaitTerminal();
 
         assertEquals(RuntimeExecutionSignalType.SUCCEEDED, events.terminal().getSignal().getType());
+        assertNotNull(events.terminal().getArtifactBundle());
+        assertEquals(HarnessStage.ANALYSIS, events.terminal().getArtifactBundle().getStage());
+        assertEquals(4, events.terminal().getArtifactBundle().getArtifacts().size());
+        assertEquals(1, events.terminal().getCommandObservations().size());
+        assertEquals("mvn focused",
+                events.terminal().getCommandObservations().get(0).getCommand());
+        assertEquals(0, events.terminal().getCommandObservations().get(0).getExitCode());
+        assertEquals(HarnessHashing.sha256("[REDACTED] output"),
+                events.terminal().getCommandObservations().get(0).getOutputHash());
         assertTrue(events.events.stream().anyMatch(event ->
                 event.getSignal().getType() == RuntimeExecutionSignalType.OUTPUT));
         assertTrue(events.events.stream().noneMatch(event ->
@@ -92,6 +108,8 @@ class CodexHarnessRuntimeGatewayTest {
                 "artifact:runtime-jsonl-exec-success:1:"));
         assertTrue(events.started().getSignal().getRuntimeHandle().matches("pid:[0-9]+"));
         List<String> actualArguments = Files.readAllLines(arguments, StandardCharsets.UTF_8);
+        assertTrue(actualArguments.contains("--output-schema"));
+        assertTrue(actualArguments.contains("--output-last-message"));
         assertOverride(actualArguments, "mcp_servers.reader.command=\"fake-mcp\"");
         assertOverride(actualArguments, "mcp_servers.reader.args=[\"--stdio\"]");
         assertOverride(actualArguments, "mcp_servers.reader.env_vars=[\"READER_API_KEY\"]");
@@ -106,6 +124,64 @@ class CodexHarnessRuntimeGatewayTest {
         assertFalse(evidence.contains(SECRET));
         assertTrue(evidence.contains("[REDACTED]"));
         assertRuntimeRootEmpty();
+    }
+
+    @Test
+    void explicitlyConfiguredProviderCredentialShouldBeInjectedAndRedacted() throws Exception {
+        Path stub = script("provider-credential.sh", "#!/bin/sh\n"
+                + "test \"$OPENAI_API_KEY\" = \"" + PROVIDER_SECRET + "\" || exit 31\n"
+                + "cat >/dev/null\n"
+                + "printf '%s\\n' '{\"type\":\"item.completed\",\"credential\":\""
+                + PROVIDER_SECRET + "\"}'\n"
+                + "printf '%s\\n' '{\"type\":\"turn.completed\"}'\n");
+        gateway = gateway(stub, 5L);
+        gatewayProperties.setProviderCredentialReference("CODEX_PROVIDER_CREDENTIAL");
+        Events events = new Events();
+
+        gateway.start(spec("exec-provider-credential", Collections.emptyList()), events);
+        events.awaitTerminal();
+
+        assertEquals(RuntimeExecutionSignalType.SUCCEEDED, events.terminal().getSignal().getType());
+        assertTrue(events.events.stream().noneMatch(event ->
+                event.getSummary() != null && event.getSummary().contains(PROVIDER_SECRET)));
+        String evidence = evidenceText("exec-provider-credential");
+        assertFalse(evidence.contains(PROVIDER_SECRET));
+        assertTrue(evidence.contains("[REDACTED]"));
+    }
+
+    @Test
+    void providerCredentialEnvironmentVariableShouldNotBeGenerallyInherited() throws Exception {
+        Path stub = script("provider-inheritance.sh", "#!/bin/sh\nexit 0\n");
+        gateway = gateway(stub, 5L);
+        gatewaySecurityProperties.setInheritedEnvironmentVariables(
+                new java.util.LinkedHashSet<String>(Arrays.asList("PATH", "OPENAI_API_KEY")));
+
+        IllegalStateException error = assertThrows(IllegalStateException.class,
+                () -> gateway.preflight(AgentRuntime.CODEX, tempDir.toString()));
+
+        assertTrue(error.getMessage().contains("provider credential"));
+    }
+
+    @Test
+    void malformedFinalArtifactBundleShouldFailClosed() throws Exception {
+        Path stub = script("malformed-bundle.sh", "#!/bin/sh\n"
+                + "previous=''\n"
+                + "for argument in \"$@\"; do\n"
+                + "  if [ \"$previous\" = \"--output-last-message\" ]; then\n"
+                + "    printf '%s\\n' 'not-json' > \"$argument\"\n"
+                + "  fi\n"
+                + "  previous=\"$argument\"\n"
+                + "done\n"
+                + "cat >/dev/null\n"
+                + "printf '%s\\n' '{\"type\":\"turn.completed\"}'\n");
+        gateway = gateway(stub, 5L);
+        Events events = new Events();
+
+        gateway.start(spec("exec-malformed-bundle", Collections.emptyList()), events);
+        events.awaitTerminal();
+
+        assertEquals(RuntimeExecutionSignalType.FAILED, events.terminal().getSignal().getType());
+        assertTrue(events.terminal().getSummary().contains("artifact bundle"));
     }
 
     @Test
@@ -225,7 +301,9 @@ class CodexHarnessRuntimeGatewayTest {
     void cleanupFailureShouldBeReportedExplicitly() throws Exception {
         Assumptions.assumeTrue(Files.getFileStore(tempDir).supportsFileAttributeView("posix"));
         Path stub = script("cleanup-failure.sh", "#!/bin/sh\ncat >/dev/null\n"
-                + "chmod 000 \"$CODEX_HOME\"\n"
+                + "mkdir \"$CODEX_HOME/blocked\"\n"
+                + "printf '%s' 'blocked' > \"$CODEX_HOME/blocked/evidence\"\n"
+                + "chmod 000 \"$CODEX_HOME/blocked\"\n"
                 + "printf '%s\\n' '{\"type\":\"turn.completed\"}'\n");
         gateway = gateway(stub, 5L);
         Events events = new Events();
@@ -239,7 +317,7 @@ class CodexHarnessRuntimeGatewayTest {
         try (java.util.stream.Stream<Path> children = Files.list(tempDir.resolve("runtime"))) {
             executionRoot = children.findFirst().orElseThrow(AssertionError::new);
         }
-        Files.setPosixFilePermissions(executionRoot,
+        Files.setPosixFilePermissions(executionRoot.resolve("blocked"),
                 java.nio.file.attribute.PosixFilePermissions.fromString("rwx------"));
     }
 
@@ -436,7 +514,11 @@ class CodexHarnessRuntimeGatewayTest {
         gatewayProperties = runtime;
         HarnessSecurityProperties security = new HarnessSecurityProperties();
         security.setInheritedEnvironmentVariables(Collections.singleton("PATH"));
+        gatewaySecurityProperties = security;
         HarnessSecretResolver secrets = reference -> {
+            if ("CODEX_PROVIDER_CREDENTIAL".equals(reference)) {
+                return PROVIDER_SECRET;
+            }
             if (!"READER_TOKEN".equals(reference)) {
                 throw new IllegalStateException("unknown secret reference");
             }
@@ -464,7 +546,9 @@ class CodexHarnessRuntimeGatewayTest {
         return new AgentExecutionSpec(executionId, "run-1", HarnessStage.ANALYSIS, 1,
                 AgentRuntime.CODEX, workingDir.toString(), prompt,
                 HarnessHashing.sha256("snapshot"), HarnessHashing.sha256(prompt), servers,
-                report.getEnforcementProfile(), report.getWorkspaceInventory());
+                report.getEnforcementProfile(), report.getWorkspaceInventory(),
+                com.example.agentweb.domain.harness.StageContract.mvpDefaults().get(0)
+                        .getRequiredOutputArtifacts());
     }
 
     private SelectedMcpServer reader() {
@@ -487,7 +571,29 @@ class CodexHarnessRuntimeGatewayTest {
                 + "  printf '%s\\n' 'codex-cli 0.145.0'\n"
                 + "  exit 0\n"
                 + "fi\n";
-        return rawScript(name, shebang + versionHandler + content.substring(shebang.length()));
+        String artifactBundle = "{\"schemaVersion\":\"harness-artifact-bundle@1\","
+                + "\"stage\":\"ANALYSIS\",\"artifacts\":["
+                + "{\"artifactId\":\"requirements\",\"artifactType\":\"REQUIREMENT\","
+                + "\"contentType\":\"application/json\",\"classification\":\"INTERNAL\","
+                + "\"content\":\"{}\"},"
+                + "{\"artifactId\":\"acceptance\",\"artifactType\":\"ACCEPTANCE_CRITERIA\","
+                + "\"contentType\":\"application/json\",\"classification\":\"INTERNAL\","
+                + "\"content\":\"{}\"},"
+                + "{\"artifactId\":\"impact\",\"artifactType\":\"IMPACT_ANALYSIS\","
+                + "\"contentType\":\"application/json\",\"classification\":\"INTERNAL\","
+                + "\"content\":\"{}\"},"
+                + "{\"artifactId\":\"questions\",\"artifactType\":\"OPEN_QUESTIONS\","
+                + "\"contentType\":\"application/json\",\"classification\":\"INTERNAL\","
+                + "\"content\":\"{}\"}]}";
+        String outputHandler = "previous=''\n"
+                + "for argument in \"$@\"; do\n"
+                + "  if [ \"$previous\" = \"--output-last-message\" ]; then\n"
+                + "    printf '%s\\n' '" + artifactBundle + "' > \"$argument\"\n"
+                + "  fi\n"
+                + "  previous=\"$argument\"\n"
+                + "done\n";
+        return rawScript(name, shebang + versionHandler + outputHandler
+                + content.substring(shebang.length()));
     }
 
     private Path rawScript(String name, String content) throws Exception {

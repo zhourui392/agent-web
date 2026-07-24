@@ -1,11 +1,8 @@
 package com.example.agentweb.interfaces.dto;
 
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import lombok.Setter;
-
-import java.util.List;
 
 /**
  * Harness 确定性 Gate 结果请求。
@@ -19,8 +16,4 @@ public class HarnessGateRequest {
 
     @NotBlank
     private String rule;
-    @NotNull
-    private Boolean passed;
-    private List<String> evidenceReferences;
-    private String reason;
 }

@@ -8,6 +8,7 @@ import com.example.agentweb.domain.harness.ArtifactType;
 import com.example.agentweb.domain.harness.HarnessRun;
 import com.example.agentweb.domain.harness.HarnessStage;
 import com.example.agentweb.domain.harness.StageContract;
+import com.example.agentweb.domain.harness.WorkspaceBaseline;
 import com.example.agentweb.infra.SqliteInitializer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -56,19 +57,29 @@ class SqliteHarnessRunQueryServiceTest {
         assertEquals(4, view.getArtifacts().size());
         assertEquals(5, view.getGateResults().size());
         assertTrue(view.getApprovals().isEmpty());
+        assertEquals("m4-query", view.getWorkspaceBaseline().getBranch());
+        assertEquals(1, view.getQuestions().size());
+        assertEquals("Non-blocking context?", view.getQuestions().get(0).getQuestion());
         assertTrue(view.getEvents().stream()
                 .anyMatch(event -> "APPROVAL_REQUESTED".equals(event.getEventType())));
         assertEquals(run.currentArtifactBaselineHash(HarnessStage.ANALYSIS),
                 view.getStages().get(0).getArtifactBaselineHash());
         assertFalse(queryService.findById("missing").isPresent());
+        assertEquals(1, queryService.list().size());
+        assertEquals("run-1", queryService.list().get(0).getRunId());
     }
 
     private HarnessRun runWaitingApproval() {
+        WorkspaceBaseline baseline = WorkspaceBaseline.capture(tempDir.toString(), "m4-query",
+                "0123456789012345678901234567890123456789", true,
+                String.join("", Collections.nCopies(64, "0")), NOW);
         HarnessRun run = HarnessRun.create("run-1", "M1", tempDir.toString(),
                 "CODEX", "local", "harness@1.0.0", "admin", "create-key",
-                StageContract.mvpDefaults(), NOW);
+                baseline, StageContract.mvpDefaults(), NOW);
         HarnessStage stage = HarnessStage.ANALYSIS;
         run.startStage(stage, "start", NOW.plusSeconds(1));
+        run.requestInput(stage, "question-1", "Non-blocking context?", false,
+                "agent", NOW.plusSeconds(1));
         int offset = 2;
         for (ArtifactType type : run.stage(stage).getContract().getRequiredOutputArtifacts()) {
             run.registerArtifact(stage, "artifact-" + type.name(), type,

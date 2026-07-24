@@ -1,6 +1,7 @@
 package com.example.agentweb.app.harness.port;
 
 import com.example.agentweb.domain.harness.AgentRuntime;
+import com.example.agentweb.domain.harness.HarnessStage;
 
 /**
  * 采集目标 Runtime 实际可强制能力的出站端口。
@@ -18,4 +19,9 @@ public interface RuntimePreflightGateway {
      * @return 强制能力与工作区清单
      */
     RuntimePreflightReport preflight(AgentRuntime runtime, String workingDir);
+
+    default RuntimePreflightReport preflight(AgentRuntime runtime, HarnessStage stage,
+                                             String workingDir) {
+        return preflight(runtime, workingDir);
+    }
 }

@@ -133,6 +133,7 @@ public class HarnessExecutionPreparer {
                 snapshot.getAttemptNumber(), snapshot.getRuntime(), run.getWorkingDir(),
                 snapshot.getFinalPrompt(), snapshot.getSnapshotHash(), snapshot.getPromptHash(),
                 snapshot.getSelectedMcpServers(), snapshot.getRuntimeEnforcementProfile(),
-                snapshot.getWorkspaceRuntimeInventory());
+                snapshot.getWorkspaceRuntimeInventory(),
+                run.capabilityStageContract(snapshot.getStage()).getRequiredOutputArtifacts());
     }
 }

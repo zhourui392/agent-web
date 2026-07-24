@@ -1,6 +1,8 @@
 package com.example.agentweb;
 
 import com.example.agentweb.domain.auth.CurrentUserProvider;
+import com.example.agentweb.app.harness.port.WorkspaceBaselineGateway;
+import com.example.agentweb.domain.harness.WorkspaceBaseline;
 import com.example.agentweb.domain.worktree.WorkspacePathPolicy;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -18,6 +20,7 @@ import org.springframework.test.web.servlet.MvcResult;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 
@@ -55,6 +58,9 @@ class HarnessFlowTest {
     @MockBean
     private WorkspacePathPolicy workspacePathPolicy;
 
+    @MockBean
+    private WorkspaceBaselineGateway workspaceBaselineGateway;
+
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url",
@@ -70,13 +76,15 @@ class HarnessFlowTest {
         when(currentUserProvider.currentUserId()).thenReturn("admin");
         when(workspacePathPolicy.requireExistingDirectory(anyString()))
                 .thenReturn(WORKSPACE.toString());
+        when(workspaceBaselineGateway.capture(anyString())).thenReturn(workspaceBaseline());
 
         MvcResult created = mvc.perform(post("/api/harness/runs")
                         .header("Idempotency-Key", "flow-create")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"title\":\"Harness M1 Flow\",\"workingDir\":\""
                                 + jsonEscape(WORKSPACE.toString())
-                                + "\",\"agentType\":\"CODEX\",\"environment\":\"local\"}"))
+                                + "\",\"agentType\":\"CODEX\",\"environment\":\"local\","
+                                + "\"originalRequirement\":\"Harness M1 flow\"}"))
                 .andExpect(status().isCreated())
                 .andReturn();
         String runId = objectMapper.readTree(created.getResponse().getContentAsString()).path("runId").asText();
@@ -85,16 +93,7 @@ class HarnessFlowTest {
                         .header("Idempotency-Key", "flow-start"))
                 .andExpect(status().isAccepted());
 
-        List<String> artifactTypes = Arrays.asList(
-                "REQUIREMENT", "ACCEPTANCE_CRITERIA", "IMPACT_ANALYSIS", "OPEN_QUESTIONS");
-        for (String type : artifactTypes) {
-            mvc.perform(post("/api/harness/runs/" + runId + "/stages/ANALYSIS/artifacts")
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content("{\"artifactType\":\"" + type + "\",\"content\":\""
-                                    + type + " body\",\"contentType\":\"text/markdown\","
-                                    + "\"classification\":\"INTERNAL\"}"))
-                    .andExpect(status().isCreated());
-        }
+        registerAnalysisArtifacts(runId);
 
         List<String> gates = Arrays.asList(
                 "required-artifacts-present", "artifact-schema-valid", "requirement-ids-unique",
@@ -119,6 +118,7 @@ class HarnessFlowTest {
         assertEquals(64, baselineHash.length());
 
         mvc.perform(post("/api/harness/runs/" + runId + "/stages/ANALYSIS/approve")
+                        .header("Idempotency-Key", "flow-approve")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"artifactBaselineHash\":\"" + baselineHash
                                 + "\",\"reason\":\"approved\"}"))
@@ -128,7 +128,7 @@ class HarnessFlowTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("ACTIVE"))
                 .andExpect(jsonPath("$.stages[0].status").value("PASSED"))
-                .andExpect(jsonPath("$.artifacts.length()").value(4))
+                .andExpect(jsonPath("$.artifacts.length()").value(5))
                 .andExpect(jsonPath("$.gateResults.length()").value(5))
                 .andExpect(jsonPath("$.approvals[0].valid").value(true));
     }
@@ -147,6 +147,39 @@ class HarnessFlowTest {
         } catch (Exception ex) {
             throw new IllegalStateException("could not create harness flow workspace", ex);
         }
+    }
+
+    private void registerAnalysisArtifacts(String runId) throws Exception {
+        registerArtifact(runId, "REQUIREMENT", "# REQ-1 Harness flow", "text/markdown");
+        registerArtifact(runId, "ACCEPTANCE_CRITERIA",
+                "{\"acceptanceCriteria\":[{\"id\":\"AC-1\",\"requirementId\":\"REQ-1\","
+                        + "\"description\":\"flow completes\",\"verification\":\"HTTP 200\"}]}",
+                "application/json");
+        registerArtifact(runId, "IMPACT_ANALYSIS", "Harness flow impact", "text/markdown");
+        registerArtifact(runId, "OPEN_QUESTIONS", "{\"questions\":[]}", "application/json");
+    }
+
+    private void registerArtifact(String runId, String artifactType, String content,
+                                  String contentType) throws Exception {
+        String request = objectMapper.createObjectNode()
+                .put("artifactType", artifactType)
+                .put("content", content)
+                .put("contentType", contentType)
+                .put("classification", "INTERNAL")
+                .toString();
+        mvc.perform(post("/api/harness/runs/" + runId + "/stages/ANALYSIS/artifacts")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(request))
+                .andExpect(status().isCreated());
+    }
+
+    private WorkspaceBaseline workspaceBaseline() {
+        return WorkspaceBaseline.capture(WORKSPACE.toString(), "main",
+                repeat('a', 40), true, repeat('b', 64), Instant.parse("2026-07-23T00:00:00Z"));
+    }
+
+    private String repeat(char value, int count) {
+        return String.join("", java.util.Collections.nCopies(count, String.valueOf(value)));
     }
 
     private String jsonEscape(String value) {

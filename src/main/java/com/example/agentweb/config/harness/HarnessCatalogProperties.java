@@ -23,4 +23,5 @@ public class HarnessCatalogProperties {
     private String approvedUserSkillRoot;
     private String workspaceSkillRoot;
     private String mcpServerRoot = "src/main/resources/harness/mcp-servers";
+    private String deploymentTemplateRoot = "src/main/resources/harness/deployment-templates";
 }

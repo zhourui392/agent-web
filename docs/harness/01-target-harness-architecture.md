@@ -1,8 +1,8 @@
 # 研发交付 Harness 目标架构
 
-> 状态：目标态设计已同步 DDD 重构与 M3 重新验收完成基线
-> 最后更新：2026-07-23
-> 关联文档：[首版能力范围](02-mvp-capabilities.md) · [建设阶段与里程碑](03-milestones.md) · [M3 详细设计](04-m3-detailed-design.md)
+> 状态：目标态设计已同步 M4 功能集成与受控样例验收基线
+> 最后更新：2026-07-24
+> 关联文档：[首版能力范围](02-mvp-capabilities.md) · [建设阶段与里程碑](03-milestones.md) · [M3 详细设计](04-m3-detailed-design.md) · [M4 实现记录](m4/README.md)
 
 ## 1. 文档结论
 
@@ -76,29 +76,34 @@ Harness = Stage State Machine
 | Gate | 判断阶段是否可通过的规则集合 |
 | Approval | 人工对阶段产物或高风险动作的显式批准/拒绝记录 |
 | Runtime Execution | 一次外部 Runtime 执行的准备、启动、事件、取消和终态记录 |
+| Deployment Execution | 一次 local 外部部署动作的准备、Git 二次 Preflight、终态和人工对账记录 |
 | Runtime Adapter | 把统一执行规格转换为 Claude CLI、Codex CLI 等具体运行方式的适配器 |
 | Execution Permit | HarnessRun 对当前 Attempt、Snapshot 和状态校验后签发的执行许可 |
 | Cancellation Intent | 已持久化的取消业务事实，必须先于终止外部进程发生 |
 
 ## 4. 当前基线与差距
 
-以下结论基于 2026-07-23 M0—M3 当前源码和全局 DDD 分层重构；M3 重新验收已经关闭，表中只把 M4 以后规划列为差距。
+以下结论基于 2026-07-24 M0—M4 当前源码和 DDD 完成性复核。M4 功能集成与受控样例已通过，
+但真实 Codex/真实需求退出项尚未完成，不能据此宣称 MVP 正式完成。
 
 | 当前能力 | 可复用点 | 与目标 Harness 的差距 |
 | --- | --- | --- |
 | `Workflow` 多步串行执行 | 已有定义、执行、步骤输出和 SQLite 持久化 | 仍不是 Harness；两个限界上下文由架构测试保持隔离 |
-| Harness M1 控制平面 | 已有 Run/Stage/Attempt、Artifact、Gate、Approval、Retry、取消和 SQLite 恢复 | 四阶段自动 Gate、补充输入、完整恢复与部署治理仍属于 M4/M5 |
+| Harness M1/M4 控制平面 | 已有固定四阶段、Run/Stage/Attempt、Artifact 修订、确定性 Gate、问题、Approval、Retry、失效传播和 SQLite 恢复 | 自动 Gate 编排、并发冲突和审计重建属于 M5 |
 | Harness M2/M3 能力平面 | 已有四阶段 Prompt Pack、可信 Skill/MCP Catalog、五维授权求交，以及 M2/临时 M3/M3.1 Snapshot 兼容读取 | `M3.1` 已固化 MCP required/allow/deny/双 timeout、Repo Skill 指纹和 Runtime Enforcement；写 MCP、OAuth 与生产 Secret Broker 延期 |
-| Harness M3 执行平面 | 已有独立 `RuntimeExecution`、提交后启动/取消、单次 `-c`、项目配置/Repo Skill 旁路防护、版本 fail-closed、实际 PID Handle、幂等资源语义、JSONL Evidence 与清理状态 | M4 真实试点前执行显式 `live`/手工兼容验证；重启自动对账与 Claude Adapter 延期 |
+| Harness M3/M4 执行平面 | 已有独立 `RuntimeExecution`、Artifact Bundle、提交后启动/取消、单次 `-c`、项目配置/Repo Skill 旁路防护、版本 fail-closed、实际 PID Handle、幂等资源语义、JSONL Evidence、Git/命令实证与清理状态 | 真实试点仍需显式 `live`/手工兼容验证；Bundle 崩溃窗口、自动对账与 Claude Adapter 延期 |
+| Harness M4 部署与管理面 | 已有独立 `DeploymentExecution`、local 模板、独立 Approval、Git 二次 Preflight、技术/业务 AC、人工对账、管理页面和最终追踪报告 | 真实需求 local 验收待完成；test/production、自动 rollback 和部署制品治理延期 |
 | AgentRun/CLI 端口 | 聊天/同步入口继续使用 `app/agentrun/port`；Harness 使用独立 `app/harness/port` | 三类合同按业务语义隔离，不合并为带可选参数的通用 Gateway |
-| SQLite 与文件能力 | 已有增量 Run 持久化、M2/M3 Snapshot、RuntimeExecution/Event、受控 Artifact/Evidence Store 和幂等老库迁移 | 重启对账、保留策略和大规模归档治理仍属于后续里程碑 |
+| SQLite 与文件能力 | 已有增量 Run 持久化、Snapshot、Runtime/Deployment Execution、Event、受控 Artifact/Evidence Store、CQRS 投影和幂等老库迁移 | 持久接收箱、保留策略和大规模归档治理仍属于后续里程碑 |
 
 代码依据：
 
 - [`HarnessRun`](../../src/main/java/com/example/agentweb/domain/harness/HarnessRun.java) 已收口阶段顺序、Attempt、Gate、Approval 和失效传播。
 - [`HarnessCapabilityServiceImpl`](../../src/main/java/com/example/agentweb/app/harness/HarnessCapabilityServiceImpl.java) 已编排 Prompt、Skill、MCP、Workspace Trust 与 Runtime Preflight，并固化完整 M3.1 Snapshot。
 - [`RuntimeExecution`](../../src/main/java/com/example/agentweb/domain/harness/RuntimeExecution.java) 与 [`HarnessRun`](../../src/main/java/com/example/agentweb/domain/harness/HarnessRun.java) 分别承载技术执行状态机和交付业务语义。
+- [`DeploymentExecution`](../../src/main/java/com/example/agentweb/domain/harness/DeploymentExecution.java) 管理一次 local 外部动作；`HarnessRun` 只消费不可变 Runtime/Deployment Outcome，不跨聚合读取可变状态。
 - [`HarnessExecutionPreparer`](../../src/main/java/com/example/agentweb/app/harness/HarnessExecutionPreparer.java) 与 [`HarnessExecutionLauncher`](../../src/main/java/com/example/agentweb/app/harness/HarnessExecutionLauncher.java) 以事务内准备、事务外副作用落实 commit-before-launch/cancel。
+- [`HarnessDeploymentPreparer`](../../src/main/java/com/example/agentweb/app/harness/HarnessDeploymentPreparer.java) 与 [`HarnessDeploymentLauncher`](../../src/main/java/com/example/agentweb/app/harness/HarnessDeploymentLauncher.java) 以同样边界落实 commit-before-deploy 和人工对账。
 - [`CodexHarnessRuntimeGateway`](../../src/main/java/com/example/agentweb/infra/harness/CodexHarnessRuntimeGateway.java) 负责有界版本/工作区预检、单次 `-c` 能力覆盖、最小环境、Secret 启动期解析、JSONL、超时、取消、Evidence 和清理。
 - [`SqliteHarnessRunRepository`](../../src/main/java/com/example/agentweb/infra/harness/SqliteHarnessRunRepository.java) 已改为 Stage/Attempt 增量持久化，避免 Run 更新级联删除 Snapshot/Execution。
 
@@ -958,7 +963,7 @@ M0 已于 2026-07-22 完成，详细证据见 [`m0/README.md`](m0/README.md)：
 - MCP/Skill 采用预注册、按阶段选择、不可变快照和失败关闭；
 - M1 先交付领域内核和管理 API，最小管理页面在 M4 纵向集成前完成；
 - 本机部署复用受控的 `scripts/service.sh` 命令模板，但只在 M4 独立 Approval 后执行；
-- 当前在线 Codex API Key 返回 401，不阻塞 M1—M3，但必须在 M4 真实需求验收前修复。
+- M0 使用默认 Codex 登录态访问在线 Provider 返回 401；隔离 Harness 不读取用户认证目录，M4 真实需求验收前必须显式提供有效的受控 Provider Credential Reference。
 
 延期到后续里程碑决策：
 

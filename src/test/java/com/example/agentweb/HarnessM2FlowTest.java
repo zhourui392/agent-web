@@ -1,6 +1,8 @@
 package com.example.agentweb;
 
 import com.example.agentweb.domain.auth.CurrentUserProvider;
+import com.example.agentweb.app.harness.port.WorkspaceBaselineGateway;
+import com.example.agentweb.domain.harness.WorkspaceBaseline;
 import com.example.agentweb.domain.worktree.WorkspacePathPolicy;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -21,6 +23,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Stream;
@@ -63,6 +66,9 @@ class HarnessM2FlowTest {
     @MockBean
     private WorkspacePathPolicy workspacePathPolicy;
 
+    @MockBean
+    private WorkspaceBaselineGateway workspaceBaselineGateway;
+
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url",
@@ -80,6 +86,7 @@ class HarnessM2FlowTest {
     void changedSkillShouldKeepOldAttemptSnapshotAndOnlyAffectNewAttempt() throws Exception {
         when(currentUserProvider.currentUserId()).thenReturn("admin");
         when(workspacePathPolicy.requireExistingDirectory(anyString())).thenReturn(WORKSPACE.toString());
+        when(workspaceBaselineGateway.capture(anyString())).thenReturn(workspaceBaseline());
         String runId = createAndStartAnalysis();
 
         JsonNode first = resolve(runId, "first input");
@@ -115,7 +122,8 @@ class HarnessM2FlowTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"title\":\"Harness M2 Flow\",\"workingDir\":\""
                                 + jsonEscape(WORKSPACE.toString())
-                                + "\",\"agentType\":\"CODEX\",\"environment\":\"test\"}"))
+                                + "\",\"agentType\":\"CODEX\",\"environment\":\"test\","
+                                + "\"originalRequirement\":\"Harness M2 flow\"}"))
                 .andExpect(status().isCreated()).andReturn();
         String runId = objectMapper.readTree(created.getResponse().getContentAsString()).path("runId").asText();
         mvc.perform(post("/api/harness/runs/" + runId + "/stages/ANALYSIS/start")
@@ -130,7 +138,6 @@ class HarnessM2FlowTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"technicalTags\":[\"java\"],"
                                 + "\"readableFileRoots\":[\"workspace\"],"
-                                + "\"upstreamArtifacts\":\"approved upstream\","
                                 + "\"currentInput\":\"" + currentInput + "\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.promptPackVersion").value("1.0.0"))
@@ -139,16 +146,7 @@ class HarnessM2FlowTest {
     }
 
     private void passAndRetryAnalysis(String runId) throws Exception {
-        List<String> artifacts = Arrays.asList(
-                "REQUIREMENT", "ACCEPTANCE_CRITERIA", "IMPACT_ANALYSIS", "OPEN_QUESTIONS");
-        for (String type : artifacts) {
-            mvc.perform(post("/api/harness/runs/" + runId + "/stages/ANALYSIS/artifacts")
-                            .contentType(MediaType.APPLICATION_JSON)
-                            .content("{\"artifactType\":\"" + type + "\",\"content\":\""
-                                    + type + " body\",\"contentType\":\"text/markdown\","
-                                    + "\"classification\":\"INTERNAL\"}"))
-                    .andExpect(status().isCreated());
-        }
+        registerAnalysisArtifacts(runId);
         List<String> gates = Arrays.asList(
                 "required-artifacts-present", "artifact-schema-valid", "requirement-ids-unique",
                 "acceptance-criteria-observable", "no-blocking-open-question");
@@ -166,6 +164,7 @@ class HarnessM2FlowTest {
         String baselineHash = objectMapper.readTree(runView.getResponse().getContentAsString())
                 .path("stages").get(0).path("artifactBaselineHash").asText();
         mvc.perform(post("/api/harness/runs/" + runId + "/stages/ANALYSIS/approve")
+                        .header("Idempotency-Key", "m2-flow-approve")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"artifactBaselineHash\":\"" + baselineHash
                                 + "\",\"reason\":\"approved\"}"))
@@ -231,6 +230,39 @@ class HarnessM2FlowTest {
         } catch (IOException ex) {
             throw new IllegalStateException("could not create Harness M2 directory", ex);
         }
+    }
+
+    private void registerAnalysisArtifacts(String runId) throws Exception {
+        registerArtifact(runId, "REQUIREMENT", "# REQ-1 Harness flow", "text/markdown");
+        registerArtifact(runId, "ACCEPTANCE_CRITERIA",
+                "{\"acceptanceCriteria\":[{\"id\":\"AC-1\",\"requirementId\":\"REQ-1\","
+                        + "\"description\":\"flow completes\",\"verification\":\"HTTP 200\"}]}",
+                "application/json");
+        registerArtifact(runId, "IMPACT_ANALYSIS", "Harness flow impact", "text/markdown");
+        registerArtifact(runId, "OPEN_QUESTIONS", "{\"questions\":[]}", "application/json");
+    }
+
+    private void registerArtifact(String runId, String artifactType, String content,
+                                  String contentType) throws Exception {
+        String request = objectMapper.createObjectNode()
+                .put("artifactType", artifactType)
+                .put("content", content)
+                .put("contentType", contentType)
+                .put("classification", "INTERNAL")
+                .toString();
+        mvc.perform(post("/api/harness/runs/" + runId + "/stages/ANALYSIS/artifacts")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(request))
+                .andExpect(status().isCreated());
+    }
+
+    private WorkspaceBaseline workspaceBaseline() {
+        return WorkspaceBaseline.capture(WORKSPACE.toString(), "main",
+                repeat('a', 40), true, repeat('b', 64), Instant.parse("2026-07-23T00:00:00Z"));
+    }
+
+    private String repeat(char value, int count) {
+        return String.join("", java.util.Collections.nCopies(count, String.valueOf(value)));
     }
 
     private String jsonEscape(String value) {

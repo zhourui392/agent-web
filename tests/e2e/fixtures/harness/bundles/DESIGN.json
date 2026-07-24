@@ -1,0 +1,48 @@
+{
+  "schemaVersion": "harness-artifact-bundle@1",
+  "stage": "DESIGN",
+  "artifacts": [
+    {
+      "artifactId": "design-solution",
+      "artifactType": "SOLUTION",
+      "contentType": "text/markdown",
+      "classification": "INTERNAL",
+      "content": "Domain owns invariants; Application only orchestrates the controlled flow."
+    },
+    {
+      "artifactId": "design-change-plan",
+      "artifactType": "CHANGE_PLAN",
+      "contentType": "application/json",
+      "classification": "INTERNAL",
+      "content": "{\"changes\":[{\"path\":\"src/main/A.java\",\"layer\":\"domain\"}]}"
+    },
+    {
+      "artifactId": "design-test-strategy",
+      "artifactType": "TEST_STRATEGY",
+      "contentType": "application/json",
+      "classification": "INTERNAL",
+      "content": "{\"tests\":[{\"requirementId\":\"REQ-1\",\"acceptanceCriteriaIds\":[\"AC-1\"],\"layer\":\"DOMAIN\",\"scenario\":\"RuleTest records RED before GREEN\"}]}"
+    },
+    {
+      "artifactId": "design-deployment-plan",
+      "artifactType": "DEPLOYMENT_PLAN",
+      "contentType": "text/markdown",
+      "classification": "INTERNAL",
+      "content": "Use the pre-registered local-default safe template."
+    },
+    {
+      "artifactId": "design-rollback-plan",
+      "artifactType": "ROLLBACK_PLAN",
+      "contentType": "text/markdown",
+      "classification": "INTERNAL",
+      "content": "Disable agent.harness.enabled and reconcile manually; no automatic rollback."
+    },
+    {
+      "artifactId": "design-traceability",
+      "artifactType": "TRACEABILITY",
+      "contentType": "application/json",
+      "classification": "INTERNAL",
+      "content": "{\"links\":[{\"requirementId\":\"REQ-1\",\"acceptanceCriteriaId\":\"AC-1\",\"designRef\":\"SOLUTION#domain\",\"testRef\":\"RuleTest\"}]}"
+    }
+  ]
+}

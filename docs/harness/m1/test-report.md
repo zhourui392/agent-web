@@ -77,7 +77,7 @@ git diff --check
 ## 5. 未执行项与边界
 
 - 未执行 `mvn package`、服务重启或部署。
-- 未调用真实 Codex/OpenAI Provider；M0 记录的在线凭据 HTTP 401 仍待 M4 前修复。
+- 未调用真实 Codex/OpenAI Provider；M0 记录的默认登录态 HTTP 401 不影响 M1，M4 真实验收需显式提供受控 Provider 凭据。
 - 未运行真实部署或回滚；属于 M4。
 - 未实现 Prompt Pack/Skill/Capability Snapshot；属于 M2。
 - 未实现 Codex Runtime Adapter、MCP 挂载、进程取消和 Runtime 对账；属于 M3。

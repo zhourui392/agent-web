@@ -3,6 +3,7 @@ package com.example.agentweb.domain.harness;
 import lombok.Getter;
 
 import java.time.Instant;
+import java.util.Optional;
 
 /**
  * 一次受控外部进程执行的聚合根。
@@ -143,6 +144,24 @@ public final class RuntimeExecution {
         return true;
     }
 
+    public boolean markLostAfterRestart(String reason, Instant now) {
+        if (status == RuntimeExecutionStatus.LOST) {
+            return false;
+        }
+        if (status != RuntimeExecutionStatus.PREPARED
+                && status != RuntimeExecutionStatus.STARTING
+                && status != RuntimeExecutionStatus.RUNNING
+                && status != RuntimeExecutionStatus.CANCEL_REQUESTED) {
+            return false;
+        }
+        status = RuntimeExecutionStatus.LOST;
+        terminationReason = DomainText.require(reason, "runtime restart loss reason", 1000);
+        cleanupStatus = RuntimeCleanupStatus.FAILED;
+        finishedAt = requireTime(now);
+        lastEventSequence++;
+        return true;
+    }
+
     public boolean apply(RuntimeExecutionSignal signal) {
         if (signal == null) {
             throw new IllegalArgumentException("runtime signal must not be null");
@@ -179,6 +198,48 @@ public final class RuntimeExecution {
         }
         lastEventSequence = signal.getSequence();
         return true;
+    }
+
+    /**
+     * 在状态迁移前校验成功回调的 Artifact Bundle；取消意图优先，不要求写入成功产物。
+     *
+     * @param signal Runtime 归一化信号
+     * @param bundle Runtime 成功产物
+     * @return 可安全进入状态机的信号；合同不满足时转换为显式失败
+     */
+    public RuntimeExecutionSignal enforceArtifactBundle(RuntimeExecutionSignal signal,
+                                                        RuntimeArtifactBundle bundle) {
+        if (signal == null) {
+            throw new IllegalArgumentException("runtime signal must not be null");
+        }
+        if (signal.getType() != RuntimeExecutionSignalType.SUCCEEDED
+                || status == RuntimeExecutionStatus.CANCEL_REQUESTED) {
+            return signal;
+        }
+        try {
+            if (bundle == null) {
+                throw new IllegalArgumentException("runtime artifact bundle is missing");
+            }
+            bundle.requireStage(stage);
+            return signal;
+        } catch (IllegalArgumentException | IllegalHarnessTransitionException ex) {
+            return RuntimeExecutionSignal.failed(signal.getSequence(), signal.getExitCode(),
+                    "runtime artifact bundle validation failed", signal.getEvidenceReference(),
+                    Boolean.TRUE.equals(signal.getTemporaryConfigCleaned()), signal.getOccurredAt());
+        }
+    }
+
+    /**
+     * 暴露跨聚合投影所需的最小终态事实，不泄漏可变 RuntimeExecution 聚合。
+     *
+     * @return 非终态为空，终态为不可变 Outcome
+     */
+    public Optional<RuntimeExecutionOutcome> outcome() {
+        if (!status.isTerminal()) {
+            return Optional.empty();
+        }
+        return Optional.of(new RuntimeExecutionOutcome(
+                reference(), status, terminationReason));
     }
 
     public ExecutionReference reference() {

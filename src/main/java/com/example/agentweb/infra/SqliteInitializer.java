@@ -183,6 +183,7 @@ public class SqliteInitializer {
         migrateChatRecallObservation();
         migrateWorkflowTables();
         migrateHarnessM3();
+        migrateHarnessM4();
     }
 
     private void migrateChatRecallObservation() {
@@ -344,6 +345,18 @@ public class SqliteInitializer {
         addColumnIfMissing("harness_capability_snapshot", "runtime_enforcement_json TEXT");
         addColumnIfMissing("harness_capability_snapshot",
                 "workspace_runtime_inventory_json TEXT NOT NULL DEFAULT '{}'");
+    }
+
+    private void migrateHarnessM4() {
+        addColumnIfMissing("harness_run",
+                "repository_root TEXT NOT NULL DEFAULT 'UNKNOWN'");
+        addColumnIfMissing("harness_run", "git_branch TEXT NOT NULL DEFAULT 'UNKNOWN'");
+        addColumnIfMissing("harness_run",
+                "git_head TEXT NOT NULL DEFAULT '0000000000000000000000000000000000000000'");
+        addColumnIfMissing("harness_run", "git_clean INTEGER NOT NULL DEFAULT 0");
+        addColumnIfMissing("harness_run", "git_diff_hash TEXT NOT NULL DEFAULT '"
+                + "0000000000000000000000000000000000000000000000000000000000000000'");
+        addColumnIfMissing("harness_run", "git_captured_at INTEGER NOT NULL DEFAULT 0");
     }
 
     private void addColumnIfMissing(String table, String definition) {

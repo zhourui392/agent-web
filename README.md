@@ -28,9 +28,9 @@
 
 ### 平台运维
 
-- **管理台**（`/admin`，数据库 ADMIN 角色鉴权）— 使用概览、对话浏览、用户账号创建、工作流管理、用户建议 triage、RAG 语料维护、运行时设置（Agent 模型）
+- **管理台**（`/admin`，数据库 ADMIN 角色鉴权）— 使用概览、对话浏览、用户账号创建、工作流管理、用户建议 triage、RAG 语料维护、运行时设置（Agent 模型、默认工作空间与目录授权）
 - **工作流编排** — 定义可复用的多步 workflow（每步一个 prompt 模板），一键触发执行并按步记录结果
-- **研发交付 Harness（默认关闭）** — 独立于 Workflow 的四阶段控制平面；M1 已支持 Run/Stage/Attempt、Artifact/Gate/Approval，M2 已支持四阶段 Prompt Pack、可信 Skill Catalog、能力授权求交、不可变 Capability Snapshot 与 ADMIN 预览页；M3 已完成只读 MCP、`RuntimeExecution`、提交后启动/取消、M3.1 Snapshot、单次 CLI 能力覆盖、工作区旁路防护、Codex 版本/PID 预检、Secret 脱敏和 Evidence Store，并通过重新验收，详见 [M3 设计](docs/harness/04-m3-detailed-design.md)、[实现记录](docs/harness/m3/README.md)与[自测报告](docs/harness/m3/test-report.md)
+- **研发交付 Harness（默认关闭）** — 独立于 Workflow 的固定四阶段控制平面；M1—M3 已完成领域内核、Prompt/Skill/MCP Snapshot 和 Codex Runtime，M4 已打通 `ANALYSIS → DESIGN → IMPLEMENTATION → DEPLOYMENT`、`WAITING_INPUT`、确定性 Gate、Artifact 修订/失效、Git/TDD 证据、独立 local 部署 Approval、重启人工对账、管理页面和最终追踪报告。受控自动化已通过；隔离 Runtime 已支持受控 Provider Credential Reference，但当前尚未提供可用凭据和真实试点需求，真实验收前不能关闭 M4，详见 [M4 实现记录](docs/harness/m4/README.md)与[自测报告](docs/harness/m4/test-report.md)
 - **用户建议** — 登录用户从聊天界面提交产品反馈，管理员分流处理
 - **每用户 Git 身份** — 各用户配置自己的 git identity 与 SCM 凭据（密码加密存储、不回显），用于交付时归属提交与解析凭据链
 
@@ -126,17 +126,23 @@ mvn spring-boot:run
 
 ### 基本配置
 
-机器相关路径编辑 `src/main/resources/agent-paths.yml`。`agent.fs.roots` 同时授权文件接口和 Git
-worktree 操作；`agent.fs.upload-roots` 仍只额外授权上传接口：
+机器相关路径在数据库尚未配置时，以 `src/main/resources/agent-paths.yml` 作为种子。管理员可在
+`/admin/settings.html` 维护默认工作空间、允许的工作空间根目录和仅上传额外根目录；保存后写入
+现有 `app_setting` 表并立即生效，数据库值优先于种子。`agent.fs.roots` 同时授权文件接口、会话、
+Workspace Context 和 Git worktree 操作；`agent.fs.upload-roots` 仍只额外授权上传接口：
 
 ```yaml
 agent:
   fs:
     roots:
-      - "${AGENT_WORKSPACE_ROOT:/home/service/workspace}"
-    upload-roots:
-      - "/home/service/.agent-web"
+      - "${AGENT_WORKSPACE_ROOT:${AGENT_WORKTREE_ALLOWED_ROOT:${user.home}/workspace}}"
+    upload-roots: []
 ```
+
+工作空间配置在 `app_setting` 中以 `workspace.configuration` 单个 JSON 文档保存，避免默认目录和授权
+根目录多行更新时出现部分成功。通用配置读取按 key 使用进程内缓存：新增/更新成功后刷新对应缓存，
+删除或在管理后台“恢复配置文件默认值”后淘汰对应缓存。保存工作空间配置时，所有路径必须是已存在的
+绝对目录，且默认工作空间必须同时出现在允许根目录列表中。
 
 其他服务配置编辑 `src/main/resources/application.yml`：
 
@@ -175,7 +181,7 @@ agent:
 
 知识精炼默认关闭。开启知识精炼需经 `REFINERY_EMBED_API_KEY` 注入 embedding 鉴权，且 `agent.refinery.embedding.dimension` 须与模型维度一致（不一致启动 fail-fast）。凭证走环境变量或下述 Git 忽略配置，勿写进 `application.yml`。
 
-本机文件化的服务端敏感配置统一放在 Git 忽略的 `data/secrets.properties`，应用启动时会自动读取；外部环境变量优先级更高。Codex CLI 和 Claude Code 不读取该文件中的认证配置，仍使用各自的本机默认登录态。示例只列变量名，不要把真实值写入受 Git 跟踪的文件：
+本机文件化的服务端敏感配置统一放在 Git 忽略的 `data/secrets.properties`，应用启动时会自动读取；外部环境变量优先级更高。普通 Codex CLI 和 Claude Code 不读取该文件中的认证配置，仍使用各自的本机默认登录态。Harness 是例外：它不读取用户认证目录，只在显式配置 Provider Credential Reference 时从服务进程环境解析并注入单次隔离进程。示例只列变量名，不要把真实值写入受 Git 跟踪的文件：
 
 ```properties
 GIT_CRED_ENC_KEY=<32 字节密钥的 base64>
@@ -204,8 +210,8 @@ AGENT_BOOTSTRAP_ADMIN_PASSWORD=<仅首次公网启动使用的新管理员密码
 | `AGENT_AUTH_LOGIN_FAILURE_WINDOW_SECONDS` | `300` | 登录失败限流窗口（秒） |
 | `AGENT_PUBLIC_ACCESS_ENABLED` | `true` | 启用公网启动安全门禁；本机 loopback 开发才可关闭 |
 | `AGENT_BOOTSTRAP_ADMIN_PASSWORD` | _(无)_ | 仅在数据库仍是公开种子哈希时使用一次的新管理员密码；至少 12、至多 256 字符 |
-| `AGENT_WORKSPACE_ROOT` | `/home/service/workspace` | 文件接口与 Worktree 共用的主工作区根；写入 `agent-paths.yml` 的首个 `agent.fs.roots` |
-| `AGENT_WORKTREE_ALLOWED_ROOT` | `/home/service/workspace` | 旧部署兼容变量，仅在未设置 `AGENT_WORKSPACE_ROOT` 时作为共享主工作区根回退 |
+| `AGENT_WORKSPACE_ROOT` | `${user.home}/workspace` | 工作空间配置未落库时的主工作区种子；写入 `agent-paths.yml` 的首个 `agent.fs.roots` |
+| `AGENT_WORKTREE_ALLOWED_ROOT` | `${user.home}/workspace` | 旧部署兼容变量，仅在未设置 `AGENT_WORKSPACE_ROOT` 时作为共享主工作区种子回退 |
 | `AGENT_E2E_ADMIN_PASSWORD` | _(无)_ | Playwright 登录测试账户的密码；只用于测试进程，不写入仓库 |
 | `GIT_CRED_ENC_KEY` | _(无)_ | 用户 Git push 凭据的 AES-256-GCM 主密钥；支持环境变量或 `data/secrets.properties` |
 | `REFINERY_ENABLED` | `false` | 知识精炼子域总开关，`false` 时相关 bean 全不注册 |
@@ -222,9 +228,13 @@ AGENT_BOOTSTRAP_ADMIN_PASSWORD=<仅首次公网启动使用的新管理员密码
 | `AGENT_HARNESS_APPROVED_USER_SKILL_ROOT` | _(无)_ | 管理员批准的用户 Skill 根；目录来源固定为 `APPROVED_USER`，Manifest 不可伪造来源 |
 | `AGENT_HARNESS_WORKSPACE_SKILL_ROOT` | _(无)_ | Workspace Skill 根；每个 Skill 仍需在 Snapshot 请求中做 Run 级显式批准 |
 | `AGENT_HARNESS_MCP_SERVER_ROOT` | `src/main/resources/harness/mcp-servers` | 管理员可信 MCP Server Catalog 根；只允许 Snapshot 选中的 Server 进入隔离配置 |
+| `AGENT_HARNESS_DEPLOYMENT_TEMPLATE_ROOT` | `src/main/resources/harness/deployment-templates` | 管理员审核的 local 部署模板 Catalog；仓库默认不内置可执行模板 |
 | `AGENT_HARNESS_CODEX_COMMAND` | `CODEX_CMD`，未配置时为 `codex` | Harness 专用 Codex Runtime 命令；与普通聊天命令配置分离 |
+| `AGENT_HARNESS_CODEX_CREDENTIAL_REFERENCE` | _(无)_ | Harness Codex Provider 凭据的环境变量逻辑名；例如值为 `HARNESS_CODEX_PROVIDER_KEY` 时，只在单次隔离进程中将该变量的值注入 `OPENAI_API_KEY`，不读取用户 `CODEX_HOME` |
 | `AGENT_HARNESS_RUNTIME_TEMP_ROOT` | `data/harness/runtime` | Harness 单次执行隔离 `HOME/CODEX_HOME/XDG_CONFIG_HOME` 的临时根，终态后清理 |
 | `AGENT_HARNESS_ALLOWED_MCP_SERVER_IDS` | _(无)_ | 当前环境允许挂载的 MCP Server ID 集合；空集合 fail-closed |
+| `AGENT_HARNESS_DEPLOYMENT_TIMEOUT_SECONDS` | `600` | local 部署模板每个步骤的超时上限 |
+| `AGENT_HARNESS_DEPLOYMENT_MAX_OUTPUT_BYTES` | `1048576` | local 部署模板每个步骤的输出上限 |
 | `CODEX_STREAM_IDLE_TIMEOUT_SECONDS` / `CLAUDE_STREAM_IDLE_TIMEOUT_SECONDS` | `900` | 普通流式聊天无 stdout 活动的终止期限；收到活动会续期，`0` 表示禁用 |
 | `CODEX_STREAM_MAX_RUNTIME_SECONDS` / `CLAUDE_STREAM_MAX_RUNTIME_SECONDS` | `7200` | 普通流式聊天绝对运行上限；stdout 活动不会续期，`0` 表示禁用 |
 
@@ -238,6 +248,25 @@ AGENT_BOOTSTRAP_ADMIN_PASSWORD=<仅首次公网启动使用的新管理员密码
 4. 实时查看 Agent 流式响应
 5. 历史列表展示对话，可查看 / 继续会话；**删除仅限自己创建的对话**
 6. 「分享」按钮生成只读公开链接；链接持有者可查看历史与消息中明确引用的图片，但不能续聊或启动 Agent
+
+### 研发交付 Harness
+
+Harness 默认关闭。试用前先阅读 [M4 开启、恢复和限制说明](docs/harness/m4/README.md#7-开启配置与关闭)，
+准备管理员维护的外置 Catalog 和仅 local 的 token 化部署模板，再通过
+`AGENT_HARNESS_ENABLED=true` 开启。ADMIN 登录后访问 `/admin/harness.html`，按固定顺序执行：
+
+```text
+创建 Run 并冻结原始需求
+→ ANALYSIS / Gate / Approval
+→ DESIGN / Gate / Approval
+→ IMPLEMENTATION / Git + TDD Gate / Approval
+→ 独立 local 部署 Approval
+→ DEPLOYMENT / 技术与业务 AC / 最终 Approval
+```
+
+需求、Skill 或 Agent 输出不能新增命令、MCP、环境变量或文件根；部署命令只来自管理员 Catalog。
+Feature Flag 关闭不会删除历史数据。服务重启时未知 Runtime 标记 `LOST`，未知部署进入
+`RECONCILIATION_REQUIRED`，不会自动重放外部动作。
 
 ## API 接口
 

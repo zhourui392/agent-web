@@ -30,7 +30,7 @@ codex --ask-for-approval never exec
 ```
 
 6. `--ask-for-approval` 放在 `exec` 子命令之前。虽然 `codex exec --help` 的当前输出把该选项列在 exec Options 中，但本机 0.145.0 放在子命令后会报 `unexpected argument`。
-7. MVP 使用受管的临时 `HOME` 和 `CODEX_HOME`，不加载真实用户配置；真实模型鉴权未来通过受控 Credential Reference 注入单次运行。
+7. MVP 使用受管的临时 `HOME` 和 `CODEX_HOME`，不加载真实用户配置；真实模型鉴权通过受控 Credential Reference 注入单次运行。M4 已实现显式环境逻辑引用，默认不注入凭据。
 8. `--ignore-user-config` 只承诺不加载 `$CODEX_HOME/config.toml`，不等同于忽略可信项目的 `.codex/config.toml`。MVP Preflight 遇到工作目录祖先链上的 `.codex/config.toml` 时默认阻断，直至实现显式解析和授权。
 9. Stage Attempt 保存 Codex PID/进程组、JSONL Runtime Execution ID、Prompt Hash 和 Capability Snapshot Hash。
 10. 取消时先持久化取消意图，再终止进程组。取消后的整体状态由取消意图决定，不依据进程退出码。
@@ -58,7 +58,7 @@ codex --ask-for-approval never exec
 - 需要维护 Codex 版本兼容矩阵和参数契约测试。
 - 必须管理进程组，不能只调用 `Process.destroy()` 后看退出码。
 - MVP 遇到项目 `.codex/config.toml` 默认阻断，限制部分工作区。
-- 当前本机保存的在线 API Key 被服务端返回 401；这不阻塞 M1—M3，但在真实需求验收前必须修复。
+- M0 使用默认登录态尝试在线 Provider 时返回 401；隔离 Harness 不读取该登录态，M4 真实验收必须另行提供有效的受控 Provider Credential Reference。
 
 ## 被否决方案
 

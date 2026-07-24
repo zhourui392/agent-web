@@ -24,13 +24,25 @@ public interface HarnessAppService {
                                      boolean passed, List<String> evidenceReferences,
                                      String reason);
 
+    HarnessMutationResult evaluateGate(String runId, HarnessStage stage, String rule);
+
+    HarnessMutationResult requestInput(String runId, HarnessStage stage, String questionId,
+                                       String question, boolean blocking);
+
+    HarnessMutationResult answerQuestion(String runId, String questionId, String answer);
+
     HarnessMutationResult requestApproval(String runId, HarnessStage stage);
 
     HarnessMutationResult approve(String runId, HarnessStage stage,
-                                  String artifactBaselineHash, String reason);
+                                  String artifactBaselineHash, String reason,
+                                  String idempotencyKey);
 
     HarnessMutationResult reject(String runId, HarnessStage stage,
-                                 String artifactBaselineHash, String reason);
+                                 String artifactBaselineHash, String reason,
+                                 String idempotencyKey);
 
     HarnessMutationResult retryStage(String runId, HarnessStage stage, String idempotencyKey);
+
+    HarnessMutationResult approveDeployment(String runId, String inputBaselineHash,
+                                            String reason, String idempotencyKey);
 }

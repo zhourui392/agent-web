@@ -103,6 +103,13 @@ public final class RuntimeEnforcementProfile {
                 && projectConfigAbsent && repoSkillIsolationEnforced;
     }
 
+    public RuntimeEnforcementProfile withSandboxMode(String restrictedSandboxMode) {
+        return new RuntimeEnforcementProfile(profileVersion, adapterVersion, runtimeVersion,
+                compatibilityMatrixVersion, restrictedSandboxMode, singleRunOverridesEnforced,
+                toolAllowDenyEnforced, userConfigIsolated, projectConfigAbsent,
+                repoSkillIsolationEnforced, processTreeCancellationEnforced);
+    }
+
     public static RuntimeEnforcementProfile legacy() {
         return new RuntimeEnforcementProfile("m2-legacy", "unknown-adapter", "unknown",
                 "unknown-matrix", "unknown", false, false, false, false, false, false);

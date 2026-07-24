@@ -1,0 +1,23 @@
+# Harness 专用 Playwright profile：显式开启 M4，使用独立数据与受控 Stub。
+server:
+  port: 18100
+
+agent:
+  harness:
+    enabled: true
+    artifact-root: data/harness-e2e/artifacts
+    prompt-pack-root: src/main/resources/harness/prompt-packs
+    platform-skill-root: src/main/resources/harness/skills
+    approved-user-skill-root: ""
+    workspace-skill-root: ""
+    mcp-server-root: src/main/resources/harness/mcp-servers
+    deployment-template-root: tests/e2e/fixtures/harness/deployment-templates
+    runtime:
+      codex-command: "${user.dir}/tests/e2e/fixtures/harness/harness-codex-stub.cmd"
+      temp-root: data/harness-e2e/runtime
+      idle-timeout-seconds: 10
+      max-runtime-seconds: 30
+
+spring:
+  datasource:
+    url: jdbc:sqlite:data/agent-web-harness-e2e.db

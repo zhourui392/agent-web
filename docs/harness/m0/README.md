@@ -12,7 +12,7 @@ M0 已完成 Codex、Skill、MCP、隔离配置、结构化输出、失败关闭
 
 M0 使用真实 `codex-cli 0.145.0`，模型侧使用本机确定性 Fake Responses Provider，避免依赖外部模型随机性和失效凭据。Codex 的 Prompt 构造、Skill 展开、MCP 初始化/Tool Call、JSONL、Sandbox、超时和取消均为真实 CLI 行为。
 
-当前本机 Codex 保存的 API Key 在真实 OpenAI 请求中返回 401。这个问题不阻塞 M1—M3 的领域和适配器开发，但会阻塞 M4 的真实需求验收，必须在 M4 开始真实需求前修复。
+M0 使用本机默认 Codex 登录态发起真实 OpenAI 请求时返回 401。这个问题不阻塞 M1—M3 的领域和适配器开发；隔离 Harness 不读取该登录态，M4 真实需求验收必须显式提供有效的受控 Provider Credential Reference。
 
 ## 2. M0 交付物
 
@@ -136,7 +136,7 @@ Schema 迁移保持幂等，Feature Flag 关闭不要求回滚表结构。
 
 M4 真实需求验收前必须完成：
 
-- 修复或重新登录 Codex 在线凭据；
+- 为隔离 Harness 提供有效的受控 Provider Credential Reference，不复用用户认证目录；
 - 用真实 OpenAI Provider 执行一次最小 `codex exec --json` Smoke Test；
 - 确认本机部署命令、端口占用和回滚手册；
 - 选择真实需求并冻结原始 Requirement Artifact。

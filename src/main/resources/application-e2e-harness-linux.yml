@@ -1,0 +1,5 @@
+# Linux/macOS Harness Runtime Stub 覆盖；与 e2e-harness profile 叠加。
+agent:
+  harness:
+    runtime:
+      codex-command: "${user.dir}/tests/e2e/fixtures/harness/harness-codex-stub.sh"
