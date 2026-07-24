@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Harness · Agent Q&A 管理后台</title>
   <link rel="stylesheet" href="../vendor/element-plus.css">
-  <link rel="stylesheet" href="../css/admin.css?v=2026072401">
+  <link rel="stylesheet" href="../css/admin.css?v=2026072402">
 </head>
 <body>
   <div id="app" v-cloak>
@@ -149,6 +149,106 @@
                             :closable="false" show-icon class="mt16" :title="failure"
                             data-test="harness-gate-failure">
                   </el-alert>
+
+                  <section class="harness-conversation" v-loading="conversationLoading"
+                           data-test="harness-conversation-workspace">
+                    <div class="harness-conversation-header">
+                      <div>
+                        <div class="section-title">与 Codex 协作</div>
+                        <div class="muted-text">直接说明要新增、删除或调整的内容；每次修订都会保留旧 Attempt 和产物。</div>
+                      </div>
+                      <el-tag v-if="runtime" size="small" :type="runtimeStatusType(runtime.status)">
+                        Codex · {{ runtime.status }}
+                      </el-tag>
+                    </div>
+
+                    <div class="harness-conversation-feed" ref="conversationFeed">
+                      <div v-if="stageConversationMessages.length === 0"
+                           class="harness-message assistant">
+                        <div class="harness-message-meta">Codex · {{ stageLabel(selectedStage.stage) }}</div>
+                        <div class="harness-message-content">
+                          在这里输入本阶段目标即可。系统会自动选择阶段 Skill、固化能力快照并使用本机 Codex CLI 执行。
+                        </div>
+                      </div>
+                      <div v-for="message in stageConversationMessages" :key="message.messageId"
+                           class="harness-message"
+                           :class="message.role === 'USER' ? 'user' : 'assistant'"
+                           :data-test="'harness-conversation-' + message.role.toLowerCase()">
+                        <div class="harness-message-meta">
+                          {{ message.role === 'USER' ? '你' : 'Codex' }}
+                          · Attempt {{ message.attemptNumber }} · {{ fmtTime(message.createdAt) }}
+                          <el-tag v-if="message.artifactType" size="small" type="info">
+                            {{ message.artifactType }}
+                          </el-tag>
+                        </div>
+                        <pre class="harness-message-content">{{ message.content }}</pre>
+                      </div>
+                      <div v-if="runtimeBusy" class="harness-message assistant working"
+                           data-test="harness-conversation-running">
+                        <div class="harness-message-meta">Codex · Attempt {{ selectedAttempt ? selectedAttempt.number : '-' }}</div>
+                        <div class="harness-message-content harness-working-line">
+                          <span class="harness-working-dot"></span>
+                          正在读取上下文并执行本阶段任务，结果会自动回到这里……
+                        </div>
+                      </div>
+                    </div>
+
+                    <div v-if="selectedStage.status === 'WAITING_INPUT'" class="harness-inline-questions">
+                      <el-alert type="warning" :closable="false" show-icon
+                                title="Codex 正在等待补充信息；请先回答问题，再继续修改。">
+                      </el-alert>
+                      <div v-for="question in unansweredQuestions"
+                           :key="question.questionId" class="harness-question-card mt16">
+                        <strong>{{ question.question }}</strong>
+                        <div class="harness-answer-form">
+                          <el-input v-model="answerDrafts[question.questionId]" type="textarea" :rows="3"
+                                    placeholder="输入给 Codex 的回答"></el-input>
+                          <el-button type="primary" size="small" @click="answerQuestion(question)"
+                                     :loading="actionLoading">提交回答</el-button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="harness-conversation-composer">
+                      <el-input v-model="conversationDraft" type="textarea" :rows="4"
+                                resize="none" maxlength="20000" show-word-limit
+                                data-test="harness-conversation-input"
+                                :disabled="!canSendConversation || actionLoading"
+                                @keydown.enter.exact.prevent="sendConversation"
+                                placeholder="例如：请把缓存一致性改为版本号校验，并补充并发测试。Shift+Enter 换行。">
+                      </el-input>
+                      <div class="harness-composer-actions">
+                        <span class="muted-text">{{ conversationHint }}</span>
+                        <el-button type="primary" @click="sendConversation"
+                                   data-test="harness-send-conversation"
+                                   :disabled="!canSendConversation || !conversationDraft.trim()"
+                                   :loading="actionLoading">
+                          {{ selectedAttempt ? '发送修改并重新执行' : '发送并开始' }}
+                        </el-button>
+                      </div>
+                    </div>
+
+                    <div v-if="canValidateConversation || canDecideApproval"
+                         class="harness-conversation-next">
+                      <span class="muted-text">结果符合预期后，再执行确定性校验并批准进入下一阶段。</span>
+                      <div class="harness-action-row">
+                        <el-button v-if="canValidateConversation" type="primary" plain size="small"
+                                   data-test="harness-validate-conversation"
+                                   :loading="actionLoading" @click="validateAndRequestApproval">
+                          校验并请求批准
+                        </el-button>
+                        <el-button v-if="canDecideApproval" type="success" size="small"
+                                   @click="openApproval('approve')">批准并进入下一阶段</el-button>
+                        <el-button v-if="canDecideApproval" type="danger" plain size="small"
+                                   @click="openApproval('reject')">拒绝</el-button>
+                      </div>
+                    </div>
+                  </section>
+
+                  <div class="harness-advanced-heading">
+                    <span>高级与审计</span>
+                    <span class="muted-text">手工 Snapshot、Runtime、Gate、部署和原始事件，仅用于排障与受控操作。</span>
+                  </div>
 
                   <el-tabs class="mt16">
                     <el-tab-pane label="执行与能力">
@@ -560,7 +660,7 @@
   <script src="../vendor/element-plus.full.min.js"></script>
   <script src="../vendor/element-plus-icons-vue.iife.min.js"></script>
   <script src="../js/admin/shell.js?v=2026072401"></script>
-  <script src="../js/admin/harness-utils.js?v=2026072401"></script>
-  <script src="../js/admin/pages/harness.js?v=2026072401"></script>
+  <script src="../js/admin/harness-utils.js?v=2026072402"></script>
+  <script src="../js/admin/pages/harness.js?v=2026072402"></script>
 </body>
 </html>

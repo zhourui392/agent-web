@@ -266,6 +266,13 @@ Harness 默认关闭。试用前先阅读 [M4 开启、恢复和限制说明](do
 → DEPLOYMENT / 技术与业务 AC / 最终 Approval
 ```
 
+管理页默认以“阶段对话”作为主入口：选择阶段后直接输入目标或修改意见，服务端会持久化消息、
+自动创建或复用 Attempt、按阶段安全默认值固化 Capability Snapshot，并启动本机 Codex CLI。
+Runtime 的主 Artifact 会回到同一条对话时间线；继续发送修改会创建新的不可变 Attempt，旧
+Execution、Artifact、Gate 和 Approval 仍保留用于审计。Runtime 仍在执行或阶段处于
+`WAITING_INPUT` 时不会并发创建修订，必须等待执行结束或先回答阻断问题。手工 Snapshot、
+Runtime、Gate、部署和原始事件仍保留在页面的“高级与审计”区域。
+
 需求、Skill 或 Agent 输出不能新增命令、MCP、环境变量或文件根；部署命令只来自管理员 Catalog。
 Feature Flag 关闭不会删除历史数据。服务重启时未知 Runtime 标记 `LOST`，未知部署进入
 `RECONCILIATION_REQUIRED`，不会自动重放外部动作。

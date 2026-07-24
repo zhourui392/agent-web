@@ -117,6 +117,19 @@
       && validApproval(run.approvals, 'DEPLOYMENT', attempt.number, 'LOCAL_DEPLOY'));
   }
 
+  function runtimeBusy(runtime) {
+    return Boolean(runtime && ['PREPARED', 'STARTING', 'RUNNING', 'CANCEL_REQUESTED']
+      .includes(runtime.status));
+  }
+
+  function canSendConversation(stage, runtime) {
+    if (!stage || runtimeBusy(runtime)) {
+      return false;
+    }
+    return ['PENDING', 'RUNNING', 'WAITING_APPROVAL', 'PASSED', 'FAILED', 'INVALIDATED']
+      .includes(stage.status);
+  }
+
   function reconciliationMessage(status) {
     if (status === 'RECONCILIATION_REQUIRED') {
       return '部署结果不确定，必须由管理员人工对账；系统不会自动重放部署。';
@@ -150,6 +163,8 @@
     gateFailureSummary,
     validApproval,
     canStartDeployment,
+    runtimeBusy,
+    canSendConversation,
     reconciliationMessage,
     artifactDownloadUrl,
     harnessApiAvailable

@@ -14,6 +14,7 @@ import java.util.Set;
 public final class StageCapabilityPolicy {
 
     private static final Map<HarnessStage, Set<String>> DEFAULTS;
+    private static final Map<HarnessStage, CapabilityGrant> CONVERSATION_GRANTS;
 
     static {
         Map<HarnessStage, Set<String>> defaults = new EnumMap<HarnessStage, Set<String>>(HarnessStage.class);
@@ -22,6 +23,20 @@ public final class StageCapabilityPolicy {
         defaults.put(HarnessStage.IMPLEMENTATION, Collections.singleton("java-tdd"));
         defaults.put(HarnessStage.DEPLOYMENT, Collections.singleton("release-verification"));
         DEFAULTS = Collections.unmodifiableMap(defaults);
+
+        Map<HarnessStage, CapabilityGrant> grants =
+                new EnumMap<HarnessStage, CapabilityGrant>(HarnessStage.class);
+        CapabilityGrant readOnly = new CapabilityGrant(Collections.singleton("workspace"),
+                Collections.<String>emptySet(), Collections.<String>emptySet());
+        grants.put(HarnessStage.ANALYSIS, readOnly);
+        grants.put(HarnessStage.DESIGN, readOnly);
+        grants.put(HarnessStage.IMPLEMENTATION, new CapabilityGrant(
+                Collections.singleton("workspace"), Collections.singleton("workspace"),
+                Collections.singleton("mvn-test")));
+        grants.put(HarnessStage.DEPLOYMENT, new CapabilityGrant(
+                Collections.singleton("workspace"), Collections.<String>emptySet(),
+                Collections.singleton("mvn-verify")));
+        CONVERSATION_GRANTS = Collections.unmodifiableMap(grants);
     }
 
     private StageCapabilityPolicy() {
@@ -36,6 +51,17 @@ public final class StageCapabilityPolicy {
             throw new IllegalArgumentException("stage capability policy is missing: " + stage);
         }
         return defaults;
+    }
+
+    public static CapabilityGrant conversationGrant(HarnessStage stage) {
+        if (stage == null) {
+            throw new IllegalArgumentException("stage must not be null");
+        }
+        CapabilityGrant grant = CONVERSATION_GRANTS.get(stage);
+        if (grant == null) {
+            throw new IllegalArgumentException("conversation capability policy is missing: " + stage);
+        }
+        return grant;
     }
 
     /**

@@ -185,6 +185,99 @@ class HarnessRunTest {
                 () -> run.getArtifacts().add(versionTwo));
     }
 
+    @Test
+    void conversation_should_start_pending_stage_record_message_and_be_idempotent() {
+        HarnessRun run = newRun();
+
+        StageConversationTurn created = run.prepareConversationTurn(
+                HarnessStage.ANALYSIS, "conversation-1", "请先梳理验收标准",
+                "admin", NOW.plusSeconds(1));
+        StageConversationTurn duplicated = run.prepareConversationTurn(
+                HarnessStage.ANALYSIS, "conversation-1", "请先梳理验收标准",
+                "admin", NOW.plusSeconds(2));
+
+        assertEquals(1, created.getAttemptNumber());
+        assertTrue(created.isAttemptOpened());
+        assertFalse(created.isDuplicated());
+        assertTrue(duplicated.isDuplicated());
+        assertEquals(1, run.stage(HarnessStage.ANALYSIS).getAttempts().size());
+        assertEquals(1L, run.getEvents().stream()
+                .filter(event -> "STAGE_CONVERSATION_MESSAGE".equals(event.getEventType()))
+                .count());
+        assertTrue(run.getEvents().stream()
+                .anyMatch(event -> event.getDetail().endsWith("\n请先梳理验收标准")));
+    }
+
+    @Test
+    void conversation_should_supersede_completed_runtime_attempt_and_preserve_artifacts() {
+        HarnessRun run = newRun();
+        run.startStage(HarnessStage.ANALYSIS, "start-analysis", NOW.plusSeconds(1));
+        completeRuntime(run, HarnessStage.ANALYSIS, "exec-1", 2L);
+        int existingArtifacts = run.getArtifacts().size();
+
+        StageConversationTurn turn = run.prepareConversationTurn(
+                HarnessStage.ANALYSIS, "conversation-revision", "补充并发场景，再调整方案",
+                "admin", NOW.plusSeconds(30));
+
+        assertEquals(2, turn.getAttemptNumber());
+        assertTrue(turn.isAttemptOpened());
+        assertEquals(StageAttemptStatus.SUPERSEDED,
+                run.stage(HarnessStage.ANALYSIS).getAttempts().get(0).getStatus());
+        assertEquals(StageAttemptStatus.RUNNING,
+                run.stage(HarnessStage.ANALYSIS).currentAttempt().getStatus());
+        assertEquals(existingArtifacts, run.getArtifacts().size());
+        assertEquals("exec-1", run.stage(HarnessStage.ANALYSIS)
+                .getAttempts().get(0).getExecutionId());
+    }
+
+    @Test
+    void conversation_revision_should_invalidate_approved_stage_and_downstream() {
+        HarnessRun run = newRun();
+        passStage(run, HarnessStage.ANALYSIS, 1L);
+        passStage(run, HarnessStage.DESIGN, 100L);
+
+        StageConversationTurn turn = run.prepareConversationTurn(
+                HarnessStage.ANALYSIS, "revise-analysis", "修改需求边界",
+                "admin", NOW.plusSeconds(300));
+
+        assertEquals(2, turn.getAttemptNumber());
+        assertEquals(StageAttemptStatus.SUPERSEDED,
+                run.stage(HarnessStage.ANALYSIS).getAttempts().get(0).getStatus());
+        assertEquals(StageStatus.INVALIDATED, run.stage(HarnessStage.DESIGN).getStatus());
+        assertTrue(run.getApprovals().stream().noneMatch(Approval::isValid));
+    }
+
+    @Test
+    void conversation_should_reject_parallel_runtime_and_waiting_input() {
+        HarnessRun running = newRun();
+        running.startStage(HarnessStage.ANALYSIS, "start", NOW.plusSeconds(1));
+        bindExecution(running, HarnessStage.ANALYSIS, "exec-running", 2L);
+
+        assertThrows(IllegalHarnessTransitionException.class,
+                () -> running.prepareConversationTurn(HarnessStage.ANALYSIS,
+                        "parallel", "运行中继续修改", "admin", NOW.plusSeconds(3)));
+
+        HarnessRun waiting = newRun();
+        waiting.startStage(HarnessStage.ANALYSIS, "start", NOW.plusSeconds(1));
+        waiting.requestInput(HarnessStage.ANALYSIS, "question-1", "需要哪个租户？",
+                true, "agent", NOW.plusSeconds(2));
+
+        assertThrows(IllegalHarnessTransitionException.class,
+                () -> waiting.prepareConversationTurn(HarnessStage.ANALYSIS,
+                        "wrong-answer", "租户 A", "admin", NOW.plusSeconds(3)));
+    }
+
+    @Test
+    void conversation_idempotency_key_should_not_accept_different_message() {
+        HarnessRun run = newRun();
+        run.prepareConversationTurn(HarnessStage.ANALYSIS, "conversation-1",
+                "第一条消息", "admin", NOW.plusSeconds(1));
+
+        assertThrows(IllegalHarnessTransitionException.class,
+                () -> run.prepareConversationTurn(HarnessStage.ANALYSIS,
+                        "conversation-1", "不同消息", "admin", NOW.plusSeconds(2)));
+    }
+
     private HarnessRun newRun() {
         return HarnessRun.create(
                 "run-1",
@@ -230,6 +323,26 @@ class HarnessRunTest {
                     NOW.plusSeconds(offset + index));
             index++;
         }
+    }
+
+    private void completeRuntime(HarnessRun run, HarnessStage stage,
+                                 String executionId, long offset) {
+        ExecutionReference reference = bindExecution(run, stage, executionId, offset);
+        registerRequiredArtifacts(run, stage, offset + 1L);
+        run.recordExecutionSucceeded(reference, NOW.plusSeconds(offset + 20L));
+    }
+
+    private ExecutionReference bindExecution(HarnessRun run, HarnessStage stage,
+                                             String executionId, long offset) {
+        int attempt = run.stage(stage).currentAttempt().getNumber();
+        CapabilitySnapshotReference snapshot = new CapabilitySnapshotReference(
+                run.getId(), stage, attempt, repeat('a'), repeat('b'),
+                Collections.<String>emptySet());
+        run.authorizeExecution(stage, snapshot);
+        ExecutionReference reference = new ExecutionReference(
+                executionId, run.getId(), stage, attempt, repeat('a'));
+        run.bindExecution(reference, NOW.plusSeconds(offset));
+        return reference;
     }
 
     private String repeat(char character) {

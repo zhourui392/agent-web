@@ -361,6 +361,51 @@ public final class HarnessRun {
         return true;
     }
 
+    /**
+     * 将用户对当前阶段的自然语言输入收回聚合，并准备唯一可写 Attempt。
+     *
+     * <p>首次消息启动待处理阶段；已完成 Runtime 或已批准 Attempt 的修改会创建新 Attempt，
+     * 保留旧执行与 Artifact 作为审计历史。仍在运行的 Runtime 和等待问题回答的 Attempt
+     * 不允许并发修订。</p>
+     *
+     * @param stage 当前交付阶段
+     * @param idempotencyKey API 幂等键
+     * @param message 用户修改指令
+     * @param actor 操作者
+     * @param now 操作时间
+     * @return 对话准备结果
+     */
+    public StageConversationTurn prepareConversationTurn(HarnessStage stage,
+                                                          String idempotencyKey,
+                                                          String message,
+                                                          String actor,
+                                                          Instant now) {
+        String commandId = HarnessCommandId.conversation(id, stage, idempotencyKey);
+        StageConversationMessage requested = new StageConversationMessage(commandId, 1, message);
+        StageConversationMessage existing = conversationMessage(stage, commandId);
+        if (existing != null) {
+            if (!existing.getContent().equals(requested.getContent())) {
+                throw new IllegalHarnessTransitionException(
+                        "conversation idempotency key belongs to a different message");
+            }
+            return StageConversationTurn.duplicated(existing.getAttemptNumber());
+        }
+
+        requireMutable();
+        StageExecution target = stage(stage);
+        Instant transitionTime = requireTime(now);
+        boolean attemptOpened = prepareConversationAttempt(target, commandId, transitionTime);
+        int attempt = target.currentAttempt().getNumber();
+        invalidateApprovalsFrom(stage, transitionTime);
+        invalidateDownstream(stage, transitionTime);
+        status = HarnessRunStatus.ACTIVE;
+        touch(transitionTime);
+        StageConversationMessage recorded = new StageConversationMessage(
+                commandId, attempt, requested.getContent());
+        addEvent("STAGE_CONVERSATION_MESSAGE", stage, actor, recorded.encode(), transitionTime);
+        return StageConversationTurn.created(attempt, attemptOpened);
+    }
+
     public ArtifactDescriptor registerArtifact(HarnessStage stage, String artifactId,
                                                ArtifactType artifactType, ArtifactContent content,
                                                String contentType,
@@ -1220,6 +1265,82 @@ public final class HarnessRun {
                         "upstream=" + changedStage, now);
             }
         }
+    }
+
+    private boolean prepareConversationAttempt(StageExecution target,
+                                               String commandId,
+                                               Instant now) {
+        switch (target.getStatus()) {
+            case PENDING:
+                requireNoWritableAttempt();
+                requirePreviousPassed(target.getStage());
+                target.startNewAttempt(commandId, now);
+                addEvent("STAGE_STARTED", target.getStage(), createdBy,
+                        "attempt=" + target.currentAttempt().getNumber(), now);
+                return true;
+            case RUNNING:
+                if (target.currentAttempt().getExecutionId() == null) {
+                    return false;
+                }
+                requireRuntimeSucceeded(target);
+                target.supersedeAndStartNewAttempt(commandId, now);
+                addConversationRevisionEvent(target, now);
+                return true;
+            case WAITING_APPROVAL:
+                target.supersedeAndStartNewAttempt(commandId, now);
+                addConversationRevisionEvent(target, now);
+                return true;
+            case PASSED:
+            case INVALIDATED:
+                requireNoWritableAttempt();
+                requirePreviousPassed(target.getStage());
+                target.supersedeAndStartNewAttempt(commandId, now);
+                addConversationRevisionEvent(target, now);
+                return true;
+            case FAILED:
+                requireNoWritableAttempt();
+                requirePreviousPassed(target.getStage());
+                target.startNewAttempt(commandId, now);
+                addConversationRevisionEvent(target, now);
+                return true;
+            case WAITING_INPUT:
+                throw new IllegalHarnessTransitionException(
+                        "answer the blocking question before revising the stage");
+            default:
+                throw new IllegalHarnessTransitionException(
+                        "stage cannot accept conversation from " + target.getStatus());
+        }
+    }
+
+    private void requireRuntimeSucceeded(StageExecution execution) {
+        String executionId = execution.currentAttempt().getExecutionId();
+        for (HarnessEvent event : events) {
+            if ("RUNTIME_EXECUTION_SUCCEEDED".equals(event.getEventType())
+                    && event.getStage() == execution.getStage()
+                    && executionId.equals(event.getDetail())) {
+                return;
+            }
+        }
+        throw new IllegalHarnessTransitionException(
+                "current runtime is still executing; cancel it before revising the stage");
+    }
+
+    private void addConversationRevisionEvent(StageExecution target, Instant now) {
+        addEvent("STAGE_CONVERSATION_REVISION_STARTED", target.getStage(), createdBy,
+                "attempt=" + target.currentAttempt().getNumber(), now);
+    }
+
+    private StageConversationMessage conversationMessage(HarnessStage stage, String commandId) {
+        for (HarnessEvent event : events) {
+            if ("STAGE_CONVERSATION_MESSAGE".equals(event.getEventType())
+                    && event.getStage() == stage) {
+                StageConversationMessage message = StageConversationMessage.decode(event.getDetail());
+                if (message.getCommandId().equals(commandId)) {
+                    return message;
+                }
+            }
+        }
+        return null;
     }
 
     private boolean allStagesPassed() {

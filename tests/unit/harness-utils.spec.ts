@@ -13,6 +13,9 @@ const harness = requireCjs('../../src/main/resources/static/js/admin/harness-uti
   validApproval: (approvals: Array<Record<string, unknown>>, stage: string, attempt: number,
     approvalType?: string) => Record<string, unknown> | null;
   canStartDeployment: (run: Record<string, unknown>) => boolean;
+  runtimeBusy: (runtime: Record<string, unknown> | null) => boolean;
+  canSendConversation: (stage: Record<string, unknown> | null,
+    runtime: Record<string, unknown> | null) => boolean;
   reconciliationMessage: (status: string) => string;
   artifactDownloadUrl: (runId: string, artifactId: string) => string;
   harnessApiAvailable: (status: number, body?: { code?: string }) => boolean;
@@ -79,6 +82,18 @@ describe('Harness snapshot display mappings', () => {
       environment: 'test',
       approvals: [{ stage: 'DEPLOYMENT', attempt: 1, approvalType: 'LOCAL_DEPLOY', valid: true }]
     })).toBe(false);
+  });
+
+  it('allows conversational revision only when no runtime is still active', () => {
+    expect(harness.canSendConversation({ status: 'PENDING' }, null)).toBe(true);
+    expect(harness.canSendConversation({ status: 'RUNNING' }, { status: 'STARTING' })).toBe(false);
+    expect(harness.canSendConversation({ status: 'RUNNING' }, { status: 'RUNNING' })).toBe(false);
+    expect(harness.canSendConversation({ status: 'RUNNING' }, { status: 'SUCCEEDED' })).toBe(true);
+    expect(harness.canSendConversation({ status: 'WAITING_APPROVAL' }, { status: 'SUCCEEDED' }))
+      .toBe(true);
+    expect(harness.canSendConversation({ status: 'WAITING_INPUT' }, null)).toBe(false);
+    expect(harness.canSendConversation({ status: 'CANCELLED' }, null)).toBe(false);
+    expect(harness.runtimeBusy({ status: 'CANCEL_REQUESTED' })).toBe(true);
   });
 
   it('builds safe encoded URLs and explicit recovery/feature-flag messages', () => {

@@ -72,6 +72,18 @@ public final class StageExecution {
         status = StageStatus.RUNNING;
     }
 
+    void supersedeAndStartNewAttempt(String idempotencyKey, Instant now) {
+        if (status != StageStatus.RUNNING
+                && status != StageStatus.WAITING_APPROVAL
+                && status != StageStatus.PASSED
+                && status != StageStatus.INVALIDATED) {
+            throw new IllegalHarnessTransitionException(
+                    "stage cannot supersede its attempt from " + status);
+        }
+        currentAttempt().supersede(now);
+        startNewAttempt(idempotencyKey, now);
+    }
+
     void waitForApproval() {
         requireStatus(StageStatus.RUNNING);
         currentAttempt().waitForApproval();

@@ -23,6 +23,41 @@ test.afterEach(async () => {
   }
 });
 
+test('阶段对话可直接启动 Codex 并用新 Attempt 连续修订', async ({ page, request }) => {
+  const repository = await createGitRepository('harness-conversation');
+  await page.goto('/admin/harness.html');
+  const runId = await createRun(page, repository, `M4 Conversation ${Date.now()}`);
+
+  await selectRunAndStage(page, runId, 'ANALYSIS');
+  await page.getByTestId('harness-conversation-input').fill('请先梳理需求与可观察验收标准');
+  await page.getByTestId('harness-send-conversation').click();
+
+  await expect.poll(async () => stage(await getRun(request, runId), 'ANALYSIS')
+    .attempts.at(-1)?.number).toBe(1);
+  await expect.poll(async () => runtimeStatus(request, runId, 'ANALYSIS', 1), {
+    timeout: 20_000,
+  }).toBe('SUCCEEDED');
+  await expect.poll(async () => {
+    const response = await request.get(`/api/harness/runs/${encodeURIComponent(runId)}/conversation`);
+    const messages = await response.json();
+    return messages.filter((item: { role: string }) => item.role === 'ASSISTANT').length;
+  }, { timeout: 20_000 }).toBe(1);
+
+  await selectRunAndStage(page, runId, 'ANALYSIS');
+  await expect(page.getByTestId('harness-conversation-assistant')).toContainText('REQ-1');
+  await page.getByTestId('harness-conversation-input').fill('再补充失败路径和并发边界');
+  await page.getByTestId('harness-send-conversation').click();
+
+  await expect.poll(async () => stage(await getRun(request, runId), 'ANALYSIS')
+    .attempts.at(-1)?.number).toBe(2);
+  await expect.poll(async () => runtimeStatus(request, runId, 'ANALYSIS', 2), {
+    timeout: 20_000,
+  }).toBe('SUCCEEDED');
+  await selectRunAndStage(page, runId, 'ANALYSIS');
+  await expect(page.getByTestId('harness-conversation-user')).toHaveCount(2);
+  await expect(page.getByTestId('harness-conversation-assistant')).toHaveCount(2);
+});
+
 test('四阶段页面 Happy Path 包含 WAITING_INPUT、local 部署和最终报告', async ({ page, request }) => {
   const repository = await createGitRepository('harness-happy');
   await page.goto('/admin/harness.html');

@@ -11,6 +11,7 @@ public enum StageAttemptStatus {
     WAITING_INPUT,
     WAITING_APPROVAL,
     CANCELLING,
+    SUPERSEDED,
     PASSED,
     FAILED,
     CANCELLED

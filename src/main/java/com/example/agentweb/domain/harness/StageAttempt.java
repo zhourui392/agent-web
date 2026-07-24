@@ -130,6 +130,19 @@ public final class StageAttempt {
         status = StageAttemptStatus.RUNNING;
     }
 
+    void supersede(Instant now) {
+        if (status != StageAttemptStatus.RUNNING
+                && status != StageAttemptStatus.WAITING_APPROVAL
+                && status != StageAttemptStatus.PASSED) {
+            throw new IllegalHarnessTransitionException(
+                    "attempt cannot be superseded from " + status);
+        }
+        status = StageAttemptStatus.SUPERSEDED;
+        if (finishedAt == null) {
+            finishedAt = requireAfterStart(now);
+        }
+    }
+
     void pass(Instant now) {
         requireStatus(StageAttemptStatus.WAITING_APPROVAL);
         status = StageAttemptStatus.PASSED;
@@ -158,7 +171,8 @@ public final class StageAttempt {
         }
         boolean terminal = status == StageAttemptStatus.PASSED
                 || status == StageAttemptStatus.FAILED
-                || status == StageAttemptStatus.CANCELLED;
+                || status == StageAttemptStatus.CANCELLED
+                || status == StageAttemptStatus.SUPERSEDED;
         if (terminal != (finishedAt != null)) {
             throw new IllegalArgumentException("attempt terminal status and finished time must agree");
         }

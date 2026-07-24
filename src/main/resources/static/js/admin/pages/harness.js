@@ -3,7 +3,7 @@
  *
  * @author alex
  */
-const { ref, reactive, computed } = Vue;
+const { ref, reactive, computed, nextTick, onBeforeUnmount } = Vue;
 
 bootstrapAdminApp({
   setup() {
@@ -22,6 +22,11 @@ bootstrapAdminApp({
     const deploymentReadiness = ref(null);
     const snapshot = ref(null);
     const runtime = ref(null);
+    const conversationMessages = ref([]);
+    const conversationDraft = ref('');
+    const conversationNonce = ref('');
+    const conversationFeed = ref(null);
+    const conversationLoading = ref(false);
     const originalRequirement = ref('');
     const apiAvailable = ref(true);
     const loadingRuns = ref(false);
@@ -109,6 +114,28 @@ bootstrapAdminApp({
       return (selectedRun.value.questions || []).filter(item =>
         item.stage === selectedStageName.value
           && Number(item.attempt) === Number(selectedAttempt.value.number));
+    });
+    const unansweredQuestions = computed(() => currentQuestions.value.filter(
+      item => !item.answeredAt));
+    const stageConversationMessages = computed(() => conversationMessages.value.filter(
+      item => item.stage === selectedStageName.value));
+    const runtimeBusy = computed(() => HarnessAdminUtils.runtimeBusy(runtime.value));
+    const canSendConversation = computed(() => HarnessAdminUtils.canSendConversation(
+      selectedStage.value, runtime.value));
+    const canValidateConversation = computed(() => selectedStage.value
+      && selectedStage.value.status === 'RUNNING'
+      && runtime.value && runtime.value.status === 'SUCCEEDED');
+    const conversationHint = computed(() => {
+      if (selectedStage.value && selectedStage.value.status === 'WAITING_INPUT') {
+        return '请先回答 Codex 的阻断问题';
+      }
+      if (runtimeBusy.value) {
+        return '当前 Runtime 执行中，完成后可继续修改';
+      }
+      if (!canSendConversation.value) {
+        return '当前 Run 或阶段已不可修改';
+      }
+      return '系统自动使用阶段默认 Skill 与本机 Codex CLI';
     });
     const finalReport = computed(() => latestArtifact('FINAL_REPORT'));
     const canStartStage = computed(() => selectedStage.value && selectedStage.value.status === 'PENDING');
@@ -239,6 +266,8 @@ bootstrapAdminApp({
       deploymentReadiness.value = null;
       snapshot.value = null;
       runtime.value = null;
+      conversationMessages.value = [];
+      conversationDraft.value = '';
       originalRequirement.value = '';
     }
 
@@ -257,7 +286,10 @@ bootstrapAdminApp({
         if (!selectedRun.value.stages.some(item => item.stage === selectedStageName.value)) {
           selectedStageName.value = 'ANALYSIS';
         }
-        await Promise.all([loadOriginalRequirement(), loadStageResources()]);
+        if (!conversationNonce.value) {
+          conversationNonce.value = randomToken();
+        }
+        await Promise.all([loadOriginalRequirement(), loadConversation(), loadStageResources()]);
       } catch (error) {
         showError('加载 Run 详情失败', error);
       } finally {
@@ -295,7 +327,32 @@ bootstrapAdminApp({
 
     async function selectStage(stage) {
       selectedStageName.value = stage;
+      conversationNonce.value = randomToken();
       await loadStageResources();
+      scrollConversationToEnd();
+    }
+
+    async function loadConversation() {
+      if (!selectedRun.value) {
+        conversationMessages.value = [];
+        return;
+      }
+      conversationLoading.value = true;
+      try {
+        const values = await api(runUrl(selectedRun.value.runId) + '/conversation');
+        conversationMessages.value = Array.isArray(values) ? values : [];
+        scrollConversationToEnd();
+      } finally {
+        conversationLoading.value = false;
+      }
+    }
+
+    function scrollConversationToEnd() {
+      nextTick(() => {
+        if (conversationFeed.value) {
+          conversationFeed.value.scrollTop = conversationFeed.value.scrollHeight;
+        }
+      });
     }
 
     async function loadStageResources() {
@@ -446,6 +503,30 @@ bootstrapAdminApp({
       });
     }
 
+    async function sendConversation() {
+      const message = conversationDraft.value.trim();
+      if (!message || !canSendConversation.value || !selectedRun.value) {
+        return;
+      }
+      const runId = selectedRun.value.runId;
+      const stage = selectedStageName.value;
+      const nonce = conversationNonce.value || randomToken();
+      conversationNonce.value = nonce;
+      actionLoading.value = true;
+      try {
+        await post(stageUrl(stage) + '/conversation', { message },
+          'conversation:' + runId + ':' + stage + ':' + nonce);
+        conversationDraft.value = '';
+        conversationNonce.value = randomToken();
+        ElementPlus.ElMessage.success('修改意见已发送，Codex Runtime 已启动');
+        await loadRun(runId);
+      } catch (error) {
+        showError('发送修改意见失败', error);
+      } finally {
+        actionLoading.value = false;
+      }
+    }
+
     async function runGates() {
       const rules = selectedStage.value ? selectedStage.value.deterministicGates || [] : [];
       if (rules.length === 0) {
@@ -462,6 +543,27 @@ bootstrapAdminApp({
     async function requestApproval() {
       await runAction('请求阶段批准', () =>
         post(stageUrl(selectedStageName.value) + '/request-approval'));
+    }
+
+    async function validateAndRequestApproval() {
+      if (!canValidateConversation.value || !selectedStage.value) {
+        return;
+      }
+      actionLoading.value = true;
+      try {
+        const rules = selectedStage.value.deterministicGates || [];
+        for (const rule of rules) {
+          await post(stageUrl(selectedStageName.value) + '/gates', { rule });
+        }
+        await post(stageUrl(selectedStageName.value) + '/request-approval');
+        ElementPlus.ElMessage.success('确定性校验通过，已进入待批准状态');
+        await refreshSelected();
+      } catch (error) {
+        showError('校验并请求批准失败', error);
+        await refreshSelected();
+      } finally {
+        actionLoading.value = false;
+      }
     }
 
     function openApproval(decision) {
@@ -627,6 +729,16 @@ bootstrapAdminApp({
       }[status] || 'info';
     }
 
+    function runtimeStatusType(status) {
+      return {
+        SUCCEEDED: 'success',
+        FAILED: 'danger',
+        TIMED_OUT: 'danger',
+        LOST: 'danger',
+        CANCELLED: 'info'
+      }[status] || 'warning';
+    }
+
     function artifactUrl(artifact) {
       return selectedRun.value
         ? HarnessAdminUtils.artifactDownloadUrl(selectedRun.value.runId, artifact.artifactId) : '#';
@@ -635,6 +747,31 @@ bootstrapAdminApp({
     function reportUrl() {
       return selectedRun.value ? runUrl(selectedRun.value.runId) + '/report' : '#';
     }
+
+    let runtimePollInFlight = false;
+    const runtimePollTimer = window.setInterval(async () => {
+      if (runtimePollInFlight || !runtimeBusy.value || !selectedRun.value) {
+        return;
+      }
+      runtimePollInFlight = true;
+      const runId = selectedRun.value.runId;
+      try {
+        const base = runUrl(runId);
+        const values = await Promise.all([api(base), api(base + '/conversation')]);
+        if (!selectedRun.value || selectedRun.value.runId !== runId) {
+          return;
+        }
+        selectedRun.value = values[0];
+        conversationMessages.value = Array.isArray(values[1]) ? values[1] : [];
+        await loadStageResources();
+        scrollConversationToEnd();
+      } catch (error) {
+        showError('刷新 Codex 执行状态失败', error);
+      } finally {
+        runtimePollInFlight = false;
+      }
+    }, 2000);
+    onBeforeUnmount(() => window.clearInterval(runtimePollTimer));
 
     return {
       stageNames,
@@ -649,6 +786,10 @@ bootstrapAdminApp({
       deploymentReadiness,
       snapshot,
       runtime,
+      conversationMessages,
+      conversationDraft,
+      conversationFeed,
+      conversationLoading,
       originalRequirement,
       apiAvailable,
       loadingRuns,
@@ -672,6 +813,12 @@ bootstrapAdminApp({
       stageArtifacts,
       stageApprovals,
       currentQuestions,
+      unansweredQuestions,
+      stageConversationMessages,
+      runtimeBusy,
+      canSendConversation,
+      canValidateConversation,
+      conversationHint,
       finalReport,
       canStartStage,
       canRetryStage,
@@ -689,8 +836,10 @@ bootstrapAdminApp({
       cancelRun,
       resolveSnapshot,
       launchRuntime,
+      sendConversation,
       runGates,
       requestApproval,
+      validateAndRequestApproval,
       openApproval,
       submitApproval,
       openQuestion,
@@ -704,6 +853,7 @@ bootstrapAdminApp({
       stageLabel,
       fmtTime,
       deploymentStatusType,
+      runtimeStatusType,
       artifactUrl,
       reportUrl,
       selectionReasonLabel: HarnessAdminUtils.selectionReasonLabel,
