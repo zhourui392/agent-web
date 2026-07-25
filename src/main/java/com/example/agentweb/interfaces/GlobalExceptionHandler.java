@@ -8,6 +8,7 @@ import com.example.agentweb.app.harness.HarnessCapabilitySnapshotNotFoundExcepti
 import com.example.agentweb.app.harness.HarnessRuntimeExecutionNotFoundException;
 import com.example.agentweb.app.harness.HarnessDeploymentExecutionNotFoundException;
 import com.example.agentweb.app.harness.HarnessArtifactNotFoundException;
+import com.example.agentweb.app.harness.HarnessSensitiveArtifactException;
 import com.example.agentweb.domain.auth.UsernameAlreadyExistsException;
 import com.example.agentweb.domain.chat.ChatSessionNotFoundException;
 import com.example.agentweb.domain.chat.SessionDeletionForbiddenException;
@@ -114,6 +115,15 @@ public class GlobalExceptionHandler {
         body.put("code", "HARNESS_ARTIFACT_NOT_FOUND");
         body.put("message", ex.getMessage());
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
+    }
+
+    @ExceptionHandler(HarnessSensitiveArtifactException.class)
+    public ResponseEntity<Map<String, Object>> handleHarnessSensitiveArtifact(
+            HarnessSensitiveArtifactException ex) {
+        Map<String, Object> body = new HashMap<String, Object>(2);
+        body.put("code", "HARNESS_ARTIFACT_SENSITIVE");
+        body.put("message", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(body);
     }
 
     @ExceptionHandler(CapabilityResolutionException.class)

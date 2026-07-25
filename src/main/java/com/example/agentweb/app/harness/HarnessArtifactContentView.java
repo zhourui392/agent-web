@@ -1,5 +1,6 @@
 package com.example.agentweb.app.harness;
 
+import com.example.agentweb.domain.harness.ArtifactClassification;
 import lombok.Getter;
 
 import java.util.Arrays;
@@ -18,15 +19,18 @@ public final class HarnessArtifactContentView {
     private final String artifactType;
     private final String contentType;
     private final String sha256;
+    private final ArtifactClassification classification;
     private final byte[] content;
 
     public HarnessArtifactContentView(String artifactId, int version, String artifactType,
-                                      String contentType, String sha256, byte[] content) {
+                                      String contentType, String sha256,
+                                      ArtifactClassification classification, byte[] content) {
         this.artifactId = artifactId;
         this.version = version;
         this.artifactType = artifactType;
         this.contentType = contentType;
         this.sha256 = sha256;
+        this.classification = classification;
         this.content = Arrays.copyOf(content, content.length);
     }
 

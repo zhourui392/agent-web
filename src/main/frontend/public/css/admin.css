@@ -603,6 +603,14 @@ body { margin: 0; background: #f5f7fa; font-family: -apple-system, BlinkMacSyste
 .harness-artifact-toggle { cursor: pointer; color: #909399; padding: 0 2px; }
 .harness-artifact-body { padding: 10px 12px; max-height: 360px; overflow-y: auto; }
 .harness-artifact-body.is-collapsed { display: none; }
+/* Artifact 正文按 contentType 渲染:JSON pretty print / 纯文本 pre */
+.harness-artifact-json, .harness-artifact-plain {
+  max-height: 420px; margin: 0; padding: 12px; overflow: auto;
+  color: #303133; background: #f6f8fa; border: 1px solid #ebeef5; border-radius: 4px;
+  font-family: 'Consolas','Monaco',monospace; font-size: 12px; line-height: 1.6;
+  white-space: pre-wrap; word-break: break-word;
+}
+.harness-artifact-preview { max-height: 60vh; overflow-y: auto; }
 .harness-artifact-footer {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
   padding: 5px 12px; border-top: 1px solid #ebeef5; background: #fafafa; font-size: 11px; color: #909399;

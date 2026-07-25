@@ -41,6 +41,11 @@ public class HarnessRuntimeProperties {
     private long versionProbeTimeoutSeconds = 5L;
     private long versionProbeMaxBytes = 4096L;
     private long idleTimeoutSeconds = 300L;
-    private long maxRuntimeSeconds = 1800L;
+    // 按阶段 idle timeout(无输出超时):长程任务需更长。fallback 用 idleTimeoutSeconds。
+    private long analysisIdleTimeoutSeconds = 7200L;
+    private long designIdleTimeoutSeconds = 7200L;
+    private long implementationIdleTimeoutSeconds = 86400L;
+    private long deploymentIdleTimeoutSeconds = 7200L;
+    private long maxRuntimeSeconds = 86400L;
     private long maxOutputBytes = 4L * 1024L * 1024L;
 }

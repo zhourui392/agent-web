@@ -64,7 +64,7 @@ public class SqliteHarnessArtifactQueryService implements HarnessArtifactQuerySe
         ArtifactDescriptor value = descriptor.get();
         return Optional.of(new HarnessArtifactContentView(value.getArtifactId(), value.getVersion(),
                 value.getArtifactType().name(), value.getContentType(), value.getSha256(),
-                artifactStore.read(value).copyBytes()));
+                value.getClassification(), artifactStore.read(value).copyBytes()));
     }
 
     private ArtifactDescriptor read(ResultSet rs, int rowNumber) throws SQLException {

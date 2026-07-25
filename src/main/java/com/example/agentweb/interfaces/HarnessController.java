@@ -10,6 +10,7 @@ import com.example.agentweb.app.harness.HarnessDeploymentResult;
 import com.example.agentweb.app.harness.HarnessDeploymentService;
 import com.example.agentweb.app.harness.HarnessArtifactContentView;
 import com.example.agentweb.app.harness.HarnessArtifactNotFoundException;
+import com.example.agentweb.app.harness.HarnessSensitiveArtifactException;
 import com.example.agentweb.app.harness.HarnessArtifactQueryService;
 import com.example.agentweb.app.harness.HarnessAppService;
 import com.example.agentweb.app.harness.HarnessExecutionService;
@@ -127,6 +128,9 @@ public class HarnessController {
                                                   @PathVariable("artifactId") String artifactId) {
         HarnessArtifactContentView artifact = artifactQueryService.findLatest(runId, artifactId)
                 .orElseThrow(() -> new HarnessArtifactNotFoundException(runId, artifactId));
+        if (artifact.getClassification() == ArtifactClassification.SENSITIVE) {
+            throw new HarnessSensitiveArtifactException(runId, artifactId);
+        }
         return contentResponse(artifact, true);
     }
 
