@@ -12,7 +12,7 @@
  * 故各自独立实现,不互相调用。
  */
 import { ElMessage } from 'element-plus';
-export async function copyToClipboard(text) {
+export async function copyToClipboard(text: string): Promise<boolean> {
   if (navigator.clipboard && window.isSecureContext) {
     try { await navigator.clipboard.writeText(text); return true; } catch (e) { /* fall through */ }
   }
@@ -26,7 +26,7 @@ export async function copyToClipboard(text) {
   } catch (e) { return false; }
 }
 
-export async function copySegment(text) {
+export async function copySegment(text: string): Promise<void> {
   if (!text) return;
   try {
     if (navigator.clipboard && window.isSecureContext) {
@@ -38,8 +38,8 @@ export async function copySegment(text) {
       document.execCommand('copy');
       document.body.removeChild(ta);
     }
-    if (window.ElementPlus) window.ElMessage.success('已复制');
+    if ((window as any).ElementPlus) (window as any).ElMessage.success('已复制');
   } catch (e) {
-    if (window.ElementPlus) window.ElMessage.error('复制失败');
+    if ((window as any).ElementPlus) (window as any).ElMessage.error('复制失败');
   }
 }
