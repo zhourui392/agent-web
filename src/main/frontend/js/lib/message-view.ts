@@ -12,14 +12,31 @@
  *
  * 依赖: parseStreamJson / parseUserMessage / isStreamJson (ES import from formatters.js)。
  */
-import { parseStreamJson, parseUserMessage, isStreamJson } from './formatters.js';
+import { parseStreamJson, parseUserMessage, isStreamJson, type StreamSegment } from './formatters.js';
 
-export var ROLE_LABELS = { user: '用户', assistant: '助手', system: '系统' };
+export var ROLE_LABELS: Record<string, string> = { user: '用户', assistant: '助手', system: '系统' };
 
-export function enrichMessage(msg, options) {
+interface RawMessage {
+  role?: string;
+  content?: string;
+  recall?: string;
+  [key: string]: any;
+}
+
+interface EnrichedMessage extends RawMessage {
+  parsedSegments?: StreamSegment[];
+  bodyText?: string;
+  images?: string[];
+  recall?: any;
+  recallOpen?: boolean;
+}
+
+export function enrichMessage(msg: null, options?: { withRecall?: boolean }): null;
+export function enrichMessage(msg: RawMessage, options?: { withRecall?: boolean }): EnrichedMessage;
+export function enrichMessage(msg: RawMessage | null, options?: { withRecall?: boolean }): EnrichedMessage | null {
   if (!msg) return msg;
   var withRecall = !!(options && options.withRecall);
-  var recall = null;
+  var recall: any = null;
   if (withRecall && msg.role === 'assistant' && msg.recall) {
     try { recall = JSON.parse(msg.recall); } catch (e) { recall = null; }
   }
@@ -37,8 +54,8 @@ export function enrichMessage(msg, options) {
     : Object.assign({}, msg);
 }
 
-export function mapMessages(rawMsgs, options) {
-  return (rawMsgs || []).map(function (msg) { return enrichMessage(msg, options); });
+export function mapMessages(rawMsgs: RawMessage[] | null, options?: { withRecall?: boolean }): EnrichedMessage[] {
+  return (rawMsgs || []).map(function (msg) { return enrichMessage(msg, options) as EnrichedMessage; });
 }
 
-export function roleLabel(r) { return ROLE_LABELS[r] || r; }
+export function roleLabel(r: string): string { return ROLE_LABELS[r] || r; }
