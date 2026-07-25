@@ -11,9 +11,6 @@ import { Page, expect } from '@playwright/test';
 const MENU_SLUG: Record<string, string> = {
   '大盘': 'dashboard',
   '对话记录': 'conversations',
-  '诊断历史': 'diagnose',
-  'IM 工单': 'tickets',
-  '经验回填': 'backfill',
   '工作流': 'workflows',
   '召回观测': 'recall',
   '召回历史': 'refinery',
@@ -34,7 +31,7 @@ export async function loginAdminUI(page: Page): Promise<void> {
 export async function gotoAdminMenu(page: Page, menuName: string): Promise<void> {
   await loginAdminUI(page);
   const slug = MENU_SLUG[menuName];
-  // 菜单可能带动态角标(如「经验回填 4」),accessible name 不再等于菜单文案,
+  // 菜单可能带动态角标(数字后缀),accessible name 不再等于菜单文案,
   // 不能用 { name, exact: true };改成「菜单项内含精确文本节点」——角标是兄弟节点不影响,
   // 「对话」也不会误配「对话记录」(整段文本节点不相等)。
   const menuItem = adminMenuItem(page, menuName);

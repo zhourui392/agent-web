@@ -53,8 +53,6 @@ public class AdminAuthFilterTest {
     @ParameterizedTest
     @ValueSource(strings = {
             "/api/metrics/overview",
-            "/api/diagnose-history/T-1",
-            "/api/issue-log-backfill/candidates",
             "/api/admin-users",
             "/api/admin-workflows",
             "/api/admin-workflow-executions/exec-1",
@@ -73,8 +71,6 @@ public class AdminAuthFilterTest {
     @ParameterizedTest
     @ValueSource(strings = {
             "/api/metrics/overview",
-            "/api/diagnose-history/T-1",
-            "/api/issue-log-backfill/candidates",
             "/api/admin-users",
             "/api/admin-workflows",
             "/api/admin-workflow-executions/exec-1",
@@ -95,8 +91,6 @@ public class AdminAuthFilterTest {
     @ParameterizedTest
     @ValueSource(strings = {
             "/api/metrics/overview",
-            "/api/diagnose-history/T-1",
-            "/api/issue-log-backfill/candidates",
             "/api/admin-users",
             "/api/admin-workflows",
             "/api/admin-workflow-executions/exec-1",

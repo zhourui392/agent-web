@@ -17,12 +17,10 @@ agent:
     protected-prefixes:
       - /api/metrics
       - /api/admin-users
-      - /api/issue-log-backfill
       - /api/admin-workflows
       - /api/admin-workflow-executions
       - /api/admin-settings
       - /api/refinery
-      - /api/diagnose-history
       - /api/harness
   harness:
     enabled: false

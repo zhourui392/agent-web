@@ -134,8 +134,6 @@ agent:
       - /api/admin-workflow-executions
       - /api/admin-settings
       - /api/refinery
-      - /api/issue-log-backfill
-      - /api/diagnose-history
       - /api/harness
 
   # 研发交付 Harness，默认开启。关闭时不注册管理 API、Repository、Catalog、Store 或执行入口。

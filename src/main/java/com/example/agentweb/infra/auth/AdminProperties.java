@@ -29,8 +29,6 @@ public class AdminProperties {
             "/api/admin-workflow-executions",
             "/api/admin-settings",
             "/api/refinery",
-            "/api/issue-log-backfill",
-            "/api/diagnose-history",
             "/api/harness"
     ));
 }
