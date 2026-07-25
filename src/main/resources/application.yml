@@ -138,9 +138,9 @@ agent:
       - /api/diagnose-history
       - /api/harness
 
-  # 研发交付 Harness，默认关闭。关闭时不注册管理 API、Repository、Catalog、Store 或执行入口。
+  # 研发交付 Harness，默认开启。关闭时不注册管理 API、Repository、Catalog、Store 或执行入口。
   harness:
-    enabled: ${AGENT_HARNESS_ENABLED:false}
+    enabled: ${AGENT_HARNESS_ENABLED:true}
     artifact-root: ${AGENT_HARNESS_ARTIFACT_ROOT:data/harness/artifacts}
     # Catalog 在每次 Attempt 固化前热读取；打包部署应覆盖为管理员维护的外置只读目录。
     prompt-pack-root: ${AGENT_HARNESS_PROMPT_PACK_ROOT:src/main/resources/harness/prompt-packs}
