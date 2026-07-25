@@ -1,11 +1,8 @@
 package com.example.agentweb.config;
 
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.web.embedded.tomcat.TomcatServletWebServerFactory;
-import org.springframework.boot.web.server.WebServerFactoryCustomizer;
-import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.AsyncSupportConfigurer;
+import org.springframework.web.servlet.config.annotation.ViewControllerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 /**
@@ -21,18 +18,15 @@ public class WebConfig implements WebMvcConfigurer {
     }
 
     /**
-     * 裸根 {@code /} → 挂载前缀 {@code /qa/} 的重定向。挂在 Engine 级 Valve(context 路由之前生效),
-     * 因为 context-path 部署下根请求落在不存在的 ROOT context,进不到 Spring,@Controller/过滤器拦不到。
-     * 详见 {@link RootRedirectValve}。
+     * 管理后台入口重定向:{@code /admin}、{@code /admin/} → {@code /admin/dashboard.html}。
+     *
+     * <p>应用挂在域名根路径, 302 Location 直接用根相对路径即可。
+     * (曾因 {@code /qa} 挂载部署需要运行时补 contextPath 而放在 Controller 里,挂载前缀废弃后退回静态配置。)
+     * MPA 每菜单一页({@code /admin/<page>.html})是真实静态文件,不需路由配置。</p>
      */
-    @Bean
-    public WebServerFactoryCustomizer<TomcatServletWebServerFactory> rootRedirectCustomizer(
-            @Value("${server.servlet.context-path:}") String contextPath) {
-        return factory -> factory.addEngineValves(new RootRedirectValve(contextPath));
+    @Override
+    public void addViewControllers(ViewControllerRegistry registry) {
+        registry.addRedirectViewController("/admin", "/admin/dashboard.html");
+        registry.addRedirectViewController("/admin/", "/admin/dashboard.html");
     }
-
-    // 管理后台入口重定向(/admin、/admin/ → /admin/dashboard.html)移到 AdminEntryController:
-    // 共享域名 /qa 部署下该 302 Location 由浏览器直接跟随,目标必须按 ContextPrefix 补挂载前缀
-    // (sendRedirect 的相对路径不会自动加 contextPath),静态 addRedirectViewController 补不了,丢 /qa 落根域。
-    // MPA 每菜单一页({@code /admin/<page>.html})仍是真实静态文件,不需路由配置。
 }

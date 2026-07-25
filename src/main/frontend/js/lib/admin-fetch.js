@@ -8,7 +8,7 @@
  *   回退 HTTP 状态码。
  * - withLoading(loadingRef, fn): 包装 loading true/false + try/finally,消除每页重复样板。
  *
- * 依赖: 全局 fetch (经 base.js 注入 context-prefix)。
+ * 依赖: 全局 fetch。
  */
 export async function fetchJson(url, options) {
   var response = await fetch(url, options);

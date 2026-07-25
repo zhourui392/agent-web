@@ -20,8 +20,10 @@ function collectHtmlEntries() {
 
 export default defineConfig({
   root,
-  // 相对路径 base: 支持 /qa 等子路径部署, asset URL 用相对路径
-  base: './',
+  // 应用固定挂在域名根路径, asset URL 用根绝对路径。
+  // (曾为支持 /qa 子路径部署用相对 './', 挂载前缀机制废弃后不再需要 --
+  //  根绝对路径下 /admin/x.html 与 /index.html 引用同一份 /assets/ 产物, 不受页面深度影响。)
+  base: '/',
   // publicDir 现在只剩 css/ (由 HTML <link> 直接引用, 带 ?v= 手工版本号, 不进 bundle)。
   // js/ 已移到 root 下 (frontend/js), 由 Vite 打包 -- 放在 publicDir 里的文件是原样复制的,
   // bare import ('vue' / 'marked') 不会被解析, 浏览器直接报错。

@@ -7,7 +7,7 @@
 import { createApp, ref, onMounted } from 'vue';
 import 'element-plus/dist/index.css';
 import { setupElementPlus } from '../element-plus-setup.js';
-import { withBase, sanitizeRedirect, APP_BASE } from '../base.js';
+import { sanitizeRedirect } from '../lib/redirect.js';
 
 const app = createApp({
   setup() {
@@ -21,7 +21,7 @@ const app = createApp({
     // ErrorPage)与站外地址一律回退首页。
     function getRedirect() {
       const params = new URLSearchParams(window.location.search);
-      return sanitizeRedirect(params.get('redirect'), APP_BASE);
+      return sanitizeRedirect(params.get('redirect'));
     }
 
     // 只记住用户名，密码永不写入浏览器存储。
@@ -59,7 +59,7 @@ const app = createApp({
         }
         saveLoginMemory();
         password.value = '';
-        window.location.href = withBase(getRedirect());
+        window.location.href = getRedirect();
       } catch (e) {
         errorMessage.value = '网络错误: ' + e.message;
       } finally {

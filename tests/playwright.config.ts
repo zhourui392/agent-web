@@ -30,8 +30,6 @@ const userStorageState = path.join(__dirname, '.auth', 'user.json');
 
 export default defineConfig({
   testDir: './e2e',
-  // qa-prefix* 需要 context-path=/qa 的服务 (playwright.qa-prefix.config.ts), 默认套件跑不了
-  testIgnore: ['qa-prefix.spec.ts', 'qa-prefix-assets.spec.ts'],
   fullyParallel: false,         // E2E 共享 Spring Boot 实例 + SQLite,串行更稳
   forbidOnly: !!process.env.CI,
   retries: 0,                   // Phase 0: 不重试,暴露稳定性问题

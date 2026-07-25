@@ -1,6 +1,6 @@
 /**
  * 分享页 entry。原先是 share.html 里的 inline module 脚本,依赖 Vue / ElementPlus /
- * window.AgentFormatters / window.withBase 全局;npm 化后全局不再存在,故抽成独立模块。
+ * window.AgentFormatters 等全局;npm 化后全局不再存在,故抽成独立模块。
  *
  * 本次只把「读全局」换成 ES import,页内那些与 lib/formatters 重复的本地实现
  * (parseUserMessage / formatTime / parseStreamJson / isStreamJson / mapMessages) 一律原样保留:
@@ -12,7 +12,6 @@ import { createApp, ref, onMounted, nextTick } from 'vue';
 import { ElMessage } from 'element-plus';
 import 'element-plus/dist/index.css';
 import { setupElementPlus } from '../element-plus-setup.js';
-import { withBase } from '../base.js';
 import { renderMarkdown } from '../lib/formatters.js';
 
 const app = createApp({
@@ -61,8 +60,8 @@ const app = createApp({
       }
       return { text: textLines.join('\n').trim(), images: images };
     };
-    const imageUrl = (absPath) => withBase('/api/share/'
-      + encodeURIComponent(shareToken.value) + '/image?path=' + encodeURIComponent(absPath));
+    const imageUrl = (absPath) => '/api/share/'
+      + encodeURIComponent(shareToken.value) + '/image?path=' + encodeURIComponent(absPath);
 
     const formatTime = (isoStr) => {
       if (!isoStr) return '';

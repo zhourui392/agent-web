@@ -7,7 +7,6 @@
 import { createApp, reactive, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import 'element-plus/dist/index.css';
-import '../base.js';
 import { setupElementPlus } from '../element-plus-setup.js';
 
 const app = createApp({

@@ -52,15 +52,15 @@ class LoginUrlBuilderTest {
     }
 
     @Test
-    void should_PreserveContextPath_When_ApplicationUsesPathPrefix() {
-        // Given
-        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/qa/chat");
-        request.setContextPath("/qa");
+    void should_NormalizeDuplicateSlashes_When_GatewayForwardsDirtyUri() {
+        // Given: 网关转发产生的脏 URL, 不归一会让登录页失配 PublicPaths 造成无限重定向
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "//chat");
+        request.setRequestURI("//chat");
 
         // When
         String url = LoginUrlBuilder.loginPage(request, new AuthProperties());
 
         // Then
-        assertEquals("/qa/login.html?redirect=%2Fqa%2Fchat", url);
+        assertEquals("/login.html?redirect=%2Fchat", url);
     }
 }

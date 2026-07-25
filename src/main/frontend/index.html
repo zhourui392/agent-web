@@ -9,7 +9,6 @@
   <!-- ChatPanel 组件样式(聊天容器/气泡/工具块/召回卡片/输入区) -->
   <link rel="stylesheet" href="css/chat-panel.css?v=20260607">
   <!-- 上下文前缀单点(必须最先加载:推导 /qa 前缀并包 fetch/EventSource) -->
-  <script type="module" src="/js/base.js"></script>
   <!-- Markdown rendering -->
 </head>
 <body>
@@ -341,7 +340,7 @@
         <div v-if="!previewVisible" style="margin-top: 12px;">
           <el-upload
             data-test="fs-upload"
-            :action="withBase('/api/fs/upload?path=' + encodeURIComponent(workspaceCandidatePath))"
+            :action="'/api/fs/upload?path=' + encodeURIComponent(workspaceCandidatePath)"
             name="file"
             :show-file-list="false"
             :on-success="onUploadSuccess"

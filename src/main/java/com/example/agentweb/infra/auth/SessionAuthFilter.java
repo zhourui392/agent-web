@@ -40,7 +40,7 @@ public class SessionAuthFilter implements Filter {
             throws IOException, ServletException {
         HttpServletRequest httpRequest = (HttpServletRequest) request;
         HttpServletResponse httpResponse = (HttpServletResponse) response;
-        String path = ContextPrefix.strip(httpRequest);
+        String path = RequestPath.normalized(httpRequest);
 
         if (PublicPaths.isPublic(path)) {
             chain.doFilter(request, response);

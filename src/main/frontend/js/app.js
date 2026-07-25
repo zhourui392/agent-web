@@ -2,7 +2,6 @@
 // 任何 API 响应 401 且 body 带 loginUrl 时，自动跳本站 /login.html。
 // loginUrl 由后端 SessionAuthFilter / AuthController 提供，已带 ?redirect=<原路径>。
 // 覆盖所有经 window.fetch 的调用；SSE(EventSource) 不走 fetch，单独在错误处理里兜底。
-import { withBase } from './base.js';
 import {
   formatSize,
   renderMarkdown,
@@ -30,17 +29,17 @@ import 'element-plus/dist/index.css';
         const data = await res.clone().json();
         if (data && data.loginUrl) {
           redirecting = true;
-          window.location.href = withBase(data.loginUrl);
+          window.location.href = data.loginUrl;
         } else {
           // 401 但响应没带 loginUrl(老接口/非 JSON 兜底): 直接跳本站登录页, 带回当前路径。
           redirecting = true;
           const redirect = encodeURIComponent(window.location.pathname + window.location.search);
-          window.location.href = withBase('/login.html?redirect=' + redirect);
+          window.location.href = '/login.html?redirect=' + redirect;
         }
       } catch (e) {
         redirecting = true;
         const redirect = encodeURIComponent(window.location.pathname + window.location.search);
-        window.location.href = withBase('/login.html?redirect=' + redirect);
+        window.location.href = '/login.html?redirect=' + redirect;
       }
     }
     return res;
@@ -164,7 +163,7 @@ const app = createApp({
         const authStatus = await fetch('/api/auth/status').then(r => r.json());
         authEnabled.value = !!authStatus.authEnabled;
         if (!authStatus.authenticated && authStatus.loginUrl) {
-          window.location.href = withBase(authStatus.loginUrl);
+          window.location.href = authStatus.loginUrl;
           return;
         }
         if (authStatus.username) {
@@ -277,7 +276,7 @@ const app = createApp({
         previewVisible.value = true;
         previewTitle.value = item.name;
         previewHtml.value = '';
-        fetch(withBase('/api/fs/download?path=' + encodeURIComponent(item.path)))
+        fetch('/api/fs/download?path=' + encodeURIComponent(item.path))
           .then(r => {
             if (!r.ok) throw new Error('加载失败');
             return r.text();
@@ -293,7 +292,7 @@ const app = createApp({
             previewLoading.value = false;
           });
       } else if (command === 'download') {
-        window.open(withBase('/api/fs/download?path=' + encodeURIComponent(item.path)), '_blank');
+        window.open('/api/fs/download?path=' + encodeURIComponent(item.path), '_blank');
       } else if (command === 'delete') {
         ElMessageBox.confirm('确定要删除 ' + item.name + ' 吗？', '确认删除', {
           confirmButtonText: '删除',
@@ -698,11 +697,10 @@ const app = createApp({
       } catch (e) {
         // ignore
       }
-      window.location.href = withBase(loginUrl);
+      window.location.href = loginUrl;
     }
 
     return {
-      withBase: withBase,
       roots,
       selectedRoot,
       workspaceCandidatePath,

@@ -107,7 +107,7 @@ java -jar target/agent-web-0.1.0-SNAPSHOT.jar
 https://agent.mokatu.shop/
 ```
 
-应用默认挂载在域名根路径，访问地址为 `https://agent.mokatu.shop/`。后端仍通过 `ContextPrefix` 派生路径，前端 `base.js` 从自身 `<script src>` 推导，因此测试环境需要路径前缀时仍可单独覆盖。
+应用挂载在域名根路径，访问地址为 `https://agent.mokatu.shop/`。原先支持的 `/qa` 子路径部署已废弃，前后端的挂载前缀推导机制（后端 `ContextPrefix`、前端 `base.js`）已随之移除；前后端一律使用根绝对路径。
 
 登录页 `/login.html` 使用数据库用户名 + 密码认证，会话默认保留 7 天；除登录入口、静态资源与只读分享外，所有入口均要求登录。首次初始化 SQLite 时会创建 `ADMIN` 账户 `admin`，公开种子密码为 `Aa135246`。公网模式启动时，如果数据库仍保留种子密码哈希，服务会在监听端口对外提供请求前要求 `AGENT_BOOTSTRAP_ADMIN_PASSWORD`，把新密码以 BCrypt（cost 12）哈希写入数据库并注销该账户已有会话；环境变量不会写入数据库，后续启动也不会覆盖已修改的密码。
 

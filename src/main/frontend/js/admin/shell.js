@@ -6,7 +6,7 @@
  * 单页(admin.html)与未来 MPA 各页共享同一份实现。
  *
  * 组件用字符串模板(Vue 运行时编译器,经 vite alias vue -> esm-bundler),
- * 不受 in-DOM 自闭合限制。Vue / ElementPlus / 图标 / withBase 全部经 ES import (npm),
+ * 不受 in-DOM 自闭合限制。Vue / ElementPlus / 图标全部经 ES import (npm),
  * 无任何 window 全局依赖;element-plus 样式也在此 import, 由 Vite 抽成共享 CSS chunk。
  *
  * @author zhourui(V33215020)
@@ -14,7 +14,6 @@
 import { ref, onMounted, createApp } from 'vue';
 import { setupElementPlus } from '../element-plus-setup.js';
 import 'element-plus/dist/index.css';
-import { withBase } from '../base.js';
 
 export const AdminShell = {
   name: 'AdminShell',
@@ -79,7 +78,7 @@ export const AdminShell = {
       if (index === props.active) {
         return;
       }
-      location.href = withBase('/admin/' + index + '.html');
+      location.href = '/admin/' + index + '.html';
     }
 
     // 探测 chat-rag 是否启用,决定是否展示「召回历史」菜单。失败/未装配按关闭处理。
@@ -127,7 +126,7 @@ export const AdminShell = {
 
     function login() {
       const redirect = location.pathname + location.search + location.hash;
-      location.href = withBase('/login.html?redirect=' + encodeURIComponent(redirect));
+      location.href = '/login.html?redirect=' + encodeURIComponent(redirect);
     }
 
     async function logout() {
@@ -137,7 +136,7 @@ export const AdminShell = {
         // 忽略:本地状态照常清空
       }
       authed.value = false;
-      location.href = withBase('/login.html');
+      location.href = '/login.html';
       emit('logout');
     }
 

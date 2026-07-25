@@ -38,8 +38,8 @@ public class AdminAuthFilter implements Filter {
         HttpServletRequest req = (HttpServletRequest) request;
         HttpServletResponse resp = (HttpServletResponse) response;
 
-        // context-path 挂载部署(/qa)下 requestURI 含挂载前缀,剥成逻辑路径再匹配受保护前缀
-        if (!matchesProtected(ContextPrefix.strip(req))) {
+        // 归一斜杠再匹配受保护前缀,脏 URL(//admin/...)不得绕过
+        if (!matchesProtected(RequestPath.normalized(req))) {
             chain.doFilter(request, response);
             return;
         }

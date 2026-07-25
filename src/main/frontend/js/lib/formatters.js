@@ -10,7 +10,6 @@
  */
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
-import { withBase } from '../base.js';
 
 export var IMAGE_PATH_RE = /^.+[\/\\][^\/\\]+\.(png|jpe?g|gif|webp|bmp)$/i;
 
@@ -60,8 +59,7 @@ export function parseUserMessage(text) {
 }
 
 export function imageUrl(absPath) {
-  // img src 不经 window.fetch,故自行补上下文前缀;Node/Vitest 无 DOM 时 withBase 退化为 identity。
-  return withBase('/api/fs/image?path=' + encodeURIComponent(absPath));
+  return '/api/fs/image?path=' + encodeURIComponent(absPath);
 }
 
 export function formatTime(isoStr) {

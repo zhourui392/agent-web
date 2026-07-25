@@ -22,7 +22,9 @@ npm run e2e:headed
 
 # 指定单个用例
 npx playwright test chat.spec.ts
-npx playwright test -c playwright.qa-prefix.config.ts
+
+# harness 专用 config (四阶段流水线)
+npx playwright test -c playwright.harness.config.ts
 ```
 
 ## 前置条件
