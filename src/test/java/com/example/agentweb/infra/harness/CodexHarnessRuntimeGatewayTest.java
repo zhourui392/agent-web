@@ -598,6 +598,11 @@ class CodexHarnessRuntimeGatewayTest {
         runtime.setTempRoot(tempDir.resolve("runtime").toString());
         runtime.setMaxRuntimeSeconds(maxRuntimeSeconds);
         runtime.setIdleTimeoutSeconds(idleTimeoutSeconds);
+        // per-stage idle timeout 全部设测试值(spec 阶段取对应)
+        runtime.setAnalysisIdleTimeoutSeconds(idleTimeoutSeconds);
+        runtime.setDesignIdleTimeoutSeconds(idleTimeoutSeconds);
+        runtime.setImplementationIdleTimeoutSeconds(idleTimeoutSeconds);
+        runtime.setDeploymentIdleTimeoutSeconds(idleTimeoutSeconds);
         runtime.setMaxOutputBytes(maxOutputBytes);
         runtime.setAuthMode(AuthMode.ISOLATED_KEY);
         runtime.setProviderCredentialReference("CODEX_PROVIDER_CREDENTIAL");

@@ -166,8 +166,13 @@ agent:
       compatibility-matrix-version: m0-2026-07-22
       version-probe-timeout-seconds: 5
       version-probe-max-bytes: 4096
-      idle-timeout-seconds: 300
-      max-runtime-seconds: 1800
+      idle-timeout-seconds: ${AGENT_HARNESS_RUNTIME_IDLE_TIMEOUT_SECONDS:300}
+      # 按阶段 idle timeout(无输出超时):长程任务需更长。需求分析 2h,实现 24h。
+      analysis-idle-timeout-seconds: ${AGENT_HARNESS_RUNTIME_ANALYSIS_IDLE_TIMEOUT_SECONDS:7200}
+      design-idle-timeout-seconds: ${AGENT_HARNESS_RUNTIME_DESIGN_IDLE_TIMEOUT_SECONDS:7200}
+      implementation-idle-timeout-seconds: ${AGENT_HARNESS_RUNTIME_IMPLEMENTATION_IDLE_TIMEOUT_SECONDS:86400}
+      deployment-idle-timeout-seconds: ${AGENT_HARNESS_RUNTIME_DEPLOYMENT_IDLE_TIMEOUT_SECONDS:7200}
+      max-runtime-seconds: ${AGENT_HARNESS_RUNTIME_MAX_RUNTIME_SECONDS:86400}
       max-output-bytes: 4194304
     security:
       capability-policy-version: harness-capability-policy@2.0.0

@@ -333,10 +333,27 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
         if (exceeded(active.getStartedNanos(), now, runtimeProperties.getMaxRuntimeSeconds())) {
             return TerminalOutcome.timedOut("runtime maximum duration exceeded");
         }
-        if (exceeded(lastOutputNanos, now, runtimeProperties.getIdleTimeoutSeconds())) {
+        if (exceeded(lastOutputNanos, now, idleTimeoutFor(active.getSpec().getStage()))) {
             return TerminalOutcome.timedOut("runtime idle timeout exceeded");
         }
         return null;
+    }
+
+    // 按阶段取 idle timeout:长程任务(如 IMPLEMENTATION 编译/测试)需更长无输出超时。
+    private long idleTimeoutFor(HarnessStage stage) {
+        if (stage == HarnessStage.IMPLEMENTATION) {
+            return runtimeProperties.getImplementationIdleTimeoutSeconds();
+        }
+        if (stage == HarnessStage.ANALYSIS) {
+            return runtimeProperties.getAnalysisIdleTimeoutSeconds();
+        }
+        if (stage == HarnessStage.DESIGN) {
+            return runtimeProperties.getDesignIdleTimeoutSeconds();
+        }
+        if (stage == HarnessStage.DEPLOYMENT) {
+            return runtimeProperties.getDeploymentIdleTimeoutSeconds();
+        }
+        return runtimeProperties.getIdleTimeoutSeconds();
     }
 
     private void requireLaunchable(AgentExecutionSpec spec, RuntimeEventSink eventSink) {
