@@ -19,7 +19,7 @@
  * @param {string|null} redirect URL 上取到的 redirect 原值
  * @returns {string} 可直接跳转的站内路径
  */
-export function sanitizeRedirect(redirect) {
+export function sanitizeRedirect(redirect: string | null | undefined): string {
   if (typeof redirect !== 'string' || redirect.charAt(0) !== '/' || redirect.charAt(1) === '/') {
     return '/';
   }

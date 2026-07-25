@@ -10,12 +10,16 @@
     "e2e:debug": "playwright test --debug",
     "test:install": "playwright install --with-deps chromium",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "devDependencies": {
     "@playwright/test": "^1.48.0",
+    "@types/dompurify": "^3.0.5",
+    "@types/node": "^26.1.1",
     "dompurify": "^3.2.6",
     "jsdom": "^26.1.0",
+    "typescript": "^7.0.2",
     "vite": "6.4.3",
     "vitest": "^3.2.7"
   }

@@ -21,7 +21,7 @@ describe('resumable GET SSE protocol', () => {
     const remainder = parseFrames(
       'retry: 3000\nid: 12\nevent: chunk\ndata: line1\ndata: line2\n\n' +
       'event: ping\ndata: {}\n\nevent: chunk\ndata: par',
-      event => events.push(event),
+      (event: SseFrame) => events.push(event),
     );
 
     expect(remainder).toBe('event: chunk\ndata: par');
