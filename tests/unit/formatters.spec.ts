@@ -4,7 +4,7 @@ import createDOMPurify from 'dompurify';
 import { JSDOM } from 'jsdom';
 
 const requireCjs = createRequire(import.meta.url);
-const formatters = requireCjs('../../src/main/resources/static/js/lib/formatters.js') as {
+const formatters = requireCjs('../../src/main/frontend/public/js/lib/formatters.js') as {
   IMAGE_PATH_RE: RegExp;
   formatSize: (bytes: number | null | undefined) => string;
   renderMarkdown: (text: string | null | undefined) => string;

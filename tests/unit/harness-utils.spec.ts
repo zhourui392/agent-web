@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createRequire } from 'node:module';
 
 const requireCjs = createRequire(import.meta.url);
-const harness = requireCjs('../../src/main/resources/static/js/admin/harness-utils.js') as {
+const harness = requireCjs('../../src/main/frontend/public/js/admin/harness-utils.js') as {
   selectionReasonLabel: (reason: string | null | undefined) => string;
   rejectionReasonLabel: (reason: string | null | undefined) => string;
   capabilityDecisionLabel: (authorized: boolean, reason?: string) => string;

@@ -3,10 +3,10 @@ import { createRequire } from 'node:module';
 
 const requireCjs = createRequire(import.meta.url);
 // message-view 依赖 formatters, 先加载 formatters 设置 globalThis.AgentFormatters
-const formatters = requireCjs('../../src/main/resources/static/js/lib/formatters.js');
+const formatters = requireCjs('../../src/main/frontend/public/js/lib/formatters.js');
 (globalThis as Record<string, unknown>).AgentFormatters = formatters;
 // 再加载 message-view (它读 globalThis.AgentFormatters)
-const messageView = requireCjs('../../src/main/resources/static/js/lib/message-view.js') as {
+const messageView = requireCjs('../../src/main/frontend/public/js/lib/message-view.js') as {
   ROLE_LABELS: Record<string, string>;
   enrichMessage: (msg: Record<string, unknown>, options?: { withRecall?: boolean }) => Record<string, unknown>;
   mapMessages: (rawMsgs: Record<string, unknown>[] | null, options?: { withRecall?: boolean }) => Record<string, unknown>[];

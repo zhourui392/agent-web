@@ -10,7 +10,7 @@ function productionSource(relativePath: string): string {
 
 describe('single ChatRun page path', () => {
   it('does not retain the legacy POST SSE fallback', () => {
-    const panel = productionSource('src/main/resources/static/js/components/chat-panel.js');
+    const panel = productionSource('src/main/frontend/public/js/components/chat-panel.js');
 
     expect(panel).not.toContain('AgentPostSse');
     expect(panel).not.toContain('/message/stream');

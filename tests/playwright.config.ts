@@ -57,7 +57,7 @@ export default defineConfig({
   // 自动启停 Spring Boot (e2e profile)
   // 用显式 plugin goal 避免 prefix lookup 在仓库根之外失败
   webServer: {
-    command: `mvn -f "${path.join(repoRoot, 'pom.xml')}" org.springframework.boot:spring-boot-maven-plugin:run -Dspring-boot.run.profiles=${springProfiles} -Dspring-boot.run.jvmArguments=-Dfile.encoding=UTF-8`,
+    command: `npm run build && mvn -f "${path.join(repoRoot, 'pom.xml')}" org.springframework.boot:spring-boot-maven-plugin:run -Dspring-boot.run.profiles=${springProfiles} -Dspring-boot.run.jvmArguments=-Dfile.encoding=UTF-8`,
     cwd: repoRoot,
     env: webServerEnv,
     url: 'http://localhost:18099/',

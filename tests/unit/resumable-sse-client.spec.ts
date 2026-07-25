@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createRequire } from 'node:module';
 
 const requireCjs = createRequire(import.meta.url);
-const sse = requireCjs('../../src/main/resources/static/js/lib/resumable-sse-client.js') as {
+const sse = requireCjs('../../src/main/frontend/public/js/lib/resumable-sse-client.js') as {
   parseFrames: (buffer: string, consumer: (event: SseFrame) => void) => string;
   shouldApply: (lastSequence: number, event: SseFrame) => boolean;
   nextDelay: (attempt: number, baseMs: number, maxMs: number, jitter: number) => number;

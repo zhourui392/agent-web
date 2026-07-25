@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createRequire } from 'node:module';
 
 const requireCjs = createRequire(import.meta.url);
-const base = requireCjs('../../src/main/resources/static/js/base.js') as {
+const base = requireCjs('../../src/main/frontend/public/js/base.js') as {
   deriveBase: (scriptSrc: string) => string;
   makeWithBase: (base: string) => (path: string) => string;
   sanitizeRedirect: (redirect: string | null, base: string) => string;

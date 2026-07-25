@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createRequire } from 'node:module';
 
 const requireCjs = createRequire(import.meta.url);
-const state = requireCjs('../../src/main/resources/static/js/lib/chat-run-state.js') as {
+const state = requireCjs('../../src/main/frontend/public/js/lib/chat-run-state.js') as {
   createStore: (storage: MemoryStorage, userId: string) => RunStore;
   selectActiveRun: (activeRuns: Run[], localRuns: Record<string, Run>, workingDir: string) => Run | null;
 };

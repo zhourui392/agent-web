@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { createRequire } from 'node:module';
 
 const requireCjs = createRequire(import.meta.url);
-const recall = requireCjs('../../src/main/resources/static/js/admin/recall-utils.js') as {
+const recall = requireCjs('../../src/main/frontend/public/js/admin/recall-utils.js') as {
   buildRecallQuery: (filters: Record<string, unknown>, page?: number, size?: number) => string;
   pct: (value: number | null | undefined) => string;
   score: (value: number | null | undefined) => string;

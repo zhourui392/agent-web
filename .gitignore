@@ -52,6 +52,9 @@ env.local
 # Node
 node_modules/
 
+# Vite build 产物 (源码在 src/main/frontend/, 产物输出到 src/main/resources/static/)
+src/main/resources/static/
+
 # Playwright / E2E 跑出来的产物 (无前导 / : 匹配仓库根与 tests/ 下任意层级)
 test-results/
 playwright-report/
