@@ -13,7 +13,9 @@ test('Git 设置: 登录用户保存后刷新回显,凭证只返回脱敏状态'
 
   await page.goto('/git-settings.html');
   await expect(page.getByText('每用户 Git 提交身份与凭证')).toBeVisible({ timeout: 10_000 });
-  await expect(page.getByText(userId)).toBeVisible();
+  // 当前用户区(.who)同时显示 username(strong)与工号(.uid),admin 账户两者都是 'admin',
+  // getByText('admin') 会匹配 2 个元素触发 strict mode 违规。用 .who strong 精确定位 username。
+  await expect(page.locator('.who strong')).toHaveText(userId);
 
   await page.getByPlaceholder('git config user.name，例如：周锐').fill(name);
   await page.getByPlaceholder('git config user.email，例如：zhourui@example.com').fill(email);

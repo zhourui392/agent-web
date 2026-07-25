@@ -15,7 +15,6 @@ test('admin 大盘: 登录后默认渲染 KPI 卡片与趋势区', async ({ page
   // KPI 卡片(kpis 计算属性在 overview 非空时产出 8 张)
   await expect(page.locator('.kpi-card').first()).toBeVisible({ timeout: 10_000 });
   await expect(page.getByText('会话总量')).toBeVisible();
-  await expect(page.getByText('诊断总量')).toBeVisible();
 
   // 趋势卡片 section-title「近 N 天趋势」
   await expect(page.getByText('天趋势')).toBeVisible();

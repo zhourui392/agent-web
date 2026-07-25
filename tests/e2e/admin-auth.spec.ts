@@ -1,7 +1,10 @@
 import { test, expect } from '@playwright/test';
 
 test('admin 登录壳: 数据库账户登录 → ADMIN 进大盘 → 退出回登录态', async ({ browser, baseURL }) => {
-  const context = await browser.newContext({ baseURL });
+  // 显式空 storageState: Playwright newContext 在 use.storageState 存在时会继承 globalSetup 的
+  // 登录 cookie,导致页面直接进入已登录态,"前往登录"按钮不出现。本 spec 要测未登录 → 登录壳流程,
+  // 必须从未登录态开始,故清空 cookies/origins 覆盖继承。
+  const context = await browser.newContext({ baseURL, storageState: { cookies: [], origins: [] } });
   const page = await context.newPage();
 
   await page.goto('/admin');

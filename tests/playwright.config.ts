@@ -36,6 +36,9 @@ export default defineConfig({
   workers: 1,
   reporter: [['list'], ['html', { open: 'never', outputFolder: 'playwright-report' }]],
   globalSetup: './e2e/global-setup.ts',
+  // harness.spec.ts 测 harness 开启态,归 playwright.harness.config.ts(18100 + e2e-harness profile);
+  // 默认 config(18099, agent.harness.enabled: false) 下跑会因 harness API 不可用而全失败,故排除。
+  testIgnore: ['harness.spec.ts'],
 
   use: {
     baseURL: 'http://localhost:18099',
@@ -56,7 +59,9 @@ export default defineConfig({
   // 自动启停 Spring Boot (e2e profile)
   // 用显式 plugin goal 避免 prefix lookup 在仓库根之外失败
   webServer: {
-    command: `npm run build && mvn -f "${path.join(repoRoot, 'pom.xml')}" org.springframework.boot:spring-boot-maven-plugin:run -Dspring-boot.run.profiles=${springProfiles} -Dspring-boot.run.jvmArguments=-Dfile.encoding=UTF-8`,
+    // webServer 启动前先清 e2e db,避免上次跑残留的数据干扰本轮(如 git-settings 保存的凭证会让
+    // credentialConfigured=true,placeholder 变"已配置(••••)",spec fill('GitLab 密码') 找不到而超时)。
+    command: `node ${path.join(repoRoot, 'tests', 'scripts', 'e2e-clean.js')} && npm run build && mvn -f "${path.join(repoRoot, 'pom.xml')}" org.springframework.boot:spring-boot-maven-plugin:run -Dspring-boot.run.profiles=${springProfiles} -Dspring-boot.run.jvmArguments=-Dfile.encoding=UTF-8`,
     cwd: repoRoot,
     env: webServerEnv,
     url: 'http://localhost:18099/',
