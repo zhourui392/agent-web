@@ -24,7 +24,6 @@ public class AdminProperties {
     /** 需要 ADMIN 数据库角色的接口前缀集合；代码默认值必须 fail-closed 覆盖全部管理能力。 */
     private List<String> protectedPrefixes = new ArrayList<>(Arrays.asList(
             "/api/metrics",
-            "/api/admin-user-suggestions",
             "/api/admin-users",
             "/api/admin-workflows",
             "/api/admin-workflow-executions",

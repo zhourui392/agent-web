@@ -102,30 +102,9 @@ public class SqliteInitializer {
         } catch (Exception ignored) {
             // column already exists
         }
-        // Migration: create user suggestion table for chat page feedback/suggestion tickets
+        // Migration: drop user suggestion table (建议反馈功能已移除，清理存量表)
         try {
-            jdbc.execute("CREATE TABLE IF NOT EXISTS user_suggestion ("
-                    + "id TEXT PRIMARY KEY, "
-                    + "user_id TEXT, "
-                    + "user_name TEXT, "
-                    + "title TEXT, "
-                    + "content TEXT NOT NULL, "
-                    + "contact TEXT, "
-                    + "status TEXT NOT NULL, "
-                    + "admin_reply TEXT, "
-                    + "created_at INTEGER NOT NULL, "
-                    + "updated_at INTEGER NOT NULL, "
-                    + "replied_at INTEGER)");
-        } catch (Exception ignored) {
-        }
-        try {
-            jdbc.execute("CREATE INDEX IF NOT EXISTS idx_user_suggestion_user "
-                    + "ON user_suggestion(user_id, updated_at)");
-        } catch (Exception ignored) {
-        }
-        try {
-            jdbc.execute("CREATE INDEX IF NOT EXISTS idx_user_suggestion_status "
-                    + "ON user_suggestion(status, updated_at)");
+            jdbc.execute("DROP TABLE IF EXISTS user_suggestion");
         } catch (Exception ignored) {
         }
         // Migration: remove agent_type column from scheduled_task

@@ -100,17 +100,6 @@ const app = createApp({
     // --- chat-rag 召回开关探测 (召回历史浏览已迁至管理后台 /admin/refinery.html) ---
     const chatRagEnabled = ref(false);
 
-    // --- 用户建议 / 反馈 ---
-    const suggestionDialogVisible = ref(false);
-    const suggestionTab = ref('submit');
-    const suggestionSubmitting = ref(false);
-    const suggestionLoading = ref(false);
-    const suggestions = ref([]);
-    const suggestionForm = reactive({
-      title: '',
-      content: ''
-    });
-
     const sidebarVisible = ref(false);
     const isMobile = ref(window.innerWidth <= 768);
     const authEnabled = ref(true);
@@ -743,64 +732,6 @@ const app = createApp({
       taskForm.cronExpr = expr;
     };
 
-    // ========== 用户建议 / 反馈 ==========
-    function openSuggestionDialog() {
-      suggestionDialogVisible.value = true;
-      loadSuggestions();
-    }
-
-    async function submitSuggestion() {
-      if (!suggestionForm.content || !suggestionForm.content.trim()) {
-        ElementPlus.ElMessage.warning('请填写建议内容');
-        return;
-      }
-      suggestionSubmitting.value = true;
-      try {
-        const res = await fetch('/api/user-suggestions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            title: suggestionForm.title,
-            content: suggestionForm.content
-          })
-        });
-        if (!res.ok) {
-          throw new Error(await res.text());
-        }
-        suggestionForm.title = '';
-        suggestionForm.content = '';
-        ElementPlus.ElMessage.success('建议已提交');
-        suggestionTab.value = 'status';
-        await loadSuggestions();
-      } catch (e) {
-        ElementPlus.ElMessage.error('提交失败: ' + (e.message || '未知错误'));
-      } finally {
-        suggestionSubmitting.value = false;
-      }
-    }
-
-    async function loadSuggestions() {
-      suggestionLoading.value = true;
-      try {
-        const data = await fetch('/api/user-suggestions?limit=50').then(r => r.json());
-        suggestions.value = Array.isArray(data) ? data : [];
-      } catch (e) {
-        ElementPlus.ElMessage.error('加载建议状态失败');
-      } finally {
-        suggestionLoading.value = false;
-      }
-    }
-
-    function suggestionStatusType(status) {
-      const map = {
-        PENDING: 'warning',
-        PROCESSING: 'primary',
-        REPLIED: 'success',
-        CLOSED: 'info'
-      };
-      return map[status] || 'info';
-    }
-
     // ========== ChatPanel 宿主回调 ==========
     // 组件新建会话:回填 active* 锁定顶栏 Agent,并刷新历史列表让新会话显现
     const onSessionCreated = (payload) => {
@@ -926,16 +857,6 @@ const app = createApp({
       groupedHistory,
       authEnabled,
       doLogout,
-      suggestionDialogVisible,
-      suggestionTab,
-      suggestionForm,
-      suggestionSubmitting,
-      suggestionLoading,
-      suggestions,
-      openSuggestionDialog,
-      submitSuggestion,
-      loadSuggestions,
-      suggestionStatusType,
     };
   }
 });
