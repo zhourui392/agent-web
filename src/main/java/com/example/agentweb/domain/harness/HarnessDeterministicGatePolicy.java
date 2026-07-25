@@ -137,9 +137,11 @@ public final class HarnessDeterministicGatePolicy {
         }
         Set<String> ids = new HashSet<String>();
         for (JsonNode criterion : criteria) {
-            if (!nonBlank(criterion, "id") || !nonBlank(criterion, "requirementId")
-                    || !nonBlank(criterion, "description") || !nonBlank(criterion, "verification")
-                    || !ids.add(criterion.path("id").asText())) {
+            if (!nonBlank(criterion, "acceptanceCriteriaId")
+                    || !nonEmptyArray(criterion, "relatedRequirementIds")
+                    || !nonBlank(criterion, "expectedObservableResult")
+                    || !nonBlank(criterion, "observability")
+                    || !ids.add(criterion.path("acceptanceCriteriaId").asText())) {
                 return false;
             }
         }
@@ -318,6 +320,10 @@ public final class HarnessDeterministicGatePolicy {
     private boolean nonBlank(JsonNode node, String field) {
         return node != null && node.path(field).isTextual()
                 && !node.path(field).asText().trim().isEmpty();
+    }
+
+    private boolean nonEmptyArray(JsonNode node, String field) {
+        return node != null && node.path(field).isArray() && !node.path(field).isEmpty();
     }
 
     private JsonNode json(GateArtifact artifact) {

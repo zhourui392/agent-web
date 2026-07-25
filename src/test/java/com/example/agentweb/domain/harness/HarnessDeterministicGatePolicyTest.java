@@ -26,8 +26,10 @@ class HarnessDeterministicGatePolicyTest {
         GateEvaluationContext valid = context(HarnessStage.ANALYSIS,
                 artifact(ArtifactType.REQUIREMENT, "# REQ-1 Create run"),
                 artifact(ArtifactType.ACCEPTANCE_CRITERIA,
-                        "{\"acceptanceCriteria\":[{\"id\":\"AC-1\",\"requirementId\":\"REQ-1\","
-                                + "\"description\":\"run is created\",\"verification\":\"HTTP 201 and runId\"}]}"),
+                        "{\"acceptanceCriteria\":[{\"acceptanceCriteriaId\":\"AC-1\","
+                                + "\"relatedRequirementIds\":[\"REQ-1\"],"
+                                + "\"expectedObservableResult\":\"run is created\","
+                                + "\"observability\":\"HTTP 201 and runId\"}]}"),
                 artifact(ArtifactType.IMPACT_ANALYSIS, "Affected: harness domain and API"),
                 artifact(ArtifactType.OPEN_QUESTIONS, "{\"questions\":[]}"));
 
@@ -40,8 +42,10 @@ class HarnessDeterministicGatePolicyTest {
         GateEvaluationContext blocked = context(HarnessStage.ANALYSIS,
                 artifact(ArtifactType.REQUIREMENT, "# REQ-1 One\n# REQ-1 Duplicate"),
                 artifact(ArtifactType.ACCEPTANCE_CRITERIA,
-                        "{\"acceptanceCriteria\":[{\"id\":\"AC-1\",\"requirementId\":\"REQ-1\","
-                                + "\"description\":\"unclear\",\"verification\":\"\"}]}"),
+                        "{\"acceptanceCriteria\":[{\"acceptanceCriteriaId\":\"AC-1\","
+                                + "\"relatedRequirementIds\":[\"REQ-1\"],"
+                                + "\"expectedObservableResult\":\"unclear\","
+                                + "\"observability\":\"\"}]}"),
                 artifact(ArtifactType.IMPACT_ANALYSIS, "impact"),
                 artifact(ArtifactType.OPEN_QUESTIONS,
                         "{\"questions\":[{\"id\":\"Q-1\",\"blocking\":true,\"question\":\"tenant?\"}]}"));
