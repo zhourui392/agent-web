@@ -10,7 +10,6 @@ flowchart LR
     Browser --> Chat[Chat]
     Browser --> Workflow[Workflow]
     Browser --> Schedule[Schedule]
-    Browser --> Suggestion[Suggestion]
     Chat --> AgentRun[AgentRun]
     Workflow --> AgentRun
     Schedule --> AgentRun
@@ -83,14 +82,6 @@ flowchart LR
 **Events / Outcomes**：GitConfigSaved · CliEnvironmentPrepared · WorktreeSelected · WorktreesUpdated。
 
 **Aggregates / Policies**：`UserGitConfig` 约束 identity 与凭据状态；`WorkspacePathPolicy` 约束可访问的真实路径。凭据密文持久化，明文仅用于当前子进程。
-
-## Suggestion Context
-
-**Commands**：SubmitSuggestion · TriageSuggestion · UpdateSuggestionStatus。
-
-**Events / Outcomes**：SuggestionSubmitted · SuggestionTriaged · SuggestionResolved。
-
-提交端只允许当前用户创建和查看自己的记录；管理端接口由 `ADMIN` 角色保护。
 
 ## 跨上下文协作
 

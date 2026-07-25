@@ -11,7 +11,6 @@
 | workflow | 支撑域 | 管理台可配置的多步 Agent 工作流 | `Workflow`、`WorkflowExecution` |
 | refinery | 核心域 | 会话评分、向量化、召回、归档与观测 | `RagChunk`、`RecallCandidate` |
 | git | 支撑域 | 每用户 Git 身份及加密凭据 | `UserGitConfig`、`GitIdentity` |
-| suggestion | 支撑域 | 用户建议提交与管理端 triage | `UserSuggestion` |
 | schedule | 支撑域 | Cron Agent 任务生命周期 | `ScheduledTask` |
 | worktree | 支撑域 | 普通聊天工作区的分支切换和路径约束 | `WorkspacePathPolicy` |
 | slashcommand | 支撑域 | 命令发现、解析与展开 | `SlashCommand` |
@@ -87,14 +86,13 @@ Refinery 默认关闭。启用后，`ChatRefineryTrigger` 找到静默会话，`
 
 普通 worktree 能力服务于聊天工作目录切换。`WorkspacePathPolicy` 和 `RealPathWorkspacePolicy` 共同保证路径位于白名单根目录，防止 `..`、符号链接和越界访问。
 
-## Schedule、Suggestion 与 Issue Log
+## Schedule 与 Issue Log
 
 - `ScheduledTask` 承担启停、Cron 配置和运行元数据；应用服务负责调度器注册与会话创建。
-- `UserSuggestion` 承担状态与管理端处理语义；提交端与管理端接口分离。
 - issue-log 通过文件仓储写入 workspace，并由工作目录级锁避免并发更新索引。精炼、去重和合并可使用同步 CLI 调用，并保留确定性 fallback。
 
 ## 存储
 
-SQLite 保存用户、登录会话、聊天会话、消息、反馈、定时任务、工作流、用户建议、RAG chunk、召回观测、Git 配置和运行时设置。上传文件、图片与 issue-log 使用文件系统；活跃聊天会话使用有界内存缓存。
+SQLite 保存用户、登录会话、聊天会话、消息、反馈、定时任务、工作流、RAG chunk、召回观测、Git 配置和运行时设置。上传文件、图片与 issue-log 使用文件系统；活跃聊天会话使用有界内存缓存。
 
 新安装数据库以 `schema.sql` 为准，兼容性列和表由 `SqliteInitializer` 做幂等迁移。

@@ -14,7 +14,6 @@ const MENU_SLUG: Record<string, string> = {
   '诊断历史': 'diagnose',
   'IM 工单': 'tickets',
   '经验回填': 'backfill',
-  '用户建议': 'suggestions',
   '工作流': 'workflows',
   '召回观测': 'recall',
   '召回历史': 'refinery',

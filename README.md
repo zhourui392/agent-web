@@ -28,10 +28,9 @@
 
 ### 平台运维
 
-- **管理台**（`/admin`，数据库 ADMIN 角色鉴权）— 使用概览、对话浏览、用户账号创建、工作流管理、用户建议 triage、RAG 语料维护、运行时设置（Agent 模型、默认工作空间与目录授权）
+- **管理台**（`/admin`，数据库 ADMIN 角色鉴权）— 使用概览、对话浏览、用户账号创建、工作流管理、RAG 语料维护、运行时设置（Agent 模型、默认工作空间与目录授权）
 - **工作流编排** — 定义可复用的多步 workflow（每步一个 prompt 模板），一键触发执行并按步记录结果
 - **研发交付 Harness（默认关闭）** — 独立于 Workflow 的固定四阶段控制平面；M1—M3 已完成领域内核、Prompt/Skill/MCP Snapshot 和 Codex Runtime，M4 已打通 `ANALYSIS → DESIGN → IMPLEMENTATION → DEPLOYMENT`、`WAITING_INPUT`、确定性 Gate、Artifact 修订/失效、Git/TDD 证据、独立 local 部署 Approval、重启人工对账、管理页面和最终追踪报告。正式 Runtime 默认使用服务账户的本机 Codex CLI 登录态，也可切换到隔离 Key；自动化和真实在线 Prompt/Skill 已通过，但真实试点需求尚未完成，真实验收前不能关闭 M4，详见 [M4 实现记录](docs/harness/m4/README.md)与[自测报告](docs/harness/m4/test-report.md)
-- **用户建议** — 登录用户从聊天界面提交产品反馈，管理员分流处理
 - **每用户 Git 身份** — 各用户配置自己的 git identity 与 SCM 凭据（密码加密存储、不回显），用于交付时归属提交与解析凭据链
 
 ## 技术栈
@@ -39,7 +38,7 @@
 | 层面 | 技术 |
 |------|------|
 | 后端框架 | Spring Boot 3.3.13 / Java 21 / Maven（jakarta 命名空间） |
-| 数据库 | SQLite（用户、会话、定时任务、工作流、用户建议、向量库、召回明细、Git 配置） |
+| 数据库 | SQLite（用户、会话、定时任务、工作流、向量库、召回明细、Git 配置） |
 | 前端 | Vue 3 + Element Plus（CDN，无构建步骤）；主应用 + 管理台 MPA |
 | 通信 | RESTful API + Server-Sent Events |
 | 架构 | DDD + 六边形架构，按限界上下文分包 |
@@ -279,7 +278,7 @@ Feature Flag 关闭不会删除历史数据。服务重启时未知 Runtime 标�
 
 ## API 接口
 
-完整端点以 `interfaces/` 下各 `*Controller` 为准。`/api/auth/login`、`/api/auth/status`、只读分享和静态资源为公开入口；聊天、文件、定时任务、普通 worktree、用户 Git 配置与用户建议等接口要求数据库用户会话；`/api/metrics/*`、`/api/refinery/*` 和 `/api/admin*` 等管理能力还会额外校验 `ADMIN` 角色。
+完整端点以 `interfaces/` 下各 `*Controller` 为准。`/api/auth/login`、`/api/auth/status`、只读分享和静态资源为公开入口；聊天、文件、定时任务、普通 worktree、用户 Git 配置等接口要求数据库用户会话；`/api/metrics/*`、`/api/refinery/*` 和 `/api/admin*` 等管理能力还会额外校验 `ADMIN` 角色。
 
 > 页面聊天统一先 `POST /api/chat/session/{id}/runs`（携带 `Idempotency-Key`）提交，再通过 `GET /api/chat/runs/{runId}/events` 订阅；断线后客户端指数退避重连，并使用 `Last-Event-ID` 回放未确认事件。旧 POST SSE、session status/stop 入口已移除。
 
@@ -288,14 +287,14 @@ Feature Flag 关闭不会删除历史数据。服务重启时未知 Runtime 标�
 ```
 src/main/java/com/example/agentweb/
 ├── interfaces/   REST Controller + DTO（Chat / Fs / Auth / Share / Worktree / ScheduledTask /
-│                 AdminWorkflow / GitConfig / UserSuggestion* / Metrics / RecallMetrics / Refinery* / Admin*）
+│                 AdminWorkflow / GitConfig / Metrics / RecallMetrics / Refinery* / Admin*）
 ├── app/          应用编排（无业务逻辑）：agentrun（prompt 组装）、chat、scheduled-task、
-│                 workflow、git、suggestion、metrics、refinery、harness；面向外部能力的端口位于
+│                 workflow、git、metrics、refinery、harness；面向外部能力的端口位于
 │                 agentrun/port、auth/port、logging 等对应子域
-├── domain/       聚合根 / 值对象 / 仓储端口：chat、workflow、git、suggestion、refinery、issuelog、auth、
+├── domain/       聚合根 / 值对象 / 仓储端口：chat、workflow、git、refinery、issuelog、auth、
 │                 schedule、slashcommand、worktree、harness、shared
 ├── infra/        CLI 进程执行（cli/ 方言策略）、SQLite 仓储、auth/（本地会话登录 + context path 派生）、
-│                 workflow/、git/、schedule/、log/、suggestion/、metrics/、refinery/、issuelog/、harness/、setting/
+│                 workflow/、git/、schedule/、log/、metrics/、refinery/、issuelog/、harness/、setting/
 └── config/       Web MVC / Spring 装配、运行配置 Properties（含 refinery/、harness/）
 
 src/main/resources/

@@ -73,7 +73,6 @@ public class PublicPathsTest {
     @Test
     void adminDataEndpoints_requireNormalSessionBeforeRoleCheck() {
         assertFalse(PublicPaths.isPublic("/api/metrics/overview"));
-        assertFalse(PublicPaths.isPublic("/api/admin-user-suggestions"));
         assertFalse(PublicPaths.isPublic("/api/admin-users"));
         assertFalse(PublicPaths.isPublic("/api/admin-workflows"));
         assertFalse(PublicPaths.isPublic("/api/admin-workflow-executions"));
@@ -86,8 +85,6 @@ public class PublicPathsTest {
         // 异名接口会被误放成公开。若未来有人去掉斜杠改成宽匹配,这条断言会立刻报警。
         assertFalse(PublicPaths.isPublic("/api/admin-control"), "/api/admin-control 不应公开");
         assertFalse(PublicPaths.isPublic("/api/metrics-internal"), "/api/metrics-internal 不应公开");
-        assertFalse(PublicPaths.isPublic("/api/admin-user-suggestions-debug"),
-                "/api/admin-user-suggestions-debug 不应公开");
         assertFalse(PublicPaths.isPublic("/api/admin-workflows-debug"),
                 "/api/admin-workflows-debug 不应公开");
         assertFalse(PublicPaths.isPublic("/api/admin-workflow-executions-debug"),

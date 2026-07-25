@@ -98,23 +98,6 @@ CREATE TABLE IF NOT EXISTS scheduled_task (
     last_session_id TEXT
 );
 
-CREATE TABLE IF NOT EXISTS user_suggestion (
-    id          TEXT PRIMARY KEY,
-    user_id     TEXT,
-    user_name   TEXT,
-    title       TEXT,
-    content     TEXT    NOT NULL,
-    contact     TEXT,
-    status      TEXT    NOT NULL,
-    admin_reply TEXT,
-    created_at  INTEGER NOT NULL,
-    updated_at  INTEGER NOT NULL,
-    replied_at  INTEGER
-);
-
-CREATE INDEX IF NOT EXISTS idx_user_suggestion_user ON user_suggestion(user_id, updated_at);
-CREATE INDEX IF NOT EXISTS idx_user_suggestion_status ON user_suggestion(status, updated_at);
-
 CREATE TABLE IF NOT EXISTS chat_rag_chunk (
     id                 TEXT PRIMARY KEY,
     source_session_id  TEXT    NOT NULL,

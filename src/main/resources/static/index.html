@@ -150,11 +150,7 @@
             </div>
           </el-popover>
 
-          <!-- ⑤-b 建议/反馈 -->
-          <el-button style="flex-shrink: 0;" plain @click="openSuggestionDialog">
-            <el-icon><chat-dot-round /></el-icon>
-            <span class="hidden-mobile">建议/反馈</span>
-          </el-button>
+          <!-- ⑤-b 建议/反馈 (已移除) -->
 
           <!-- ⑥~⑨ 顶栏工具按钮组: 靠右成组, 窄屏自动收起文字只留图标, 避免挤掉按钮 -->
           <div class="topbar-actions">
@@ -446,56 +442,6 @@
         </template>
       </el-dialog>
 
-      <!-- ========== 建议 / 反馈弹窗 ========== -->
-      <el-dialog v-model="suggestionDialogVisible" title="建议 / 反馈"
-                 :width="isMobile ? '94%' : '680px'" @open="loadSuggestions">
-        <el-tabs v-model="suggestionTab">
-          <el-tab-pane label="提交建议" name="submit">
-            <el-form label-position="top" size="default">
-              <el-form-item label="标题">
-                <el-input v-model="suggestionForm.title" maxlength="80" show-word-limit
-                          placeholder="一句话概括你的建议"></el-input>
-              </el-form-item>
-              <el-form-item label="内容">
-                <el-input v-model="suggestionForm.content" type="textarea"
-                          :autosize="{ minRows: 5, maxRows: 10 }" maxlength="2000" show-word-limit
-                          placeholder="请描述遇到的问题、期望的改进或使用建议"></el-input>
-              </el-form-item>
-            </el-form>
-            <div style="display: flex; justify-content: flex-end;">
-              <el-button type="primary" :loading="suggestionSubmitting" @click="submitSuggestion">提交</el-button>
-            </div>
-          </el-tab-pane>
-          <el-tab-pane label="处理状态" name="status">
-            <div style="display: flex; justify-content: flex-end; margin-bottom: 8px;">
-              <el-button size="small" @click="loadSuggestions" :loading="suggestionLoading">
-                <el-icon><refresh /></el-icon>
-                <span>刷新</span>
-              </el-button>
-            </div>
-            <el-scrollbar max-height="430px">
-              <div v-for="item in suggestions" :key="item.id" class="suggestion-card"
-                   data-test="suggestion-card" :data-title="item.title || ''">
-                <div class="suggestion-card-head">
-                  <div class="suggestion-card-title">{{ item.title || '(无标题)' }}</div>
-                  <el-tag size="small" :type="suggestionStatusType(item.status)">{{ item.statusLabel || item.status }}</el-tag>
-                </div>
-                <div class="suggestion-card-content">{{ item.content }}</div>
-                <div v-if="item.adminReply" class="suggestion-reply">
-                  <div class="suggestion-reply-label">回复</div>
-                  <div>{{ item.adminReply }}</div>
-                </div>
-                <div class="suggestion-card-meta">
-                  提交 {{ formatTime(item.createdAt) }}
-                  <span v-if="item.repliedAt"> · 回复 {{ formatTime(item.repliedAt) }}</span>
-                </div>
-              </div>
-              <div v-if="suggestionLoading" style="text-align: center; padding: 12px; color: #909399; font-size: 12px;">加载中...</div>
-              <el-empty v-if="!suggestionLoading && suggestions.length === 0" description="暂无建议" :image-size="48"></el-empty>
-            </el-scrollbar>
-          </el-tab-pane>
-        </el-tabs>
-      </el-dialog>
 
       <!-- 历史消息详情弹窗 -->
       <el-drawer v-model="historyDrawerVisible" title="对话详情" :size="isMobile ? '100%' : '50%'" direction="rtl">

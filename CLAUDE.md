@@ -24,7 +24,7 @@ mvn pmd:check                    # Code quality check (Alibaba P3C)
 ## Tech Stack
 
 - **Backend**: Spring Boot 3.3.13 / Java 21 / Maven (jakarta 命名空间; 运行时需 JDK 21+)
-- **Database**: SQLite (users, sessions, scheduled tasks, workflows, user suggestions, RAG vector store, recall traces, per-user git config; 建表见 `resources/schema.sql` + `SqliteInitializer`)
+- **Database**: SQLite (users, sessions, scheduled tasks, workflows, RAG vector store, recall traces, per-user git config; 建表见 `resources/schema.sql` + `SqliteInitializer`)
 - **Frontend**: Vue 3 + Element Plus via CDN (no build step, static HTML/JS/CSS in `src/main/resources/static/`)；主应用 + `/admin` 管理台 MPA
 - **Communication**: REST + Server-Sent Events (SSE)
 - **Code Quality**: Alibaba P3C (PMD plugin)
@@ -37,16 +37,16 @@ DDD + Hexagonal Architecture with four layers:
 ```
 interfaces/   → REST Controllers + DTOs (API boundary)
                 Chat, Fs, Auth, Share, ScheduledTask, Worktree,
-                GitConfig, UserSuggestion*, Metrics, RecallMetrics,
+                GitConfig, Metrics, RecallMetrics,
                 Refinery*, Admin*(Entry/Conversation/Workflow/Settings)
 app/          → Application services (orchestration, no domain logic)
                 agentrun/ (prompt assembly pipeline), chat, scheduled-task, worktree,
-                workflow/, git/, suggestion/, metrics/, refinery/
+                workflow/, git/, metrics/, refinery/
 domain/       → Aggregate roots, value objects, repository interfaces
-                chat, workflow, git, suggestion, refinery, issuelog, auth, schedule,
+                chat, workflow, git, refinery, issuelog, auth, schedule,
                 slashcommand, worktree, shared
 infra/        → CLI process execution, SQLite repos, auth filter, config properties
-                cli/ (CliDialect strategy), workflow/, git/, suggestion/, metrics/, refinery/, issuelog/,
+                cli/ (CliDialect strategy), workflow/, git/, metrics/, refinery/, issuelog/,
                 setting/, UploadPicStore, ...
 adapter/      → Port interfaces (AgentGateway)
 ```
@@ -212,7 +212,7 @@ SqliteXxxRepo repo = new SqliteXxxRepo(new JdbcTemplate(ds));
 前端 `static/js/app.js` 是 CDN 引入的单文件 Vue 3，**不引入 Vite/Vitest 工程化生产代码**。测试工程独立在 `tests/`，两条路径已落地：
 
 1. **纯函数单测 (Vitest)**：可外提的格式化/解析函数抽到 `static/js/lib/formatters.js` 走 UMD-lite（挂 `window.AgentFormatters` + `module.exports`），在独立 `tests/` npm 工程用 Vitest 跑（`tests/unit/*.spec.ts`）
-2. **E2E 主链路 (Playwright)**：`tests/e2e/` 独立 Playwright 工程，自动启停 Spring Boot e2e profile (端口 18099)。覆盖 chat / workflows / 管理台(auth/conversations/dashboard/recall/refinery/suggestions) / fs / share / worktree / scheduled-task / git-settings 等（`tests/e2e/*.spec.ts`）
+2. **E2E 主链路 (Playwright)**：`tests/e2e/` 独立 Playwright 工程，自动启停 Spring Boot e2e profile (端口 18099)。覆盖 chat / workflows / 管理台(auth/conversations/dashboard/recall/refinery) / fs / share / worktree / scheduled-task / git-settings 等（`tests/e2e/*.spec.ts`）
 3. **e2e profile** (`src/main/resources/application-e2e.yml`): 端口 18099、`context-path` 空、`default-type=CODEX`；Claude CLI = `cmd /c echo` (走前端兜底文本渲染), Codex CLI = `tests/e2e/fixtures/codex-json-stub.cmd` (输出固定 NDJSON 走 `CodexEventNormalizer`)；管理接口复用数据库 `ADMIN` 用户会话（测试密码由 `AGENT_E2E_ADMIN_PASSWORD` 注入），关 `agent.issue-log.refine/backfill/dedup`，独立 db `data/agent-web-e2e.db`
 4. **选择器约定**：用 Playwright `getByRole` / `getByText` 等语义化 API,**不要用** Element Plus 内部 class (`.el-dialog__body` 等会随版本碎)。新功能加 `data-test="xxx"` 属性是可选优化,目前主链路用语义化选择器已经稳
 5. **踩坑·Playwright 必须在 `tests/` 目录里跑**：`playwright.config.ts` 在 `tests/` 下,只有 cwd=`tests/` 时才被自动加载 (它设了 `testDir: ./e2e`、webServer 自启 18099)。若从仓库根或别处跑 (尤其**后台/非交互执行,cwd 可能默认落在仓库根**),config 不生效 → Playwright 退化成扫整个 `tests/` 树,把 Vitest 的 `tests/unit/formatters.spec.ts` 也当 E2E 加载,报一串**假错**:`require is not defined in ES module scope` + `Playwright Test did not expect test() to be called here` (像 @playwright/test 版本错配) + `No tests found`。**这不是围栏破了,是调用 cwd 错了**——务必先 `cd tests` (或 `npx playwright test -c tests/playwright.config.ts`)
