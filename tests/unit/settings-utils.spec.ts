@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import * as settings from '../../src/main/frontend/public/js/admin/settings-utils.js';
+import * as settings from '../../src/main/frontend/js/admin/settings-utils.js';
 
 describe('Admin workspace settings path conversion', () => {
   it('renders persisted paths as one path per line', () => {

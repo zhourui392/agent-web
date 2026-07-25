@@ -4,7 +4,9 @@ test('/qa 前缀: 首页静态资源、chat API、admin 登录与 share 页面�
   const marker = 'E2E-QA-' + Date.now();
   const withQaBase = (path: string) => new URL(path, (baseURL || '') + '/').toString();
 
-  await page.goto('/login.html');
+  // 必须走 withQaBase: 前导斜杠的 '/login.html' 会替换掉 baseURL 的整个 path,
+  // 丢掉 /qa 前缀后直接打到 Tomcat 根上 -> 404。
+  await page.goto(withQaBase('login.html'));
   await page.getByPlaceholder('请输入用户名').fill('admin');
   await page.getByPlaceholder('请输入密码').fill(process.env.AGENT_E2E_ADMIN_PASSWORD || '');
   await page.getByRole('button', { name: '登录' }).click();

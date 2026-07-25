@@ -1,6 +1,4 @@
-import { afterEach, describe, it, expect } from 'vitest';
-import createDOMPurify from 'dompurify';
-import { JSDOM } from 'jsdom';
+import { describe, it, expect } from 'vitest';
 import {
   IMAGE_PATH_RE,
   formatSize,
@@ -12,12 +10,11 @@ import {
   escapeHtml,
   parseStreamJson,
   isStreamJson,
-} from '../../src/main/frontend/public/js/lib/formatters.js';
+} from '../../src/main/frontend/js/lib/formatters.js';
 
-afterEach(() => {
-  delete (globalThis as Record<string, unknown>).marked;
-  delete (globalThis as Record<string, unknown>).DOMPurify;
-});
+// formatters.js 现在静态 import marked / dompurify (npm), 不再读全局。
+// 本文件跑在 node 环境: DOMPurify.isSupported=false -> renderMarkdown 走 fail-closed 转义分支。
+// 真正的「marked 渲染 + DOMPurify 净化」在 formatters-sanitize.spec.ts (jsdom 环境) 里验证。
 
 describe('formatSize', () => {
   it('null returns empty string', () => {
@@ -66,7 +63,7 @@ describe('renderMarkdown', () => {
     expect(renderMarkdown(undefined)).toBe('');
   });
 
-  it('escapes html angle brackets via fallback (no marked global)', () => {
+  it('escapes html angle brackets via fallback (no DOM, sanitizer unsupported)', () => {
     const out = renderMarkdown('a<b>');
     expect(out).toContain('a&lt;b&gt;');
     expect(out).not.toContain('<b>');
@@ -87,30 +84,21 @@ describe('renderMarkdown', () => {
     expect(out).toBe('a<br><br>b');
   });
 
-  it('sanitizes raw HTML, event handlers, and javascript URLs emitted by marked', () => {
-    const dangerous = '<img src="x" onerror="alert(1)">'
-      + '<a href="javascript:alert(2)">click</a><script>alert(3)</script>';
-    (globalThis as Record<string, unknown>).marked = { parse: () => dangerous };
-    const window = new JSDOM('').window;
-    (globalThis as Record<string, unknown>).DOMPurify = createDOMPurify(window);
-
-    const out = renderMarkdown('untrusted markdown');
-
-    expect(out).not.toContain('onerror');
-    expect(out).not.toContain('javascript:');
-    expect(out).not.toContain('<script');
-    expect(out).toContain('<img src="x">');
-    expect(out).toContain('click');
-  });
-
-  it('fails closed by escaping markdown when DOMPurify is unavailable', () => {
-    (globalThis as Record<string, unknown>).marked = {
-      parse: () => '<img src="x" onerror="alert(1)">',
-    };
-
+  // 安全底线: 没有可用净化器时绝不吐出 marked 生成的 HTML, 一律转义。
+  // node 环境下 DOMPurify.isSupported === false, 正好覆盖这条路径。
+  it('fails closed by escaping markdown when the sanitizer is unsupported', () => {
     const out = renderMarkdown('<b>untrusted</b>');
 
     expect(out).toBe('&lt;b&gt;untrusted&lt;/b&gt;');
+  });
+
+  // 转义后 onerror= 只是纯文本残留 (已不是属性), 关键是不能留下任何可执行的活标签。
+  it('fails closed on raw HTML payloads too', () => {
+    const out = renderMarkdown('<img src="x" onerror="alert(1)">');
+
+    expect(out).toContain('&lt;img');
+    expect(out).not.toContain('<img');
+    expect(out).not.toMatch(/<[a-zA-Z]/);
   });
 });
 

@@ -4,8 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Agent Q&A 控制台</title>
-  <!-- Element Plus CSS (vendored: 见 vendor/README) -->
-  <link rel="stylesheet" href="vendor/element-plus.css">
   <!-- App CSS -->
   <link rel="stylesheet" href="css/app.css?v=20260607">
   <!-- ChatPanel 组件样式(聊天容器/气泡/工具块/召回卡片/输入区) -->
@@ -13,8 +11,6 @@
   <!-- 上下文前缀单点(必须最先加载:推导 /qa 前缀并包 fetch/EventSource) -->
   <script type="module" src="/js/base.js"></script>
   <!-- Markdown rendering -->
-  <script src="vendor/marked.min.js"></script>
-  <script src="webjars/dompurify/3.2.6/dist/purify.min.js"></script>
 </head>
 <body>
   <div id="app">
@@ -454,7 +450,6 @@
         </template>
       </el-dialog>
 
-
       <!-- 历史消息详情弹窗 -->
       <el-drawer v-model="historyDrawerVisible" title="对话详情" :size="isMobile ? '100%' : '50%'" direction="rtl">
         <template #header>
@@ -544,20 +539,10 @@
   </div>
 
   <!-- Vue 3 -->
-  <script src="vendor/vue.global.js"></script>
   <!-- Element Plus -->
-  <script src="vendor/element-plus.full.min.js"></script>
   <!-- Element Plus Icons -->
-  <script src="vendor/element-plus-icons-vue.iife.min.js"></script>
   <!-- Frontend lib: 纯函数工具 (formatSize/renderMarkdown/parseUserMessage/imageUrl/formatTime/escapeHtml/parseStreamJson) -->
-  <script type="module" src="/js/lib/formatters.js"></script>
-  <script type="module" src="/js/lib/clipboard.js"></script>
-  <script type="module" src="/js/lib/share-session.js"></script>
-  <script type="module" src="/js/lib/message-view.js"></script>
-  <script type="module" src="/js/lib/resumable-sse-client.js"></script>
-  <script type="module" src="/js/lib/chat-run-state.js"></script>
   <!-- ChatPanel 组件(挂 window.ChatPanel),须在 app.js 之前加载 -->
-  <script type="module" src="/js/components/chat-panel.js"></script>
   <!-- App JS -->
   <script type="module" src="/js/app.js"></script>
 </body>

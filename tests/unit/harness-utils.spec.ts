@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import * as harness from '../../src/main/frontend/public/js/admin/harness-utils.js';
+import * as harness from '../../src/main/frontend/js/admin/harness-utils.js';
 
 describe('Harness snapshot display mappings', () => {
   it('maps deterministic selection reasons without inventing policy', () => {

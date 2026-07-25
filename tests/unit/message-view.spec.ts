@@ -4,7 +4,7 @@ import {
   enrichMessage,
   mapMessages,
   roleLabel,
-} from '../../src/main/frontend/public/js/lib/message-view.js';
+} from '../../src/main/frontend/js/lib/message-view.js';
 
 const STREAM_JSON = JSON.stringify({
   type: 'stream_event',

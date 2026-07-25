@@ -36,13 +36,14 @@ public class PublicPathsTest {
 
     @Test
     void staticAssetDirs_arePublic() {
-        // login.html 是未登录入口页, 它引的第三方库都在 /vendor/ (vue/element-plus/marked),
-        // 连同 /css/ /js/ 必须放行; 否则未登录浏览器请求这些资源被 302 到 login.html(HTML),
-        // 浏览器当 JS 解析报 "Unexpected token '<'" → Vue is not defined → 登录页白屏。
-        assertTrue(PublicPaths.isPublic("/vendor/vue.global.js"), "/vendor/ 必须公开, 否则登录页加载不了 Vue");
-        assertTrue(PublicPaths.isPublic("/vendor/element-plus.full.min.js"));
+        // login.html 是未登录入口页, 它的 JS/CSS 全部是 Vite 产物, 落在 /assets/ 下
+        // (第三方库已 npm 化打进 chunk, 不再有 /vendor/ 与 /js/); 连同 /css/ 必须放行。
+        // 否则未登录浏览器请求这些资源被 302 到 login.html(HTML), 浏览器当 JS 解析报
+        // "Unexpected token '<'" → 应用起不来 → 登录页白屏。
+        assertTrue(PublicPaths.isPublic("/assets/index-D1vUlBIU.js"),
+                "/assets/ 必须公开, 否则登录页加载不了自己的 bundle");
+        assertTrue(PublicPaths.isPublic("/assets/index-C7hiMiSR.css"));
         assertTrue(PublicPaths.isPublic("/css/app.css"));
-        assertTrue(PublicPaths.isPublic("/js/app.js"));
     }
 
     @Test

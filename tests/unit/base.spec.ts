@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { deriveBase, makeWithBase, sanitizeRedirect } from '../../src/main/frontend/public/js/base.js';
+import { deriveBase, makeWithBase, sanitizeRedirect } from '../../src/main/frontend/js/base.js';
 
 describe('deriveBase', () => {
   it('absolute src under /qa yields /qa', () => {
@@ -20,6 +20,26 @@ describe('deriveBase', () => {
 
   it('nested prefix is preserved verbatim', () => {
     expect(deriveBase('https://host/team/qa/js/base.js')).toBe('/team/qa');
+  });
+
+  // Vite 打包后 base.js 变 /assets/<name>-<hash>.js 共享 chunk, 原 /js/base.js marker 失效,
+  // 必须回落到 /assets/ marker, 否则 /qa 子路径部署推导出空前缀 -> 所有 root-absolute 请求丢前缀。
+  it('bundled asset chunk under /qa yields /qa', () => {
+    expect(deriveBase('https://host/qa/assets/base-a1b2c3d4.js')).toBe('/qa');
+    expect(deriveBase('/qa/assets/base-a1b2c3d4.js')).toBe('/qa');
+  });
+
+  it('bundled asset chunk on root domain yields empty', () => {
+    expect(deriveBase('https://host/assets/base-a1b2c3d4.js')).toBe('');
+  });
+
+  it('bundled asset chunk keeps nested prefix and honors the last /assets/ segment', () => {
+    expect(deriveBase('https://host/team/qa/assets/index-9f8e7d.js')).toBe('/team/qa');
+    expect(deriveBase('https://host/assets/app/assets/base-a1b2.js')).toBe('/assets/app');
+  });
+
+  it('unbundled marker still wins over a prefix that contains /assets/', () => {
+    expect(deriveBase('https://host/assets/app/js/base.js')).toBe('/assets/app');
   });
 
   it('empty or marker-less src yields empty', () => {

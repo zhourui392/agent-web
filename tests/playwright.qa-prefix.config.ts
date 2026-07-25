@@ -17,7 +17,7 @@ const webServerEnv = process.platform === 'win32'
 
 export default defineConfig({
   testDir: './e2e',
-  testMatch: ['qa-prefix.spec.ts'],
+  testMatch: ['qa-prefix.spec.ts', 'qa-prefix-assets.spec.ts'],
   fullyParallel: false,
   workers: 1,
   reporter: [['list'], ['html', { open: 'never', outputFolder: 'playwright-report-qa-prefix' }]],

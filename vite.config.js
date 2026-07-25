@@ -22,7 +22,9 @@ export default defineConfig({
   root,
   // 相对路径 base: 支持 /qa 等子路径部署, asset URL 用相对路径
   base: './',
-  // publicDir: vendor/js/css 原样复制到产物根 (ES module 改造前过渡)
+  // publicDir 现在只剩 css/ (由 HTML <link> 直接引用, 带 ?v= 手工版本号, 不进 bundle)。
+  // js/ 已移到 root 下 (frontend/js), 由 Vite 打包 -- 放在 publicDir 里的文件是原样复制的,
+  // bare import ('vue' / 'marked') 不会被解析, 浏览器直接报错。
   publicDir: resolve(root, 'public'),
   plugins: [vue()],
   // Vue 运行时模板编译器: 组件用字符串模板 / in-DOM <div id="app"> 模板,

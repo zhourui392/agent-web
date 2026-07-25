@@ -5,7 +5,7 @@ import {
   nextDelay,
   classifyResponse,
   open,
-} from '../../src/main/frontend/public/js/lib/resumable-sse-client.js';
+} from '../../src/main/frontend/js/lib/resumable-sse-client.js';
 
 type SseFrame = { type: string; data: string; id: string | null; retry: number | null };
 

@@ -31,9 +31,9 @@ public final class PublicPaths {
                 || path.startsWith("/admin/")
                 || path.startsWith("/api/share/")
                 || path.startsWith("/css/")
-                || path.startsWith("/js/")
-                || path.startsWith("/vendor/")
-                || path.startsWith("/webjars/");
+                // Vite 打包产物 (hashed JS/CSS chunk) 统一落 /assets/, 必须公开:
+                // 被拦截会让登录页自身的 JS 302 到登录页, 全站白屏。
+                || path.startsWith("/assets/");
     }
 
     /**

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import * as recall from '../../src/main/frontend/public/js/admin/recall-utils.js';
+import * as recall from '../../src/main/frontend/js/admin/recall-utils.js';
 
 describe('buildRecallQuery', () => {
   it('keeps page and size then appends non-empty filters', () => {
