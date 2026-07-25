@@ -223,6 +223,18 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
                     // 现把具体异常文案拼进 failureReason（管理台可见），并落 WARN 日志含堆栈。
                     log.warn("harness runtime artifact bundle validation failed for execution {}",
                             active.getSpec().getExecutionId(), ex);
+                    // 诊断:记录失败 bundle 原始内容,定位 Codex 输出与契约的差异
+                    try {
+                        Path bundlePath = active.getOutputLastMessage();
+                        if (Files.isRegularFile(bundlePath, LinkOption.NOFOLLOW_LINKS)) {
+                            String content = Files.readString(bundlePath, StandardCharsets.UTF_8);
+                            log.warn("failed bundle content for execution {} ({}B): {}",
+                                    active.getSpec().getExecutionId(), content.length(),
+                                    content.length() > 2000 ? content.substring(0, 2000) + "...[truncated]" : content);
+                        }
+                    } catch (Exception logEx) {
+                        log.warn("failed to read bundle content for diagnosis", logEx);
+                    }
                     String detail = ex.getMessage() != null ? ex.getMessage() : ex.getClass().getSimpleName();
                     outcome = TerminalOutcome.failed(
                             "runtime artifact bundle validation failed: " + detail,
