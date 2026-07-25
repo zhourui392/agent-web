@@ -4,14 +4,20 @@
  *
  * 三态过滤:入库(含过期) / 可召回 / 已丢弃(低分)。前两态走 /api/refinery/chunks,
  * 末态走 /api/refinery/discarded(字段形状刻意对齐,同一张表渲染)。
- * 「查看来源」复用主控制台纯函数(window.AgentFormatters)拉来源会话消息,渲染同对话记录页。
+ * 「查看来源」复用主控制台纯函数 (lib/formatters) 拉来源会话消息,渲染同对话记录页。
  *
  * @author zhourui(V33215020)
  */
-const { ref } = Vue;
-const { renderMarkdown, imageUrl, formatTime } = window.AgentFormatters;
-const { enrichMessage, ROLE_LABELS, roleLabel } = window.AgentMessageView;
-const { copySegment } = window.AgentClipboard;
+
+import { renderMarkdown, imageUrl, formatTime } from '../../lib/formatters.js';
+
+import { enrichMessage, ROLE_LABELS, roleLabel } from '../../lib/message-view.js';
+
+import { copySegment } from '../../lib/clipboard.js';
+
+import { bootstrapAdminApp } from '../shell.js';
+
+const {  ref  } = Vue;
 
 bootstrapAdminApp({
   setup() {

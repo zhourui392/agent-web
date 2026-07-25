@@ -3,7 +3,14 @@
  *
  * @author alex
  */
-const { ref, reactive, computed, nextTick, onBeforeUnmount } = Vue;
+
+import * as HarnessAdminUtils from '../harness-utils.js';
+
+import { renderMarkdown as renderMarkdownFn, escapeHtml } from '../../lib/formatters.js';
+
+import { bootstrapAdminApp } from '../shell.js';
+
+const {  ref, reactive, computed, nextTick, onBeforeUnmount  } = Vue;
 
 bootstrapAdminApp({
   setup() {
@@ -839,14 +846,13 @@ bootstrapAdminApp({
 
     // Markdown 渲染（复用主站 formatters.js：marked + DOMPurify 净化）
     function renderMarkdown(text) {
-      return window.AgentFormatters ? window.AgentFormatters.renderMarkdown(text) : String(text || '');
+      return renderMarkdownFn(text || '');
     }
 
     // Artifact 正文按 contentType 渲染:JSON pretty print、纯文本 pre、Markdown 渲染
     function renderArtifactContent(content, contentType) {
       const text = String(content || '');
-      const escape = window.AgentFormatters && window.AgentFormatters.escapeHtml
-        ? window.AgentFormatters.escapeHtml : (s) => String(s);
+      const escape = escapeHtml;
       if (contentType === 'application/json') {
         try {
           return '<pre class="harness-artifact-json">' + escape(JSON.stringify(JSON.parse(text), null, 2)) + '</pre>';

@@ -1,13 +1,19 @@
 /**
  * 管理后台「对话记录」页(MPA)。/api/metrics/conversations 分页列表 + 详情抽屉(admin 全量,跨用户)。
- * 消息详情复用主控制台纯函数(window.AgentFormatters);登录门 / 顶栏 / 侧栏由 AdminShell 承载。
+ * 消息详情复用主控制台纯函数 (lib/formatters);登录门 / 顶栏 / 侧栏由 AdminShell 承载。
  *
  * @author zhourui(V33215020)
  */
-const { ref } = Vue;
-const { renderMarkdown, imageUrl, formatTime, formatBeijingDateTime } = window.AgentFormatters;
-const { enrichMessage, ROLE_LABELS, roleLabel } = window.AgentMessageView;
-const { copySegment } = window.AgentClipboard;
+
+import { renderMarkdown, imageUrl, formatTime, formatBeijingDateTime } from '../../lib/formatters.js';
+
+import { enrichMessage, ROLE_LABELS, roleLabel } from '../../lib/message-view.js';
+
+import { copySegment } from '../../lib/clipboard.js';
+
+import { bootstrapAdminApp } from '../shell.js';
+
+const {  ref  } = Vue;
 
 bootstrapAdminApp({
   setup() {

@@ -4,7 +4,10 @@
  *
  * @author zhourui(V33215020)
  */
-const { ref, computed } = Vue;
+
+import { bootstrapAdminApp } from '../shell.js';
+
+const {  ref, computed  } = Vue;
 
 bootstrapAdminApp({
   setup() {

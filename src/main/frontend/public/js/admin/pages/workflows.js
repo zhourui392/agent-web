@@ -3,7 +3,10 @@
  *
  * @author zhourui(V33215020)
  */
-const { ref, reactive } = Vue;
+
+import { bootstrapAdminApp } from '../shell.js';
+
+const {  ref, reactive  } = Vue;
 
 bootstrapAdminApp({
   setup() {

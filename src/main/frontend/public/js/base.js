@@ -77,13 +77,17 @@ export function sanitizeRedirect(redirect, base) {
   return redirect;
 }
 
+// 运行时推导 context prefix: 浏览器从 import.meta.url 推导; Node 测试环境无 DOM 时退化为空前缀 (identity)。
+// withBase 经 ES module export 暴露给消费者 (import { withBase } from './base.js'); 同时保留 window 注入兼容未改的消费者 + inline 脚本。
+var __runtimeBase = (typeof window !== 'undefined' && typeof document !== 'undefined')
+  ? deriveBase(import.meta.url)
+  : '';
+export var withBase = makeWithBase(__runtimeBase);
+
 // 浏览器引导:无 DOM(Node 测试)直接跳过。ES module 下 document.currentScript 为 null,
 // 改用 import.meta.url 取本模块自身 URL。
 if (typeof window !== 'undefined' && typeof document !== 'undefined') {
-  var base = deriveBase(import.meta.url);
-  var withBase = makeWithBase(base);
-
-  window.__APP_BASE__ = base;
+  window.__APP_BASE__ = __runtimeBase;
   window.withBase = withBase;
   window.AppBase = { deriveBase: deriveBase, makeWithBase: makeWithBase, sanitizeRedirect: sanitizeRedirect };
 

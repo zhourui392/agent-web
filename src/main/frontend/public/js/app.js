@@ -2,6 +2,22 @@
 // 任何 API 响应 401 且 body 带 loginUrl 时，自动跳本站 /login.html。
 // loginUrl 由后端 SessionAuthFilter / AuthController 提供，已带 ?redirect=<原路径>。
 // 覆盖所有经 window.fetch 的调用；SSE(EventSource) 不走 fetch，单独在错误处理里兜底。
+import { withBase } from './base.js';
+import {
+  formatSize,
+  renderMarkdown,
+  imageUrl,
+  formatTime,
+  escapeHtml,
+  IMAGE_PATH_RE
+} from './lib/formatters.js';
+import { copySegment } from './lib/clipboard.js';
+import { mapMessages } from './lib/message-view.js';
+import { shareSession } from './lib/share-session.js';
+import ChatPanel from './components/chat-panel.js';
+
+const { createApp, ref, reactive, computed, onMounted, nextTick, watch } = Vue;
+
 (function installAuthInterceptor() {
   const rawFetch = window.fetch.bind(window);
   let redirecting = false;
@@ -12,24 +28,22 @@
         const data = await res.clone().json();
         if (data && data.loginUrl) {
           redirecting = true;
-          window.location.href = window.withBase(data.loginUrl);
+          window.location.href = withBase(data.loginUrl);
         } else {
           // 401 但响应没带 loginUrl(老接口/非 JSON 兜底): 直接跳本站登录页, 带回当前路径。
           redirecting = true;
           const redirect = encodeURIComponent(window.location.pathname + window.location.search);
-          window.location.href = window.withBase('/login.html?redirect=' + redirect);
+          window.location.href = withBase('/login.html?redirect=' + redirect);
         }
       } catch (e) {
         redirecting = true;
         const redirect = encodeURIComponent(window.location.pathname + window.location.search);
-        window.location.href = window.withBase('/login.html?redirect=' + redirect);
+        window.location.href = withBase('/login.html?redirect=' + redirect);
       }
     }
     return res;
   };
 })();
-
-const { createApp, ref, reactive, computed, onMounted, nextTick, watch } = Vue;
 
 const app = createApp({
   setup() {
@@ -109,7 +123,7 @@ const app = createApp({
       if (!isMobile.value) sidebarVisible.value = false;
     });
 
-    const groupedHistory = Vue.computed(() => {
+    const groupedHistory = computed(() => {
       const now = new Date();
       const today = now.toDateString();
       const yesterday = new Date(now - 86400000).toDateString();
@@ -130,7 +144,7 @@ const app = createApp({
     });
 
     // 下拉选项 = 本地已有 worktree 分支 + localStorage 保存过的分支，去重后保留 worktree 优先顺序
-    const branchOptions = Vue.computed(() => {
+    const branchOptions = computed(() => {
       const seen = new Set();
       const result = [];
       for (const b of worktreeBranches.value) {
@@ -148,7 +162,7 @@ const app = createApp({
         const authStatus = await fetch('/api/auth/status').then(r => r.json());
         authEnabled.value = !!authStatus.authEnabled;
         if (!authStatus.authenticated && authStatus.loginUrl) {
-          window.location.href = window.withBase(authStatus.loginUrl);
+          window.location.href = withBase(authStatus.loginUrl);
           return;
         }
         if (authStatus.username) {
@@ -245,17 +259,7 @@ const app = createApp({
       workspaceDialogVisible.value = false;
     };
 
-    // 纯函数工具从 lib 引入 (避免内嵌定义,便于独立单测);保持原变量名,调用点无需改动
-    const {
-      formatSize,
-      renderMarkdown,
-      imageUrl,
-      formatTime,
-      escapeHtml,
-      IMAGE_PATH_RE
-    } = window.AgentFormatters;
-    const { copySegment } = window.AgentClipboard;
-    const { mapMessages } = window.AgentMessageView;
+    // 纯函数工具从 lib 引入 (避免内嵌定义,便于独立单测);顶部已 ES import,此处直接复用,调用点无需改动
 
     // 仅 .md / .markdown 文件显示预览命令(不区分大小写)
     const isMarkdown = (name) => /\.(md|markdown)$/i.test(name || '');
@@ -271,7 +275,7 @@ const app = createApp({
         previewVisible.value = true;
         previewTitle.value = item.name;
         previewHtml.value = '';
-        fetch(window.withBase('/api/fs/download?path=' + encodeURIComponent(item.path)))
+        fetch(withBase('/api/fs/download?path=' + encodeURIComponent(item.path)))
           .then(r => {
             if (!r.ok) throw new Error('加载失败');
             return r.text();
@@ -287,7 +291,7 @@ const app = createApp({
             previewLoading.value = false;
           });
       } else if (command === 'download') {
-        window.open(window.withBase('/api/fs/download?path=' + encodeURIComponent(item.path)), '_blank');
+        window.open(withBase('/api/fs/download?path=' + encodeURIComponent(item.path)), '_blank');
       } else if (command === 'delete') {
         ElementPlus.ElMessageBox.confirm('确定要删除 ' + item.name + ' 吗？', '确认删除', {
           confirmButtonText: '删除',
@@ -561,7 +565,7 @@ const app = createApp({
       activeSessionId.value = session.sessionId;
     };
 
-    const shareSession = (sid) => window.AgentShare.shareSession(
+    const shareSessionFor = (sid) => shareSession(
       (typeof sid === 'string' && sid) ? sid : currentHistorySessionId.value
     );
 
@@ -692,11 +696,11 @@ const app = createApp({
       } catch (e) {
         // ignore
       }
-      window.location.href = window.withBase(loginUrl);
+      window.location.href = withBase(loginUrl);
     }
 
     return {
-      withBase: window.withBase,
+      withBase: withBase,
       roots,
       selectedRoot,
       workspaceCandidatePath,
@@ -783,7 +787,7 @@ const app = createApp({
 
 app.use(ElementPlus);
 // 注册可复用的 ChatPanel 组件(挂在 window.ChatPanel,由 chat-panel.js 提供)
-app.component('chat-panel', window.ChatPanel);
+app.component('chat-panel', ChatPanel);
 // 全局注册 Element Plus 图标组件
 for (const [name, comp] of Object.entries(ElementPlusIconsVue)) {
   app.component(name, comp);

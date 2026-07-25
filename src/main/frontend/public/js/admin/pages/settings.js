@@ -4,8 +4,14 @@
  *
  * @author zhourui(V33215020)
  */
-const { ref, reactive } = Vue;
-const { fetchJson } = window.AgentAdminFetch;
+
+import { fetchJson } from '../../lib/admin-fetch.js';
+
+import { bootstrapAdminApp } from '../shell.js';
+
+import { pathsToText, textToPaths } from '../settings-utils.js';
+
+const {  ref, reactive  } = Vue;
 
 bootstrapAdminApp({
   setup() {
@@ -23,8 +29,8 @@ bootstrapAdminApp({
 
     function applyWorkspaceSettings(data) {
       form.defaultWorkspace = data.defaultWorkspace || '';
-      form.workspaceRootsText = AdminSettingsUtils.pathsToText(data.workspaceRoots);
-      form.uploadRootsText = AdminSettingsUtils.pathsToText(data.uploadRoots);
+      form.workspaceRootsText = pathsToText(data.workspaceRoots);
+      form.uploadRootsText = pathsToText(data.uploadRoots);
     }
 
     async function loadSettings() {
@@ -73,8 +79,8 @@ bootstrapAdminApp({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             defaultWorkspace: form.defaultWorkspace,
-            workspaceRoots: AdminSettingsUtils.textToPaths(form.workspaceRootsText),
-            uploadRoots: AdminSettingsUtils.textToPaths(form.uploadRootsText)
+            workspaceRoots: textToPaths(form.workspaceRootsText),
+            uploadRoots: textToPaths(form.uploadRootsText)
           })
         });
         applyWorkspaceSettings(data);

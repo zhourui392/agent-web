@@ -13,10 +13,21 @@
  * @author zhourui(V33215020)
  * @since 2026-06-07
  */
-(function () {
-  const { ref, reactive, computed, onMounted, nextTick, watch } = Vue;
+import {
+  renderMarkdown,
+  imageUrl,
+  parseUserMessage,
+  parseStreamJson,
+  isStreamJson
+} from '../lib/formatters.js';
+import { copySegment } from '../lib/clipboard.js';
+import { shareSession as shareSessionFn } from '../lib/share-session.js';
+import { createStore, selectActiveRun } from '../lib/chat-run-state.js';
+import { open as openResumableSse } from '../lib/resumable-sse-client.js';
 
-  const TEMPLATE = `
+const { ref, reactive, computed, onMounted, nextTick, watch } = Vue;
+
+const TEMPLATE = `
     <div class="chat-container">
       <!-- 会话头条:左侧预留标题位,右侧分析评价 + 分享 -->
       <div class="chat-header-bar">
@@ -206,7 +217,7 @@
     </div>
   `;
 
-  window.ChatPanel = {
+const ChatPanel = {
     name: 'ChatPanel',
     props: {
       workingDir: { type: String, default: '' },
@@ -218,8 +229,7 @@
     emits: ['session-created', 'refresh-history'],
     template: TEMPLATE,
     setup(props, { emit }) {
-      const { renderMarkdown, imageUrl, parseUserMessage, parseStreamJson, isStreamJson } = window.AgentFormatters;
-      const { copySegment } = window.AgentClipboard;
+      // 纯函数工具顶部已 ES import, 直接复用, 调用点无需改动
 
       // ===== 聊天状态(组件自有) =====
       const messages = ref([]);
@@ -557,7 +567,7 @@
         }
       };
 
-      const shareSession = () => window.AgentShare.shareSession(sessionId.value);
+      const shareSession = () => shareSessionFn(sessionId.value);
 
       // ===== 命令弹窗交互 =====
       const handleEnter = () => {
@@ -638,7 +648,7 @@
           const status = await fetch('/api/auth/status').then(r => r.json());
           userKey = status.userId || status.username || userKey;
         } catch (e) { /* 使用 anonymous 隔离桶 */ }
-        runStore = window.AgentChatRunState.createStore(localStorage, userKey);
+        runStore = createStore(localStorage, userKey);
         return runStore;
       }
 
@@ -753,7 +763,7 @@
       function subscribeResumableRun(runId, cursor, msgIndex) {
         const renderer = createResumableRenderer(msgIndex);
         const url = '/api/chat/runs/' + encodeURIComponent(runId) + '/events';
-        const client = window.AgentResumableSse.open(url, { after: Math.max(0, Number(cursor) || 0) });
+        const client = openResumableSse(url, { after: Math.max(0, Number(cursor) || 0) });
         currentES = client;
         client.addEventListener('run_status', event => {
           rememberEventCursor(event);
@@ -810,7 +820,7 @@
             ? activeRuns.find(run => run.sessionId === preferredSessionId)
             : null;
           if (!selected) {
-            selected = window.AgentChatRunState.selectActiveRun(activeRuns, localRuns, props.workingDir);
+            selected = selectActiveRun(activeRuns, localRuns, props.workingDir);
           }
           if (!selected) return;
 
@@ -1040,4 +1050,10 @@
       };
     },
   };
-})();
+
+export default ChatPanel;
+
+// 浏览器兼容: 挂 window.ChatPanel (未改 import 的消费者, 如 shell.js 的 withChatPanel 分支, 仍可用)
+if (typeof window !== 'undefined') {
+  window.ChatPanel = ChatPanel;
+}

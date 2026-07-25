@@ -2,9 +2,14 @@
  * Admin recall-observability page: RAG recall attempt metrics, filters, list,
  * and detail view.
  */
-const { ref, reactive, computed } = Vue;
-const RecallUtils = window.AgentRecallUtils;
-const { fetchJson } = window.AgentAdminFetch;
+
+import * as RecallUtils from '../recall-utils.js';
+
+import { fetchJson } from '../../lib/admin-fetch.js';
+
+import { bootstrapAdminApp } from '../shell.js';
+
+const {  ref, reactive, computed  } = Vue;
 
 bootstrapAdminApp({
   setup() {

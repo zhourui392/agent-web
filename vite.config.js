@@ -25,6 +25,13 @@ export default defineConfig({
   // publicDir: vendor/js/css 原样复制到产物根 (ES module 改造前过渡)
   publicDir: resolve(root, 'public'),
   plugins: [vue()],
+  // Vue 运行时模板编译器: 组件用字符串模板 / in-DOM <div id="app"> 模板,
+  // npm vue 默认 ESM 入口不含编译器, 必须显式指到 esm-bundler 才能在运行时编译模板。
+  resolve: {
+    alias: {
+      vue: 'vue/dist/vue.esm-bundler.js',
+    },
+  },
   build: {
     outDir: resolve('src/main/resources/static'),
     emptyOutDir: true,
