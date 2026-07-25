@@ -10,16 +10,16 @@
  *
  * 依赖: 全局 fetch。
  */
-export async function fetchJson(url, options) {
+export async function fetchJson<T = any>(url: string, options?: RequestInit): Promise<T> {
   var response = await fetch(url, options);
   if (!response.ok) {
-    var error = await response.json().catch(function () { return {}; });
+    var error: any = await response.json().catch(function () { return {}; });
     throw new Error(error.message || error.error || ('HTTP ' + response.status));
   }
   return response.json();
 }
 
-export async function withLoading(loadingRef, fn) {
+export async function withLoading<T>(loadingRef: { value: boolean } | null, fn: () => Promise<T>): Promise<T> {
   if (loadingRef && 'value' in loadingRef) loadingRef.value = true;
   try { return await fn(); }
   finally { if (loadingRef && 'value' in loadingRef) loadingRef.value = false; }
