@@ -1,18 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createRequire } from 'node:module';
-
-const requireCjs = createRequire(import.meta.url);
-const recall = requireCjs('../../src/main/frontend/public/js/admin/recall-utils.js') as {
-  buildRecallQuery: (filters: Record<string, unknown>, page?: number, size?: number) => string;
-  pct: (value: number | null | undefined) => string;
-  score: (value: number | null | undefined) => string;
-  millis: (value: number | null | undefined) => string;
-  epochTime: (value: number | null | undefined) => string;
-  statusLabel: (status: string | null | undefined) => string;
-  statusTagType: (status: string | null | undefined) => string;
-  compactText: (value: string | null | undefined, max: number) => string;
-  bucketDisplayKey: (group: string | null | undefined, key: string | null | undefined) => string;
-};
+import * as recall from '../../src/main/frontend/public/js/admin/recall-utils.js';
 
 describe('buildRecallQuery', () => {
   it('keeps page and size then appends non-empty filters', () => {

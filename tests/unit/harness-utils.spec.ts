@@ -1,25 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createRequire } from 'node:module';
-
-const requireCjs = createRequire(import.meta.url);
-const harness = requireCjs('../../src/main/frontend/public/js/admin/harness-utils.js') as {
-  selectionReasonLabel: (reason: string | null | undefined) => string;
-  rejectionReasonLabel: (reason: string | null | undefined) => string;
-  capabilityDecisionLabel: (authorized: boolean, reason?: string) => string;
-  shortHash: (hash: string | null | undefined) => string;
-  stageStatusMeta: (status: string) => { label: string; type: string };
-  currentAttempt: (stage: { attempts?: Array<{ number: number }> }) => { number: number } | null;
-  gateFailureSummary: (gates: Array<Record<string, unknown>>, stage: string, attempt: number) => string[];
-  validApproval: (approvals: Array<Record<string, unknown>>, stage: string, attempt: number,
-    approvalType?: string) => Record<string, unknown> | null;
-  canStartDeployment: (run: Record<string, unknown>) => boolean;
-  runtimeBusy: (runtime: Record<string, unknown> | null) => boolean;
-  canSendConversation: (stage: Record<string, unknown> | null,
-    runtime: Record<string, unknown> | null) => boolean;
-  reconciliationMessage: (status: string) => string;
-  artifactDownloadUrl: (runId: string, artifactId: string) => string;
-  harnessApiAvailable: (status: number, body?: { code?: string }) => boolean;
-};
+import * as harness from '../../src/main/frontend/public/js/admin/harness-utils.js';
 
 describe('Harness snapshot display mappings', () => {
   it('maps deterministic selection reasons without inventing policy', () => {
