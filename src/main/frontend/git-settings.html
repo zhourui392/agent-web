@@ -72,10 +72,10 @@
     </div>
   </div>
 
-  <script src="js/base.js?v=20260611"></script>
+  <script type="module" src="/js/base.js"></script>
   <script src="vendor/vue.global.js"></script>
   <script src="vendor/element-plus.full.min.js"></script>
-  <script>
+  <script type="module" vite-ignore>
     const { createApp, reactive, ref } = Vue;
     const { ElMessage } = ElementPlus;
 

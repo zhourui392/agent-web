@@ -11,7 +11,7 @@
   <!-- ChatPanel 组件样式(聊天容器/气泡/工具块/召回卡片/输入区) -->
   <link rel="stylesheet" href="css/chat-panel.css?v=20260607">
   <!-- 上下文前缀单点(必须最先加载:推导 /qa 前缀并包 fetch/EventSource) -->
-  <script src="js/base.js?v=20260611"></script>
+  <script type="module" src="/js/base.js"></script>
   <!-- Markdown rendering -->
   <script src="vendor/marked.min.js"></script>
   <script src="webjars/dompurify/3.2.6/dist/purify.min.js"></script>
@@ -550,15 +550,15 @@
   <!-- Element Plus Icons -->
   <script src="vendor/element-plus-icons-vue.iife.min.js"></script>
   <!-- Frontend lib: 纯函数工具 (formatSize/renderMarkdown/parseUserMessage/imageUrl/formatTime/escapeHtml/parseStreamJson) -->
-  <script src="js/lib/formatters.js?v=20260722"></script>
-  <script src="js/lib/clipboard.js?v=20260722"></script>
-  <script src="js/lib/share-session.js?v=20260722"></script>
-  <script src="js/lib/message-view.js?v=20260722"></script>
-  <script src="js/lib/resumable-sse-client.js?v=20260722"></script>
-  <script src="js/lib/chat-run-state.js?v=20260722"></script>
+  <script type="module" src="/js/lib/formatters.js"></script>
+  <script type="module" src="/js/lib/clipboard.js"></script>
+  <script type="module" src="/js/lib/share-session.js"></script>
+  <script type="module" src="/js/lib/message-view.js"></script>
+  <script type="module" src="/js/lib/resumable-sse-client.js"></script>
+  <script type="module" src="/js/lib/chat-run-state.js"></script>
   <!-- ChatPanel 组件(挂 window.ChatPanel),须在 app.js 之前加载 -->
-  <script src="js/components/chat-panel.js?v=2026072203"></script>
+  <script type="module" src="/js/components/chat-panel.js"></script>
   <!-- App JS -->
-  <script src="js/app.js?v=2026072203"></script>
+  <script type="module" src="/js/app.js"></script>
 </body>
 </html>

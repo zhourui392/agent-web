@@ -1,5 +1,5 @@
 /**
- * Admin fetch 工具 lib (UMD-lite): 浏览器挂 window.AgentAdminFetch, Node/Vitest 走 module.exports。
+ * Admin fetch 工具 lib (ES module): 浏览器挂 window.AgentAdminFetch, Node/Vitest 走 ES import。
  *
  * 抽出原因: recall.js / settings.js 各有一份 fetchJson,签名不同(一个只收 url,一个收 url+options)、
  * 错误处理分叉(text vs json)。统一签名 + 健壮错误处理。
@@ -10,23 +10,22 @@
  *
  * 依赖: 全局 fetch (经 base.js 注入 context-prefix)。
  */
-(function (root) {
-  async function fetchJson(url, options) {
-    var response = await fetch(url, options);
-    if (!response.ok) {
-      var error = await response.json().catch(function () { return {}; });
-      throw new Error(error.message || error.error || ('HTTP ' + response.status));
-    }
-    return response.json();
+export async function fetchJson(url, options) {
+  var response = await fetch(url, options);
+  if (!response.ok) {
+    var error = await response.json().catch(function () { return {}; });
+    throw new Error(error.message || error.error || ('HTTP ' + response.status));
   }
+  return response.json();
+}
 
-  async function withLoading(loadingRef, fn) {
-    if (loadingRef && 'value' in loadingRef) loadingRef.value = true;
-    try { return await fn(); }
-    finally { if (loadingRef && 'value' in loadingRef) loadingRef.value = false; }
-  }
+export async function withLoading(loadingRef, fn) {
+  if (loadingRef && 'value' in loadingRef) loadingRef.value = true;
+  try { return await fn(); }
+  finally { if (loadingRef && 'value' in loadingRef) loadingRef.value = false; }
+}
 
-  var api = { fetchJson: fetchJson, withLoading: withLoading };
-  root.AgentAdminFetch = api;
-  if (typeof module !== 'undefined' && module.exports) module.exports = api;
-})(typeof window !== 'undefined' ? window : globalThis);
+// 浏览器: 挂全局 window.AgentAdminFetch (兼容未改的消费者)
+if (typeof window !== 'undefined') {
+  window.AgentAdminFetch = { fetchJson: fetchJson, withLoading: withLoading };
+}

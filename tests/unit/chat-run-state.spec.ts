@@ -1,11 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createRequire } from 'node:module';
-
-const requireCjs = createRequire(import.meta.url);
-const state = requireCjs('../../src/main/frontend/public/js/lib/chat-run-state.js') as {
-  createStore: (storage: MemoryStorage, userId: string) => RunStore;
-  selectActiveRun: (activeRuns: Run[], localRuns: Record<string, Run>, workingDir: string) => Run | null;
-};
+import { createStore, selectActiveRun } from '../../src/main/frontend/public/js/lib/chat-run-state.js';
 
 type Run = {
   runId: string;
@@ -38,8 +32,8 @@ function memoryStorage(): MemoryStorage {
 describe('chat active run browser state', () => {
   it('isolates persisted run locators by authenticated user', () => {
     const storage = memoryStorage();
-    const userOne = state.createStore(storage, 'user-1');
-    const userTwo = state.createStore(storage, 'user-2');
+    const userOne = createStore(storage, 'user-1');
+    const userTwo = createStore(storage, 'user-2');
     userOne.put({ runId: 'r1', sessionId: 's1', workingDir: '/a', lastAppliedEventSeq: 3 });
     userTwo.put({ runId: 'r2', sessionId: 's2', workingDir: '/b', lastAppliedEventSeq: 4 });
 
@@ -57,9 +51,9 @@ describe('chat active run browser state', () => {
       { runId: 'r3', sessionId: 's3', workingDir: '/b', createdAt: 30 },
     ];
 
-    expect(state.selectActiveRun(active, { r1: active[0] }, '/a')?.runId).toBe('r1');
-    expect(state.selectActiveRun(active, {}, '/a')?.runId).toBe('r2');
-    expect(state.selectActiveRun(active, {}, '/missing')).toBeNull();
-    expect(state.selectActiveRun([active[2]], {}, '/missing')?.runId).toBe('r3');
+    expect(selectActiveRun(active, { r1: active[0] }, '/a')?.runId).toBe('r1');
+    expect(selectActiveRun(active, {}, '/a')?.runId).toBe('r2');
+    expect(selectActiveRun(active, {}, '/missing')).toBeNull();
+    expect(selectActiveRun([active[2]], {}, '/missing')?.runId).toBe('r3');
   });
 });

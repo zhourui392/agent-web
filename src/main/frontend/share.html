@@ -7,7 +7,7 @@
   <link rel="stylesheet" href="vendor/element-plus.css">
   <link rel="stylesheet" href="css/app.css">
   <link rel="stylesheet" href="css/chat-panel.css">
-  <script src="js/base.js?v=20260611"></script>
+  <script type="module" src="/js/base.js"></script>
   <script src="vendor/marked.min.js"></script>
   <script src="webjars/dompurify/3.2.6/dist/purify.min.js"></script>
   <style>
@@ -170,8 +170,8 @@
   <script src="vendor/vue.global.js"></script>
   <script src="vendor/element-plus.full.min.js"></script>
   <script src="vendor/element-plus-icons-vue.iife.min.js"></script>
-  <script src="js/lib/formatters.js?v=20260722"></script>
-  <script>
+  <script type="module" src="/js/lib/formatters.js"></script>
+  <script type="module" vite-ignore>
     const { createApp, ref, onMounted, nextTick } = Vue;
 
     const app = createApp({
