@@ -313,7 +313,7 @@ describe('parseStreamJson', () => {
     const segs = parseStreamJson(raw);
     expect(segs).toHaveLength(1);
     expect(segs[0].type).toBe('tool');
-    expect(segs[0].name).toBe('Read');
+    expect((segs[0] as any).name).toBe('Read');
     expect(segs[0].content).toBe('{"path":"/a"}');
   });
 
@@ -332,7 +332,7 @@ describe('parseStreamJson', () => {
     const raw = JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', content: 'orphan' }] } });
     const segs = parseStreamJson(raw);
     expect(segs).toHaveLength(1);
-    expect(segs[0].name).toBe('Tool Result');
+    expect((segs[0] as any).name).toBe('Tool Result');
     expect(segs[0].content).toContain('orphan');
   });
 

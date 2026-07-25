@@ -11,23 +11,23 @@
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 
-export var IMAGE_PATH_RE = /^.+[\/\\][^\/\\]+\.(png|jpe?g|gif|webp|bmp)$/i;
+export var IMAGE_PATH_RE: RegExp = /^.+[\/\\][^\/\\]+\.(png|jpe?g|gif|webp|bmp)$/i;
 
-export function formatSize(bytes) {
+export function formatSize(bytes: number | null | undefined): string {
   if (bytes == null) return '';
   if (bytes < 1024) return bytes + ' B';
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
   return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 }
 
-export function renderMarkdown(text) {
+export function renderMarkdown(text: string | null | undefined): string {
   if (!text) return '';
   var cleaned = text.replace(/\n{3,}/g, '\n\n');
   try {
     // DOMPurify 在无 DOM 环境 (Node/Vitest) 下 isSupported=false 且不带 sanitize,
     // 此时必须走下面的 fail-closed 转义 -- 绝不能把 marked 生成的未净化 HTML 交出去。
     if (marked && marked.parse && DOMPurify && DOMPurify.isSupported && DOMPurify.sanitize) {
-      var rendered = marked.parse(cleaned, { breaks: false });
+      var rendered = marked.parse(cleaned, { breaks: false }) as string;
       return DOMPurify.sanitize(rendered, {
         USE_PROFILES: { html: true },
         ALLOW_DATA_ATTR: false,
@@ -41,10 +41,10 @@ export function renderMarkdown(text) {
   return escapeHtml(cleaned);
 }
 
-export function parseUserMessage(text) {
+export function parseUserMessage(text: string | null | undefined): { text: string; images: string[] } {
   if (!text) return { text: '', images: [] };
-  var textLines = [];
-  var images = [];
+  var textLines: string[] = [];
+  var images: string[] = [];
   var lines = String(text).split('\n');
   for (var i = 0; i < lines.length; i++) {
     var line = lines[i];
@@ -58,11 +58,11 @@ export function parseUserMessage(text) {
   return { text: textLines.join('\n').trim(), images: images };
 }
 
-export function imageUrl(absPath) {
+export function imageUrl(absPath: string): string {
   return '/api/fs/image?path=' + encodeURIComponent(absPath);
 }
 
-export function formatTime(isoStr) {
+export function formatTime(isoStr: string | null | undefined): string {
   if (!isoStr) return '';
   try {
     var d = new Date(isoStr);
@@ -70,7 +70,7 @@ export function formatTime(isoStr) {
   } catch (e) { return isoStr; }
 }
 
-export function formatBeijingDateTime(isoStr) {
+export function formatBeijingDateTime(isoStr: string | null | undefined): string {
   if (!isoStr) return '';
   try {
     var d = new Date(isoStr);
@@ -85,7 +85,7 @@ export function formatBeijingDateTime(isoStr) {
       second: '2-digit',
       hourCycle: 'h23'
     }).formatToParts(d);
-    var values = {};
+    var values: Record<string, string> = {};
     for (var i = 0; i < parts.length; i++) {
       if (parts[i].type !== 'literal') {
         values[parts[i].type] = parts[i].value;
@@ -96,7 +96,7 @@ export function formatBeijingDateTime(isoStr) {
   } catch (e) { return isoStr; }
 }
 
-export function escapeHtml(text) {
+export function escapeHtml(text: string | null | undefined): string {
   if (!text) return '';
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
 }
@@ -111,7 +111,7 @@ export function escapeHtml(text) {
  */
 var STREAM_JSON_HEAD_SCAN_LINES = 10;
 
-export function isStreamJson(content) {
+export function isStreamJson(content: string | null | undefined): boolean {
   if (!content) return false;
   var lines = String(content).split('\n');
   var scanned = 0;
@@ -121,7 +121,7 @@ export function isStreamJson(content) {
     scanned++;
     if (line.charAt(0) !== '{') continue;
     try {
-      return typeof JSON.parse(line).type === 'string';
+      return typeof (JSON.parse(line) as any).type === 'string';
     } catch (e) { /* 非法 JSON,继续扫后续行 */ }
   }
   return false;
@@ -132,11 +132,13 @@ export function isStreamJson(content) {
  * 纯函数,无副作用,供 ChatPanel(恢复会话)、主控台历史抽屉、诊断详情共用。
  * 与 app.js 原内联实现行为等价 -- 任何差异都会让历史/诊断渲染回归。
  */
-export function parseStreamJson(raw) {
-  if (!raw) return [];
-  var segments = [];
+export type StreamSegment = { type: 'text'; content: string } | { type: 'tool'; name: string; content: string };
 
-  function appendText(text) {
+export function parseStreamJson(raw: string | null | undefined): StreamSegment[] {
+  if (!raw) return [];
+  var segments: StreamSegment[] = [];
+
+  function appendText(text: string) {
     var last = segments.length > 0 ? segments[segments.length - 1] : null;
     if (last && last.type === 'text') {
       last.content += text;
@@ -150,7 +152,7 @@ export function parseStreamJson(raw) {
     var line = lines[i].trim();
     if (!line) continue;
     try {
-      var json = JSON.parse(line);
+      var json: any = JSON.parse(line);
       if (json.type === 'stream_event' && json.event) {
         var evt = json.event;
         if (evt.type === 'content_block_start' && evt.content_block) {
