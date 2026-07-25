@@ -65,6 +65,16 @@ bootstrapAdminApp({
       currentInput: ''
     });
     const approvalForm = reactive({ reason: '' });
+    // 产物 Tab artifact 正文预览
+    const previewOpen = ref(false);
+    const previewContent = ref('');
+    const previewContentType = ref('');
+    const previewTitle = ref('');
+    const previewLoading = ref(false);
+    // 审批对话框展示待审批 artifact 正文
+    const approvalArtifactContent = ref('');
+    const approvalArtifactContentType = ref('');
+    const approvalArtifactLoading = ref(false);
     const questionForm = reactive({ questionId: '', question: '', blocking: true });
     const deploymentForm = reactive({ templateId: 'local-default' });
     const auditExpanded = ref(false);
@@ -653,6 +663,47 @@ bootstrapAdminApp({
       approvalDecision.value = decision;
       approvalForm.reason = '';
       approvalOpen.value = true;
+      loadApprovalArtifact();
+    }
+
+    // 加载当前阶段最新 artifact 正文,供审批对话框展示
+    async function loadApprovalArtifact() {
+      approvalArtifactContent.value = '';
+      approvalArtifactContentType.value = '';
+      const artifact = stageArtifacts.value[0];
+      if (!artifact || !selectedRun.value) return;
+      approvalArtifactLoading.value = true;
+      try {
+        const response = await fetch(artifactUrl(artifact));
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        approvalArtifactContent.value = await response.text();
+        approvalArtifactContentType.value = artifact.contentType || '';
+      } catch (error) {
+        approvalArtifactContent.value = '待审批 Artifact 读取失败：' + (error.message || error);
+        approvalArtifactContentType.value = 'text/plain';
+      } finally {
+        approvalArtifactLoading.value = false;
+      }
+    }
+
+    // 产物 Tab 点"查看"弹出 artifact 正文预览
+    async function previewArtifact(artifact) {
+      if (!artifact || !selectedRun.value) return;
+      previewOpen.value = true;
+      previewLoading.value = true;
+      previewContent.value = '';
+      previewContentType.value = artifact.contentType || '';
+      previewTitle.value = (artifact.artifactType || 'Artifact') + ' v' + (artifact.version || '?');
+      try {
+        const response = await fetch(artifactUrl(artifact));
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        previewContent.value = await response.text();
+      } catch (error) {
+        previewContent.value = '读取失败：' + (error.message || error);
+        previewContentType.value = 'text/plain';
+      } finally {
+        previewLoading.value = false;
+      }
     }
 
     async function submitApproval() {
@@ -789,6 +840,24 @@ bootstrapAdminApp({
     // Markdown 渲染（复用主站 formatters.js：marked + DOMPurify 净化）
     function renderMarkdown(text) {
       return window.AgentFormatters ? window.AgentFormatters.renderMarkdown(text) : String(text || '');
+    }
+
+    // Artifact 正文按 contentType 渲染:JSON pretty print、纯文本 pre、Markdown 渲染
+    function renderArtifactContent(content, contentType) {
+      const text = String(content || '');
+      const escape = window.AgentFormatters && window.AgentFormatters.escapeHtml
+        ? window.AgentFormatters.escapeHtml : (s) => String(s);
+      if (contentType === 'application/json') {
+        try {
+          return '<pre class="harness-artifact-json">' + escape(JSON.stringify(JSON.parse(text), null, 2)) + '</pre>';
+        } catch (e) {
+          return '<pre class="harness-artifact-plain">' + escape(text) + '</pre>';
+        }
+      }
+      if (contentType === 'text/plain') {
+        return '<pre class="harness-artifact-plain">' + escape(text) + '</pre>';
+      }
+      return renderMarkdown(text);
     }
 
     // Artifact 消息的类型文案与是否渲染为卡片
@@ -1124,6 +1193,14 @@ bootstrapAdminApp({
       createForm,
       capabilityForm,
       approvalForm,
+      previewOpen,
+      previewContent,
+      previewContentType,
+      previewTitle,
+      previewLoading,
+      approvalArtifactContent,
+      approvalArtifactContentType,
+      approvalArtifactLoading,
       questionForm,
       deploymentForm,
       auditExpanded,
@@ -1171,6 +1248,7 @@ bootstrapAdminApp({
       requestApproval,
       validateAndRequestApproval,
       openApproval,
+      previewArtifact,
       submitApproval,
       openQuestion,
       submitQuestion,
@@ -1189,6 +1267,7 @@ bootstrapAdminApp({
       fmtTime,
       fmtRelative,
       renderMarkdown,
+      renderArtifactContent,
       isArtifactMessage,
       artifactTypeLabel,
       messageArtifact,

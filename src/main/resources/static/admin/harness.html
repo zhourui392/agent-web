@@ -232,7 +232,7 @@
                           </div>
                           <div class="harness-artifact-body"
                                :class="{ 'is-collapsed': artifactCollapsed[message.messageId] }"
-                               v-html="renderMarkdown(message.content)"></div>
+                               v-html="renderArtifactContent(message.content, message.contentType)"></div>
                           <div v-if="messageArtifact(message)" class="harness-artifact-footer">
                             <code v-if="messageArtifact(message).sha256"
                                   :title="messageArtifact(message).sha256">{{ shortHash(messageArtifact(message).sha256) }}</code>
@@ -490,8 +490,9 @@
                               <template #default="{ row }"><code :title="row.sha256">{{ shortHash(row.sha256) }}</code></template>
                             </el-table-column>
                             <el-table-column prop="classification" label="分级" width="100"></el-table-column>
-                            <el-table-column label="操作" width="80">
+                            <el-table-column label="操作" width="120">
                               <template #default="{ row }">
+                                <el-button text type="primary" size="small" @click="previewArtifact(row)">查看</el-button>
                                 <a :href="artifactUrl(row)" target="_blank" rel="noopener">
                                   <el-button text type="primary" size="small">下载</el-button>
                                 </a>
@@ -697,12 +698,24 @@
         </template>
       </el-dialog>
 
+      <el-dialog v-model="previewOpen" :title="previewTitle || 'Artifact 正文'"
+                 :width="isMobile ? '96%' : '720px'" :close-on-click-modal="false">
+        <div v-loading="previewLoading" class="harness-artifact-preview"
+             v-html="renderArtifactContent(previewContent, previewContentType)"></div>
+        <template #footer>
+          <el-button @click="previewOpen = false">关闭</el-button>
+        </template>
+      </el-dialog>
+
       <el-dialog v-model="approvalOpen"
                  :title="approvalDecision === 'approve' ? '批准当前 Artifact 基线' : '拒绝当前 Artifact 基线'"
                  :width="isMobile ? '96%' : '560px'" :close-on-click-modal="false">
         <div v-if="selectedStage" class="mono-text">
           {{ selectedStage.stage }} · {{ selectedStage.artifactBaselineHash }}
         </div>
+        <div v-loading="approvalArtifactLoading" v-if="approvalArtifactContent"
+             class="harness-artifact-preview mt16"
+             v-html="renderArtifactContent(approvalArtifactContent, approvalArtifactContentType)"></div>
         <el-form label-position="top" size="small" class="mt16">
           <el-form-item label="审批理由">
             <el-input v-model="approvalForm.reason" type="textarea" :rows="4"></el-input>

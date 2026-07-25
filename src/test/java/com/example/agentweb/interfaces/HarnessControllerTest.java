@@ -14,6 +14,7 @@ import com.example.agentweb.app.harness.HarnessExecutionService;
 import com.example.agentweb.app.harness.HarnessRunQueryService;
 import com.example.agentweb.app.harness.HarnessRunSummaryView;
 import com.example.agentweb.app.harness.HarnessRunView;
+import com.example.agentweb.domain.harness.ArtifactClassification;
 import com.example.agentweb.domain.harness.HarnessRunNotFoundException;
 import com.example.agentweb.domain.harness.IllegalHarnessTransitionException;
 import com.example.agentweb.domain.harness.DeploymentReadiness;
@@ -268,9 +269,11 @@ class HarnessControllerTest {
         when(queryService.findById("run-1")).thenReturn(Optional.of(emptyView()));
         HarnessArtifactContentView artifact = new HarnessArtifactContentView(
                 "requirements", 1, "REQUIREMENT", "application/json", repeat('a', 64),
+                ArtifactClassification.INTERNAL,
                 "{\"ok\":true}".getBytes(java.nio.charset.StandardCharsets.UTF_8));
         HarnessArtifactContentView report = new HarnessArtifactContentView(
                 "final-report", 1, "FINAL_REPORT", "application/json", repeat('b', 64),
+                ArtifactClassification.INTERNAL,
                 "{\"status\":\"SUCCEEDED\"}"
                         .getBytes(java.nio.charset.StandardCharsets.UTF_8));
         when(artifactQueryService.findLatest("run-1", "requirements"))
@@ -312,6 +315,19 @@ class HarnessControllerTest {
         mvc.perform(get("/api/harness/runs/missing/events"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("HARNESS_RUN_NOT_FOUND"));
+    }
+
+    @Test
+    void sensitive_artifact_download_should_return_403() throws Exception {
+        HarnessArtifactContentView sensitive = new HarnessArtifactContentView(
+                "secret", 1, "REQUIREMENT", "application/json", repeat('c', 64),
+                ArtifactClassification.SENSITIVE,
+                "{\"secret\":true}".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        when(artifactQueryService.findLatest("run-1", "secret"))
+                .thenReturn(Optional.of(sensitive));
+        mvc.perform(get("/api/harness/runs/run-1/artifacts/secret"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("HARNESS_ARTIFACT_SENSITIVE"));
     }
 
     @Test
