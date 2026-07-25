@@ -9,12 +9,12 @@
 import { copyToClipboard } from './clipboard.js';
 import { ElMessageBox, ElMessage } from 'element-plus';
 
-export async function shareSession(target) {
+export async function shareSession(target: string): Promise<void> {
   if (!target) return;
   try {
     var res = await fetch('/api/chat/session/' + encodeURIComponent(target) + '/share', { method: 'POST' });
     if (!res.ok) throw new Error(await res.text());
-    var data = await res.json();
+    var data: any = await res.json();
     var shareUrl = window.location.origin + '/share.html?token=' + data.shareToken;
     var copied = await copyToClipboard(shareUrl);
     if (copied) {
@@ -25,6 +25,6 @@ export async function shareSession(target) {
       });
     }
   } catch (e) {
-    ElMessage.error('生成分享链接失败: ' + (e.message || '未知错误'));
+    ElMessage.error('生成分享链接失败: ' + ((e as Error).message || '未知错误'));
   }
 }
