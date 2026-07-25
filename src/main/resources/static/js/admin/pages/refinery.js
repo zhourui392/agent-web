@@ -9,7 +9,9 @@
  * @author zhourui(V33215020)
  */
 const { ref } = Vue;
-const { renderMarkdown, parseUserMessage, imageUrl, formatTime, parseStreamJson, isStreamJson } = window.AgentFormatters;
+const { renderMarkdown, imageUrl, formatTime } = window.AgentFormatters;
+const { enrichMessage, ROLE_LABELS, roleLabel } = window.AgentMessageView;
+const { copySegment } = window.AgentClipboard;
 
 bootstrapAdminApp({
   setup() {
@@ -101,41 +103,6 @@ bootstrapAdminApp({
     const statusLabel = (s) => STATUS_LABELS[s] || '已过期';
     const statusTagType = (s) => STATUS_TYPES[s] || 'info';
 
-    // 单条消息富化:助手 JSON → parsedSegments;用户 → bodyText + images;其余原样
-    function enrichMessage(msg) {
-      if (msg.role === 'assistant' && isStreamJson(msg.content)) {
-        return Object.assign({}, msg, { parsedSegments: parseStreamJson(msg.content) });
-      }
-      if (msg.role === 'user') {
-        const parsed = parseUserMessage(msg.content);
-        return Object.assign({}, msg, { bodyText: parsed.text, images: parsed.images });
-      }
-      return Object.assign({}, msg);
-    }
-
-    async function copySegment(text) {
-      if (!text) {
-        return;
-      }
-      try {
-        if (navigator.clipboard && window.isSecureContext) {
-          await navigator.clipboard.writeText(text);
-        } else {
-          const ta = document.createElement('textarea');
-          ta.value = text;
-          ta.style.position = 'fixed';
-          ta.style.opacity = '0';
-          document.body.appendChild(ta);
-          ta.select();
-          document.execCommand('copy');
-          document.body.removeChild(ta);
-        }
-        ElementPlus.ElMessage.success('已复制');
-      } catch (e) {
-        ElementPlus.ElMessage.error('复制失败');
-      }
-    }
-
     /** 查看来源会话:走 admin 跨用户对话详情端点;诊断来源/已删会话会 404,友好提示。 */
     async function viewSource(sessionId) {
       if (!sessionId) {
@@ -171,9 +138,6 @@ bootstrapAdminApp({
       }
       return String(iso).replace('T', ' ').replace(/\..*$/, '').replace('Z', '').slice(0, 19);
     }
-
-    const ROLE_LABELS = { user: '用户', assistant: '助手', system: '系统' };
-    const roleLabel = (r) => ROLE_LABELS[r] || r;
 
     return {
       onReady: loadHistory,

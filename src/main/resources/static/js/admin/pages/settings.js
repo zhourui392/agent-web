@@ -5,6 +5,7 @@
  * @author zhourui(V33215020)
  */
 const { ref, reactive } = Vue;
+const { fetchJson } = window.AgentAdminFetch;
 
 bootstrapAdminApp({
   setup() {
@@ -19,15 +20,6 @@ bootstrapAdminApp({
     const savingAgentModels = ref(false);
     const savingWorkspaces = ref(false);
     const resettingWorkspaces = ref(false);
-
-    async function fetchJson(url, options) {
-      const response = await fetch(url, options);
-      if (!response.ok) {
-        const error = await response.json().catch(() => ({}));
-        throw new Error(error.message || error.error || ('HTTP ' + response.status));
-      }
-      return response.json();
-    }
 
     function applyWorkspaceSettings(data) {
       form.defaultWorkspace = data.defaultWorkspace || '';

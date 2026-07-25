@@ -4,6 +4,7 @@
  */
 const { ref, reactive, computed } = Vue;
 const RecallUtils = window.AgentRecallUtils;
+const { fetchJson } = window.AgentAdminFetch;
 
 bootstrapAdminApp({
   setup() {
@@ -47,14 +48,6 @@ bootstrapAdminApp({
         from: filters.from,
         to: filters.to
       };
-    }
-
-    async function fetchJson(url) {
-      const res = await fetch(url);
-      if (!res.ok) {
-        throw new Error(await res.text());
-      }
-      return res.json();
     }
 
     async function loadSummary() {

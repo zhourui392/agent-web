@@ -215,10 +215,11 @@
       initialResumeId: { type: String, default: '' },
       ragEnabled: { type: Boolean, default: true },
     },
-    emits: ['session-created', 'title-changed', 'refresh-history'],
+    emits: ['session-created', 'refresh-history'],
     template: TEMPLATE,
     setup(props, { emit }) {
       const { renderMarkdown, imageUrl, parseUserMessage, parseStreamJson, isStreamJson } = window.AgentFormatters;
+      const { copySegment } = window.AgentClipboard;
 
       // ===== 聊天状态(组件自有) =====
       const messages = ref([]);
@@ -303,41 +304,6 @@
       const toggleTool = (msgIndex, segIndex) => {
         const key = msgIndex + '-' + segIndex;
         toolStates[key] = !(toolStates[key] === true);
-      };
-
-      const copySegment = async (text) => {
-        if (!text) return;
-        try {
-          if (navigator.clipboard && window.isSecureContext) {
-            await navigator.clipboard.writeText(text);
-          } else {
-            const ta = document.createElement('textarea');
-            ta.value = text;
-            ta.style.position = 'fixed';
-            ta.style.opacity = '0';
-            document.body.appendChild(ta);
-            ta.select();
-            document.execCommand('copy');
-            document.body.removeChild(ta);
-          }
-          ElementPlus.ElMessage.success('已复制');
-        } catch (e) {
-          ElementPlus.ElMessage.error('复制失败');
-        }
-      };
-
-      const copyToClipboard = async (text) => {
-        if (navigator.clipboard && window.isSecureContext) {
-          try { await navigator.clipboard.writeText(text); return true; } catch (e) { /* fall through */ }
-        }
-        try {
-          const ta = document.createElement('textarea');
-          ta.value = text; ta.style.position = 'fixed'; ta.style.left = '-9999px';
-          document.body.appendChild(ta); ta.select();
-          const ok = document.execCommand('copy');
-          document.body.removeChild(ta);
-          return ok;
-        } catch (e) { return false; }
       };
 
       // ===== 会话生命周期 =====
@@ -591,24 +557,7 @@
         }
       };
 
-      const shareSession = async () => {
-        const target = sessionId.value;
-        if (!target) return;
-        try {
-          const res = await fetch('/api/chat/session/' + encodeURIComponent(target) + '/share', { method: 'POST' });
-          if (!res.ok) throw new Error(await res.text());
-          const data = await res.json();
-          const shareUrl = window.location.origin + window.withBase('/share.html?token=' + data.shareToken);
-          const copied = await copyToClipboard(shareUrl);
-          if (copied) {
-            ElementPlus.ElMessage.success('分享链接已复制到剪贴板');
-          } else {
-            ElementPlus.ElMessageBox.alert(shareUrl, '分享链接（请手动复制）', { confirmButtonText: '关闭', customClass: 'share-link-dialog' });
-          }
-        } catch (e) {
-          ElementPlus.ElMessage.error('生成分享链接失败: ' + (e.message || '未知错误'));
-        }
-      };
+      const shareSession = () => window.AgentShare.shareSession(sessionId.value);
 
       // ===== 命令弹窗交互 =====
       const handleEnter = () => {

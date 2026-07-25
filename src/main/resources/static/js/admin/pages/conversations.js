@@ -5,15 +5,9 @@
  * @author zhourui(V33215020)
  */
 const { ref } = Vue;
-const {
-  renderMarkdown,
-  parseUserMessage,
-  imageUrl,
-  formatTime,
-  formatBeijingDateTime,
-  parseStreamJson,
-  isStreamJson
-} = window.AgentFormatters;
+const { renderMarkdown, imageUrl, formatTime, formatBeijingDateTime } = window.AgentFormatters;
+const { enrichMessage, ROLE_LABELS, roleLabel } = window.AgentMessageView;
+const { copySegment } = window.AgentClipboard;
 
 bootstrapAdminApp({
   setup() {
@@ -57,41 +51,6 @@ bootstrapAdminApp({
       loadConversations();
     }
 
-    // 单条消息富化:助手 JSON → parsedSegments;用户 → bodyText + images;其余原样
-    function enrichMessage(msg) {
-      if (msg.role === 'assistant' && isStreamJson(msg.content)) {
-        return Object.assign({}, msg, { parsedSegments: parseStreamJson(msg.content) });
-      }
-      if (msg.role === 'user') {
-        const parsed = parseUserMessage(msg.content);
-        return Object.assign({}, msg, { bodyText: parsed.text, images: parsed.images });
-      }
-      return Object.assign({}, msg);
-    }
-
-    async function copySegment(text) {
-      if (!text) {
-        return;
-      }
-      try {
-        if (navigator.clipboard && window.isSecureContext) {
-          await navigator.clipboard.writeText(text);
-        } else {
-          const ta = document.createElement('textarea');
-          ta.value = text;
-          ta.style.position = 'fixed';
-          ta.style.opacity = '0';
-          document.body.appendChild(ta);
-          ta.select();
-          document.execCommand('copy');
-          document.body.removeChild(ta);
-        }
-        ElementPlus.ElMessage.success('已复制');
-      } catch (e) {
-        ElementPlus.ElMessage.error('复制失败');
-      }
-    }
-
     async function openDetail(sessionId) {
       detailOpen.value = true;
       detailLoading.value = true;
@@ -125,11 +84,9 @@ bootstrapAdminApp({
 
     const FEEDBACK_LABELS = { CORRECT: '正确', PARTIALLY_CORRECT: '部分正确', INCORRECT: '错误' };
     const FEEDBACK_TYPES = { CORRECT: 'success', PARTIALLY_CORRECT: 'warning', INCORRECT: 'danger' };
-    const ROLE_LABELS = { user: '用户', assistant: '助手', system: '系统' };
 
     const feedbackLabel = (r) => FEEDBACK_LABELS[r] || r;
     const feedbackTagType = (r) => FEEDBACK_TYPES[r] || 'info';
-    const roleLabel = (r) => ROLE_LABELS[r] || r;
 
     return {
       onReady: loadConversations,

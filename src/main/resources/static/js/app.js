@@ -249,14 +249,13 @@ const app = createApp({
     const {
       formatSize,
       renderMarkdown,
-      parseUserMessage,
       imageUrl,
       formatTime,
       escapeHtml,
-      parseStreamJson,
-      isStreamJson,
       IMAGE_PATH_RE
     } = window.AgentFormatters;
+    const { copySegment } = window.AgentClipboard;
+    const { mapMessages } = window.AgentMessageView;
 
     // 仅 .md / .markdown 文件显示预览命令(不区分大小写)
     const isMarkdown = (name) => /\.(md|markdown)$/i.test(name || '');
@@ -332,28 +331,6 @@ const app = createApp({
       activeResumeId.value = '';
       agentType.value = readPreferredAgentType();
       ElementPlus.ElMessage.success('新对话已就绪');
-    };
-
-    // copySegment 供历史详情抽屉的 assistant 段落复制按钮使用(聊天区复制在组件内自带)
-    const copySegment = async (text) => {
-      if (!text) return;
-      try {
-        if (navigator.clipboard && window.isSecureContext) {
-          await navigator.clipboard.writeText(text);
-        } else {
-          const ta = document.createElement('textarea');
-          ta.value = text;
-          ta.style.position = 'fixed';
-          ta.style.opacity = '0';
-          document.body.appendChild(ta);
-          ta.select();
-          document.execCommand('copy');
-          document.body.removeChild(ta);
-        }
-        ElementPlus.ElMessage.success('已复制');
-      } catch (e) {
-        ElementPlus.ElMessage.error('复制失败');
-      }
     };
 
     // formatTime / escapeHtml 由 lib/formatters.js 提供,顶部已解构。
@@ -568,20 +545,7 @@ const app = createApp({
       try {
         currentHistorySessionId.value = sid;
         const data = await fetch('/api/chat/session/' + encodeURIComponent(sid) + '/messages').then(r => r.json());
-        historyMessages.value = data.map(function(msg) {
-          let recall = null;
-          if (msg.role === 'assistant' && msg.recall) {
-            try { recall = JSON.parse(msg.recall); } catch (e) { recall = null; }
-          }
-          if (msg.role === 'assistant' && isStreamJson(msg.content)) {
-            return Object.assign({}, msg, { parsedSegments: parseStreamJson(msg.content), recall: recall, recallOpen: false });
-          }
-          if (msg.role === 'user') {
-            const parsed = parseUserMessage(msg.content);
-            return Object.assign({}, msg, { bodyText: parsed.text, images: parsed.images });
-          }
-          return Object.assign({}, msg, { recall: recall, recallOpen: false });
-        });
+        historyMessages.value = mapMessages(data, { withRecall: true });
         historyDrawerVisible.value = true;
       } catch (e) {
         ElementPlus.ElMessage.error('加载消息失败');
@@ -597,53 +561,9 @@ const app = createApp({
       activeSessionId.value = session.sessionId;
     };
 
-    const copyToClipboard = async (text) => {
-      if (navigator.clipboard && window.isSecureContext) {
-        try {
-          await navigator.clipboard.writeText(text);
-          return true;
-        } catch (e) { /* fall through */ }
-      }
-      try {
-        const ta = document.createElement('textarea');
-        ta.value = text;
-        ta.style.position = 'fixed';
-        ta.style.left = '-9999px';
-        document.body.appendChild(ta);
-        ta.select();
-        const ok = document.execCommand('copy');
-        document.body.removeChild(ta);
-        return ok;
-      } catch (e) {
-        return false;
-      }
-    };
-
-    const shareSession = async (sid) => {
-      // 头条按钮显式传当前会话 id；历史详情抽屉按钮 @click="shareSession" 传入的是事件对象，回退到 currentHistorySessionId
-      const target = (typeof sid === 'string' && sid) ? sid : currentHistorySessionId.value;
-      if (!target) return;
-      try {
-        const res = await fetch('/api/chat/session/' + encodeURIComponent(target) + '/share', { method: 'POST' });
-        if (!res.ok) {
-          const text = await res.text();
-          throw new Error(text);
-        }
-        const data = await res.json();
-        const shareUrl = window.location.origin + window.withBase('/share.html?token=' + data.shareToken);
-        const copied = await copyToClipboard(shareUrl);
-        if (copied) {
-          ElementPlus.ElMessage.success('分享链接已复制到剪贴板');
-        } else {
-          ElementPlus.ElMessageBox.alert(shareUrl, '分享链接（请手动复制）', {
-            confirmButtonText: '关闭',
-            customClass: 'share-link-dialog'
-          });
-        }
-      } catch (e) {
-        ElementPlus.ElMessage.error('生成分享链接失败: ' + (e.message || '未知错误'));
-      }
-    };
+    const shareSession = (sid) => window.AgentShare.shareSession(
+      (typeof sid === 'string' && sid) ? sid : currentHistorySessionId.value
+    );
 
     // ========== 定时任务 ==========
     const loadTasks = async () => {
