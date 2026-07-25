@@ -182,5 +182,25 @@
       "actionApproval": "LOCAL_DEPLOY",
       "approval": "DELIVERY_COMPLETE"
     }
-  ]
+  ],
+  "deterministicGateVerifiers": {
+    "required-artifacts-present": { "verifier": "structural-existence", "note": "校验最新版本 Artifact keyset 包含合同所有 requiredOutputArtifacts，不查内容" },
+    "artifact-schema-valid": { "verifier": "structural-existence", "note": "非 JSON 类型查非空；JSON 类型用 readTree 校验合法 JSON object，不按 artifact.schema.json 校验" },
+    "requirement-ids-unique": { "verifier": "regex-set", "note": "正则扫 REQUIREMENT 文本的 REQ-ID，全部唯一且 count>0" },
+    "acceptance-criteria-observable": { "verifier": "structural-existence", "note": "查 ACCEPTANCE_CRITERIA 每条 id/requirementId/description/verification 字段非空；不判定 verification 是否真可观测" },
+    "no-blocking-open-question": { "verifier": "field-check", "note": "OPEN_QUESTIONS 存在 blocking=true 且 answered=false 即失败" },
+    "requirement-design-coverage-complete": { "verifier": "structural-existence", "note": "TRACEABILITY 每行 designRef 非空；不与 REQ-ID 交叉校验覆盖完整性" },
+    "requirement-test-coverage-complete": { "verifier": "structural-existence", "note": "TRACEABILITY 每行 testRef 非空；不交叉校验覆盖完整性" },
+    "layering-decision-present": { "verifier": "structural-existence", "note": "SOLUTION 文本含子串 domain+application，CHANGE_PLAN.changes 每条 layer 非空；不判定真实分层" },
+    "rollback-plan-present": { "verifier": "structural-existence", "note": "ROLLBACK_PLAN 文本 trim 非空，无内容校验" },
+    "git-baseline-unchanged-or-explained": { "verifier": "hash-match", "note": "CHANGED_FILES 的 baselineHead==currentHead 或 baselineExplanation 非空即通过；Hash 自报，Gate 不重跑 git" },
+    "tdd-evidence-present-for-business-branches": { "verifier": "evidence-structure", "note": "TEST_EVIDENCE 找 RED(exitCode!=0) 先于 GREEN(exitCode==0)；'for-business-branches' 限定未实现，不区分业务分支" },
+    "focused-tests-passed": { "verifier": "exit-code", "note": "TEST_EVIDENCE 的 GREEN/VERIFY phase exitCode==0 且至少一条" },
+    "traceability-complete": { "verifier": "structural-existence", "note": "TRACEABILITY 每行 requirementId/acceptanceCriteriaId/designRef/testRef/implementationRef 五字段非空；不交叉校验完整性" },
+    "no-sensitive-file-change": { "verifier": "path-blacklist", "note": "CHANGED_FILES 路径命中黑名单(env.local/data/secrets.properties/.codex 等)或 sensitive=true 即失败" },
+    "approved-git-baseline-matches": { "verifier": "self-reported", "note": "读 PREFLIGHT.gitBaselineMatches==true，自报布尔，Gate 不独立比对已批准基线" },
+    "build-passed": { "verifier": "exit-code", "note": "BUILD_EVIDENCE.exitCode==0" },
+    "local-health-check-passed": { "verifier": "self-reported", "note": "读 ACCEPTANCE_RESULT.healthPassed==true，自报布尔" },
+    "acceptance-criteria-passed": { "verifier": "self-reported", "note": "ACCEPTANCE_RESULT.criteria 每条 passed==true；不与 ANALYSIS 原始 AC 交叉校验覆盖" }
+  }
 }

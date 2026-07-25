@@ -548,3 +548,27 @@ M4 固定四阶段、`WAITING_INPUT`、Artifact 追踪、Git/TDD 证据、确定
 4. 进入生产多用户试点前，由部署系统提供受控 Provider 凭据并切换 `AGENT_HARNESS_RUNTIME_AUTH_MODE=isolated-key`，复核临时 Home、显式凭据引用和 Output Schema 路径；
 5. 对照 MVP DoD 和 M4 Exit 补齐直接证据后再关闭 M4；配置默认值仍保持
    `agent.harness.enabled=false`，不开放 test/production 部署。
+
+## 17. 设计改进路线（M5+ 待规划）
+
+以下是 M4 收尾时识别的流程设计改进项，未纳入 M0-M4 已交付范围，按优先级登记待 M5+ 规划落地。每项标注所属里程碑建议与优先级。
+
+### 17.1 Bundle 持久接收箱（建议优先级前移至 M5 早期）
+
+当前 Runtime 成功退出后把 Bundle 写入临时目录，应用在 DB 回调提交前崩溃则重启只能标 `LOST`，临时 Bundle 可能丢失（见 `m4/README.md`）。这是"成功执行但证据丢失"的数据完整性问题，非功能缺失。建议 M5 早期实现持久接收箱：子进程直写持久存储，不经临时目录+DB 回调两步，消除崩溃窗口。M5 的 Runtime Reconciliation Worker 应基于持久接收箱构建。
+
+### 17.2 确定性 Gate 语义覆盖增强（M5）
+
+首版 6 个 Gate（`acceptance-criteria-observable`、`requirement-design-coverage-complete`、`requirement-test-coverage-complete`、`layering-decision-present`、`rollback-plan-present`、`traceability-complete`）仅做结构存在性检查，不做语义或交叉覆盖校验（判定方式见 `m0/contracts/stage-contracts.json` 的 `deterministicGateVerifiers`）。M5 应补：需求-设计-测试-AC 的交叉覆盖校验、`tdd-evidence-present-for-business-branches` 的业务分支限定。退出门禁"关键 Gate 不依赖模型自评"应覆盖这些语义校验。
+
+### 17.3 四阶段快通道（M5+ 评估）
+
+四阶段固定是有意边界，但 trivial 变更（typo/文案/样式）走完整四阶段+四审批成本过重，易致审批疲劳。建议评估预定义快通道（如文档变更走 ANALYSIS 轻量 + IMPLEMENTATION + DEPLOYMENT），不是开放 DAG、保持门禁，减少强制阶段。需评估与"固定四阶段"不变量的兼容性。
+
+### 17.4 Approval 按风险分级（M5/M7）
+
+当前每阶段一个 Approval + DEPLOYMENT actionApproval，共四个人工签字点。对 local 环境 + Gate 全绿的低风险变更，四审是瓶颈。建议按风险分级：local 可合并审批或单审；生产/写 MCP/敏感文件才逐阶段强制。M7 的生产 Approval Policy 承接生产侧，MVP local 侧也应分级。
+
+### 17.5 技术栈 Profile 解耦（M6）
+
+`stage-contracts.json` 的 `defaultSkills`/`commands` 硬编码 `java-ddd-design`/`java-tdd`/`agent-web-local-deployment`，把流程绑死 Java+本服务。建议把技能/命令抽到"技术栈 Profile"，StageContract 只定阶段语义（输入/输出/门禁类别），具体技能由 Profile 注入。M6 引入第二 Runtime 和多部署目标时，技术栈可换性会成为刚需。

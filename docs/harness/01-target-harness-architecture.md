@@ -428,12 +428,15 @@ stateDiagram-v2
     [*] --> PENDING
     PENDING --> RUNNING: start
     RUNNING --> WAITING_INPUT: blocking question
-    WAITING_INPUT --> FAILED: input required; continue via new attempt
+    WAITING_INPUT --> RUNNING: answer resumes same attempt
     RUNNING --> WAITING_APPROVAL: deterministic gates passed
     WAITING_APPROVAL --> PASSED: approved
     WAITING_APPROVAL --> FAILED: rejected; revise via new attempt
     RUNNING --> FAILED: execution/gate failed
     FAILED --> RUNNING: retry as new attempt
+    RUNNING --> RUNNING: conversation revise (supersede, new attempt)
+    WAITING_APPROVAL --> RUNNING: conversation revise (supersede, new attempt)
+    PASSED --> RUNNING: conversation revise (supersede, new attempt)
     PASSED --> INVALIDATED: upstream artifact changed
     PENDING --> CANCELLED: cancel without active runtime
     RUNNING --> CANCELLING: persist cancellation intent
@@ -443,6 +446,8 @@ stateDiagram-v2
 关键规则：
 
 - Retry 创建新的 Attempt，不覆盖旧证据。
+- `WAITING_INPUT` 回答阻断问题后恢复**同一 Attempt**（`WAITING_INPUT -> RUNNING`），不创建新 Attempt；这与 retry 和对话修订开新 Attempt 不同。
+- 阶段对话修订（conversation revise）：从 `RUNNING` / `WAITING_APPROVAL` / `PASSED` 发起对话会 supersede 当前 Attempt（置 `SUPERSEDED` 终态，旧 Execution/Artifact/Gate/Approval 保留审计）并开启新 Attempt，状态回到 `RUNNING`；同时失效本阶段及下游 Approval 并置下游 Stage 为 `INVALIDATED`。新 Attempt 须重新产出 Artifact、重过 Gate、重获 Approval。`WAITING_INPUT` 状态下须先回答阻断问题后才能修订。
 - 回到需求或设计阶段时，后续 Stage 标记为 `INVALIDATED`，保留历史但不能作为当前完成依据。
 - Artifact 修改产生新版本和新 Hash，依赖旧 Hash 的 Approval、GateResult 和 Capability Snapshot 不得静默复用。
 - `CANCELLING` 仍占用唯一活动 Attempt，但禁止继续登记 Artifact、运行 Gate 或请求 Approval。

@@ -322,6 +322,13 @@ DEPLOYMENT
 | IMPLEMENTATION | Diff 存在、测试命令退出码、追踪覆盖、敏感文件检查 | 批准待部署版本 |
 | DEPLOYMENT | 版本一致、Preflight、健康检查、AC 结果 | 确认交付完成；部署动作本身另有 Approval |
 
+首版确定性 Gate 的判定边界（每个 Gate 的实际判定方式见 `m0/contracts/stage-contracts.json` 的 `deterministicGateVerifiers`）：
+
+- **结构存在性检查**：`acceptance-criteria-observable`、`requirement-design-coverage-complete`、`requirement-test-coverage-complete`、`layering-decision-present`、`rollback-plan-present`、`traceability-complete` 仅校验字段/子串存在，**不做语义判定或交叉覆盖校验**（如不验证"所有需求都被设计覆盖"）。名字暗示的强保证需人工 Gate 把关，语义覆盖校验留 M5。
+- **自报字段**：`approved-git-baseline-matches`、`local-health-check-passed`、`acceptance-criteria-passed` 读 Runtime 自报的布尔/结果，Gate 不独立复核。
+- **未实现限定**：`tdd-evidence-present-for-business-branches` 校验 RED 先于 GREEN 的证据结构，但"for-business-branches"限定未实现（不区分业务分支），留 M5。
+- **Hash 比对带逃生口**：`git-baseline-unchanged-or-explained` 允许 baselineExplanation 非空放行，Hash 自报不重跑 git。
+
 拒绝必须包含理由，并创建修订 Attempt，不能覆盖旧结果。
 
 ### 4.9 Runtime Execution 与 Agent Runtime
@@ -369,6 +376,8 @@ M0 Spike 不再选择 Runtime，而是验证当前 Codex CLI 是否满足以下�
 - 取消和超时是否可控。
 
 ### 4.10 各阶段首版行为
+
+每个阶段支持**对话修订**：用户可在阶段详情的对话协作区直接发送消息修改需求或产物。对话修订会 supersede 当前 Attempt（置 `SUPERSEDED`，保留审计）并开新 Attempt，同步失效本阶段及下游 Approval、置下游 Stage 为 `INVALIDATED`；新 Attempt 须重过 Gate、重获 Approval。`WAITING_INPUT` 状态下须先回答阻断问题。对话本身不直接修改 Artifact 或 StageContract，产物更新由后续 Runtime 运行经标准版本化产生。
 
 #### ANALYSIS
 
