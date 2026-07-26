@@ -14,7 +14,7 @@
       "artifactType": "ACCEPTANCE_CRITERIA",
       "contentType": "application/json",
       "classification": "INTERNAL",
-      "content": "{\"acceptanceCriteria\":[{\"id\":\"AC-1\",\"requirementId\":\"REQ-1\",\"description\":\"controlled local flow succeeds\",\"verification\":\"safe acceptance template exits zero\"}]}"
+      "content": "{\"acceptanceCriteria\":[{\"acceptanceCriteriaId\":\"AC-1\",\"relatedRequirementIds\":[\"REQ-1\"],\"expectedObservableResult\":\"controlled local flow succeeds\",\"observability\":\"safe acceptance template exits zero\"}]}"
     },
     {
       "artifactId": "analysis-impact",

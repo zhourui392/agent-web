@@ -38,10 +38,9 @@ trap cleanup EXIT
 command -v codex >/dev/null 2>&1 || fail "codex is unavailable"
 command -v node >/dev/null 2>&1 || fail "node is unavailable"
 command -v git >/dev/null 2>&1 || fail "git is unavailable"
-command -v rg >/dev/null 2>&1 || fail "rg is unavailable"
 command -v timeout >/dev/null 2>&1 || fail "timeout is unavailable"
 
-codex --version | rg -qx 'codex-cli 0\.145\.0' \
+codex --version | grep -qx 'codex-cli 0\.145\.0' \
   || fail "Codex version is outside the verified compatibility baseline"
 
 TEMP_ROOT=$(mktemp -d "${TMPDIR:-/var/tmp}/agent-web-harness-m4.XXXXXX")
@@ -91,7 +90,7 @@ HOME="$ISOLATED_HOME" CODEX_HOME="$ISOLATED_HOME" timeout 60s "${COMMON[@]}" \
   'Call read_fixture exactly once and report its marker.' \
   >"$TEMP_ROOT/analysis.events.jsonl" 2>"$TEMP_ROOT/analysis.err"
 
-rg -q 'harness-readonly-fixture:v1' \
+grep -q 'harness-readonly-fixture:v1' \
   "$TEMP_ROOT/analysis.events.jsonl" "$PROVIDER_LOG" \
   || fail "ANALYSIS-compatible run did not observe the read-only fixture marker"
 printf 'PASS - real Codex calls the M4 read-only MCP fixture in an ANALYSIS-compatible run\n'
@@ -101,9 +100,9 @@ HOME="$ISOLATED_HOME" CODEX_HOME="$ISOLATED_HOME" timeout 60s "${COMMON[@]}" \
   'Do not call tools. Return the word design.' \
   >"$TEMP_ROOT/forbidden-stage.events.jsonl" 2>"$TEMP_ROOT/forbidden-stage.err"
 
-rg -q 'MODEL_TOOL_MISSING requested=read_fixture' "$PROVIDER_LOG" \
+grep -q 'MODEL_TOOL_MISSING requested=read_fixture' "$PROVIDER_LOG" \
   || fail "forbidden-stage-compatible run did not prove the fixture tool was absent"
-if rg -q 'MODEL_TOOL_CALL.*actual' "$PROVIDER_LOG"; then
+if grep -q 'MODEL_TOOL_CALL.*actual' "$PROVIDER_LOG"; then
   fail "forbidden-stage-compatible run exposed a callable MCP tool"
 fi
 printf 'PASS - real Codex exposes no M4 fixture tool when the server is not mounted\n'

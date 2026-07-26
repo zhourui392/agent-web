@@ -62,10 +62,9 @@ trap cleanup EXIT
 command -v "$CODEX_COMMAND" >/dev/null 2>&1 || fail "codex is unavailable"
 command -v node >/dev/null 2>&1 || fail "node is unavailable"
 command -v git >/dev/null 2>&1 || fail "git is unavailable"
-command -v rg >/dev/null 2>&1 || fail "rg is unavailable"
 command -v timeout >/dev/null 2>&1 || fail "timeout is unavailable"
 
-"$CODEX_COMMAND" --version | rg -qx 'codex-cli 0\.145\.0' \
+"$CODEX_COMMAND" --version | grep -qx 'codex-cli 0\.145\.0' \
   || fail "Codex version is outside the verified compatibility baseline"
 
 TEMP_ROOT=$(mktemp -d "${TMPDIR:-/var/tmp}/agent-web-harness-m4-online.XXXXXX")

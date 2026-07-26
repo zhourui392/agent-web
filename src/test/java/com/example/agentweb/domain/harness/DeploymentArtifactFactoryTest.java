@@ -103,9 +103,10 @@ class DeploymentArtifactFactoryTest {
         artifacts.add(artifact(HarnessStage.ANALYSIS, ArtifactType.REQUIREMENT,
                 "# REQ-1 Deliver Harness M4"));
         artifacts.add(artifact(HarnessStage.ANALYSIS, ArtifactType.ACCEPTANCE_CRITERIA,
-                "{\"acceptanceCriteria\":[{\"id\":\"AC-1\",\"requirementId\":\"REQ-1\","
-                        + "\"description\":\"local flow succeeds\","
-                        + "\"verification\":\"acceptance command\"}]}"));
+                "{\"acceptanceCriteria\":[{\"acceptanceCriteriaId\":\"AC-1\","
+                        + "\"relatedRequirementIds\":[\"REQ-1\"],"
+                        + "\"expectedObservableResult\":\"local flow succeeds\","
+                        + "\"observability\":\"acceptance command\"}]}"));
         artifacts.add(artifact(HarnessStage.DESIGN, ArtifactType.TRACEABILITY,
                 "{\"links\":[{\"requirementId\":\"REQ-1\","
                         + "\"acceptanceCriteriaId\":\"AC-1\","

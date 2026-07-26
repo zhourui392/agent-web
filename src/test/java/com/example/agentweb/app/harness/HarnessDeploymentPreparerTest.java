@@ -195,9 +195,10 @@ class HarnessDeploymentPreparerTest {
             return "# REQ-1 Deliver Harness M4";
         }
         if (type == ArtifactType.ACCEPTANCE_CRITERIA) {
-            return "{\"acceptanceCriteria\":[{\"id\":\"AC-1\",\"requirementId\":\"REQ-1\","
-                    + "\"description\":\"local flow succeeds\","
-                    + "\"verification\":\"acceptance command\"}]}";
+            return "{\"acceptanceCriteria\":[{\"acceptanceCriteriaId\":\"AC-1\","
+                    + "\"relatedRequirementIds\":[\"REQ-1\"],"
+                    + "\"expectedObservableResult\":\"local flow succeeds\","
+                    + "\"observability\":\"acceptance command\"}]}";
         }
         if (type == ArtifactType.TRACEABILITY && stage == HarnessStage.DESIGN) {
             return "{\"links\":[{\"requirementId\":\"REQ-1\","

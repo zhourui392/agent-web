@@ -186,8 +186,8 @@ public final class DeploymentArtifactFactory {
         Set<String> criterionIds = new HashSet<String>();
         List<TraceRow> rows = new ArrayList<TraceRow>();
         for (JsonNode criterion : criteria) {
-            String criterionId = requiredText(criterion, "id");
-            String requirementId = requiredText(criterion, "requirementId");
+            String criterionId = requiredText(criterion, "acceptanceCriteriaId");
+            String requirementId = firstRequiredArrayElement(criterion, "relatedRequirementIds");
             if (!criterionIds.add(criterionId) || !requirementIds.contains(requirementId)) {
                 throw new IllegalArgumentException(
                         "acceptance criteria ids and requirement references must be valid");
@@ -208,8 +208,8 @@ public final class DeploymentArtifactFactory {
             String implementationRef = requiredText(implementation, "implementationRef");
             requireChangedFile(changedFiles, implementationRef);
             rows.add(new TraceRow(requirementId, criterionId,
-                    requiredText(criterion, "description"),
-                    requiredText(criterion, "verification"),
+                    requiredText(criterion, "expectedObservableResult"),
+                    requiredText(criterion, "observability"),
                     designRef, testRef, implementationRef));
             coveredRequirements.add(requirementId);
         }
@@ -323,6 +323,18 @@ public final class DeploymentArtifactFactory {
             throw new IllegalArgumentException("delivery report field is invalid: " + field);
         }
         return value.asText();
+    }
+
+    private String firstRequiredArrayElement(JsonNode node, String field) {
+        JsonNode value = node.get(field);
+        if (value == null || !value.isArray() || value.isEmpty()) {
+            throw new IllegalArgumentException("delivery report field is invalid: " + field);
+        }
+        JsonNode first = value.get(0);
+        if (first == null || !first.isTextual() || first.asText().trim().isEmpty()) {
+            throw new IllegalArgumentException("delivery report field is invalid: " + field);
+        }
+        return first.asText();
     }
 
     private String linkKey(String requirementId, String acceptanceCriteriaId) {
