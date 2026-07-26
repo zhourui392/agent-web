@@ -29,11 +29,11 @@ export default defineConfig({
   // bare import ('vue' / 'marked') 不会被解析, 浏览器直接报错。
   publicDir: resolve(root, 'public'),
   plugins: [vue()],
-  // Vue 运行时模板编译器: 组件用字符串模板 / in-DOM <div id="app"> 模板,
-  // npm vue 默认 ESM 入口不含编译器, 必须显式指到 esm-bundler 才能在运行时编译模板。
+  // Vue: 所有页面已迁至 SFC (.vue), 模板由 @vitejs/plugin-vue 预编译,
+  // 不再需要运行时模板编译器 -> 使用 runtime-only 构建, 配合 CSP 去掉 unsafe-eval。
   resolve: {
     alias: {
-      vue: 'vue/dist/vue.esm-bundler.js',
+      vue: 'vue/dist/vue.runtime.esm-bundler.js',
     },
   },
   build: {

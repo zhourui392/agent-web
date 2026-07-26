@@ -34,7 +34,7 @@ class SecurityHeadersFilterTest {
                 response.getHeader("Content-Security-Policy").contains("object-src 'none'"));
         org.junit.jupiter.api.Assertions.assertTrue(
                 response.getHeader("Content-Security-Policy")
-                        .contains("script-src 'self' 'unsafe-inline' 'unsafe-eval'"));
+                        .contains("script-src 'self' 'unsafe-inline'"));
     }
 
     @Test

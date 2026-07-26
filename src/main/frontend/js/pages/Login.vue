@@ -1,0 +1,120 @@
+<template>
+  <div class="login-root">
+    <div class="login-card">
+      <h2 class="login-title">Agent Q&A</h2>
+      <p class="login-subtitle">使用用户名和密码登录 · 会话保留 7 天</p>
+
+      <el-form @submit.prevent="onLogin" label-position="top">
+        <el-form-item label="用户名">
+          <el-input v-model="username" autocomplete="username" placeholder="请输入用户名" clearable></el-input>
+        </el-form-item>
+        <el-form-item label="密码">
+          <el-input v-model="password" type="password" autocomplete="current-password"
+                    placeholder="请输入密码" show-password @keyup.enter="onLogin"></el-input>
+        </el-form-item>
+        <el-button :loading="submitting" @click="onLogin"
+                   style="width: 100%;">登录</el-button>
+      </el-form>
+
+      <div v-if="errorMessage" class="error-tip">{{ errorMessage }}</div>
+    </div>
+  </div>
+</template>
+
+<script>
+/**
+ * 登录页组件。原先是 login.html 里的 inline module 脚本,依赖 Vue / ElementPlus /
+ * window.AppBase 全局;npm 化后全局不再存在,故抽成独立模块,依赖一律 ES import。
+ *
+ * @author zhourui(V33215020)
+ */
+import { ref, onMounted } from 'vue';
+import { sanitizeRedirect } from '../lib/redirect.js';
+
+export default {
+  setup() {
+    const username = ref('');
+    const password = ref('');
+    const submitting = ref(false);
+    const errorMessage = ref('');
+
+    // 取登录后跳回地址。URL 上 ?redirect=... 优先;无则默认首页。
+    // sanitizeRedirect 兜底: /api/ 路径(如脏链接里的 /api/auth/logout, GET 过去 405
+    // ErrorPage)与站外地址一律回退首页。
+    function getRedirect() {
+      const params = new URLSearchParams(window.location.search);
+      return sanitizeRedirect(params.get('redirect'));
+    }
+
+    // 只记住用户名，密码永不写入浏览器存储。
+    const LOGIN_MEMORY_KEY = 'agentweb.loginUsername';
+    function saveLoginMemory() {
+      try {
+        localStorage.setItem(LOGIN_MEMORY_KEY, username.value.trim());
+      } catch (e) { /* 隐私模式 / 禁用 localStorage 时静默 */ }
+    }
+    function restoreLoginMemory() {
+      try {
+        username.value = localStorage.getItem(LOGIN_MEMORY_KEY) || '';
+      } catch (e) { /* 读取失败按空表单处理 */ }
+    }
+
+    async function onLogin() {
+      if (!username.value.trim() || !password.value) {
+        errorMessage.value = '用户名与密码都不能为空';
+        return;
+      }
+      submitting.value = true;
+      errorMessage.value = '';
+      try {
+        const resp = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            username: username.value.trim(),
+            password: password.value
+          })
+        });
+        if (!resp.ok) {
+          errorMessage.value = resp.status === 401 ? '用户名或密码错误' : '登录失败，请稍后重试';
+          return;
+        }
+        saveLoginMemory();
+        password.value = '';
+        window.location.href = getRedirect();
+      } catch (e) {
+        errorMessage.value = '网络错误: ' + e.message;
+      } finally {
+        submitting.value = false;
+      }
+    }
+
+    onMounted(() => {
+      restoreLoginMemory();
+    });
+
+    return { username, password, submitting, errorMessage, onLogin };
+  }
+};
+</script>
+
+<style>
+.login-root {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+.login-card {
+  width: 100%; max-width: 380px;
+  background: #fff; border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.18);
+  padding: 32px;
+}
+.login-title { font-size: 22px; font-weight: 600; color: #303133; margin: 0 0 4px 0; }
+.login-subtitle { font-size: 13px; color: #909399; margin: 0 0 24px 0; }
+.error-tip { color: #f56c6c; font-size: 13px; margin-top: 8px; }
+</style>

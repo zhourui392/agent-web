@@ -30,8 +30,8 @@ function toPascal(kebab: string): string {
 }
 
 describe('Element Plus 按需注册完整性', () => {
-  // 模板散落在 HTML (in-DOM 模板) 和 JS (字符串模板) 两处, 都要扫
-  const files = walk(FRONTEND, ['.html', '.js']);
+  // 模板散落在 HTML (in-DOM 模板)、JS (字符串模板) 和 .vue (SFC 预编译模板) 三处, 都要扫
+  const files = walk(FRONTEND, ['.html', '.js', '.vue']);
   const used = new Set<string>();
   for (const f of files) {
     if (f.endsWith('element-plus-setup.js')) continue;

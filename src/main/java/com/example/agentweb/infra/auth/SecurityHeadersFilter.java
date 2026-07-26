@@ -22,7 +22,7 @@ public class SecurityHeadersFilter implements Filter {
             "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; "
                     + "form-action 'self'; img-src 'self' data: blob:; "
                     + "style-src 'self' 'unsafe-inline'; "
-                    + "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
+                    + "script-src 'self' 'unsafe-inline'; "
                     + "connect-src 'self'; font-src 'self' data:";
 
     private final boolean secureTransportRequired;

@@ -1,0 +1,355 @@
+<template>
+  <div class="share-root" style="height: 100%; display: flex; flex-direction: column;">
+    <!-- Header -->
+    <div class="share-header">
+      <span class="logo">Agent Q&A</span>
+      <div style="width: 1px; height: 24px; background: #dcdfe6; flex-shrink: 0;"></div>
+      <span class="session-info" v-if="session">
+        {{ session.title || '共享对话' }} &middot; {{ formatTime(session.createdAt) }}
+      </span>
+      <span style="flex: 1;"></span>
+      <el-tag size="small" type="info">只读</el-tag>
+    </div>
+
+    <!-- Loading -->
+    <div v-if="loading" class="share-empty">
+      <el-icon class="is-loading" style="margin-right: 8px;"><loading /></el-icon>
+      加载中...
+    </div>
+
+    <!-- Error -->
+    <div v-else-if="error" class="share-empty" style="color: #f56c6c;">
+      {{ error }}
+    </div>
+
+    <!-- Messages -->
+    <div v-else class="share-body" ref="bodyRef">
+      <div class="chat-messages" style="padding: 0; background: transparent;">
+        <div v-for="(msg, i) in messages" :key="i" class="chat-message">
+          <div v-if="msg.role === 'user'" style="display: flex; justify-content: flex-end;">
+            <div class="message-user">
+              <div v-if="msg.bodyText" class="message-user-text">{{ msg.bodyText }}</div>
+              <div v-if="msg.images && msg.images.length" class="message-image-grid">
+                <el-image
+                  v-for="(img, ii) in msg.images"
+                  :key="ii"
+                  :src="imageUrl(img)"
+                  :preview-src-list="msg.images.map(imageUrl)"
+                  :initial-index="ii"
+                  fit="cover"
+                  hide-on-click-modal
+                  preview-teleported
+                  class="chat-image">
+                  <template #error>
+                    <div class="chat-image-broken">图片不可用</div>
+                  </template>
+                </el-image>
+              </div>
+            </div>
+          </div>
+          <div v-else>
+            <div class="message-agent">
+              <div v-if="msg.recall" class="recall-card">
+                <div class="recall-card-head" @click="msg.recallOpen = !msg.recallOpen">
+                  <span class="recall-card-toggle" :class="{expanded: msg.recallOpen}">&#9654;</span>
+                  <span class="recall-card-title">🔍 召回了 {{ msg.recall.hits.length }} 条历史参考</span>
+                  <span v-if="msg.recall.query" class="recall-card-query">“{{ msg.recall.query }}”</span>
+                </div>
+                <div v-show="msg.recallOpen" class="recall-card-body">
+                  <div v-for="(h, hi) in msg.recall.hits" :key="hi" class="recall-hit">
+                    <div class="recall-hit-title">{{ hi + 1 }}. {{ h.title }}</div>
+                    <div v-if="h.conclusion" class="recall-hit-conclusion">{{ h.conclusion }}</div>
+                  </div>
+                  <div v-if="!msg.recall.hits.length" class="recall-empty">无匹配历史，已照常发送原消息</div>
+                </div>
+              </div>
+              <template v-if="msg.parsedSegments">
+                <template v-for="(seg, si) in msg.parsedSegments" :key="si">
+                  <div v-if="seg.type === 'text'" class="text-segment-wrap">
+                    <button class="copy-btn" type="button" title="复制 Markdown" @click="copySegment(seg.content)">📋</button>
+                    <div class="text-segment" v-html="renderMarkdown(seg.content)"></div>
+                  </div>
+                  <div v-else-if="seg.type === 'tool'" class="tool-block">
+                    <div class="tool-header" @click="seg._expanded = !seg._expanded">
+                      <span class="tool-toggle" :class="{expanded: seg._expanded}">&#9654;</span>
+                      <span class="tool-label">{{ seg.name }}</span>
+                    </div>
+                    <div v-show="seg._expanded" class="tool-content">{{ seg.content || seg.input }}</div>
+                  </div>
+                  <div v-else-if="seg.type === 'tool_result'" class="tool-block">
+                    <div class="tool-header" @click="seg._expanded = !seg._expanded">
+                      <span class="tool-toggle" :class="{expanded: seg._expanded}">&#9654;</span>
+                      <span class="tool-label">Tool Result</span>
+                    </div>
+                    <div v-show="seg._expanded" class="tool-content">{{ seg.content }}</div>
+                  </div>
+                  <div v-else-if="seg.type === 'result'" class="text-segment-wrap">
+                    <button class="copy-btn" type="button" title="复制 Markdown" @click="copySegment(seg.content)">📋</button>
+                    <div class="text-segment" v-html="renderMarkdown(seg.content)"></div>
+                  </div>
+                </template>
+              </template>
+              <div v-else class="text-segment-wrap">
+                <button class="copy-btn" type="button" title="复制 Markdown" @click="copySegment(msg.content)">📋</button>
+                <div class="text-segment" v-html="renderMarkdown(msg.content)"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div v-if="messages.length === 0" class="share-empty">暂无消息</div>
+    </div>
+  </div>
+</template>
+
+<script>
+/**
+ * 分享页组件。原先是 share.html 里的 inline module 脚本,依赖 Vue / ElementPlus /
+ * window.AgentFormatters 等全局;npm 化后全局不再存在,故抽成独立模块。
+ *
+ * 本次只把「读全局」换成 ES import,页内那些与 lib/formatters 重复的本地实现
+ * (parseUserMessage / formatTime / parseStreamJson / isStreamJson / mapMessages) 一律原样保留:
+ * 原注释明确本页刻意自包含,收敛去重属于另一件事,不在 npm 化里顺手做,以免行为漂移。
+ *
+ * @author zhourui(V33215020)
+ */
+import { ref, onMounted, nextTick } from 'vue';
+import { ElMessage } from 'element-plus';
+import { renderMarkdown } from '../lib/formatters.js';
+
+export default {
+  setup() {
+    const loading = ref(true);
+    const error = ref('');
+    const session = ref(null);
+    const messages = ref([]);
+    const shareToken = ref('');
+    const bodyRef = ref(null);
+
+    const copySegment = async (text) => {
+      if (!text) return;
+      try {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(text);
+        } else {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+        }
+        ElMessage.success('已复制');
+      } catch (e) {
+        ElMessage.error('复制失败');
+      }
+    };
+
+    // 用户消息里以独立行追加的图片绝对路径,渲染时分离出来用 <el-image> 显示缩略图
+    const IMAGE_PATH_RE = /^.+[\/\\][^\/\\]+\.(png|jpe?g|gif|webp|bmp)$/i;
+    const parseUserMessage = (text) => {
+      if (!text) return { text: '', images: [] };
+      const textLines = [];
+      const images = [];
+      for (const line of String(text).split('\n')) {
+        const trimmed = line.trim();
+        if (IMAGE_PATH_RE.test(trimmed)) {
+          images.push(trimmed);
+        } else {
+          textLines.push(line);
+        }
+      }
+      return { text: textLines.join('\n').trim(), images: images };
+    };
+    const imageUrl = (absPath) => '/api/share/'
+      + encodeURIComponent(shareToken.value) + '/image?path=' + encodeURIComponent(absPath);
+
+    const formatTime = (isoStr) => {
+      if (!isoStr) return '';
+      try {
+        const d = new Date(isoStr);
+        return d.toLocaleString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+      } catch (e) { return isoStr; }
+    };
+
+    const parseStreamJson = (raw) => {
+      if (!raw) return [];
+      const segments = [];
+      function appendText(text) {
+        const last = segments.length > 0 ? segments[segments.length - 1] : null;
+        if (last && last.type === 'text') { last.content += text; }
+        else { segments.push({ type: 'text', content: text }); }
+      }
+      const lines = raw.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+        try {
+          const json = JSON.parse(line);
+          if (json.type === 'stream_event' && json.event) {
+            const evt = json.event;
+            if (evt.type === 'content_block_start' && evt.content_block) {
+              if (evt.content_block.type === 'tool_use') {
+                segments.push({ type: 'tool', name: evt.content_block.name, content: '', _expanded: false });
+              }
+            } else if (evt.type === 'content_block_delta' && evt.delta) {
+              if (evt.delta.type === 'text_delta' && evt.delta.text) { appendText(evt.delta.text); }
+              else if (evt.delta.type === 'input_json_delta' && evt.delta.partial_json) {
+                for (let j = segments.length - 1; j >= 0; j--) {
+                  if (segments[j].type === 'tool') { segments[j].content += evt.delta.partial_json; break; }
+                }
+              }
+            }
+          } else if (json.type === 'user' && json.message && json.message.content) {
+            for (const block of json.message.content) {
+              if (block.type === 'tool_result') {
+                let result = '';
+                if (json.tool_use_result && typeof json.tool_use_result === 'string') { result = json.tool_use_result; }
+                else if (typeof block.content === 'string') { result = block.content; }
+                if (result) {
+                  if (result.length > 2000) { result = result.substring(0, 2000) + '\n... (truncated)'; }
+                  let merged = false;
+                  for (let j = segments.length - 1; j >= 0; j--) {
+                    if (segments[j].type === 'tool') { segments[j].content = (segments[j].content || '') + '\n' + result; merged = true; break; }
+                  }
+                  if (!merged) { segments.push({ type: 'tool', name: 'Tool Result', content: result, _expanded: false }); }
+                }
+              }
+            }
+          } else if (json.type === 'result' && json.result) {
+            const hasText = segments.some(s => s.type === 'text' && s.content.trim());
+            if (!hasText) { segments.push({ type: 'text', content: json.result }); }
+          }
+        } catch (e) {}
+      }
+      return segments;
+    };
+
+    // 与 js/lib/formatters.js#isStreamJson 同款:CLI stderr 告警会混入 stdout 头部,
+    // 不能只看首字符,要在头部窗口内找第一条带 type 字段的 JSON 行(本页刻意自包含,不引 lib)。
+    const isStreamJson = (content) => {
+      if (!content) return false;
+      const lines = String(content).split('\n');
+      let scanned = 0;
+      for (let i = 0; i < lines.length && scanned < 10; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+        scanned++;
+        if (line.charAt(0) !== '{') continue;
+        try { return typeof JSON.parse(line).type === 'string'; } catch (e) {}
+      }
+      return false;
+    };
+
+    // 服务端消息 -> 渲染模型 (onMounted 首屏 + 每轮续聊结束后刷新共用)
+    const mapMessages = (rawMsgs) => (rawMsgs || []).map(msg => {
+      let recall = null;
+      if (msg.role === 'assistant' && msg.recall) {
+        try { recall = JSON.parse(msg.recall); } catch (e) { recall = null; }
+      }
+      if (msg.role === 'assistant' && isStreamJson(msg.content)) {
+        return Object.assign({}, msg, { parsedSegments: parseStreamJson(msg.content), recall: recall, recallOpen: false });
+      }
+      if (msg.role === 'user') {
+        const parsed = parseUserMessage(msg.content);
+        return Object.assign({}, msg, { bodyText: parsed.text, images: parsed.images });
+      }
+      return Object.assign({}, msg, { recall: recall, recallOpen: false });
+    });
+
+    const scrollToBottom = () => {
+      nextTick(() => {
+        if (bodyRef.value) bodyRef.value.scrollTop = bodyRef.value.scrollHeight;
+      });
+    };
+
+    const loadShared = async () => {
+      const res = await fetch('/api/share/' + encodeURIComponent(shareToken.value));
+      if (!res.ok) {
+        throw new Error(res.status === 404 ? '分享链接无效或已过期' : '加载失败');
+      }
+      const data = await res.json();
+      if (data.error) { throw new Error(data.error); }
+      session.value = data;
+      document.title = (data.title || '共享对话') + ' - Agent Q&A';
+      messages.value = mapMessages(data.messages);
+    };
+
+    onMounted(async () => {
+      const params = new URLSearchParams(window.location.search);
+      const token = params.get('token');
+      if (!token) {
+        loading.value = false;
+        error.value = '缺少分享 token';
+        return;
+      }
+      shareToken.value = token;
+      try {
+        await loadShared();
+      } catch (e) {
+        error.value = e.message || '加载分享对话失败';
+      } finally {
+        loading.value = false;
+      }
+    });
+
+    return { loading, error, session, messages, bodyRef,
+             renderMarkdown, copySegment, imageUrl, formatTime };
+  }
+};
+</script>
+
+<style>
+.share-header {
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  gap: 16px;
+  background: #fff;
+  border-bottom: 1px solid #e4e7ed;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+  height: 52px;
+}
+.share-header .logo {
+  font-weight: 700;
+  font-size: 15px;
+  white-space: nowrap;
+}
+.share-header .session-info {
+  font-size: 13px;
+  color: #909399;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.share-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  background: #f5f7fa;
+}
+.share-msg {
+  padding: 8px 12px;
+  margin-bottom: 12px;
+}
+.share-msg-role {
+  font-size: 11px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.share-msg-content {
+  font-size: 14px;
+  color: #303133;
+  word-break: break-all;
+}
+.share-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #909399;
+  font-size: 16px;
+}
+</style>
