@@ -17,6 +17,7 @@ import 'element-plus/dist/index.css';
 import { installAuthInterceptor } from './lib/auth-interceptor.js';
 import { useAuth } from './composables/useAuth.js';
 import { useFileSystem } from './composables/useFileSystem.js';
+import { useWorktree } from './composables/useWorktree.js';
 
 // 全局 401 拦截(模块级副作用,从 lib/auth-interceptor.ts 引入,原内联 IIFE 抽出)
 installAuthInterceptor();
@@ -34,6 +35,15 @@ const app = createApp({
       handleFileCommand, closePreview, isMarkdown, onUploadSuccess, onUploadError,
       initFileSystem, setDefaultRoot
     } = useFileSystem();
+    // worktree 从 composable 引入(FE-R3.3 拆出,原内联状态/方法删除)
+    const {
+      selectedBranch, currentBranch, switchingBranch, savedBranches, switchResult,
+      removingBranch, originalWorkspacePath, updatingBranch, updateResult,
+      worktreeBranches, branchPopoverVisible, branchOptions,
+      saveWorktreeState, clearWorktreeState, loadWorktreeBranches,
+      switchBranch, updateBranch, clearBranch, removeSavedBranch,
+      restoreWorktreeState
+    } = useWorktree({ selectedRoot, currentPath, loadList });
     // 对话默认模型由管理后台控制: GET /api/chat/agent-default 返回 {agentType, version}。
     // 「强制全员跟随」: 本地记录的版本(agent_type_force_version)与服务端不一致时, 覆盖本地选择
     // (agent_type)并切到服务端默认、写回新版本; 一致则尊重用户后续手动选择。
@@ -56,17 +66,6 @@ const app = createApp({
     const historyMessages = ref([]);
     const historyDrawerVisible = ref(false);
     const currentHistorySessionId = ref('');
-    const selectedBranch = ref('');
-    const currentBranch = ref('');
-    const switchingBranch = ref(false);
-    const savedBranches = ref(JSON.parse(localStorage.getItem('agent_saved_branches') || '[]'));
-    const switchResult = ref(null);
-    const removingBranch = ref('');
-    const originalWorkspacePath = ref('');
-    const updatingBranch = ref(false);
-    const updateResult = ref(null);
-    const worktreeBranches = ref([]);
-    const branchPopoverVisible = ref(false);
 
     // --- 定时任务 ---
     const taskList = ref([]);
@@ -112,19 +111,6 @@ const app = createApp({
       return result;
     });
 
-    // 下拉选项 = 本地已有 worktree 分支 + localStorage 保存过的分支，去重后保留 worktree 优先顺序
-    const branchOptions = computed(() => {
-      const seen = new Set();
-      const result = [];
-      for (const b of worktreeBranches.value) {
-        if (b && !seen.has(b)) { seen.add(b); result.push(b); }
-      }
-      for (const b of savedBranches.value) {
-        if (b && !seen.has(b)) { seen.add(b); result.push(b); }
-      }
-      return result;
-    });
-
     // ========== 初始化 ==========
     const init = async () => {
       // auth: useAuth.initAuth(未登录跳转,返回 false 时 init 终止)
@@ -153,25 +139,11 @@ const app = createApp({
       } catch (e) {
         // 忽略: 取不到默认值就保留本地选择
       }
-      // fs roots(useFileSystem.initFileSystem) + worktree 恢复(留 app.js,FE-R3.3 拆 useWorktree)
+      // fs roots(useFileSystem.initFileSystem) + worktree 恢复(useWorktree.restoreWorktreeState)
       const data = await initFileSystem();
       if (data.length > 0) {
-        const saved = JSON.parse(localStorage.getItem('agent_worktree_state') || 'null');
-        if (saved && saved.worktreePath && saved.currentBranch) {
-          const check = await fetch('/api/fs/list?path=' + encodeURIComponent(saved.worktreePath));
-          if (check.ok) {
-            const wsRoot = data.find(root => saved.originalWorkspacePath.startsWith(root));
-            selectedRoot.value = wsRoot || data[0];
-            originalWorkspacePath.value = saved.originalWorkspacePath;
-            currentBranch.value = saved.currentBranch;
-            selectedBranch.value = saved.currentBranch;
-            currentPath.value = saved.worktreePath;
-            await loadList(saved.worktreePath);
-            return;
-          }
-          clearWorktreeState();
-        }
-        await setDefaultRoot();
+        const restored = await restoreWorktreeState(data);
+        if (!restored) await setDefaultRoot();
       }
     };
 
@@ -192,140 +164,6 @@ const app = createApp({
       // 会话开始后下拉是 disabled 的, 这里只处理新建态的切换
       localStorage.setItem('agent_type', val);
       ElMessage.info({ message: '已切换到 ' + val, duration: 2000 });
-    };
-
-    const saveWorktreeState = () => {
-      localStorage.setItem('agent_worktree_state', JSON.stringify({
-        originalWorkspacePath: originalWorkspacePath.value,
-        currentBranch: currentBranch.value,
-        worktreePath: currentPath.value
-      }));
-    };
-
-    const clearWorktreeState = () => {
-      localStorage.removeItem('agent_worktree_state');
-    };
-
-    const loadWorktreeBranches = async () => {
-      const wsPath = originalWorkspacePath.value || currentPath.value;
-      if (!wsPath) { worktreeBranches.value = []; return; }
-      try {
-        const data = await fetch('/api/worktree/list?workspacePath=' + encodeURIComponent(wsPath)).then(r => r.json());
-        worktreeBranches.value = Array.isArray(data) ? data.map(w => w.branch).filter(Boolean) : [];
-      } catch (e) {
-        worktreeBranches.value = [];
-      }
-    };
-
-    const switchBranch = async () => {
-      const trimmedBranch = (selectedBranch.value || '').trim();
-      if (!trimmedBranch || !currentPath.value) return;
-      selectedBranch.value = trimmedBranch;
-      switchingBranch.value = true;
-      switchResult.value = null;
-      updateResult.value = null;
-      try {
-        if (!originalWorkspacePath.value) {
-          originalWorkspacePath.value = currentPath.value;
-        }
-        const wsPath = originalWorkspacePath.value || currentPath.value;
-        const res = await fetch('/api/worktree/switch', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ workspacePath: wsPath, branch: trimmedBranch })
-        });
-        if (!res.ok) {
-          const text = await res.text();
-          throw new Error(text);
-        }
-        const data = await res.json();
-        if (!savedBranches.value.includes(trimmedBranch)) {
-          savedBranches.value.push(trimmedBranch);
-          localStorage.setItem('agent_saved_branches', JSON.stringify(savedBranches.value));
-        }
-        currentBranch.value = trimmedBranch;
-        switchResult.value = data.repos;
-        currentPath.value = data.worktreePath;
-        await loadList(data.worktreePath);
-        saveWorktreeState();
-        loadWorktreeBranches();
-        const switched = data.repos.filter(function(r) {
-          return r.created && r.actualBranch === trimmedBranch;
-        }).length;
-        ElMessage.success('已切换到 ' + trimmedBranch + '，' + switched + ' 个服务');
-      } catch (e) {
-        ElMessage.error('切换分支失败: ' + e.message);
-      } finally {
-        switchingBranch.value = false;
-      }
-    };
-
-    const updateBranch = async () => {
-      if (!currentBranch.value) return;
-      const wsPath = originalWorkspacePath.value || currentPath.value;
-      if (!wsPath) return;
-      updatingBranch.value = true;
-      updateResult.value = null;
-      switchResult.value = null;
-      try {
-        const res = await fetch('/api/worktree/update', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ workspacePath: wsPath, branch: currentBranch.value })
-        });
-        if (!res.ok) {
-          const text = await res.text();
-          throw new Error(text);
-        }
-        const data = await res.json();
-        updateResult.value = data.repos;
-        const ok = data.repos.filter(function(r) { return r.updated; }).length;
-        const failed = data.repos.filter(function(r) { return !r.updated && !r.skipped; }).length;
-        if (failed === 0) {
-          ElMessage.success('已更新 ' + ok + ' 个服务');
-        } else {
-          ElMessage.warning('成功 ' + ok + '，失败 ' + failed);
-        }
-      } catch (e) {
-        ElMessage.error('更新失败: ' + e.message);
-      } finally {
-        updatingBranch.value = false;
-      }
-    };
-
-    const clearBranch = () => {
-      if (originalWorkspacePath.value) {
-        currentPath.value = originalWorkspacePath.value;
-        loadList(originalWorkspacePath.value);
-      }
-      currentBranch.value = '';
-      selectedBranch.value = '';
-      switchResult.value = null;
-      updateResult.value = null;
-      originalWorkspacePath.value = '';
-      clearWorktreeState();
-    };
-
-    const removeSavedBranch = async (branch) => {
-      removingBranch.value = branch;
-      const wsPath = originalWorkspacePath.value || currentPath.value;
-      try {
-        await fetch('/api/worktree/remove?workspacePath=' + encodeURIComponent(wsPath)
-            + '&branch=' + encodeURIComponent(branch), { method: 'DELETE' });
-        ElMessage.success('已清理分支 ' + branch + ' 的 worktree');
-      } catch (e) {
-        ElMessage.warning('清理 worktree 失败，已移除标签');
-      } finally {
-        removingBranch.value = '';
-      }
-      savedBranches.value = savedBranches.value.filter(function(b) { return b !== branch; });
-      localStorage.setItem('agent_saved_branches', JSON.stringify(savedBranches.value));
-      if (currentBranch.value === branch) {
-        clearBranch();
-      } else if (selectedBranch.value === branch) {
-        selectedBranch.value = '';
-      }
-      loadWorktreeBranches();
     };
 
     // ========== 历史记录 ==========
