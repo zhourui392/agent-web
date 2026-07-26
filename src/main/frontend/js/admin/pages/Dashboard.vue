@@ -44,88 +44,118 @@
   </admin-shell>
 </template>
 
-<script>
+<script setup lang="ts">
 import { ref, computed } from 'vue';
 import { ElMessage } from 'element-plus';
 
-export default {
-  setup() {
-    const loading = ref(false);
-    const overview = ref(null);
-    const trend = ref([]);
-    const trendDays = 30;
-    const chartW = 760;
-    const chartH = 200;
-    const padL = 36;
-    const padB = 22;
-    const padT = 12;
+interface OverviewChat {
+  total: number;
+  accuracyRate: number | null;
+  byAgentType: Record<string, number>;
+  feedback: Record<string, number>;
+}
 
-    async function loadAll() {
-      loading.value = true;
-      try {
-        const [o, t] = await Promise.all([
-          fetch('/api/metrics/overview').then((r) => r.json()),
-          fetch('/api/metrics/trend?days=' + trendDays).then((r) => r.json())
-        ]);
-        overview.value = o;
-        trend.value = Array.isArray(t) ? t : [];
-      } catch (e) {
-        ElMessage.error('加载指标失败: ' + e);
-      } finally {
-        loading.value = false;
-      }
-    }
+interface Overview {
+  chat: OverviewChat;
+}
 
-    const pct = (v) => (v == null ? '—' : (v * 100).toFixed(1) + '%');
-    const mapRows = (m) => (m ? Object.entries(m).map(([k, v]) => ({ key: k, count: v })) : []);
+interface TrendPoint {
+  date: string;
+  chatCount: number;
+}
 
-    const kpis = computed(() => {
-      const o = overview.value;
-      if (!o) {
-        return [];
-      }
-      return [
-        { label: '会话总量', value: o.chat.total },
-        { label: 'AI 准确率(自评)', value: pct(o.chat.accuracyRate) }
-      ];
-    });
+interface DistRow {
+  key: string;
+  count: number;
+}
 
-    const distributions = computed(() => {
-      const o = overview.value;
-      if (!o) {
-        return [];
-      }
-      return [
-        { title: '会话 · Agent 分布', rows: mapRows(o.chat.byAgentType) },
-        { title: '会话 · 反馈分布', rows: mapRows(o.chat.feedback) }
-      ];
-    });
+interface Distribution {
+  title: string;
+  rows: DistRow[];
+}
 
-    const trendChart = computed(() => {
-      const data = trend.value;
-      if (!data || !data.length) {
-        return null;
-      }
-      const n = data.length;
-      const maxV = Math.max(1, ...data.map((p) => p.chatCount));
-      const innerW = chartW - padL - 8;
-      const innerH = chartH - padT - padB;
-      const x = (i) => padL + (n === 1 ? 0 : (i * innerW) / (n - 1));
-      const y = (v) => padT + innerH * (1 - v / maxV);
-      const toPts = (key) => data.map((p, i) => x(i) + ',' + y(p[key])).join(' ');
-      return {
-        chatPts: toPts('chatCount'),
-        maxV: maxV,
-        firstDate: data[0].date,
-        lastDate: data[n - 1].date
-      };
-    });
+interface Kpi {
+  label: string;
+  value: string | number;
+}
 
-    return {
-      onReady: loadAll,
-      loading, overview, trend, chartW, chartH, padL, padB, padT,
-      loadAll, kpis, distributions, trendChart
-    };
+interface TrendChart {
+  chatPts: string;
+  maxV: number;
+  firstDate: string;
+  lastDate: string;
+}
+
+const loading = ref(false);
+const overview = ref<Overview | null>(null);
+const trend = ref<TrendPoint[]>([]);
+const trendDays = 30;
+const chartW = 760;
+const chartH = 200;
+const padL = 36;
+const padB = 22;
+const padT = 12;
+
+async function loadAll(): Promise<void> {
+  loading.value = true;
+  try {
+    const [o, t] = await Promise.all([
+      fetch('/api/metrics/overview').then((r) => r.json()) as Promise<Overview>,
+      fetch('/api/metrics/trend?days=' + trendDays).then((r) => r.json()) as Promise<TrendPoint[]>
+    ]);
+    overview.value = o;
+    trend.value = Array.isArray(t) ? t : [];
+  } catch (e) {
+    ElMessage.error('加载指标失败: ' + e);
+  } finally {
+    loading.value = false;
   }
-};
+}
+
+const onReady = loadAll;
+
+const pct = (v: number | null): string => (v == null ? '—' : (v * 100).toFixed(1) + '%');
+const mapRows = (m: Record<string, number> | undefined | null): DistRow[] => (m ? Object.entries(m).map(([k, v]) => ({ key: k, count: v })) : []);
+
+const kpis = computed<Kpi[]>(() => {
+  const o = overview.value;
+  if (!o) {
+    return [];
+  }
+  return [
+    { label: '会话总量', value: o.chat.total },
+    { label: 'AI 准确率(自评)', value: pct(o.chat.accuracyRate) }
+  ];
+});
+
+const distributions = computed<Distribution[]>(() => {
+  const o = overview.value;
+  if (!o) {
+    return [];
+  }
+  return [
+    { title: '会话 · Agent 分布', rows: mapRows(o.chat.byAgentType) },
+    { title: '会话 · 反馈分布', rows: mapRows(o.chat.feedback) }
+  ];
+});
+
+const trendChart = computed<TrendChart | null>(() => {
+  const data = trend.value;
+  if (!data || !data.length) {
+    return null;
+  }
+  const n = data.length;
+  const maxV = Math.max(1, ...data.map((p) => p.chatCount));
+  const innerW = chartW - padL - 8;
+  const innerH = chartH - padT - padB;
+  const x = (i: number): number => padL + (n === 1 ? 0 : (i * innerW) / (n - 1));
+  const y = (v: number): number => padT + innerH * (1 - v / maxV);
+  const toPts = (key: keyof TrendPoint): string => data.map((p, i) => x(i) + ',' + y(p[key] as number)).join(' ');
+  return {
+    chatPts: toPts('chatCount'),
+    maxV: maxV,
+    firstDate: data[0].date,
+    lastDate: data[n - 1].date
+  };
+});
 </script>

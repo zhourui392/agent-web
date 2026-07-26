@@ -1,0 +1,34 @@
+/*
+ * 共享 Markdown 渲染样式；各页面容器加 .md-body 即复用，
+ * 上下文特有覆盖（如 .harness-message.user 暗色主题）留在各自 CSS。
+ */
+.md-body p { margin: 0.4em 0; }
+.md-body p:empty { display: none; }
+.md-body code {
+  background: #f0f2f5;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 12px;
+}
+.md-body pre {
+  background: #f6f8fa;
+  color: #24292e;
+  padding: 12px;
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 12px;
+}
+.md-body pre code {
+  background: none;
+  padding: 0;
+  color: inherit;
+}
+.md-body ul, .md-body ol { padding-left: 1.5em; margin: 0.4em 0; }
+.md-body li { margin: 0.2em 0; }
+.md-body strong { font-weight: 600; }
+.md-body h1, .md-body h2, .md-body h3 { margin: 0.5em 0 0.3em; line-height: 1.4; }
+.md-body h1 { font-size: 16px; }
+.md-body h2 { font-size: 15px; }
+.md-body h3 { font-size: 14px; }
+.md-body a { color: #409eff; }

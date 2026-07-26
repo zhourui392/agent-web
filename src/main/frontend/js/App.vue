@@ -325,7 +325,7 @@ v-for="item in folderList" :key="item.path" class="fs-item"
           <el-button size="small" @click="closePreview">返回</el-button>
         </div>
         <el-scrollbar height="380px">
-          <div v-loading="previewLoading" class="md-preview-body" v-html="previewHtml"></div>
+          <div v-loading="previewLoading" class="md-preview-body md-body" v-html="previewHtml"></div>
         </el-scrollbar>
       </div>
 
@@ -500,7 +500,7 @@ v-for="item in folderList" :key="item.path" class="fs-item"
           <template v-for="(seg, si) in msg.parsedSegments" :key="si">
             <div v-if="seg.type === 'text'" class="text-segment-wrap">
               <button class="copy-btn" type="button" title="复制 Markdown" @click="copySegment(seg.content)">📋</button>
-              <div class="text-segment" v-html="renderMarkdown(seg.content)"></div>
+              <div class="text-segment md-body" v-html="renderMarkdown(seg.content)"></div>
             </div>
             <div v-else-if="seg.type === 'tool'" class="tool-block">
               <div class="tool-header" @click="seg._expanded = !seg._expanded">
@@ -518,7 +518,7 @@ v-for="item in folderList" :key="item.path" class="fs-item"
             </div>
             <div v-else-if="seg.type === 'result'" class="text-segment-wrap">
               <button class="copy-btn" type="button" title="复制 Markdown" @click="copySegment(seg.content)">📋</button>
-              <div class="text-segment" v-html="renderMarkdown(seg.content)"></div>
+              <div class="text-segment md-body" v-html="renderMarkdown(seg.content)"></div>
             </div>
           </template>
         </div>

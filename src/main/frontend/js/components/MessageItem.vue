@@ -32,7 +32,7 @@
         <template v-for="(seg, si) in (msg.segments || [])" :key="si">
           <div v-if="seg.type === 'text'" class="text-segment-wrap">
             <button class="copy-btn" type="button" title="复制 Markdown" @click="copySegment(seg.content)">📋</button>
-            <div class="text-segment" v-html="renderMarkdown(seg.content)"></div>
+            <div class="text-segment md-body" v-html="renderMarkdown(seg.content)"></div>
           </div>
           <ToolBlock v-else :segment="seg" :expanded="isToolExpanded(index, si)" @toggle="toggleTool(index, si)" />
         </template>

@@ -71,125 +71,119 @@ type="primary" :loading="savingWorkspaces" data-test="save-workspaces"
   </admin-shell>
 </template>
 
-<script>
+<script setup lang="ts">
 import { fetchJson } from '../../lib/admin-fetch.js';
 import { pathsToText, textToPaths } from '../settings-utils.js';
 import { ref, reactive } from 'vue';
 import { ElMessageBox, ElMessage } from 'element-plus';
 
-export default {
-  setup() {
-    const options = ref(['CLAUDE', 'CODEX']);
-    const form = reactive({
-      chatDefaultAgent: '',
-      defaultWorkspace: '',
-      workspaceRootsText: '',
-      uploadRootsText: ''
-    });
-    const loading = ref(false);
-    const savingAgentModels = ref(false);
-    const savingWorkspaces = ref(false);
-    const resettingWorkspaces = ref(false);
+interface WorkspaceSettings {
+  defaultWorkspace: string;
+  workspaceRoots: string[];
+  uploadRoots: string[];
+}
 
-    function applyWorkspaceSettings(data) {
-      form.defaultWorkspace = data.defaultWorkspace || '';
-      form.workspaceRootsText = pathsToText(data.workspaceRoots);
-      form.uploadRootsText = pathsToText(data.uploadRoots);
+interface AgentModelsSettings {
+  chatDefaultAgent: string;
+  options: string[];
+}
+
+const options = ref<string[]>(['CLAUDE', 'CODEX']);
+const form = reactive({
+  chatDefaultAgent: '',
+  defaultWorkspace: '',
+  workspaceRootsText: '',
+  uploadRootsText: ''
+});
+const loading = ref(false);
+const savingAgentModels = ref(false);
+const savingWorkspaces = ref(false);
+const resettingWorkspaces = ref(false);
+
+function applyWorkspaceSettings(data: WorkspaceSettings): void {
+  form.defaultWorkspace = data.defaultWorkspace || '';
+  form.workspaceRootsText = pathsToText(data.workspaceRoots);
+  form.uploadRootsText = pathsToText(data.uploadRoots);
+}
+
+async function loadSettings(): Promise<void> {
+  loading.value = true;
+  try {
+    const [agentModels, workspaces] = await Promise.all([
+      fetchJson('/api/admin-settings/agent-models'),
+      fetchJson('/api/admin-settings/workspaces')
+    ]) as [AgentModelsSettings, WorkspaceSettings];
+    if (Array.isArray(agentModels.options) && agentModels.options.length > 0) {
+      options.value = agentModels.options;
     }
-
-    async function loadSettings() {
-      loading.value = true;
-      try {
-        const [agentModels, workspaces] = await Promise.all([
-          fetchJson('/api/admin-settings/agent-models'),
-          fetchJson('/api/admin-settings/workspaces')
-        ]);
-        if (Array.isArray(agentModels.options) && agentModels.options.length > 0) {
-          options.value = agentModels.options;
-        }
-        form.chatDefaultAgent = agentModels.chatDefaultAgent || '';
-        applyWorkspaceSettings(workspaces);
-      } catch (e) {
-        ElMessage.error('加载设置失败: ' + e);
-      } finally {
-        loading.value = false;
-      }
-    }
-
-    async function saveAgentModels() {
-      savingAgentModels.value = true;
-      try {
-        const data = await fetchJson('/api/admin-settings/agent-models', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chatDefaultAgent: form.chatDefaultAgent
-          })
-        });
-        form.chatDefaultAgent = data.chatDefaultAgent || form.chatDefaultAgent;
-        ElMessage.success('默认模型已保存');
-      } catch (e) {
-        ElMessage.error('保存失败: ' + e.message);
-      } finally {
-        savingAgentModels.value = false;
-      }
-    }
-
-    async function saveWorkspaces() {
-      savingWorkspaces.value = true;
-      try {
-        const data = await fetchJson('/api/admin-settings/workspaces', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            defaultWorkspace: form.defaultWorkspace,
-            workspaceRoots: textToPaths(form.workspaceRootsText),
-            uploadRoots: textToPaths(form.uploadRootsText)
-          })
-        });
-        applyWorkspaceSettings(data);
-        ElMessage.success('工作空间配置已保存并生效');
-      } catch (e) {
-        ElMessage.error('保存失败: ' + e.message);
-      } finally {
-        savingWorkspaces.value = false;
-      }
-    }
-
-    async function resetWorkspaces() {
-      try {
-        await ElMessageBox.confirm(
-          '将删除数据库中的工作空间配置，并恢复为配置文件默认值。是否继续？',
-          '恢复默认值',
-          { type: 'warning', confirmButtonText: '恢复', cancelButtonText: '取消' }
-        );
-      } catch (e) {
-        return;
-      }
-      resettingWorkspaces.value = true;
-      try {
-        const data = await fetchJson('/api/admin-settings/workspaces', { method: 'DELETE' });
-        applyWorkspaceSettings(data);
-        ElMessage.success('已恢复配置文件默认值');
-      } catch (e) {
-        ElMessage.error('恢复失败: ' + e.message);
-      } finally {
-        resettingWorkspaces.value = false;
-      }
-    }
-
-    return {
-      options,
-      form,
-      loading,
-      savingAgentModels,
-      savingWorkspaces,
-      resettingWorkspaces,
-      loadSettings,
-      saveAgentModels,
-      saveWorkspaces,
-      resetWorkspaces
-    };
+    form.chatDefaultAgent = agentModels.chatDefaultAgent || '';
+    applyWorkspaceSettings(workspaces);
+  } catch (e) {
+    ElMessage.error('加载设置失败: ' + e);
+  } finally {
+    loading.value = false;
   }
-};
+}
+
+async function saveAgentModels(): Promise<void> {
+  savingAgentModels.value = true;
+  try {
+    const data = await fetchJson('/api/admin-settings/agent-models', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chatDefaultAgent: form.chatDefaultAgent
+      })
+    }) as AgentModelsSettings;
+    form.chatDefaultAgent = data.chatDefaultAgent || form.chatDefaultAgent;
+    ElMessage.success('默认模型已保存');
+  } catch (e) {
+    ElMessage.error('保存失败: ' + (e as Error).message);
+  } finally {
+    savingAgentModels.value = false;
+  }
+}
+
+async function saveWorkspaces(): Promise<void> {
+  savingWorkspaces.value = true;
+  try {
+    const data = await fetchJson('/api/admin-settings/workspaces', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        defaultWorkspace: form.defaultWorkspace,
+        workspaceRoots: textToPaths(form.workspaceRootsText),
+        uploadRoots: textToPaths(form.uploadRootsText)
+      })
+    }) as WorkspaceSettings;
+    applyWorkspaceSettings(data);
+    ElMessage.success('工作空间配置已保存并生效');
+  } catch (e) {
+    ElMessage.error('保存失败: ' + (e as Error).message);
+  } finally {
+    savingWorkspaces.value = false;
+  }
+}
+
+async function resetWorkspaces(): Promise<void> {
+  try {
+    await ElMessageBox.confirm(
+      '将删除数据库中的工作空间配置，并恢复为配置文件默认值。是否继续？',
+      '恢复默认值',
+      { type: 'warning', confirmButtonText: '恢复', cancelButtonText: '取消' }
+    );
+  } catch (e) {
+    return;
+  }
+  resettingWorkspaces.value = true;
+  try {
+    const data = await fetchJson('/api/admin-settings/workspaces', { method: 'DELETE' }) as WorkspaceSettings;
+    applyWorkspaceSettings(data);
+    ElMessage.success('已恢复配置文件默认值');
+  } catch (e) {
+    ElMessage.error('恢复失败: ' + (e as Error).message);
+  } finally {
+    resettingWorkspaces.value = false;
+  }
+}
 </script>

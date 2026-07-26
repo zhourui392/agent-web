@@ -67,7 +67,7 @@
                 <template v-for="(seg, si) in msg.parsedSegments" :key="si">
                   <div v-if="seg.type === 'text'" class="text-segment-wrap">
                     <button class="copy-btn" type="button" title="复制 Markdown" @click="copySegment(seg.content)">📋</button>
-                    <div class="text-segment" v-html="renderMarkdown(seg.content)"></div>
+                    <div class="text-segment md-body" v-html="renderMarkdown(seg.content)"></div>
                   </div>
                   <div v-else-if="seg.type === 'tool'" class="tool-block">
                     <div class="tool-header" @click="seg._expanded = !seg._expanded">
@@ -85,13 +85,13 @@
                   </div>
                   <div v-else-if="seg.type === 'result'" class="text-segment-wrap">
                     <button class="copy-btn" type="button" title="复制 Markdown" @click="copySegment(seg.content)">📋</button>
-                    <div class="text-segment" v-html="renderMarkdown(seg.content)"></div>
+                    <div class="text-segment md-body" v-html="renderMarkdown(seg.content)"></div>
                   </div>
                 </template>
               </template>
               <div v-else class="text-segment-wrap">
                 <button class="copy-btn" type="button" title="复制 Markdown" @click="copySegment(msg.content)">📋</button>
-                <div class="text-segment" v-html="renderMarkdown(msg.content)"></div>
+                <div class="text-segment md-body" v-html="renderMarkdown(msg.content)"></div>
               </div>
             </div>
           </div>

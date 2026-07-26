@@ -4,6 +4,7 @@
  * (各页 <link> 同时引 app.css 外围壳样式 + 本文件)。消息渲染类(text-segment / tool-* /
  * recall-card / message-image-grid)被主控台历史抽屉、诊断详情、share 只读页复用,故一并归此。
  */
+@import url('markdown.css');
 .chat-container {
   display: flex;
   flex-direction: column;
@@ -193,34 +194,7 @@
   color: #409eff;
   border-color: #409eff;
 }
-.message-agent .text-segment p { margin: 0.4em 0; }
-.message-agent .text-segment code {
-  background: #f0f2f5;
-  padding: 1px 5px;
-  border-radius: 3px;
-  font-family: 'Consolas', 'Monaco', monospace;
-  font-size: 12px;
-}
-.message-agent .text-segment pre {
-  background: #f6f8fa;
-  color: #24292e;
-  padding: 12px;
-  border-radius: 6px;
-  overflow-x: auto;
-  font-size: 12px;
-}
-.message-agent .text-segment pre code {
-  background: none;
-  padding: 0;
-  color: inherit;
-}
-.message-agent .text-segment ul, .message-agent .text-segment ol {
-  padding-left: 1.5em;
-  margin: 0.4em 0;
-}
-.message-agent .text-segment strong { font-weight: 600; }
-.message-agent .text-segment h1, .message-agent .text-segment h2,
-.message-agent .text-segment h3 { margin: 0.6em 0 0.3em; }
+/* markdown 渲染样式已收敛至 markdown.css .md-body,此处仅保留上下文覆盖 */
 .message-system {
   background: #e1f3d8;
   color: #67c23a;

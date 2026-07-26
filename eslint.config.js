@@ -13,13 +13,22 @@ export default [
       'node_modules/**',
       'target/**',
       'data/**',
-      // 5 个 SFC 子组件用 <script setup lang="ts">,typescript-eslint 尚不支持 TS 7.0
+      // SFC 子组件用 <script setup lang="ts">,typescript-eslint 尚不支持 TS 7.0
       // (tsc --noEmit 已覆盖类型检查,待 typescript-eslint 支持 TS 7.0 后移除)
       'src/main/frontend/js/components/MessageItem.vue',
       'src/main/frontend/js/components/PendingImageList.vue',
       'src/main/frontend/js/components/RecallCard.vue',
       'src/main/frontend/js/components/ToolBlock.vue',
       'src/main/frontend/js/components/CommandPopup.vue',
+      'src/main/frontend/js/admin/pages/Chat.vue',
+      'src/main/frontend/js/admin/pages/Dashboard.vue',
+      'src/main/frontend/js/admin/pages/Users.vue',
+      'src/main/frontend/js/admin/pages/Settings.vue',
+      'src/main/frontend/js/admin/pages/Conversations.vue',
+      'src/main/frontend/js/admin/pages/Refinery.vue',
+      'src/main/frontend/js/admin/pages/Workflows.vue',
+      'src/main/frontend/js/admin/pages/Recall.vue',
+      'src/main/frontend/js/admin/composables/useHarness.ts',
     ],
   },
   ...pluginVue.configs['flat/recommended'],

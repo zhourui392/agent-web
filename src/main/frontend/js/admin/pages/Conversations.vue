@@ -89,7 +89,7 @@ v-for="(img, ii) in msg.images" :key="ii" :src="imageUrl(img)"
               <template v-for="(seg, si) in msg.parsedSegments" :key="si">
                 <div v-if="seg.type === 'text' || seg.type === 'result'" class="text-segment-wrap">
                   <button class="copy-btn" type="button" title="复制 Markdown" @click="copySegment(seg.content)">📋</button>
-                  <div class="text-segment" v-html="renderMarkdown(seg.content)"></div>
+                  <div class="text-segment md-body" v-html="renderMarkdown(seg.content)"></div>
                 </div>
                 <div v-else-if="seg.type === 'tool'" class="tool-block">
                   <div class="tool-header" @click="seg._expanded = !seg._expanded">
@@ -110,100 +110,89 @@ v-for="(img, ii) in msg.images" :key="ii" :src="imageUrl(img)"
   </admin-shell>
 </template>
 
-<script>
+<script setup lang="ts">
+import { ref } from 'vue';
+import { ElMessage } from 'element-plus';
 import { renderMarkdown, imageUrl, formatTime, formatBeijingDateTime } from '../../lib/formatters.js';
 import { enrichMessage, ROLE_LABELS, roleLabel } from '../../lib/message-view.js';
 import { copySegment } from '../../lib/clipboard.js';
-import { ref } from 'vue';
-import { ElMessage } from 'element-plus';
 
-export default {
-  setup() {
-    const conversations = ref([]);
-    const convTotal = ref(0);
-    const convPage = ref(1);
-    const convSize = ref(20);
-    const convKeyword = ref('');
-    const convLoading = ref(false);
+const conversations = ref<any[]>([]);
+const convTotal = ref<number>(0);
+const convPage = ref<number>(1);
+const convSize = ref<number>(20);
+const convKeyword = ref<string>('');
+const convLoading = ref<boolean>(false);
 
-    // ---- 详情抽屉 ----
-    const detailOpen = ref(false);
-    const detailLoading = ref(false);
-    const detail = ref(null);
-    const detailTitle = ref('对话详情');
+// ---- 详情抽屉 ----
+const detailOpen = ref<boolean>(false);
+const detailLoading = ref<boolean>(false);
+const detail = ref<any>(null);
+const detailTitle = ref<string>('对话详情');
 
-    async function loadConversations() {
-      convLoading.value = true;
-      try {
-        const params = new URLSearchParams({ page: convPage.value, size: convSize.value });
-        if (convKeyword.value.trim()) {
-          params.set('keyword', convKeyword.value.trim());
-        }
-        const data = await fetch('/api/metrics/conversations?' + params.toString()).then((r) => r.json());
-        conversations.value = Array.isArray(data.rows) ? data.rows : [];
-        convTotal.value = data.total || 0;
-      } catch (e) {
-        ElMessage.error('加载对话记录失败: ' + e);
-      } finally {
-        convLoading.value = false;
-      }
+async function loadConversations(): Promise<void> {
+  convLoading.value = true;
+  try {
+    const params = new URLSearchParams({ page: String(convPage.value), size: String(convSize.value) });
+    if (convKeyword.value.trim()) {
+      params.set('keyword', convKeyword.value.trim());
     }
-
-    function searchConversations() {
-      convPage.value = 1;
-      loadConversations();
-    }
-
-    function onPageChange(page) {
-      convPage.value = page;
-      loadConversations();
-    }
-
-    async function openDetail(sessionId) {
-      detailOpen.value = true;
-      detailLoading.value = true;
-      detail.value = null;
-      detailTitle.value = '对话详情';
-      try {
-        const resp = await fetch('/api/metrics/conversations/' + encodeURIComponent(sessionId));
-        if (!resp.ok) {
-          ElMessage.error('会话不存在或已删除');
-          detailOpen.value = false;
-          return;
-        }
-        const data = await resp.json();
-        data.messages = Array.isArray(data.messages) ? data.messages.map(enrichMessage) : [];
-        detail.value = data;
-        detailTitle.value = data.record.title || '对话详情';
-      } catch (e) {
-        ElMessage.error('加载详情失败: ' + e);
-        detailOpen.value = false;
-      } finally {
-        detailLoading.value = false;
-      }
-    }
-
-    function fmtTime(iso) {
-      if (!iso) {
-        return '—';
-      }
-      return formatBeijingDateTime(iso) || '—';
-    }
-
-    const FEEDBACK_LABELS = { CORRECT: '正确', PARTIALLY_CORRECT: '部分正确', INCORRECT: '错误' };
-    const FEEDBACK_TYPES = { CORRECT: 'success', PARTIALLY_CORRECT: 'warning', INCORRECT: 'danger' };
-
-    const feedbackLabel = (r) => FEEDBACK_LABELS[r] || r;
-    const feedbackTagType = (r) => FEEDBACK_TYPES[r] || 'info';
-
-    return {
-      onReady: loadConversations,
-      conversations, convTotal, convPage, convSize, convKeyword, convLoading,
-      loadConversations, searchConversations, onPageChange,
-      detailOpen, detailLoading, detail, detailTitle, openDetail, copySegment,
-      fmtTime, feedbackLabel, feedbackTagType, roleLabel,
-      renderMarkdown, imageUrl, formatTime
-    };
+    const data = await fetch('/api/metrics/conversations?' + params.toString()).then((r) => r.json());
+    conversations.value = Array.isArray(data.rows) ? data.rows : [];
+    convTotal.value = data.total || 0;
+  } catch (e) {
+    ElMessage.error('加载对话记录失败: ' + e);
+  } finally {
+    convLoading.value = false;
   }
-};
+}
+
+function searchConversations(): void {
+  convPage.value = 1;
+  loadConversations();
+}
+
+function onPageChange(page: number): void {
+  convPage.value = page;
+  loadConversations();
+}
+
+async function openDetail(sessionId: string): Promise<void> {
+  detailOpen.value = true;
+  detailLoading.value = true;
+  detail.value = null;
+  detailTitle.value = '对话详情';
+  try {
+    const resp = await fetch('/api/metrics/conversations/' + encodeURIComponent(sessionId));
+    if (!resp.ok) {
+      ElMessage.error('会话不存在或已删除');
+      detailOpen.value = false;
+      return;
+    }
+    const data = await resp.json();
+    data.messages = Array.isArray(data.messages) ? data.messages.map(enrichMessage) : [];
+    detail.value = data;
+    detailTitle.value = data.record.title || '对话详情';
+  } catch (e) {
+    ElMessage.error('加载详情失败: ' + e);
+    detailOpen.value = false;
+  } finally {
+    detailLoading.value = false;
+  }
+}
+
+function fmtTime(iso: string | null | undefined): string {
+  if (!iso) {
+    return '—';
+  }
+  return formatBeijingDateTime(iso) || '—';
+}
+
+const FEEDBACK_LABELS: Record<string, string> = { CORRECT: '正确', PARTIALLY_CORRECT: '部分正确', INCORRECT: '错误' };
+const FEEDBACK_TYPES: Record<string, string> = { CORRECT: 'success', PARTIALLY_CORRECT: 'warning', INCORRECT: 'danger' };
+
+const feedbackLabel = (r: string): string => FEEDBACK_LABELS[r] || r;
+const feedbackTagType = (r: string): string => FEEDBACK_TYPES[r] || 'info';
+
+const onReady = loadConversations;
 </script>

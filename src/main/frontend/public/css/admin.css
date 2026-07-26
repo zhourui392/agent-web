@@ -4,6 +4,7 @@
  *
  * @author zhourui(V33215020)
  */
+@import url('markdown.css');
 body { margin: 0; background: #f5f7fa; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif; }
 #app { min-height: 100vh; }
 .login-wrap { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
@@ -418,11 +419,7 @@ body { margin: 0; background: #f5f7fa; font-family: -apple-system, BlinkMacSyste
   border-radius: 50%;
   background: #409eff;
   box-shadow: 0 0 0 0 rgba(64, 158, 255, 0.45);
-  animation: harness-pulse 1.4s infinite;
-}
-@keyframes harness-pulse {
-  70% { box-shadow: 0 0 0 7px rgba(64, 158, 255, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(64, 158, 255, 0); }
+  animation: harness-stepper-pulse 1.4s infinite;
 }
 .harness-inline-questions { padding: 0 16px 14px; }
 .harness-conversation-composer {
@@ -563,21 +560,11 @@ body { margin: 0; background: #f5f7fa; font-family: -apple-system, BlinkMacSyste
 .harness-run-stage-dot.is-invalidated { background: #c0c4cc; }
 
 /* ===== Harness: 对话消息 Markdown 渲染 + Artifact 卡片 ===== */
+/* harness-message-md:容器属性 + 上下文覆盖;基础渲染样式由 markdown.css .md-body 提供 */
 .harness-message-md { white-space: normal; }
-.harness-message-md p { margin: 0.4em 0; }
 .harness-message-md p:first-child { margin-top: 0; }
 .harness-message-md p:last-child { margin-bottom: 0; }
-.harness-message-md ul, .harness-message-md ol { padding-left: 1.5em; margin: 0.4em 0; }
-.harness-message-md li { margin: 0.2em 0; }
-.harness-message-md code { background: #f0f2f5; padding: 1px 5px; border-radius: 3px; font-family: 'Consolas','Monaco',monospace; font-size: 12px; }
-.harness-message-md pre { background: #f6f8fa; color: #24292e; padding: 10px; border-radius: 6px; overflow-x: auto; font-size: 12px; margin: 0.4em 0; }
-.harness-message-md pre code { background: none; padding: 0; color: inherit; font-size: 12px; }
-.harness-message-md h1, .harness-message-md h2, .harness-message-md h3 { margin: 0.5em 0 0.3em; line-height: 1.4; }
-.harness-message-md h1 { font-size: 16px; }
-.harness-message-md h2 { font-size: 15px; }
-.harness-message-md h3 { font-size: 14px; }
-.harness-message-md strong { font-weight: 600; }
-.harness-message-md a { color: #409eff; }
+.harness-message-md pre { padding: 10px; margin: 0.4em 0; }
 .harness-message.user .harness-message-md code { background: rgba(255,255,255,0.28); }
 .harness-message.user .harness-message-md pre { background: rgba(0,0,0,0.18); color: #fff; }
 .harness-message.user .harness-message-md pre code { color: #fff; }
@@ -629,14 +616,7 @@ body { margin: 0; background: #f5f7fa; font-family: -apple-system, BlinkMacSyste
 .history-msg-content { font-size: 13px; color: #303133; word-break: break-word; }
 .history-msg-text { white-space: pre-wrap; }
 .history-msg-content .text-segment { white-space: normal; }
-.history-msg-content .text-segment p { margin: 0.4em 0; }
-.history-msg-content .text-segment p:empty { display: none; }
-.history-msg-content .text-segment code { background: #f0f2f5; padding: 1px 5px; border-radius: 3px; font-family: 'Consolas','Monaco',monospace; font-size: 12px; }
-.history-msg-content .text-segment pre { background: #f6f8fa; color: #24292e; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 12px; }
-.history-msg-content .text-segment pre code { background: none; padding: 0; color: inherit; }
-.history-msg-content .text-segment ul, .history-msg-content .text-segment ol { padding-left: 1.5em; margin: 0.4em 0; }
-.history-msg-content .text-segment strong { font-weight: 600; }
-.history-msg-content .text-segment h1, .history-msg-content .text-segment h2, .history-msg-content .text-segment h3 { margin: 0.6em 0 0.3em; }
+/* markdown 渲染样式由 markdown.css .md-body 提供 */
 .text-segment-wrap { position: relative; }
 .text-segment-wrap .copy-btn { position: absolute; top: 2px; right: 2px; width: 22px; height: 22px; padding: 0; border: 1px solid #dcdfe6; border-radius: 4px; background: rgba(255,255,255,0.92); cursor: pointer; font-size: 12px; line-height: 20px; color: #606266; opacity: 0; transition: opacity 0.15s ease; z-index: 2; }
 .text-segment-wrap:hover .copy-btn { opacity: 1; }

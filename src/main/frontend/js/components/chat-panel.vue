@@ -45,78 +45,7 @@ type="button" class="feedback-chip feedback-chip--incorrect"
     </div>
 
     <!-- 输入区 -->
-    <div class="chat-input-area" style="position: relative;">
-      <CommandPopup
-        v-if="showCommandPopup && filteredCommands.length > 0"
-        :commands="filteredCommands"
-        :selectedIdx="selectedCommandIdx"
-        @select="selectCommand"
-      />
-      <PendingImageList :images="pendingImages" @remove="removePendingImage" />
-      <div v-if="pendingFile" class="pending-file-card">
-        <el-icon><document /></el-icon>
-        <span class="pending-file-name" :title="pendingFile.name">{{ pendingFile.name }}</span>
-        <span class="pending-file-size">{{ formatChatFileSize(pendingFile.size) }}</span>
-        <span class="pending-file-remove" @click="removePendingFile">×</span>
-      </div>
-      <el-input
-        v-model="userInput"
-        type="textarea"
-        :rows="3"
-        placeholder="输入你的问题，例如：traceId: xxx，问题描述"
-        :disabled="!workingDir" @keydown.enter.exact.prevent="handleEnter" @keydown.up.prevent="handleArrowUp" @keydown.down.prevent="handleArrowDown" @keydown.tab.prevent="handleTab"
-        @keydown.escape="hideCommandPopup"
-        @keydown.ctrl.enter.exact.prevent="insertNewline"
-        @paste="handlePaste"
-      ></el-input>
-      <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <span v-if="workingDir" class="hidden-mobile" style="color: #909399; font-size: 13px;">Enter 发送 | Ctrl+Enter 换行</span>
-          <span v-if="!workingDir" style="color: #E6A23C; font-weight: bold; font-size: 13px;">⚠ 请先选择工作目录</span>
-          <el-button size="small" :disabled="!sessionId" plain @click="clearContext">
-            <el-icon><delete /></el-icon>
-            <span>清除上下文</span>
-          </el-button>
-          <el-upload
-            :http-request="uploadChatImage"
-            name="file"
-            accept="image/*"
-            :show-file-list="false"
-            :before-upload="beforeChatImageUpload"
-            multiple>
-            <el-button size="small" :disabled="!workingDir || pendingImages.length >= maxImagesPerMessage" plain>
-              <el-icon><upload /></el-icon>
-              <span>图片 ({{ pendingImages.length }}/{{ maxImagesPerMessage }})</span>
-            </el-button>
-          </el-upload>
-          <el-upload
-            :http-request="uploadChatFile"
-            name="file"
-            accept=".log,.txt,.json,.csv,.md,.yaml,.yml,.xml,.properties,.stacktrace,.out,.conf,.ini"
-            :show-file-list="false"
-            :before-upload="beforeChatFileUpload">
-            <el-button size="small" :disabled="!workingDir || !!pendingFile" plain>
-              <el-icon><document /></el-icon>
-              <span>{{ pendingFile ? '附件已选' : '附件 (≤5MB)' }}</span>
-            </el-button>
-          </el-upload>
-          <el-switch
-v-if="ragEnabled" v-model="ragRecall" size="small"
-                     active-text="RAG召回" inline-prompt
-                     title="开启后每条消息自动召回历史参考拼到提问中"></el-switch>
-        </div>
-        <div style="display: flex; gap: 8px;">
-          <el-button v-if="sending" type="danger" plain @click="stopSession">
-            <el-icon><video-pause /></el-icon>
-            <span>停止</span>
-          </el-button>
-          <el-button type="primary" :loading="sending" :disabled="!workingDir || !userInput.trim()" @click="sendMessageStream">
-            <el-icon><connection /></el-icon>
-            <span>发送</span>
-          </el-button>
-        </div>
-      </div>
-    </div>
+    <InputArea />
 
     <!-- 分析评价补充说明弹窗 -->
     <el-dialog v-model="feedbackDialogVisible" title="补充反馈说明" :width="isMobile ? '92%' : '460px'" append-to-body>
@@ -146,15 +75,16 @@ import { useFeedback } from '../composables/useFeedback.js';
 import { useImageUpload } from '../composables/useImageUpload.js';
 import { useSlashCommand } from '../composables/useSlashCommand.js';
 import { useResumableRun } from '../composables/useResumableRun.js';
-import { ref, reactive, computed, onMounted, nextTick, watch } from 'vue';
+import { ref, reactive, computed, onMounted, nextTick, watch, provide } from 'vue';
 import { ElMessageBox, ElMessage } from 'element-plus';
 import MessageItem from './MessageItem.vue';
+import InputArea from './InputArea.vue';
 import CommandPopup from './CommandPopup.vue';
 import PendingImageList from './PendingImageList.vue';
 
 const ChatPanel = {
     name: 'ChatPanel',
-    components: { MessageItem, CommandPopup, PendingImageList },
+    components: { MessageItem, InputArea, CommandPopup, PendingImageList },
     props: {
       workingDir: { type: String, default: '' },
       agentType: { type: String, default: 'CODEX' },
@@ -427,6 +357,21 @@ const ChatPanel = {
           applyResume(props.initialSessionId, props.initialResumeId);
         }
         if (!props.initialSessionId) restoreActiveRun('');
+      });
+
+      // provide 输入区所需的状态和方法,避免 prop drilling
+      provide('inputAreaState', {
+        userInput, sending, sessionId, ragRecall,
+        workingDir: computed(() => props.workingDir),
+        ragEnabled: computed(() => props.ragEnabled),
+        pendingImages, pendingFile, maxImagesPerMessage,
+        showCommandPopup, filteredCommands, selectedCommandIdx,
+      });
+      provide('inputAreaActions', {
+        handleEnter, handleArrowUp, handleArrowDown, handleTab, selectCommand, hideCommandPopup,
+        insertNewline, handlePaste, clearContext, stopSession, sendMessageStream,
+        uploadChatImage, beforeChatImageUpload, removePendingImage,
+        uploadChatFile, beforeChatFileUpload, removePendingFile, formatChatFileSize,
       });
 
       return {
