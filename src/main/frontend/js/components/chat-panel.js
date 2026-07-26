@@ -24,6 +24,9 @@ import { copySegment } from '../lib/clipboard.js';
 import { shareSession as shareSessionFn } from '../lib/share-session.js';
 import { createStore, selectActiveRun } from '../lib/chat-run-state.js';
 import { open as openResumableSse } from '../lib/resumable-sse-client.js';
+import { useFeedback } from '../composables/useFeedback.js';
+import { useImageUpload } from '../composables/useImageUpload.js';
+import { useSlashCommand } from '../composables/useSlashCommand.js';
 import { ref, reactive, computed, onMounted, nextTick, watch } from 'vue';
 import { ElMessageBox, ElMessage } from 'element-plus';
 
@@ -242,24 +245,12 @@ const ChatPanel = {
       const lastAppliedEventSeq = ref(0);
       const reconnecting = ref(false);
       const chatContainer = ref(null);
-      const feedback = ref({ rating: null, comment: null });
-      const feedbackDialogVisible = ref(false);
-      const feedbackCommentDraft = ref('');
-      const feedbackSaving = ref(false);
-      const slashCommands = ref([]);
-      const showCommandPopup = ref(false);
-      const selectedCommandIdx = ref(0);
       const toolStates = reactive({});
       // RAG 召回开关: 默认开, 持久化 localStorage
       const ragRecall = ref(localStorage.getItem('ragRecall') !== 'false');
 
-      // 待发送图片 / 附件
-      const pendingImages = ref([]);
-      const maxImagesPerMessage = 4;
-      const maxImageBytes = 1024 * 1024;
-      const pendingFile = ref(null);
-      const maxChatFileBytes = 5 * 1024 * 1024;
-      const allowedChatFileExts = ['log','txt','json','csv','md','yaml','yml','xml','properties','stacktrace','out','conf','ini'];
+      // props.workingDir 传 composable 需 Ref,用 computed 桥接
+      const workingDirRef = computed(() => props.workingDir);
 
       const isMobile = ref(window.innerWidth <= 768);
       const onResize = () => { isMobile.value = window.innerWidth <= 768; };
@@ -275,13 +266,6 @@ const ChatPanel = {
         !!sessionId.value && !sending.value && messages.value.some(m => m.role === 'agent'));
       const canFeedback = computed(() =>
         !!sessionId.value && !sending.value && messages.value.some(m => m.role === 'agent'));
-      const filteredCommands = computed(() => {
-        const input = userInput.value;
-        if (!input.startsWith('/')) return [];
-        const query = input.indexOf(' ') > 0 ? input.substring(1, input.indexOf(' ')) : input.substring(1);
-        if (!query) return slashCommands.value;
-        return slashCommands.value.filter(c => c.name.toLowerCase().includes(query.toLowerCase()));
-      });
 
       // ===== 消息渲染辅助 =====
       const addMessage = (role, text) => {
@@ -340,16 +324,6 @@ const ChatPanel = {
         });
       };
 
-      const loadSlashCommands = async () => {
-        if (!props.workingDir) { slashCommands.value = []; return; }
-        try {
-          const cmds = await fetch('/api/chat/commands?workingDir=' + encodeURIComponent(props.workingDir)).then(r => r.json());
-          slashCommands.value = cmds;
-        } catch (e) {
-          slashCommands.value = [];
-        }
-      };
-
       const clearContext = () => {
         resumeId.value = '';
         addMessage('system', '上下文已清除');
@@ -391,224 +365,24 @@ const ChatPanel = {
         pendingFile.value = null;
       };
 
-      // ===== 图片上传 =====
-      const readAsDataURL = (file) => new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-
-      const uploadImageFile = async (file) => {
-        await ensureSession();
-        const form = new FormData();
-        form.append('file', file);
-        const url = '/api/fs/upload-image?path=' + encodeURIComponent(props.workingDir)
-                  + '&sessionId=' + encodeURIComponent(sessionId.value);
-        const res = await fetch(url, { method: 'POST', body: form });
-        if (!res.ok) throw new Error(await res.text());
-        const data = await res.json();
-        const previewUrl = await readAsDataURL(file);
-        pendingImages.value.push({ path: data.path, previewUrl: previewUrl, name: file.name || 'clipboard.png' });
-      };
-
-      const beforeChatImageUpload = (file) => {
-        if (!props.workingDir) { ElMessage.warning('请先选择工作目录'); return false; }
-        if (file.type && file.type.indexOf('image/') !== 0) { ElMessage.warning('只能上传图片'); return false; }
-        if (file.size > maxImageBytes) { ElMessage.warning('图片大小不能超过 1MB'); return false; }
-        if (pendingImages.value.length >= maxImagesPerMessage) { ElMessage.warning('每条消息最多 ' + maxImagesPerMessage + ' 张图片'); return false; }
-        return true;
-      };
-
-      const uploadChatImage = async (options) => {
-        try {
-          await uploadImageFile(options.file);
-          ElMessage.success('图片已上传');
-          if (options.onSuccess) options.onSuccess({});
-        } catch (e) {
-          ElMessage.error('图片上传失败: ' + e.message);
-          if (options.onError) options.onError(e);
-        }
-      };
-
-      const removePendingImage = (idx) => { pendingImages.value.splice(idx, 1); };
-
-      // ===== 文本附件上传 =====
-      const formatChatFileSize = (bytes) => {
-        if (bytes == null) return '';
-        if (bytes < 1024) return bytes + ' B';
-        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-        return (bytes / 1024 / 1024).toFixed(2) + ' MB';
-      };
-
-      const extOfName = (name) => {
-        if (!name) return '';
-        const dot = name.lastIndexOf('.');
-        if (dot < 0 || dot === name.length - 1) return '';
-        return name.substring(dot + 1).toLowerCase();
-      };
-
-      const beforeChatFileUpload = (file) => {
-        if (!props.workingDir) { ElMessage.warning('请先选择工作目录'); return false; }
-        if (pendingFile.value) { ElMessage.warning('每条消息只能附一个文件,请先移除当前附件'); return false; }
-        if (file.size > maxChatFileBytes) { ElMessage.warning('文件大小不能超过 5MB'); return false; }
-        const ext = extOfName(file.name);
-        if (!ext || allowedChatFileExts.indexOf(ext) < 0) {
-          ElMessage.warning('仅支持文本类附件:' + allowedChatFileExts.join('/'));
-          return false;
-        }
-        return true;
-      };
-
-      const uploadChatFileBytes = async (file) => {
-        await ensureSession();
-        const form = new FormData();
-        form.append('file', file);
-        const url = '/api/fs/upload-file?path=' + encodeURIComponent(props.workingDir)
-                  + '&sessionId=' + encodeURIComponent(sessionId.value);
-        const res = await fetch(url, { method: 'POST', body: form });
-        if (!res.ok) throw new Error(await res.text());
-        const data = await res.json();
-        pendingFile.value = { path: data.path, name: file.name, size: file.size };
-      };
-
-      const uploadChatFile = async (options) => {
-        try {
-          await uploadChatFileBytes(options.file);
-          ElMessage.success('附件已上传');
-          if (options.onSuccess) options.onSuccess({});
-        } catch (e) {
-          ElMessage.error('附件上传失败: ' + e.message);
-          if (options.onError) options.onError(e);
-        }
-      };
-
-      const removePendingFile = () => { pendingFile.value = null; };
-
-      const handlePaste = async (event) => {
-        const items = (event.clipboardData && event.clipboardData.items) || [];
-        let imageFile = null;
-        for (let i = 0; i < items.length; i++) {
-          if (items[i].kind === 'file' && items[i].type.indexOf('image/') === 0) {
-            imageFile = items[i].getAsFile();
-            break;
-          }
-        }
-        if (!imageFile) return;
-        event.preventDefault();
-        if (!props.workingDir) { ElMessage.warning('请先选择工作目录'); return; }
-        if (pendingImages.value.length >= maxImagesPerMessage) { ElMessage.warning('每条消息最多 ' + maxImagesPerMessage + ' 张图片'); return; }
-        if (imageFile.size > maxImageBytes) { ElMessage.warning('图片大小不能超过 1MB'); return; }
-        try {
-          await uploadImageFile(imageFile);
-          ElMessage.success('图片已上传');
-        } catch (e) {
-          ElMessage.error('图片上传失败: ' + e.message);
-        }
-      };
-
-      // ===== 分析评价 =====
-      const loadFeedback = async (sid) => {
-        feedback.value = { rating: null, comment: null };
-        if (!sid) return;
-        try {
-          const data = await fetch('/api/chat/session/' + encodeURIComponent(sid) + '/feedback').then(r => r.json());
-          feedback.value = { rating: data.rating || null, comment: data.comment || null };
-        } catch (e) { /* best effort */ }
-      };
-
-      const persistFeedback = async () => {
-        const sid = sessionId.value;
-        if (!sid) return false;
-        try {
-          const res = await fetch('/api/chat/session/' + encodeURIComponent(sid) + '/feedback', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ rating: feedback.value.rating, comment: feedback.value.comment }),
-          });
-          if (!res.ok) throw new Error(await res.text());
-          const data = await res.json();
-          feedback.value = { rating: data.rating || null, comment: data.comment || null };
-          return true;
-        } catch (e) {
-          ElMessage.error('保存反馈失败: ' + (e.message || '未知错误'));
-          return false;
-        }
-      };
-
-      const setRating = async (rating) => {
-        const prev = feedback.value.rating;
-        const next = prev === rating ? null : rating;
-        feedback.value = { rating: next, comment: feedback.value.comment };
-        const ok = await persistFeedback();
-        if (ok) {
-          ElMessage.success(next ? '已记录评价' : '已取消评价');
-        } else {
-          feedback.value = { rating: prev, comment: feedback.value.comment };
-        }
-      };
-
-      const openFeedbackDialog = () => {
-        feedbackCommentDraft.value = feedback.value.comment || '';
-        feedbackDialogVisible.value = true;
-      };
-
-      const submitFeedbackComment = async () => {
-        feedbackSaving.value = true;
-        const prev = feedback.value.comment;
-        feedback.value = { rating: feedback.value.rating, comment: feedbackCommentDraft.value.trim() || null };
-        const ok = await persistFeedback();
-        feedbackSaving.value = false;
-        if (ok) {
-          feedbackDialogVisible.value = false;
-          ElMessage.success('反馈已提交');
-        } else {
-          feedback.value = { rating: feedback.value.rating, comment: prev };
-        }
-      };
+      // ===== FE-R3.5 composable: 分析评价 / 图片附件 / 命令弹窗 =====
+      const {
+        feedback, feedbackDialogVisible, feedbackCommentDraft, feedbackSaving,
+        loadFeedback, persistFeedback, setRating, openFeedbackDialog, submitFeedbackComment
+      } = useFeedback({ sessionId });
+      const {
+        pendingImages, pendingFile, maxImagesPerMessage, maxImageBytes, maxChatFileBytes,
+        allowedChatFileExts, readAsDataURL, uploadImageFile, beforeChatImageUpload,
+        uploadChatImage, removePendingImage, formatChatFileSize, beforeChatFileUpload,
+        uploadChatFile, removePendingFile, handlePaste
+      } = useImageUpload({ ensureSession, sessionId, workingDir: workingDirRef });
+      const {
+        slashCommands, showCommandPopup, selectedCommandIdx, filteredCommands,
+        loadSlashCommands, handleEnter, handleArrowUp, handleArrowDown,
+        handleTab, selectCommand, hideCommandPopup
+      } = useSlashCommand({ userInput, workingDir: workingDirRef, sendMessageStream: () => sendMessageStream() });
 
       const shareSession = () => shareSessionFn(sessionId.value);
-
-      // ===== 命令弹窗交互 =====
-      const handleEnter = () => {
-        if (showCommandPopup.value && filteredCommands.value.length > 0) {
-          selectCommand(filteredCommands.value[selectedCommandIdx.value]);
-        } else {
-          sendMessageStream();
-        }
-      };
-      const scrollCommandIntoView = () => {
-        nextTick(() => {
-          const popup = document.querySelector('.command-popup');
-          if (!popup) return;
-          const active = popup.querySelector('.command-item.active');
-          if (active) active.scrollIntoView({ block: 'nearest' });
-        });
-      };
-      const handleArrowUp = () => {
-        if (!showCommandPopup.value) return;
-        selectedCommandIdx.value = Math.max(0, selectedCommandIdx.value - 1);
-        scrollCommandIntoView();
-      };
-      const handleArrowDown = () => {
-        if (!showCommandPopup.value) return;
-        selectedCommandIdx.value = Math.min(filteredCommands.value.length - 1, selectedCommandIdx.value + 1);
-        scrollCommandIntoView();
-      };
-      const handleTab = () => {
-        if (showCommandPopup.value && filteredCommands.value.length > 0) {
-          selectCommand(filteredCommands.value[selectedCommandIdx.value]);
-        }
-      };
-      const selectCommand = (cmd) => {
-        userInput.value = '/' + cmd.name + ' ';
-        showCommandPopup.value = false;
-        nextTick(() => {
-          const textarea = document.querySelector('.chat-input-area textarea');
-          if (textarea) textarea.focus();
-        });
-      };
-      const hideCommandPopup = () => { showCommandPopup.value = false; };
 
       async function reloadMessages() {
         try {

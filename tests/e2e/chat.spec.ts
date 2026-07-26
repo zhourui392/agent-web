@@ -291,3 +291,35 @@ test('附件: 上传 .txt → 卡片渲染 → 点 × 删除', async ({ page }) 
 
   await fs.rm(dir, { recursive: true, force: true }).catch(() => { /* 清理失败不影响结论 */ });
 });
+
+test('分析评价: agent 回答后点评分 → active 态; 补充说明 → 弹窗提交 → "说明·已填"', async ({ page }) => {
+  await gotoReady(page);
+  await sendAndWait(page, 'FEEDBACK-' + Date.now());
+
+  // canFeedback 需有 agent 消息 + 非 sending,此处已满足
+  const feedbackBar = page.locator('.feedback-bar');
+  await expect(feedbackBar).toBeVisible({ timeout: 5_000 });
+
+  // 1. 点"正确"评分 → chip active
+  const correctChip = feedbackBar.locator('.feedback-chip--correct');
+  await correctChip.click();
+  await expect(correctChip).toHaveClass(/active/, { timeout: 5_000 });
+
+  // 2. 再点同评分 → 取消(active 消失)
+  await correctChip.click();
+  await expect(correctChip).not.toHaveClass(/active/, { timeout: 5_000 });
+
+  // 3. 重新点"部分正确" + 补充说明弹窗提交
+  const partialChip = feedbackBar.locator('.feedback-chip--partial');
+  await partialChip.click();
+  await expect(partialChip).toHaveClass(/active/, { timeout: 5_000 });
+
+  const supplementBtn = feedbackBar.getByText('补充说明');
+  await supplementBtn.click();
+  const dialog = page.locator('.el-dialog').filter({ hasText: '补充反馈说明' });
+  await expect(dialog).toBeVisible({ timeout: 5_000 });
+  await dialog.locator('textarea').fill('测试反馈说明');
+  await dialog.getByRole('button', { name: '提交' }).click();
+  await expect(dialog).toBeHidden({ timeout: 5_000 });
+  await expect(feedbackBar.getByText('说明·已填')).toBeVisible({ timeout: 5_000 });
+});
