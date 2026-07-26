@@ -120,7 +120,7 @@ find_jdk() {
 }
 
 configure_jdk() {
-    printf '[1/3] Locating an installed JDK %d or later...\n' "$REQUIRED_JAVA_MAJOR"
+    printf '[1/4] Locating an installed JDK %d or later...\n' "$REQUIRED_JAVA_MAJOR"
     JAVA_HOME=$(find_jdk)
     export JAVA_HOME
     export PATH="$JAVA_HOME/bin:$PATH"
@@ -146,12 +146,26 @@ find_maven() {
     }
 }
 
+build_frontend() {
+    if ! command -v npm >/dev/null 2>&1; then
+        printf 'npm was not found. Install Node.js 20+ and add npm to PATH.\n' >&2
+        return 1
+    fi
+    printf '[2/4] Building the frontend with Vite...\n'
+    (cd "$PROJECT_DIR" && {
+        if [[ ! -d node_modules ]]; then
+            npm install
+        fi
+        npm run build
+    })
+}
+
 build_app() {
     local maven_bin
     local -a artifacts
 
     maven_bin=$(find_maven)
-    printf '[2/3] Building the application with Maven...\n'
+    printf '[3/4] Building the application with Maven...\n'
     (cd "$PROJECT_DIR" && "$maven_bin" clean package)
 
     shopt -s nullglob
@@ -212,7 +226,7 @@ launch_app() {
     fi
 
     mkdir -p "$APP_DIR" "$LOG_DIR"
-    printf '[3/3] Starting agent-web...\n'
+    printf '[4/4] Starting agent-web...\n'
     # 固定进程工作目录，确保 Spring 始终从仓库根 ./data/secrets.properties 读取本地敏感配置。
     cd "$PROJECT_DIR"
     nohup "$JAVA_HOME/bin/java" "${java_options[@]}" -jar "$RUNTIME_JAR" \
@@ -236,6 +250,7 @@ start_service() {
         printf 'agent-web is already running (PID %s).\n' "$pid"
         return 0
     fi
+    build_frontend
     build_app
     launch_app "$@"
 }
@@ -287,7 +302,7 @@ show_usage() {
 Usage: ./scripts/service.sh {build|start|stop|restart|status|logs} [application arguments]
 
 Commands:
-  build     Locate JDK 21+ and run Maven clean package.
+  build     Locate JDK 21+, build frontend with Vite, then run Maven clean package.
   start     Build, then start agent-web in the background.
   stop      Stop the background agent-web process.
   restart   Stop, rebuild, and start agent-web.
@@ -308,6 +323,7 @@ fi
 case "$command_name" in
     build)
         configure_jdk
+        build_frontend
         build_app
         ;;
     start)
@@ -320,6 +336,7 @@ case "$command_name" in
     restart)
         configure_jdk
         stop_service
+        build_frontend
         build_app
         launch_app "$@"
         ;;

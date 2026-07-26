@@ -149,7 +149,7 @@ function Find-Jdk {
 }
 
 function Set-JdkEnvironment {
-    Write-Host "[1/3] Locating an installed JDK $RequiredJavaMajor or later..."
+    Write-Host "[1/4] Locating an installed JDK $RequiredJavaMajor or later..."
     $jdkHome = Find-Jdk
     $env:JAVA_HOME = $jdkHome
     $env:Path = (Join-Path $jdkHome "bin") + [System.IO.Path]::PathSeparator + $env:Path
@@ -180,9 +180,35 @@ function Find-Maven {
     return $maven.Source
 }
 
+function Build-Frontend {
+    $npm = Get-Command "npm.cmd" -ErrorAction SilentlyContinue
+    if ($null -eq $npm) {
+        $npm = Get-Command "npm" -ErrorAction SilentlyContinue
+    }
+    if ($null -eq $npm) {
+        throw "npm was not found. Install Node.js 20+ and add npm to PATH."
+    }
+    Write-Host "[2/4] Building the frontend with Vite..."
+    Push-Location $ProjectDirectory
+    try {
+        if (-not (Test-Path -LiteralPath (Join-Path $ProjectDirectory "node_modules") -PathType Container)) {
+            & $npm.Source install
+            if ($LASTEXITCODE -ne 0) {
+                throw "npm install failed with exit code $LASTEXITCODE."
+            }
+        }
+        & $npm.Source run build
+        if ($LASTEXITCODE -ne 0) {
+            throw "npm run build failed with exit code $LASTEXITCODE."
+        }
+    } finally {
+        Pop-Location
+    }
+}
+
 function Build-Application {
     $maven = Find-Maven
-    Write-Host "[2/3] Building the application with Maven..."
+    Write-Host "[3/4] Building the application with Maven..."
     Push-Location $ProjectDirectory
     try {
         & $maven clean package
@@ -269,7 +295,7 @@ function Start-Application {
     }
     $escapedArguments = @($processArguments | ForEach-Object { ConvertTo-ProcessArgument $_ })
 
-    Write-Host "[3/3] Starting agent-web..."
+    Write-Host "[4/4] Starting agent-web..."
     $process = Start-Process -FilePath $javaExecutable `
         -ArgumentList $escapedArguments `
         -WorkingDirectory $ProjectDirectory `
@@ -294,6 +320,7 @@ function Start-ServiceWithBuild {
         Write-Host "agent-web is already running (PID $($runningProcess.Id))."
         return
     }
+    Build-Frontend
     Build-Application
     Start-Application $Arguments
 }
@@ -339,7 +366,7 @@ function Show-Usage {
 Usage: .\scripts\service.ps1 {build|start|stop|restart|status|logs} [application arguments]
 
 Commands:
-  build     Locate JDK 21+ and run Maven clean package.
+  build     Locate JDK 21+, build frontend with Vite, then run Maven clean package.
   start     Build, then start agent-web in the background.
   stop      Stop the background agent-web process.
   restart   Stop, rebuild, and start agent-web.
@@ -355,6 +382,7 @@ Environment:
 switch ($Command.ToLowerInvariant()) {
     "build" {
         Set-JdkEnvironment
+        Build-Frontend
         Build-Application
     }
     "start" {
@@ -367,6 +395,7 @@ switch ($Command.ToLowerInvariant()) {
     "restart" {
         Set-JdkEnvironment
         Stop-Application
+        Build-Frontend
         Build-Application
         Start-Application $ApplicationArguments
     }
