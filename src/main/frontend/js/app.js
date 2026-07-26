@@ -1,7 +1,3 @@
-// ===== 全局 401 拦截 =====
-// 任何 API 响应 401 且 body 带 loginUrl 时，自动跳本站 /login.html。
-// loginUrl 由后端 SessionAuthFilter / AuthController 提供，已带 ?redirect=<原路径>。
-// 覆盖所有经 window.fetch 的调用；SSE(EventSource) 不走 fetch，单独在错误处理里兜底。
 import {
   formatSize,
   renderMarkdown,
@@ -18,43 +14,26 @@ import { createApp, ref, reactive, computed, onMounted, nextTick, watch } from '
 import { ElMessageBox, ElMessage } from 'element-plus';
 import { setupElementPlus } from './element-plus-setup.js';
 import 'element-plus/dist/index.css';
+import { installAuthInterceptor } from './lib/auth-interceptor.js';
+import { useAuth } from './composables/useAuth.js';
+import { useFileSystem } from './composables/useFileSystem.js';
 
-(function installAuthInterceptor() {
-  const rawFetch = window.fetch.bind(window);
-  let redirecting = false;
-  window.fetch = async function (...args) {
-    const res = await rawFetch(...args);
-    if (res.status === 401 && !redirecting) {
-      try {
-        const data = await res.clone().json();
-        if (data && data.loginUrl) {
-          redirecting = true;
-          window.location.href = data.loginUrl;
-        } else {
-          // 401 但响应没带 loginUrl(老接口/非 JSON 兜底): 直接跳本站登录页, 带回当前路径。
-          redirecting = true;
-          const redirect = encodeURIComponent(window.location.pathname + window.location.search);
-          window.location.href = '/login.html?redirect=' + redirect;
-        }
-      } catch (e) {
-        redirecting = true;
-        const redirect = encodeURIComponent(window.location.pathname + window.location.search);
-        window.location.href = '/login.html?redirect=' + redirect;
-      }
-    }
-    return res;
-  };
-})();
+// 全局 401 拦截(模块级副作用,从 lib/auth-interceptor.ts 引入,原内联 IIFE 抽出)
+installAuthInterceptor();
 
 const app = createApp({
   setup() {
-    // 数据
-    const roots = ref([]);
-    const selectedRoot = ref('');
-    // 弹窗内浏览路径与已生效工作目录分离，避免浏览目录时提前切换对话。
-    const workspaceCandidatePath = ref('');
-    const currentPath = ref('');
-    const folderList = ref([]);
+    // auth + file-system 从 composable 引入(FE-R3.2 拆出,原内联状态/方法删除)
+    const {
+      authEnabled, username, currentUserId, canUseScheduledTask, initAuth, doLogout
+    } = useAuth();
+    const {
+      roots, selectedRoot, workspaceCandidatePath, currentPath, folderList,
+      workspaceDialogVisible, previewVisible, previewTitle, previewHtml, previewLoading,
+      loadList, handleRootChange, openWorkspaceDialog, confirmWorkspace,
+      handleFileCommand, closePreview, isMarkdown, onUploadSuccess, onUploadError,
+      initFileSystem, setDefaultRoot
+    } = useFileSystem();
     // 对话默认模型由管理后台控制: GET /api/chat/agent-default 返回 {agentType, version}。
     // 「强制全员跟随」: 本地记录的版本(agent_type_force_version)与服务端不一致时, 覆盖本地选择
     // (agent_type)并切到服务端默认、写回新版本; 一致则尊重用户后续手动选择。
@@ -68,10 +47,6 @@ const app = createApp({
     // 驱动顶栏 Agent 选择器锁定,并作为 initialSessionId/initialResumeId 传给组件触发 resume。
     const activeSessionId = ref('');
     const activeResumeId = ref('');
-    const username = ref('admin');
-    const currentUserId = ref('');
-    // 登录用户均可管理自己的定时任务
-    const canUseScheduledTask = computed(() => Boolean(currentUserId.value));
     const starting = ref(false);
     const historyList = ref([]);
     const historyPage = ref(1);
@@ -104,12 +79,6 @@ const app = createApp({
       workingDir: '',
     });
     const taskLoading = ref(false);
-    const workspaceDialogVisible = ref(false);
-    // md 文件预览视图状态:点预览后在工作空间弹窗内切换为渲染视图
-    const previewVisible = ref(false);
-    const previewTitle = ref('');
-    const previewHtml = ref('');
-    const previewLoading = ref(false);
     const taskManagerVisible = ref(false);
 
     // --- chat-rag 召回开关探测 (召回历史浏览已迁至管理后台 /admin/refinery.html) ---
@@ -117,7 +86,6 @@ const app = createApp({
 
     const sidebarVisible = ref(false);
     const isMobile = ref(window.innerWidth <= 768);
-    const authEnabled = ref(true);
 
     window.addEventListener('resize', () => {
       isMobile.value = window.innerWidth <= 768;
@@ -159,22 +127,9 @@ const app = createApp({
 
     // ========== 初始化 ==========
     const init = async () => {
-      try {
-        const authStatus = await fetch('/api/auth/status').then(r => r.json());
-        authEnabled.value = !!authStatus.authEnabled;
-        if (!authStatus.authenticated && authStatus.loginUrl) {
-          window.location.href = authStatus.loginUrl;
-          return;
-        }
-        if (authStatus.username) {
-          username.value = authStatus.username;
-        }
-        if (authStatus.userId) {
-          currentUserId.value = authStatus.userId;
-        }
-      } catch (e) {
-        // 忽略，保留默认值
-      }
+      // auth: useAuth.initAuth(未登录跳转,返回 false 时 init 终止)
+      const authed = await initAuth();
+      if (!authed) return;
       // 探测 chat-rag 是否启用: enabled=false 时 controller 不装配, /chunks 返回 404 → 隐藏入口
       try {
         const probe = await fetch('/api/refinery/chunks?page=1&size=1');
@@ -198,134 +153,26 @@ const app = createApp({
       } catch (e) {
         // 忽略: 取不到默认值就保留本地选择
       }
-      try {
-        const data = await fetch('/api/fs/roots').then(r => r.json());
-        roots.value = data;
-        if (data.length > 0) {
-          // 尝试恢复上次的 worktree 状态
-          const saved = JSON.parse(localStorage.getItem('agent_worktree_state') || 'null');
-          if (saved && saved.worktreePath && saved.currentBranch) {
-            const check = await fetch('/api/fs/list?path=' + encodeURIComponent(saved.worktreePath));
-            if (check.ok) {
-              const wsRoot = data.find(root => saved.originalWorkspacePath.startsWith(root));
-              selectedRoot.value = wsRoot || data[0];
-              originalWorkspacePath.value = saved.originalWorkspacePath;
-              currentBranch.value = saved.currentBranch;
-              selectedBranch.value = saved.currentBranch;
-              currentPath.value = saved.worktreePath;
-              await loadList(saved.worktreePath);
-              return;
-            }
-            clearWorktreeState();
+      // fs roots(useFileSystem.initFileSystem) + worktree 恢复(留 app.js,FE-R3.3 拆 useWorktree)
+      const data = await initFileSystem();
+      if (data.length > 0) {
+        const saved = JSON.parse(localStorage.getItem('agent_worktree_state') || 'null');
+        if (saved && saved.worktreePath && saved.currentBranch) {
+          const check = await fetch('/api/fs/list?path=' + encodeURIComponent(saved.worktreePath));
+          if (check.ok) {
+            const wsRoot = data.find(root => saved.originalWorkspacePath.startsWith(root));
+            selectedRoot.value = wsRoot || data[0];
+            originalWorkspacePath.value = saved.originalWorkspacePath;
+            currentBranch.value = saved.currentBranch;
+            selectedBranch.value = saved.currentBranch;
+            currentPath.value = saved.worktreePath;
+            await loadList(saved.worktreePath);
+            return;
           }
-
-          selectedRoot.value = data[0];
-          currentPath.value = data[0];
-          await loadList(data[0]);
+          clearWorktreeState();
         }
-      } catch (error) {
-        ElMessage.error('加载根路径失败');
+        await setDefaultRoot();
       }
-    };
-
-    // ========== 文件系统 ==========
-    const handleRootChange = async () => {
-      await loadList(selectedRoot.value);
-    };
-
-    const loadList = async (path) => {
-      if (path) workspaceCandidatePath.value = path;
-      if (!workspaceCandidatePath.value) return;
-      try {
-        const data = await fetch('/api/fs/list?path=' + encodeURIComponent(workspaceCandidatePath.value))
-          .then(r => {
-            if (!r.ok) throw new Error('加载失败');
-            return r.json();
-          });
-        folderList.value = data;
-      } catch (error) {
-        ElMessage.error('加载目录失败: ' + error.message);
-      }
-    };
-
-    const openWorkspaceDialog = async () => {
-      workspaceCandidatePath.value = currentPath.value || selectedRoot.value;
-      workspaceDialogVisible.value = true;
-      await loadList(workspaceCandidatePath.value);
-    };
-
-    const confirmWorkspace = () => {
-      if (!workspaceCandidatePath.value) return;
-      currentPath.value = workspaceCandidatePath.value;
-      workspaceDialogVisible.value = false;
-    };
-
-    // 纯函数工具从 lib 引入 (避免内嵌定义,便于独立单测);顶部已 ES import,此处直接复用,调用点无需改动
-
-    // 仅 .md / .markdown 文件显示预览命令(不区分大小写)
-    const isMarkdown = (name) => /\.(md|markdown)$/i.test(name || '');
-
-    const handleFileCommand = (command, item) => {
-      if (command === 'preview') {
-        // 1MB 大小闸:超过则提示下载后查看,避免拉超大文件渲染卡顿
-        if (item.size && item.size > 1048576) {
-          ElMessage.warning('文件过大，建议下载后查看');
-          return;
-        }
-        previewLoading.value = true;
-        previewVisible.value = true;
-        previewTitle.value = item.name;
-        previewHtml.value = '';
-        fetch('/api/fs/download?path=' + encodeURIComponent(item.path))
-          .then(r => {
-            if (!r.ok) throw new Error('加载失败');
-            return r.text();
-          })
-          .then(text => {
-            previewHtml.value = renderMarkdown(text);
-          })
-          .catch(e => {
-            ElMessage.error('预览失败: ' + e.message);
-            previewVisible.value = false;
-          })
-          .finally(() => {
-            previewLoading.value = false;
-          });
-      } else if (command === 'download') {
-        window.open('/api/fs/download?path=' + encodeURIComponent(item.path), '_blank');
-      } else if (command === 'delete') {
-        ElMessageBox.confirm('确定要删除 ' + item.name + ' 吗？', '确认删除', {
-          confirmButtonText: '删除',
-          cancelButtonText: '取消',
-          type: 'warning'
-        }).then(() => {
-          fetch('/api/fs/delete?path=' + encodeURIComponent(item.path), { method: 'DELETE' })
-            .then(r => {
-              if (!r.ok) throw new Error('删除失败');
-              return r.json();
-            })
-            .then(() => {
-              ElMessage.success('已删除');
-              loadList(workspaceCandidatePath.value);
-            })
-            .catch(e => ElMessage.error(e.message));
-        }).catch(() => {});
-      }
-    };
-
-    const closePreview = () => {
-      previewVisible.value = false;
-      previewHtml.value = '';
-      previewTitle.value = '';
-    };
-
-    const onUploadSuccess = () => {
-      ElMessage.success('上传成功');
-      loadList(workspaceCandidatePath.value);
-    };
-
-    const onUploadError = () => {
-      ElMessage.error('上传失败');
     };
 
     // ========== 会话管理(宿主侧) ==========
@@ -685,20 +532,6 @@ const app = createApp({
     watch(branchPopoverVisible, (v) => {
       if (v) loadWorktreeBranches();
     });
-
-    async function doLogout() {
-      // 登出后跳本站 /login.html（loginUrl 由后端返回，已带 ?redirect=）；拿不到则退回首页重新鉴权。
-      let loginUrl = '/';
-      try {
-        const r = await fetch('/api/auth/logout', { method: 'POST' }).then((x) => x.json());
-        if (r && r.loginUrl) {
-          loginUrl = r.loginUrl;
-        }
-      } catch (e) {
-        // ignore
-      }
-      window.location.href = loginUrl;
-    }
 
     return {
       roots,
