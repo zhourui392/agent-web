@@ -8,7 +8,7 @@ import {
 } from './lib/formatters.js';
 import { copySegment } from './lib/clipboard.js';
 import { shareSession } from './lib/share-session.js';
-import ChatPanel from './components/chat-panel.js';
+import ChatPanel from './components/chat-panel.vue';
 import { createApp, ref, onMounted, watch } from 'vue';
 import { ElMessage } from 'element-plus';
 import { setupElementPlus } from './element-plus-setup.js';

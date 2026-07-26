@@ -1,18 +1,133 @@
-/*
- * ChatPanel: 可复用的「一次对话」全局组件(window.ChatPanel)。
- *
- * 承载完整聊天闭环:可恢复 SSE 收流 / 斜杠命令 / 图片附件 / RAG 召回开关 / 停止 / 断连重连 /
- * 消息回退 / 清空上下文 / 分析评价。主控台(index)与管理台(admin)共享同一份实现,
- * admin 内嵌本组件即可闭环 continue-as-chat 续聊。
- *
- * ⚠️ 关键:currentES 与 ChatRun 恢复状态全部放在 setup() 闭包中，保证组件实例之间互不干扰。
- *
- * 与宿主的契约见 §4.2:workingDir/agentType 等作 props 传入;新建会话 / 刷新历史
- * 通过 emits 通知宿主。组件自洽直调 /api/chat、/api/fs、/api/refinery 等,不依赖宿主方法。
- *
- * @author zhourui(V33215020)
- * @since 2026-06-07
- */
+<template>
+  <div class="chat-container">
+    <!-- 会话头条:左侧预留标题位,右侧分析评价 + 分享 -->
+    <div class="chat-header-bar">
+      <div class="chat-header-title"></div>
+      <div v-if="canFeedback" class="feedback-bar">
+        <span class="feedback-label">分析评价</span>
+        <button type="button" class="feedback-chip feedback-chip--correct"
+                :class="{ active: feedback.rating === 'CORRECT' }"
+                @click="setRating('CORRECT')" title="分析正确">✓ 正确</button>
+        <button type="button" class="feedback-chip feedback-chip--partial"
+                :class="{ active: feedback.rating === 'PARTIALLY_CORRECT' }"
+                @click="setRating('PARTIALLY_CORRECT')" title="分析部分正确">~ 部分正确</button>
+        <button type="button" class="feedback-chip feedback-chip--incorrect"
+                :class="{ active: feedback.rating === 'INCORRECT' }"
+                @click="setRating('INCORRECT')" title="分析错误">✗ 错误</button>
+        <el-button size="small" text type="primary" @click="openFeedbackDialog" title="补充文字说明">
+          <el-icon><edit-pen /></el-icon>
+          <span>{{ feedback.comment ? '说明·已填' : '补充说明' }}</span>
+        </el-button>
+      </div>
+      <el-button v-if="canShare" size="small" text type="primary" @click="shareSession" title="分享会话">
+        <el-icon><share /></el-icon>
+        <span>分享</span>
+      </el-button>
+    </div>
+    <!-- 聊天消息区 -->
+    <div class="chat-messages" ref="chatContainer">
+      <MessageItem
+        v-for="(msg, index) in messages"
+        :key="msg.id != null ? 'm-' + msg.id : 'tmp-' + index"
+        :msg="msg"
+        :index="index"
+        :isLast="index === messages.length - 1"
+        :sending="sending"
+        :reconnecting="reconnecting"
+        :isToolExpanded="isToolExpanded"
+        :toggleTool="toggleTool"
+        @rewind="rewindToMessage"
+      />
+      <el-empty v-if="messages.length === 0" description="请选择工作目录，输入问题即可开始对话" :image-size="120"></el-empty>
+    </div>
+
+    <!-- 输入区 -->
+    <div class="chat-input-area" style="position: relative;">
+      <CommandPopup
+        v-if="showCommandPopup && filteredCommands.length > 0"
+        :commands="filteredCommands"
+        :selectedIdx="selectedCommandIdx"
+        @select="selectCommand"
+      />
+      <PendingImageList :images="pendingImages" @remove="removePendingImage" />
+      <div class="pending-file-card" v-if="pendingFile">
+        <el-icon><document /></el-icon>
+        <span class="pending-file-name" :title="pendingFile.name">{{ pendingFile.name }}</span>
+        <span class="pending-file-size">{{ formatChatFileSize(pendingFile.size) }}</span>
+        <span class="pending-file-remove" @click="removePendingFile">×</span>
+      </div>
+      <el-input
+        v-model="userInput"
+        type="textarea"
+        :rows="3"
+        placeholder="输入你的问题，例如：traceId: xxx，问题描述"
+        @keydown.enter.exact.prevent="handleEnter" @keydown.up.prevent="handleArrowUp" @keydown.down.prevent="handleArrowDown" @keydown.tab.prevent="handleTab" @keydown.escape="hideCommandPopup"
+        @keydown.ctrl.enter.exact.prevent="insertNewline"
+        @paste="handlePaste"
+        :disabled="!workingDir"
+      ></el-input>
+      <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span class="hidden-mobile" style="color: #909399; font-size: 13px;" v-if="workingDir">Enter 发送 | Ctrl+Enter 换行</span>
+          <span v-if="!workingDir" style="color: #E6A23C; font-weight: bold; font-size: 13px;">⚠ 请先选择工作目录</span>
+          <el-button size="small" @click="clearContext" :disabled="!sessionId" plain>
+            <el-icon><delete /></el-icon>
+            <span>清除上下文</span>
+          </el-button>
+          <el-upload
+            :http-request="uploadChatImage"
+            name="file"
+            accept="image/*"
+            :show-file-list="false"
+            :before-upload="beforeChatImageUpload"
+            multiple>
+            <el-button size="small" :disabled="!workingDir || pendingImages.length >= maxImagesPerMessage" plain>
+              <el-icon><upload /></el-icon>
+              <span>图片 ({{ pendingImages.length }}/{{ maxImagesPerMessage }})</span>
+            </el-button>
+          </el-upload>
+          <el-upload
+            :http-request="uploadChatFile"
+            name="file"
+            accept=".log,.txt,.json,.csv,.md,.yaml,.yml,.xml,.properties,.stacktrace,.out,.conf,.ini"
+            :show-file-list="false"
+            :before-upload="beforeChatFileUpload">
+            <el-button size="small" :disabled="!workingDir || !!pendingFile" plain>
+              <el-icon><document /></el-icon>
+              <span>{{ pendingFile ? '附件已选' : '附件 (≤5MB)' }}</span>
+            </el-button>
+          </el-upload>
+          <el-switch v-if="ragEnabled" v-model="ragRecall" size="small"
+                     active-text="RAG召回" inline-prompt
+                     title="开启后每条消息自动召回历史参考拼到提问中"></el-switch>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <el-button type="danger" @click="stopSession" v-if="sending" plain>
+            <el-icon><video-pause /></el-icon>
+            <span>停止</span>
+          </el-button>
+          <el-button type="primary" @click="sendMessageStream" :loading="sending" :disabled="!workingDir || !userInput.trim()">
+            <el-icon><connection /></el-icon>
+            <span>发送</span>
+          </el-button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 分析评价补充说明弹窗 -->
+    <el-dialog v-model="feedbackDialogVisible" title="补充反馈说明" :width="isMobile ? '92%' : '460px'" append-to-body>
+      <el-input v-model="feedbackCommentDraft" type="textarea" :rows="5"
+                maxlength="1000" show-word-limit
+                placeholder="描述 AI 分析中哪里不准确、遗漏了什么，或其他改进建议（选填）"></el-input>
+      <template #footer>
+        <el-button @click="feedbackDialogVisible = false">取消</el-button>
+        <el-button type="primary" :loading="feedbackSaving" @click="submitFeedbackComment">提交</el-button>
+      </template>
+    </el-dialog>
+  </div>
+</template>
+
+<script>
 import {
   renderMarkdown,
   imageUrl,
@@ -28,199 +143,13 @@ import { useSlashCommand } from '../composables/useSlashCommand.js';
 import { useResumableRun } from '../composables/useResumableRun.js';
 import { ref, reactive, computed, onMounted, nextTick, watch } from 'vue';
 import { ElMessageBox, ElMessage } from 'element-plus';
-
-const TEMPLATE = `
-    <div class="chat-container">
-      <!-- 会话头条:左侧预留标题位,右侧分析评价 + 分享 -->
-      <div class="chat-header-bar">
-        <div class="chat-header-title"></div>
-        <div v-if="canFeedback" class="feedback-bar">
-          <span class="feedback-label">分析评价</span>
-          <button type="button" class="feedback-chip feedback-chip--correct"
-                  :class="{ active: feedback.rating === 'CORRECT' }"
-                  @click="setRating('CORRECT')" title="分析正确">✓ 正确</button>
-          <button type="button" class="feedback-chip feedback-chip--partial"
-                  :class="{ active: feedback.rating === 'PARTIALLY_CORRECT' }"
-                  @click="setRating('PARTIALLY_CORRECT')" title="分析部分正确">~ 部分正确</button>
-          <button type="button" class="feedback-chip feedback-chip--incorrect"
-                  :class="{ active: feedback.rating === 'INCORRECT' }"
-                  @click="setRating('INCORRECT')" title="分析错误">✗ 错误</button>
-          <el-button size="small" text type="primary" @click="openFeedbackDialog" title="补充文字说明">
-            <el-icon><edit-pen /></el-icon>
-            <span>{{ feedback.comment ? '说明·已填' : '补充说明' }}</span>
-          </el-button>
-        </div>
-        <el-button v-if="canShare" size="small" text type="primary" @click="shareSession" title="分享会话">
-          <el-icon><share /></el-icon>
-          <span>分享</span>
-        </el-button>
-      </div>
-      <!-- 聊天消息区 -->
-      <div class="chat-messages" ref="chatContainer">
-        <div v-for="(msg, index) in messages" :key="msg.id != null ? 'm-' + msg.id : 'tmp-' + index" class="chat-message">
-          <div v-if="msg.role === 'user'" class="user-row" style="display: flex; justify-content: flex-end; align-items: center; gap: 6px;">
-            <button v-if="msg.id != null" class="rewind-btn" type="button"
-                    title="从这里重开 (删除此条及之后, 清空 resumeId, 回填输入框)"
-                    @click="rewindToMessage(msg, index)">↩</button>
-            <div class="message-user">
-              <div v-if="msg.bodyText" class="message-user-text">{{ msg.bodyText }}</div>
-              <div v-if="msg.images && msg.images.length" class="message-image-grid">
-                <el-image
-                  v-for="(img, ii) in msg.images"
-                  :key="ii"
-                  :src="imageUrl(img)"
-                  :preview-src-list="msg.images.map(imageUrl)"
-                  :initial-index="ii"
-                  fit="cover"
-                  hide-on-click-modal
-                  preview-teleported
-                  class="chat-image">
-                  <template #error>
-                    <div class="chat-image-broken">图片不可用</div>
-                  </template>
-                </el-image>
-              </div>
-            </div>
-          </div>
-          <div v-else-if="msg.role === 'agent'">
-            <div class="message-agent">
-              <div v-if="msg.recall" class="recall-card">
-                <div class="recall-card-head" @click="msg.recallOpen = !msg.recallOpen">
-                  <span class="recall-card-toggle" :class="{expanded: msg.recallOpen}">▶</span>
-                  <span class="recall-card-title">🔍 召回了 {{ msg.recall.hits.length }} 条历史参考</span>
-                  <span v-if="msg.recall.query" class="recall-card-query">“{{ msg.recall.query }}”</span>
-                </div>
-                <div v-show="msg.recallOpen" class="recall-card-body">
-                  <div v-for="(h, hi) in msg.recall.hits" :key="hi" class="recall-hit">
-                    <div class="recall-hit-title">{{ hi + 1 }}. {{ h.title }}</div>
-                    <div v-if="h.conclusion" class="recall-hit-conclusion">{{ h.conclusion }}</div>
-                  </div>
-                  <div v-if="!msg.recall.hits.length" class="recall-empty">无匹配历史，已照常发送原消息</div>
-                </div>
-              </div>
-              <template v-for="(seg, si) in (msg.segments || [])" :key="si">
-                <div v-if="seg.type === 'text'" class="text-segment-wrap">
-                  <button class="copy-btn" type="button" title="复制 Markdown" @click="copySegment(seg.content)">📋</button>
-                  <div class="text-segment" v-html="renderMarkdown(seg.content)"></div>
-                </div>
-                <div v-else class="tool-block">
-                  <div class="tool-header" @click="toggleTool(index, si)">
-                    <span class="tool-toggle" :class="{expanded: isToolExpanded(index, si)}">▶</span>
-                    <span class="tool-label">{{ seg.name }}</span>
-                  </div>
-                  <div v-show="isToolExpanded(index, si)" class="tool-content">{{ seg.content }}</div>
-                </div>
-              </template>
-              <div v-if="sending && reconnecting && index === messages.length - 1" class="message-system">连接中断，正在恢复...</div>
-              <div v-if="sending && index === messages.length - 1" class="loading-dots"><span></span><span></span><span></span></div>
-            </div>
-          </div>
-          <div v-else-if="msg.role === 'system'">
-            <div class="message-system">{{ msg.text }}</div>
-          </div>
-          <div v-else-if="msg.role === 'error'">
-            <div class="message-error">{{ msg.text }}</div>
-          </div>
-        </div>
-
-        <el-empty v-if="messages.length === 0" description="请选择工作目录，输入问题即可开始对话" :image-size="120"></el-empty>
-      </div>
-
-      <!-- 输入区 -->
-      <div class="chat-input-area" style="position: relative;">
-        <div class="command-popup" v-if="showCommandPopup && filteredCommands.length > 0">
-          <div v-for="(cmd, idx) in filteredCommands" :key="cmd.name"
-               class="command-item" :class="{active: idx === selectedCommandIdx}"
-               @mousedown.prevent="selectCommand(cmd)">
-            <span class="command-name">/{{ cmd.name }}</span>
-            <span class="command-desc">{{ cmd.description || cmd.argumentHint }}</span>
-          </div>
-        </div>
-        <div class="pending-image-list" v-if="pendingImages.length > 0">
-          <div class="pending-image-card" v-for="(img, idx) in pendingImages" :key="img.path">
-            <img :src="img.previewUrl" :alt="img.name" :title="img.name" />
-            <span class="pending-image-remove" @click="removePendingImage(idx)">×</span>
-          </div>
-        </div>
-        <div class="pending-file-card" v-if="pendingFile">
-          <el-icon><document /></el-icon>
-          <span class="pending-file-name" :title="pendingFile.name">{{ pendingFile.name }}</span>
-          <span class="pending-file-size">{{ formatChatFileSize(pendingFile.size) }}</span>
-          <span class="pending-file-remove" @click="removePendingFile">×</span>
-        </div>
-        <el-input
-          v-model="userInput"
-          type="textarea"
-          :rows="3"
-          placeholder="输入你的问题，例如：traceId: xxx，问题描述"
-          @keydown.enter.exact.prevent="handleEnter" @keydown.up.prevent="handleArrowUp" @keydown.down.prevent="handleArrowDown" @keydown.tab.prevent="handleTab" @keydown.escape="hideCommandPopup"
-          @keydown.ctrl.enter.exact.prevent="insertNewline"
-          @paste="handlePaste"
-          :disabled="!workingDir"
-        ></el-input>
-        <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <span class="hidden-mobile" style="color: #909399; font-size: 13px;" v-if="workingDir">Enter 发送 | Ctrl+Enter 换行</span>
-            <span v-if="!workingDir" style="color: #E6A23C; font-weight: bold; font-size: 13px;">⚠ 请先选择工作目录</span>
-            <el-button size="small" @click="clearContext" :disabled="!sessionId" plain>
-              <el-icon><delete /></el-icon>
-              <span>清除上下文</span>
-            </el-button>
-            <el-upload
-              :http-request="uploadChatImage"
-              name="file"
-              accept="image/*"
-              :show-file-list="false"
-              :before-upload="beforeChatImageUpload"
-              multiple>
-              <el-button size="small" :disabled="!workingDir || pendingImages.length >= maxImagesPerMessage" plain>
-                <el-icon><upload /></el-icon>
-                <span>图片 ({{ pendingImages.length }}/{{ maxImagesPerMessage }})</span>
-              </el-button>
-            </el-upload>
-            <el-upload
-              :http-request="uploadChatFile"
-              name="file"
-              accept=".log,.txt,.json,.csv,.md,.yaml,.yml,.xml,.properties,.stacktrace,.out,.conf,.ini"
-              :show-file-list="false"
-              :before-upload="beforeChatFileUpload">
-              <el-button size="small" :disabled="!workingDir || !!pendingFile" plain>
-                <el-icon><document /></el-icon>
-                <span>{{ pendingFile ? '附件已选' : '附件 (≤5MB)' }}</span>
-              </el-button>
-            </el-upload>
-            <el-switch v-if="ragEnabled" v-model="ragRecall" size="small"
-                       active-text="RAG召回" inline-prompt
-                       title="开启后每条消息自动召回历史参考拼到提问中"></el-switch>
-          </div>
-          <div style="display: flex; gap: 8px;">
-            <el-button type="danger" @click="stopSession" v-if="sending" plain>
-              <el-icon><video-pause /></el-icon>
-              <span>停止</span>
-            </el-button>
-            <el-button type="primary" @click="sendMessageStream" :loading="sending" :disabled="!workingDir || !userInput.trim()">
-              <el-icon><connection /></el-icon>
-              <span>发送</span>
-            </el-button>
-          </div>
-        </div>
-      </div>
-
-      <!-- 分析评价补充说明弹窗 -->
-      <el-dialog v-model="feedbackDialogVisible" title="补充反馈说明" :width="isMobile ? '92%' : '460px'" append-to-body>
-        <el-input v-model="feedbackCommentDraft" type="textarea" :rows="5"
-                  maxlength="1000" show-word-limit
-                  placeholder="描述 AI 分析中哪里不准确、遗漏了什么，或其他改进建议（选填）"></el-input>
-        <template #footer>
-          <el-button @click="feedbackDialogVisible = false">取消</el-button>
-          <el-button type="primary" :loading="feedbackSaving" @click="submitFeedbackComment">提交</el-button>
-        </template>
-      </el-dialog>
-    </div>
-  `;
+import MessageItem from './MessageItem.vue';
+import CommandPopup from './CommandPopup.vue';
+import PendingImageList from './PendingImageList.vue';
 
 const ChatPanel = {
     name: 'ChatPanel',
+    components: { MessageItem, CommandPopup, PendingImageList },
     props: {
       workingDir: { type: String, default: '' },
       agentType: { type: String, default: 'CODEX' },
@@ -229,10 +158,7 @@ const ChatPanel = {
       ragEnabled: { type: Boolean, default: true },
     },
     emits: ['session-created', 'refresh-history'],
-    template: TEMPLATE,
     setup(props, { emit }) {
-      // 纯函数工具顶部已 ES import, 直接复用, 调用点无需改动
-
       // ===== 聊天状态(组件自有) =====
       const messages = ref([]);
       const userInput = ref('');
@@ -241,10 +167,8 @@ const ChatPanel = {
       const resumeId = ref('');
       const chatContainer = ref(null);
       const toolStates = reactive({});
-      // RAG 召回开关: 默认开, 持久化 localStorage
       const ragRecall = ref(localStorage.getItem('ragRecall') !== 'false');
 
-      // props.workingDir 传 composable 需 Ref,用 computed 桥接
       const workingDirRef = computed(() => props.workingDir);
 
       const isMobile = ref(window.innerWidth <= 768);
@@ -394,7 +318,6 @@ const ChatPanel = {
         }
       };
 
-      // 清空当前对话(切目录 / 新对话),不留系统消息——与原 watch(currentPath) 行为一致
       const clearConversation = () => {
         resetRunState();
         sending.value = false;
@@ -479,14 +402,12 @@ const ChatPanel = {
         }
       });
 
-      // 工作目录变化:清空当前对话并重载命令(原 app.js watch(currentPath) 行为)
       watch(() => props.workingDir, () => {
         clearConversation();
         loadSlashCommands();
         restoreActiveRun('');
       });
 
-      // 宿主切换会话:非空且不同 → 恢复;置空 → 清空开新对话
       watch(() => props.initialSessionId, (newVal) => {
         if (newVal && newVal !== sessionId.value) {
           applyResume(newVal, props.initialResumeId);
@@ -526,3 +447,4 @@ const ChatPanel = {
   };
 
 export default ChatPanel;
+</script>

@@ -9,7 +9,7 @@
 
 import { ref } from 'vue';
 import { bootstrapAdminApp } from '../shell.js';
-import ChatPanel from '../../components/chat-panel.js';
+import ChatPanel from '../../components/chat-panel.vue';
 
 bootstrapAdminApp({
   setup() {
