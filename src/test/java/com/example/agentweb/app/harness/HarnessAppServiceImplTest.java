@@ -64,6 +64,8 @@ class HarnessAppServiceImplTest {
     private WorkspacePathPolicy workspacePathPolicy;
     @Mock
     private WorkspaceBaselineGateway workspaceBaselineGateway;
+    @Mock
+    private HarnessRunEventPublisher eventPublisher;
 
     private HarnessAppServiceImpl service;
     private MutableClock clock;
@@ -86,7 +88,7 @@ class HarnessAppServiceImplTest {
                 (contentType, content) -> content, workspacePathPolicy,
                 workspaceBaselineGateway,
                 currentUserProvider, idGenerator, new HarnessDeterministicGatePolicy(),
-                clock);
+                clock, eventPublisher);
     }
 
     @Test

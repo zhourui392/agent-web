@@ -31,6 +31,25 @@ const stageStatuses = {
   CANCELLED: { label: '已取消', type: 'info' }
 };
 
+/**
+ * Run 级状态（HarnessRunStatus）到列表展示的映射。
+ *
+ * 注意与 stageStatuses 是两套枚举：Run 没有 RUNNING，进行中叫 ACTIVE；
+ * 列表接口 (GET /api/harness/runs) 只返回 Run 级 summary，不带 stages。
+ */
+const runStatuses = {
+  DRAFT: { label: '草稿', type: 'info', bucket: 'running', dot: 'is-running' },
+  ACTIVE: { label: '进行中', type: '', bucket: 'running', dot: 'is-running' },
+  WAITING_INPUT: { label: '等待输入', type: 'warning', bucket: 'waiting', dot: 'is-waiting' },
+  WAITING_APPROVAL: { label: '等待批准', type: 'warning', bucket: 'waiting', dot: 'is-waiting' },
+  CANCELLING: { label: '取消中', type: 'warning', bucket: 'running', dot: 'is-running' },
+  ROLLING_BACK: { label: '回滚中', type: 'warning', bucket: 'running', dot: 'is-running' },
+  ROLLED_BACK: { label: '已回滚', type: 'info', bucket: 'done', dot: 'is-invalidated' },
+  COMPLETED: { label: '已完成', type: 'success', bucket: 'done', dot: 'is-passed' },
+  FAILED: { label: '失败', type: 'danger', bucket: 'failed', dot: 'is-failed' },
+  CANCELLED: { label: '已取消', type: 'info', bucket: 'failed', dot: 'is-invalidated' }
+};
+
 export function selectionReasonLabel(reason) {
   return selectionReasons[reason] || reason || '-';
 }
@@ -59,6 +78,32 @@ export function shortHash(hash) {
 
 export function stageStatusMeta(status) {
   return stageStatuses[status] || { label: status || '未知', type: 'info' };
+}
+
+export function runStatusMeta(status) {
+  return runStatuses[status] || { label: status || '未知', type: 'info', bucket: 'running', dot: '' };
+}
+
+/** Run 归到列表筛选桶：all / running / waiting / done / failed。 */
+export function runBucket(run) {
+  return runStatusMeta(String((run && run.status) || '').toUpperCase()).bucket;
+}
+
+/** Run 列表条目左侧状态点的颜色类。 */
+export function runStageDotClass(run) {
+  return runStatusMeta(String((run && run.status) || '').toUpperCase()).dot;
+}
+
+/** 从历史 Run 的工作目录去重收集，供新建 Run 的目录联想使用。 */
+export function workingDirSuggestions(runs) {
+  const values = Array.isArray(runs) ? runs : [];
+  const unique = new Set();
+  values.forEach(function (run) {
+    if (run && run.workingDir) {
+      unique.add(run.workingDir);
+    }
+  });
+  return Array.from(unique);
 }
 
 export function currentAttempt(stage) {
@@ -156,6 +201,10 @@ if (typeof window !== 'undefined') {
     capabilityDecisionLabel,
     shortHash,
     stageStatusMeta,
+    runStatusMeta,
+    runBucket,
+    runStageDotClass,
+    workingDirSuggestions,
     currentAttempt,
     gateFailureSummary,
     validApproval,

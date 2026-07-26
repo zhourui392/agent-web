@@ -9,7 +9,8 @@
  */
 import * as HarnessAdminUtils from '../harness-utils.js';
 import { renderMarkdown as renderMarkdownFn, escapeHtml } from '../../lib/formatters.js';
-import { ref, reactive, computed, nextTick, onBeforeUnmount } from 'vue';
+import { open as openResumableSse } from '../../lib/resumable-sse-client.js';
+import { ref, reactive, computed, nextTick, onBeforeUnmount, watch } from 'vue';
 import { ElMessageBox, ElMessage } from 'element-plus';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -103,7 +104,8 @@ export function useHarness(): Record<string, any> {
   // Artifact 消息卡片折叠态（messageId -> 是否折叠）
   const artifactCollapsed = reactive<AnyReactive>({});
 
-  window.addEventListener('resize', () => { isMobile.value = window.innerWidth <= 768; });
+  function onResize() { isMobile.value = window.innerWidth <= 768; }
+  window.addEventListener('resize', onResize);
 
   const selectedStage = computed(() => {
     const stages = selectedRun.value && Array.isArray(selectedRun.value.stages)
@@ -169,7 +171,7 @@ export function useHarness(): Record<string, any> {
       if (runFilter.value === 'all') {
         return true;
       }
-      return runBucket(run) === runFilter.value;
+      return HarnessAdminUtils.runBucket(run) === runFilter.value;
     });
     return filtered.slice().sort((left: any, right: any) => {
       const ta = left.updatedAt ? new Date(left.updatedAt).getTime() : 0;
@@ -177,15 +179,8 @@ export function useHarness(): Record<string, any> {
       return tb - ta;
     });
   });
-  const workingDirSuggestions = computed(() => {
-    const set = new Set<string>();
-    runSummaries.value.forEach((run: any) => {
-      if (run && run.workingDir) {
-        set.add(run.workingDir);
-      }
-    });
-    return Array.from(set);
-  });
+  const workingDirSuggestions = computed(
+    () => HarnessAdminUtils.workingDirSuggestions(runSummaries.value));
   const runtimeBusy = computed(() => HarnessAdminUtils.runtimeBusy(runtime.value));
   const canSendConversation = computed(() => HarnessAdminUtils.canSendConversation(
     selectedStage.value, runtime.value));
@@ -249,12 +244,12 @@ export function useHarness(): Record<string, any> {
     return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
   }
 
+  const idempotencyKeyCache: Map<string, string> = new Map();
   function idempotencyKey(identity: string): string {
-    const storageKey = 'harness-command:' + identity;
-    let value = window.sessionStorage.getItem(storageKey);
+    let value = idempotencyKeyCache.get(identity);
     if (!value) {
       value = 'harness-ui-' + randomToken();
-      window.sessionStorage.setItem(storageKey, value);
+      idempotencyKeyCache.set(identity, value);
     }
     return value;
   }
@@ -1003,47 +998,8 @@ export function useHarness(): Record<string, any> {
     return fmtTime(value);
   }
 
-  // Run 归类到筛选桶（防御式：summary 无 stages 时退回 run.status）
-  function runBucket(run: any): string {
-    const status = String((run && run.status) || '').toUpperCase();
-    if (status === 'COMPLETED') {
-      return 'done';
-    }
-    if (status === 'FAILED' || status === 'CANCELLED') {
-      return 'failed';
-    }
-    const stages = run && Array.isArray(run.stages) ? run.stages : [];
-    if (stages.some((s: any) => ['WAITING_APPROVAL', 'WAITING_INPUT'].includes(s.status))) {
-      return 'waiting';
-    }
-    if (stages.some((s: any) => ['RUNNING', 'CANCELLING'].includes(s.status)) || status === 'RUNNING') {
-      return 'running';
-    }
-    return 'all';
-  }
-
-  // Run 列表条目左侧的"当前阶段"小圆点颜色
-  function runStageDotClass(run: any): string {
-    const stages = run && Array.isArray(run.stages) ? run.stages : [];
-    const active = stages.find((s: any) => s.status !== 'PASSED' && s.status !== 'CANCELLED');
-    const status = active ? active.status : ((run && run.status) || '');
-    if (['WAITING_APPROVAL', 'WAITING_INPUT'].includes(status)) {
-      return 'is-waiting';
-    }
-    if (['RUNNING', 'CANCELLING'].includes(status)) {
-      return 'is-running';
-    }
-    if (status === 'FAILED') {
-      return 'is-failed';
-    }
-    if (status === 'INVALIDATED') {
-      return 'is-invalidated';
-    }
-    if (status === 'PASSED' || (run && run.status) === 'COMPLETED') {
-      return 'is-passed';
-    }
-    return '';
-  }
+  // Run 归类到筛选桶与状态点颜色统一由 harness-utils 的 Run 级状态表驱动：
+  // 列表接口只返回 Run summary（无 stages），从 stages 推导会静默退化成空筛选。
 
   // 新建 Run 原始需求结构化模板
   const requirementTemplate = '## 背景\n\n<描述问题背景与动机>\n\n## 目标\n\n<本 Run 要达成的可观测目标>\n\n## 验收标准\n\n- AC-1: <可验证的验收条件>\n- AC-2: <可验证的验收条件>\n\n## 范围\n\n- 包含: <本 Run 范围内的事项>\n- 不包含: <明确排除的事项>';
@@ -1134,13 +1090,28 @@ export function useHarness(): Record<string, any> {
     return selectedRun.value ? runUrl(selectedRun.value.runId) + '/report' : '#';
   }
 
-  let runtimePollInFlight = false;
-  const runtimePollTimer = window.setInterval(async () => {
-    if (runtimePollInFlight || !runtimeBusy.value || !selectedRun.value) {
+  let sseClient: ReturnType<typeof openResumableSse> | null = null;
+  let sseRefreshInFlight = false;
+
+  function closeSse() {
+    if (sseClient) { sseClient.close(); sseClient = null; }
+  }
+
+  function connectSse(runId: string) {
+    closeSse();
+    if (!runId) return;
+    const url = `/api/harness/runs/${encodeURIComponent(runId)}/stream`;
+    sseClient = openResumableSse(url, { after: 0 });
+    // 通配监听：收到任何 SSE 事件就刷新 run 详情 + conversation。
+    // harness 事件量低（一次操作 1-3 个事件），不需要按 event type 精细刷新。
+    sseClient.addEventListener('*', () => { refreshFromSse(runId); });
+  }
+
+  async function refreshFromSse(runId: string) {
+    if (sseRefreshInFlight || !selectedRun.value || selectedRun.value.runId !== runId) {
       return;
     }
-    runtimePollInFlight = true;
-    const runId = selectedRun.value.runId;
+    sseRefreshInFlight = true;
     try {
       const base = runUrl(runId);
       const values = await Promise.all([api(base), api(base + '/conversation')]);
@@ -1150,8 +1121,7 @@ export function useHarness(): Record<string, any> {
       const nextRun = values[0];
       const prevRun = selectedRun.value;
       // 仅在 run 实质变化（updatedAt/status）时才替换 selectedRun 与消息列表，
-      // 避免每 2s 全量替换触发 el-descriptions/el-table/v-html 重渲染造成抖动。
-      // runtime 状态由 loadStageResources 每 tick 单独刷新，不受此影响。
+      // 避免每次 SSE 事件全量替换触发 el-descriptions/el-table/v-html 重渲染造成抖动。
       if (!prevRun || prevRun.updatedAt !== nextRun.updatedAt
           || prevRun.status !== nextRun.status) {
         selectedRun.value = nextRun;
@@ -1160,14 +1130,26 @@ export function useHarness(): Record<string, any> {
       await loadStageResources();
       scrollConversationToEnd();
     } catch (error: any) {
-      showError('刷新 Codex 执行状态失败', error);
+      showError('刷新 Harness 状态失败', error);
     } finally {
-      runtimePollInFlight = false;
+      sseRefreshInFlight = false;
     }
-  }, 2000);
+  }
+
+  // selectedRun 变化时重连 SSE（切换 run 或首次加载）。
+  watch(() => selectedRun.value?.runId, (newRunId) => {
+    if (newRunId) {
+      connectSse(newRunId);
+    } else {
+      closeSse();
+    }
+  });
+
   onBeforeUnmount(() => {
-    window.clearInterval(runtimePollTimer);
+    closeSse();
     window.removeEventListener('keydown', onGlobalKeydown);
+    window.removeEventListener('resize', onResize);
+    idempotencyKeyCache.clear();
   });
 
   return {
@@ -1280,7 +1262,8 @@ export function useHarness(): Record<string, any> {
     isArtifactMessage,
     artifactTypeLabel,
     messageArtifact,
-    runStageDotClass,
+    runStageDotClass: HarnessAdminUtils.runStageDotClass,
+    runStatusMeta: HarnessAdminUtils.runStatusMeta,
     insertRequirementTemplate,
     queryWorkingDir,
     onComposerEnter,

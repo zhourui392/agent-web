@@ -34,14 +34,17 @@ public class HarnessExecutionRecoveryService {
     private final DeploymentExecutionRepository deploymentRepository;
     private final HarnessRunRepository runRepository;
     private final Clock clock;
+    private final HarnessRunEventPublisher eventPublisher;
 
     public HarnessExecutionRecoveryService(RuntimeExecutionRepository runtimeRepository,
                                            DeploymentExecutionRepository deploymentRepository,
-                                           HarnessRunRepository runRepository, Clock clock) {
+                                           HarnessRunRepository runRepository, Clock clock,
+                                           HarnessRunEventPublisher eventPublisher) {
         this.runtimeRepository = runtimeRepository;
         this.deploymentRepository = deploymentRepository;
         this.runRepository = runRepository;
         this.clock = clock;
+        this.eventPublisher = eventPublisher;
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -58,7 +61,7 @@ public class HarnessExecutionRecoveryService {
                         .orElseThrow(() -> new IllegalStateException(
                                 "lost runtime execution has no terminal outcome"));
                 if (run.applyRuntimeExecutionOutcome(outcome, clock.instant())) {
-                    runRepository.update(run);
+                    runRepository.update(run); eventPublisher.publish(run);
                 }
             }
         }

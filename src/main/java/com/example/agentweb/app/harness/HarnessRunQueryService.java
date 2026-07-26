@@ -14,4 +14,8 @@ public interface HarnessRunQueryService {
     Optional<HarnessRunView> findById(String runId);
 
     List<HarnessRunSummaryView> list();
+
+    boolean runExists(String runId);
+
+    List<HarnessRunView.EventView> listEvents(String runId);
 }

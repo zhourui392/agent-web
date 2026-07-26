@@ -107,13 +107,15 @@ class HarnessControllerTest {
     @Test
     void list_should_expose_management_projection() throws Exception {
         when(queryService.list()).thenReturn(Collections.singletonList(
-                new HarnessRunSummaryView("run-1", "M4", "ACTIVE", "local", "admin", 123L)));
+                new HarnessRunSummaryView("run-1", "M4", "ACTIVE", "/srv/workspace/demo",
+                        "local", "admin", 123L)));
 
         mvc.perform(get("/api/harness/runs"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].runId").value("run-1"))
                 .andExpect(jsonPath("$[0].title").value("M4"))
-                .andExpect(jsonPath("$[0].status").value("ACTIVE"));
+                .andExpect(jsonPath("$[0].status").value("ACTIVE"))
+                .andExpect(jsonPath("$[0].workingDir").value("/srv/workspace/demo"));
 
         verify(queryService).list();
     }
@@ -267,6 +269,9 @@ class HarnessControllerTest {
     void events_artifact_download_and_final_report_should_be_read_only_projections()
             throws Exception {
         when(queryService.findById("run-1")).thenReturn(Optional.of(emptyView()));
+        when(queryService.runExists("run-1")).thenReturn(true);
+        when(queryService.listEvents("run-1"))
+                .thenReturn(java.util.Collections.<HarnessRunView.EventView>emptyList());
         HarnessArtifactContentView artifact = new HarnessArtifactContentView(
                 "requirements", 1, "REQUIREMENT", "application/json", repeat('a', 64),
                 ArtifactClassification.INTERNAL,
@@ -301,6 +306,7 @@ class HarnessControllerTest {
     void missing_artifact_report_deployment_and_event_run_should_return_explicit_404()
             throws Exception {
         when(queryService.findById("missing")).thenReturn(Optional.<HarnessRunView>empty());
+        when(queryService.runExists("missing")).thenReturn(false);
 
         mvc.perform(get("/api/harness/runs/run-1/artifacts/missing"))
                 .andExpect(status().isNotFound())

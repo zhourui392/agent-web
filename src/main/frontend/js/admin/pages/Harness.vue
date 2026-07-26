@@ -56,10 +56,10 @@ v-for="run in filteredRuns" :key="run.runId" type="button"
               <span class="harness-run-item-row">
                 <span
 class="harness-run-stage-dot" :class="runStageDotClass(run)"
-                      :title="stageMeta(run.status).label"></span>
+                      :title="runStatusMeta(run.status).label"></span>
                 <span class="harness-run-title">{{ run.title }}</span>
               </span>
-              <span class="harness-run-status">{{ run.status }} · {{ run.environment }}</span>
+              <span class="harness-run-status">{{ runStatusMeta(run.status).label }} · {{ run.environment }}</span>
               <span class="harness-run-id">{{ run.runId }}</span>
               <span class="harness-run-time" :title="fmtTime(run.updatedAt)">{{ fmtRelative(run.updatedAt) }}</span>
             </button>
@@ -857,7 +857,7 @@ const {
   openDeployment, startDeployment, reconcileDeployment, stageMeta, stageLabel,
   stageStatusIcon, stageAttemptNumber, isConnectorActive, isConnectorInvalidated,
   stageSummary, fmtTime, fmtRelative, renderMarkdown, renderArtifactContent,
-  isArtifactMessage, artifactTypeLabel, messageArtifact, runStageDotClass,
+  isArtifactMessage, artifactTypeLabel, messageArtifact, runStageDotClass, runStatusMeta,
   insertRequirementTemplate, queryWorkingDir, onComposerEnter,
   deploymentStatusType, runtimeStatusType, artifactUrl, reportUrl,
   selectionReasonLabel, rejectionReasonLabel, capabilityDecisionLabel,

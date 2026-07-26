@@ -47,6 +47,8 @@ class HarnessConversationPreparerTest {
     private ArtifactStore artifactStore;
     @Mock
     private WorkspaceBaselineGateway baselineGateway;
+    @Mock
+    private HarnessRunEventPublisher eventPublisher;
 
     private HarnessConversationPreparer preparer;
     private HarnessRun run;
@@ -55,7 +57,8 @@ class HarnessConversationPreparerTest {
     void setUp() {
         UserContext context = () -> Optional.of(new LoginUser("admin", "Admin", null));
         preparer = new HarnessConversationPreparer(repository, artifactStore, baselineGateway,
-                new CurrentUserProvider(context), Clock.fixed(NOW, ZoneOffset.UTC));
+                new CurrentUserProvider(context), Clock.fixed(NOW, ZoneOffset.UTC),
+                eventPublisher);
         run = HarnessRun.create("run-1", "M4", "/workspace", "CODEX", "local",
                 "harness@1", "admin", "create-1", StageContract.mvpDefaults(),
                 NOW.minusSeconds(10));

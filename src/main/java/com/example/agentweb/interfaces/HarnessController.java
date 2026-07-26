@@ -120,7 +120,10 @@ public class HarnessController {
 
     @GetMapping("/{runId}/events")
     public List<HarnessRunView.EventView> events(@PathVariable("runId") String runId) {
-        return find(runId).getEvents();
+        if (!queryService.runExists(runId)) {
+            throw new HarnessRunNotFoundException(runId);
+        }
+        return queryService.listEvents(runId);
     }
 
     @GetMapping("/{runId}/artifacts/{artifactId}")

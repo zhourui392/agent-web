@@ -67,6 +67,9 @@ class SqliteHarnessRunQueryServiceTest {
         assertFalse(queryService.findById("missing").isPresent());
         assertEquals(1, queryService.list().size());
         assertEquals("run-1", queryService.list().get(0).getRunId());
+        // 列表页的筛选与工作目录联想只吃 summary 投影，缺字段会让 UI 静默退化成空
+        assertEquals("WAITING_APPROVAL", queryService.list().get(0).getStatus());
+        assertEquals(tempDir.toString(), queryService.list().get(0).getWorkingDir());
     }
 
     private HarnessRun runWaitingApproval() {

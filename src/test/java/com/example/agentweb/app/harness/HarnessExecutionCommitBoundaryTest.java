@@ -203,19 +203,26 @@ class HarnessExecutionCommitBoundaryTest {
         }
 
         @Bean
+        HarnessRunEventPublisher eventPublisher() {
+            return org.mockito.Mockito.mock(HarnessRunEventPublisher.class);
+        }
+
+        @Bean
         HarnessExecutionPreparer preparer(HarnessRunRepository runRepository,
                                           CapabilitySnapshotRepository snapshotRepository,
                                           RuntimeExecutionRepository executionRepository,
                                           CurrentUserProvider currentUserProvider,
-                                          HarnessIdGenerator idGenerator, Clock clock) {
+                                          HarnessIdGenerator idGenerator, Clock clock,
+                                          HarnessRunEventPublisher eventPublisher) {
             return new HarnessExecutionPreparer(runRepository, snapshotRepository,
-                    executionRepository, currentUserProvider, idGenerator, clock);
+                    executionRepository, currentUserProvider, idGenerator, clock, eventPublisher);
         }
 
         @Bean
         HarnessRuntimeEventService eventService(RuntimeExecutionRepository executionRepository,
                                                 HarnessRunRepository runRepository,
-                                                ArtifactStore artifactStore, Clock clock) {
+                                                ArtifactStore artifactStore, Clock clock,
+                                                HarnessRunEventPublisher eventPublisher) {
             return new HarnessRuntimeEventService(executionRepository, runRepository,
                     artifactStore, (contentType, content) -> content,
                     workingDir -> com.example.agentweb.domain.harness.WorkspaceBaseline.capture(
@@ -224,7 +231,7 @@ class HarnessExecutionCommitBoundaryTest {
                             String.join("", java.util.Collections.nCopies(64, "0")), NOW),
                     new com.example.agentweb.domain.harness.ImplementationEvidenceFactory(),
                     new com.example.agentweb.domain.harness.ImplementationCommandEvidenceFactory(),
-                    clock);
+                    clock, eventPublisher);
         }
 
         @Bean

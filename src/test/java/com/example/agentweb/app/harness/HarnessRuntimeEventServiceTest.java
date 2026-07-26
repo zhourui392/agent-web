@@ -76,6 +76,8 @@ class HarnessRuntimeEventServiceTest {
     private ArtifactStore artifactStore;
     @Mock
     private WorkspaceBaselineGateway workspaceBaselineGateway;
+    @Mock
+    private HarnessRunEventPublisher eventPublisher;
 
     private HarnessRuntimeEventService service;
 
@@ -86,7 +88,7 @@ class HarnessRuntimeEventServiceTest {
                 workspaceBaselineGateway,
                 new ImplementationEvidenceFactory(),
                 new ImplementationCommandEvidenceFactory(),
-                Clock.fixed(NOW.plusSeconds(20), ZoneOffset.UTC));
+                Clock.fixed(NOW.plusSeconds(20), ZoneOffset.UTC), eventPublisher);
     }
 
     @Test

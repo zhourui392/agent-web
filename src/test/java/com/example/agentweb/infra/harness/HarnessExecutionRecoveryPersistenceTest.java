@@ -76,7 +76,8 @@ class HarnessExecutionRecoveryPersistenceTest {
 
         HarnessExecutionRecoveryService recovery = new HarnessExecutionRecoveryService(
                 runtimeRepository, deploymentRepository, runRepository,
-                Clock.fixed(NOW.plusSeconds(20), ZoneOffset.UTC));
+                Clock.fixed(NOW.plusSeconds(20), ZoneOffset.UTC),
+                org.mockito.Mockito.mock(com.example.agentweb.app.harness.HarnessRunEventPublisher.class));
 
         recovery.recoverUnfinishedExternalActions();
         recovery.recoverUnfinishedExternalActions();

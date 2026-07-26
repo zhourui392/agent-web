@@ -30,17 +30,20 @@ public class HarnessConversationPreparer {
     private final WorkspaceBaselineGateway workspaceBaselineGateway;
     private final CurrentUserProvider currentUserProvider;
     private final Clock clock;
+    private final HarnessRunEventPublisher eventPublisher;
 
     public HarnessConversationPreparer(HarnessRunRepository repository,
                                        ArtifactStore artifactStore,
                                        WorkspaceBaselineGateway workspaceBaselineGateway,
                                        CurrentUserProvider currentUserProvider,
-                                       Clock clock) {
+                                       Clock clock,
+                                       HarnessRunEventPublisher eventPublisher) {
         this.repository = repository;
         this.artifactStore = artifactStore;
         this.workspaceBaselineGateway = workspaceBaselineGateway;
         this.currentUserProvider = currentUserProvider;
         this.clock = clock;
+        this.eventPublisher = eventPublisher;
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -59,7 +62,7 @@ public class HarnessConversationPreparer {
                     artifactStore.store(generated.getDescriptor(), generated.getContent());
                 }
             }
-            repository.update(run);
+            repository.update(run); eventPublisher.publish(run);
         }
         return new PreparedHarnessConversation(run.getId(), command.getStage(),
                 turn.getAttemptNumber(), turn.isDuplicated());

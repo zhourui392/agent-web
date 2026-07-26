@@ -46,6 +46,8 @@ class HarnessExecutionPreparerTest {
     private CurrentUserProvider currentUserProvider;
     @Mock
     private HarnessIdGenerator idGenerator;
+    @Mock
+    private HarnessRunEventPublisher eventPublisher;
 
     @Test
     void sameKeyForDifferentStageShouldConflictBeforeLoadingRunOrSnapshot() {
@@ -57,7 +59,7 @@ class HarnessExecutionPreparerTest {
                 .thenReturn(Optional.of(existing));
         HarnessExecutionPreparer preparer = new HarnessExecutionPreparer(runRepository,
                 snapshotRepository, executionRepository, currentUserProvider, idGenerator,
-                Clock.fixed(NOW, ZoneOffset.UTC));
+                Clock.fixed(NOW, ZoneOffset.UTC), eventPublisher);
 
         assertThrows(RuntimeExecutionIdempotencyConflictException.class,
                 () -> preparer.prepare(new StartHarnessExecutionCommand(

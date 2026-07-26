@@ -36,18 +36,21 @@ public class HarnessExecutionPreparer {
     private final CurrentUserProvider currentUserProvider;
     private final HarnessIdGenerator idGenerator;
     private final Clock clock;
+    private final HarnessRunEventPublisher eventPublisher;
 
     public HarnessExecutionPreparer(HarnessRunRepository runRepository,
                                     CapabilitySnapshotRepository snapshotRepository,
                                     RuntimeExecutionRepository executionRepository,
                                     CurrentUserProvider currentUserProvider,
-                                    HarnessIdGenerator idGenerator, Clock clock) {
+                                    HarnessIdGenerator idGenerator, Clock clock,
+                                    HarnessRunEventPublisher eventPublisher) {
         this.runRepository = runRepository;
         this.snapshotRepository = snapshotRepository;
         this.executionRepository = executionRepository;
         this.currentUserProvider = currentUserProvider;
         this.idGenerator = idGenerator;
         this.clock = clock;
+        this.eventPublisher = eventPublisher;
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -71,7 +74,7 @@ public class HarnessExecutionPreparer {
         RuntimeExecution execution = RuntimeExecution.prepare(idGenerator.nextId(),
                 command.getIdempotencyKey(), permit, run.capabilityRuntime(), now);
         run.bindExecution(execution.reference(), now);
-        runRepository.update(run);
+        runRepository.update(run); eventPublisher.publish(run);
         executionRepository.add(execution);
         return new PreparedHarnessExecution(spec(run, snapshot, execution.getExecutionId()));
     }
@@ -103,7 +106,7 @@ public class HarnessExecutionPreparer {
         HarnessRun run = requireRun(runId);
         CancellationDirective directive = run.requestCancellation(
                 currentUserProvider.currentUserId(), reason, clock.instant());
-        runRepository.update(run);
+        runRepository.update(run); eventPublisher.publish(run);
         if (directive.requiresRuntimeCancellation()) {
             RuntimeExecution execution = executionRepository.findById(directive.getExecutionId())
                     .orElseThrow(() -> new IllegalStateException(

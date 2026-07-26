@@ -63,12 +63,24 @@ public class SqliteHarnessRunQueryService implements HarnessRunQueryService {
 
     @Override
     public List<HarnessRunSummaryView> list() {
-        return jdbc.query("SELECT id, title, status, environment, created_by, updated_at "
+        return jdbc.query("SELECT id, title, status, working_dir, environment, created_by, updated_at "
                         + "FROM harness_run ORDER BY updated_at DESC, id",
                 (rs, rowNumber) -> new HarnessRunSummaryView(
                         rs.getString("id"), rs.getString("title"), rs.getString("status"),
-                        rs.getString("environment"), rs.getString("created_by"),
-                        rs.getLong("updated_at")));
+                        rs.getString("working_dir"), rs.getString("environment"),
+                        rs.getString("created_by"), rs.getLong("updated_at")));
+    }
+
+    @Override
+    public boolean runExists(String runId) {
+        Integer count = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM harness_run WHERE id=?", Integer.class, runId);
+        return count != null && count > 0;
+    }
+
+    @Override
+    public List<HarnessRunView.EventView> listEvents(String runId) {
+        return events(runId);
     }
 
     private List<HarnessRunView.StageView> stages(String runId) {

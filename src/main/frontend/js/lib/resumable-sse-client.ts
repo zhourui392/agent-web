@@ -142,6 +142,8 @@ export function open(url: string, options?: SseClientOptions): SseClient {
     };
     var handlers = listeners[type] || [];
     for (var i = 0; i < handlers.length; i++) handlers[i](event);
+    var wildcardHandlers = listeners['*'] || [];
+    for (var i = 0; i < wildcardHandlers.length; i++) wildcardHandlers[i](event);
     if (type === 'fatal' && typeof client.onerror === 'function') (client.onerror as any)(event);
   }
 

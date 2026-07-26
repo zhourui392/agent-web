@@ -48,6 +48,7 @@ public class HarnessAppServiceImpl implements HarnessAppService {
     private final HarnessIdGenerator idGenerator;
     private final HarnessDeterministicGatePolicy gatePolicy;
     private final Clock clock;
+    private final HarnessRunEventPublisher eventPublisher;
 
     public HarnessAppServiceImpl(HarnessRunRepository repository, ArtifactStore artifactStore,
                                  ArtifactContentSanitizer contentSanitizer,
@@ -55,7 +56,8 @@ public class HarnessAppServiceImpl implements HarnessAppService {
                                  WorkspaceBaselineGateway workspaceBaselineGateway,
                                  CurrentUserProvider currentUserProvider,
                                  HarnessIdGenerator idGenerator,
-                                 HarnessDeterministicGatePolicy gatePolicy, Clock clock) {
+                                 HarnessDeterministicGatePolicy gatePolicy, Clock clock,
+                                 HarnessRunEventPublisher eventPublisher) {
         this.repository = repository;
         this.artifactStore = artifactStore;
         this.contentSanitizer = contentSanitizer;
@@ -65,6 +67,7 @@ public class HarnessAppServiceImpl implements HarnessAppService {
         this.idGenerator = idGenerator;
         this.gatePolicy = gatePolicy;
         this.clock = clock;
+        this.eventPublisher = eventPublisher;
     }
 
     @Override
@@ -91,7 +94,7 @@ public class HarnessAppServiceImpl implements HarnessAppService {
         ArtifactDescriptor descriptor = run.registerOriginalRequirement(
                 idGenerator.nextId(), originalRequirement, actor, clock.instant());
         artifactStore.store(descriptor, originalRequirement);
-        repository.add(run);
+        repository.add(run); eventPublisher.publish(run);
         return HarnessMutationResult.from(run, false);
     }
 
@@ -108,7 +111,7 @@ public class HarnessAppServiceImpl implements HarnessAppService {
             if (generated != null) {
                 artifactStore.store(generated.getDescriptor(), generated.getContent());
             }
-            repository.update(run);
+            repository.update(run); eventPublisher.publish(run);
         }
         return HarnessMutationResult.from(run, false);
     }
@@ -125,7 +128,7 @@ public class HarnessAppServiceImpl implements HarnessAppService {
                 command.getContentType(), command.getClassification(), currentUserProvider.currentUserId(),
                 run.artifactSourceReferences(command.getStage()), now);
         artifactStore.store(descriptor, content);
-        repository.update(run);
+        repository.update(run); eventPublisher.publish(run);
         return HarnessMutationResult.from(run, false);
     }
 
@@ -137,7 +140,7 @@ public class HarnessAppServiceImpl implements HarnessAppService {
         HarnessRun run = requireRun(runId);
         if (run.recordGate(stage, idGenerator.nextId(), rule, passed,
                 evidenceReferences, reason, currentUserProvider.currentUserId(), clock.instant())) {
-            repository.update(run);
+            repository.update(run); eventPublisher.publish(run);
         }
         return HarnessMutationResult.from(run, false);
     }
@@ -155,7 +158,7 @@ public class HarnessAppServiceImpl implements HarnessAppService {
         run.recordGate(stage, idGenerator.nextId(), rule, decision.isPassed(),
                 decision.getEvidenceReferences(), decision.getReason(),
                 currentUserProvider.currentUserId(), clock.instant());
-        repository.update(run);
+        repository.update(run); eventPublisher.publish(run);
         return HarnessMutationResult.from(run, false);
     }
 
@@ -166,7 +169,7 @@ public class HarnessAppServiceImpl implements HarnessAppService {
         HarnessRun run = requireRun(runId);
         if (run.requestInput(stage, questionId, question, blocking,
                 currentUserProvider.currentUserId(), clock.instant())) {
-            repository.update(run);
+            repository.update(run); eventPublisher.publish(run);
         }
         return HarnessMutationResult.from(run, false);
     }
@@ -177,7 +180,7 @@ public class HarnessAppServiceImpl implements HarnessAppService {
         HarnessRun run = requireRun(runId);
         if (run.answerQuestion(questionId, answer,
                 currentUserProvider.currentUserId(), clock.instant())) {
-            repository.update(run);
+            repository.update(run); eventPublisher.publish(run);
         }
         return HarnessMutationResult.from(run, false);
     }
@@ -187,7 +190,7 @@ public class HarnessAppServiceImpl implements HarnessAppService {
     public HarnessMutationResult requestApproval(String runId, HarnessStage stage) {
         HarnessRun run = requireRun(runId);
         run.submitForApproval(stage, currentUserProvider.currentUserId(), clock.instant());
-        repository.update(run);
+        repository.update(run); eventPublisher.publish(run);
         return HarnessMutationResult.from(run, false);
     }
 
@@ -200,7 +203,7 @@ public class HarnessAppServiceImpl implements HarnessAppService {
         if (run.approve(stage, HarnessCommandId.approval(runId, stage, "APPROVED", idempotencyKey),
                 artifactBaselineHash,
                 currentUserProvider.currentUserId(), reason, clock.instant())) {
-            repository.update(run);
+            repository.update(run); eventPublisher.publish(run);
         }
         return HarnessMutationResult.from(run, false);
     }
@@ -214,7 +217,7 @@ public class HarnessAppServiceImpl implements HarnessAppService {
         if (run.reject(stage, HarnessCommandId.approval(runId, stage, "REJECTED", idempotencyKey),
                 artifactBaselineHash,
                 currentUserProvider.currentUserId(), reason, clock.instant())) {
-            repository.update(run);
+            repository.update(run); eventPublisher.publish(run);
         }
         return HarnessMutationResult.from(run, false);
     }
@@ -232,7 +235,7 @@ public class HarnessAppServiceImpl implements HarnessAppService {
             if (generated != null) {
                 artifactStore.store(generated.getDescriptor(), generated.getContent());
             }
-            repository.update(run);
+            repository.update(run); eventPublisher.publish(run);
         }
         return HarnessMutationResult.from(run, false);
     }
@@ -245,7 +248,7 @@ public class HarnessAppServiceImpl implements HarnessAppService {
         if (run.approveDeployment(HarnessCommandId.approval(runId, HarnessStage.DEPLOYMENT,
                         "LOCAL_DEPLOY", idempotencyKey), inputBaselineHash,
                 currentUserProvider.currentUserId(), reason, clock.instant())) {
-            repository.update(run);
+            repository.update(run); eventPublisher.publish(run);
         }
         return HarnessMutationResult.from(run, false);
     }

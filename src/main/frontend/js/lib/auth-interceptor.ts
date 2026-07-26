@@ -4,9 +4,17 @@
  * 覆盖所有经 window.fetch 的调用;SSE(EventSource) 不走 fetch,单独在错误处理里兜底。
  *
  * 从 app.js 顶部 IIFE 抽出(FE-R3.2),独立模块可单测。原 IIFE 行为照搬,零逻辑变更。
+ *
+ * 主站 app.js 与管理台 shell.js 都会调用;重复调用只装一次,避免 fetch 被层层包裹。
  */
 
+let installed = false;
+
 export function installAuthInterceptor(): void {
+  if (installed) {
+    return;
+  }
+  installed = true;
   const rawFetch = window.fetch.bind(window);
   let redirecting = false;
   window.fetch = async function (...args: Parameters<typeof fetch>): Promise<Response> {

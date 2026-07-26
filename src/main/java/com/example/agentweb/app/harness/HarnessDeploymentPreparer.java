@@ -51,6 +51,7 @@ public class HarnessDeploymentPreparer {
     private final HarnessIdGenerator idGenerator;
     private final DeploymentArtifactFactory artifactFactory;
     private final Clock clock;
+    private final HarnessRunEventPublisher eventPublisher;
 
     public HarnessDeploymentPreparer(HarnessRunRepository runRepository,
                                      DeploymentExecutionRepository executionRepository,
@@ -59,7 +60,8 @@ public class HarnessDeploymentPreparer {
                                      ArtifactStore artifactStore,
                                      ArtifactContentSanitizer contentSanitizer,
                                      HarnessIdGenerator idGenerator,
-                                     DeploymentArtifactFactory artifactFactory, Clock clock) {
+                                     DeploymentArtifactFactory artifactFactory, Clock clock,
+                                     HarnessRunEventPublisher eventPublisher) {
         this.runRepository = runRepository;
         this.executionRepository = executionRepository;
         this.templateCatalog = templateCatalog;
@@ -69,6 +71,7 @@ public class HarnessDeploymentPreparer {
         this.idGenerator = idGenerator;
         this.artifactFactory = artifactFactory;
         this.clock = clock;
+        this.eventPublisher = eventPublisher;
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -90,7 +93,7 @@ public class HarnessDeploymentPreparer {
         DeploymentExecution execution = DeploymentExecution.prepare(idGenerator.nextId(),
                 command.getIdempotencyKey(), permit, template.reference(), now);
         run.recordDeploymentPrepared(execution.getExecutionId(), now);
-        runRepository.update(run);
+        runRepository.update(run); eventPublisher.publish(run);
         executionRepository.add(execution);
         return new PreparedHarnessDeployment(spec(execution, run, template), false);
     }
@@ -103,7 +106,7 @@ public class HarnessDeploymentPreparer {
         if (!started && execution.requiresFailureProjection()) {
             HarnessRun run = requireRun(execution.getRunId());
             if (run.applyDeploymentExecutionOutcome(requireOutcome(execution), clock.instant())) {
-                runRepository.update(run);
+                runRepository.update(run); eventPublisher.publish(run);
             }
         }
         return started;
@@ -132,7 +135,7 @@ public class HarnessDeploymentPreparer {
         }
         run.applyDeploymentExecutionOutcome(requireOutcome(execution), now);
         executionRepository.update(execution);
-        runRepository.update(run);
+        runRepository.update(run); eventPublisher.publish(run);
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -142,7 +145,7 @@ public class HarnessDeploymentPreparer {
         HarnessRun run = requireRun(execution.getRunId());
         run.applyDeploymentExecutionOutcome(requireOutcome(execution), clock.instant());
         executionRepository.update(execution);
-        runRepository.update(run);
+        runRepository.update(run); eventPublisher.publish(run);
     }
 
     @Transactional(readOnly = true)
@@ -161,7 +164,7 @@ public class HarnessDeploymentPreparer {
         HarnessRun run = requireRun(execution.getRunId());
         run.applyDeploymentExecutionOutcome(requireOutcome(execution), now);
         executionRepository.update(execution);
-        runRepository.update(run);
+        runRepository.update(run); eventPublisher.publish(run);
         return new HarnessDeploymentResult(execution.getExecutionId(), execution.getRunId(),
                 execution.getStatus().name(), false);
     }

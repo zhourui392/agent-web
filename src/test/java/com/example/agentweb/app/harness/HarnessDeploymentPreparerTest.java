@@ -71,6 +71,8 @@ class HarnessDeploymentPreparerTest {
     private WorkspaceBaselineGateway baselineGateway;
     @Mock
     private ArtifactStore artifactStore;
+    @Mock
+    private HarnessRunEventPublisher eventPublisher;
 
     private HarnessDeploymentPreparer preparer;
 
@@ -80,7 +82,7 @@ class HarnessDeploymentPreparerTest {
                 templateCatalog, baselineGateway, artifactStore,
                 (contentType, content) -> content, () -> "deploy-1",
                 new DeploymentArtifactFactory(),
-                Clock.fixed(NOW.plusSeconds(500), ZoneOffset.UTC));
+                Clock.fixed(NOW.plusSeconds(500), ZoneOffset.UTC), eventPublisher);
     }
 
     @Test

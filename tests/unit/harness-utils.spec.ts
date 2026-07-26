@@ -85,3 +85,38 @@ describe('Harness snapshot display mappings', () => {
     expect(harness.harnessApiAvailable(404, { code: 'NOT_FOUND' })).toBe(false);
   });
 });
+
+describe('Harness run list projection', () => {
+  // 列表接口只返回 Run summary（无 stages），筛选桶必须完全由 Run 级状态决定。
+  // HarnessRunStatus 里没有 RUNNING：进行中叫 ACTIVE，等待态是 Run 级而非 stage 级。
+  it('buckets every run status without relying on stage detail', () => {
+    expect(harness.runBucket({ status: 'ACTIVE' })).toBe('running');
+    expect(harness.runBucket({ status: 'DRAFT' })).toBe('running');
+    expect(harness.runBucket({ status: 'CANCELLING' })).toBe('running');
+    expect(harness.runBucket({ status: 'WAITING_APPROVAL' })).toBe('waiting');
+    expect(harness.runBucket({ status: 'WAITING_INPUT' })).toBe('waiting');
+    expect(harness.runBucket({ status: 'COMPLETED' })).toBe('done');
+    expect(harness.runBucket({ status: 'ROLLED_BACK' })).toBe('done');
+    expect(harness.runBucket({ status: 'FAILED' })).toBe('failed');
+    expect(harness.runBucket({ status: 'CANCELLED' })).toBe('failed');
+  });
+
+  it('colors the list dot from the run status and localizes the label', () => {
+    expect(harness.runStageDotClass({ status: 'ACTIVE' })).toBe('is-running');
+    expect(harness.runStageDotClass({ status: 'WAITING_APPROVAL' })).toBe('is-waiting');
+    expect(harness.runStageDotClass({ status: 'FAILED' })).toBe('is-failed');
+    expect(harness.runStageDotClass({ status: 'COMPLETED' })).toBe('is-passed');
+    expect(harness.runStageDotClass({})).toBe('');
+    expect(harness.runStatusMeta('ACTIVE').label).toBe('进行中');
+    expect(harness.runStatusMeta('WAITING_APPROVAL').label).toBe('等待批准');
+    expect(harness.runStatusMeta('UNKNOWN_STATUS').label).toBe('UNKNOWN_STATUS');
+  });
+
+  it('collects distinct working directories for the create-run autocomplete', () => {
+    expect(harness.workingDirSuggestions([
+      { workingDir: '/srv/a' }, { workingDir: '/srv/a' }, { workingDir: '/srv/b' },
+      { workingDir: '' }, null
+    ])).toEqual(['/srv/a', '/srv/b']);
+    expect(harness.workingDirSuggestions(undefined)).toEqual([]);
+  });
+});

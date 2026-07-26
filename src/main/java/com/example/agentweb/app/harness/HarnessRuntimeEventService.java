@@ -48,6 +48,7 @@ public class HarnessRuntimeEventService implements HarnessRuntimeEventRecorder {
     private final ImplementationEvidenceFactory implementationEvidenceFactory;
     private final ImplementationCommandEvidenceFactory implementationCommandEvidenceFactory;
     private final Clock clock;
+    private final HarnessRunEventPublisher eventPublisher;
 
     public HarnessRuntimeEventService(RuntimeExecutionRepository executionRepository,
                                       HarnessRunRepository runRepository,
@@ -57,7 +58,7 @@ public class HarnessRuntimeEventService implements HarnessRuntimeEventRecorder {
                                       ImplementationEvidenceFactory implementationEvidenceFactory,
                                       ImplementationCommandEvidenceFactory
                                               implementationCommandEvidenceFactory,
-                                      Clock clock) {
+                                      Clock clock, HarnessRunEventPublisher eventPublisher) {
         this.executionRepository = executionRepository;
         this.runRepository = runRepository;
         this.artifactStore = artifactStore;
@@ -66,6 +67,7 @@ public class HarnessRuntimeEventService implements HarnessRuntimeEventRecorder {
         this.implementationEvidenceFactory = implementationEvidenceFactory;
         this.implementationCommandEvidenceFactory = implementationCommandEvidenceFactory;
         this.clock = clock;
+        this.eventPublisher = eventPublisher;
     }
 
     @Override
@@ -91,7 +93,7 @@ public class HarnessRuntimeEventService implements HarnessRuntimeEventRecorder {
         }
         if (outcome.isPresent()
                 && run.applyRuntimeExecutionOutcome(outcome.get(), signal.getOccurredAt())) {
-            runRepository.update(run);
+            runRepository.update(run); eventPublisher.publish(run);
         }
     }
 
@@ -113,7 +115,7 @@ public class HarnessRuntimeEventService implements HarnessRuntimeEventRecorder {
                     .orElseThrow(() -> new IllegalStateException(
                             "failed runtime execution has no terminal outcome"));
             if (run.applyRuntimeExecutionOutcome(outcome, signal.getOccurredAt())) {
-                runRepository.update(run);
+                runRepository.update(run); eventPublisher.publish(run);
             }
         }
     }

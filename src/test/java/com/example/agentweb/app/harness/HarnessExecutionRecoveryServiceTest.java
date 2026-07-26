@@ -46,6 +46,8 @@ class HarnessExecutionRecoveryServiceTest {
     private DeploymentExecutionRepository deploymentRepository;
     @Mock
     private HarnessRunRepository runRepository;
+    @Mock
+    private HarnessRunEventPublisher eventPublisher;
 
     @Test
     void shouldCloseUnknownRuntimeAndRequireDeploymentReconciliation() {
@@ -67,7 +69,7 @@ class HarnessExecutionRecoveryServiceTest {
         when(runRepository.findById("run-1")).thenReturn(Optional.of(run));
 
         new HarnessExecutionRecoveryService(runtimeRepository, deploymentRepository,
-                runRepository, Clock.fixed(NOW.plusSeconds(10), ZoneOffset.UTC))
+                runRepository, Clock.fixed(NOW.plusSeconds(10), ZoneOffset.UTC), eventPublisher)
                 .recoverUnfinishedExternalActions();
 
         assertEquals(RuntimeExecutionStatus.LOST, runtime.getStatus());

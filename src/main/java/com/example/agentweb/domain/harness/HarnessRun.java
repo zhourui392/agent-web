@@ -39,6 +39,7 @@ public final class HarnessRun {
     private final List<Approval> approvals;
     private final List<HarnessQuestion> questions;
     private final List<HarnessEvent> events;
+    private final List<HarnessEvent> pendingEvents = new ArrayList<HarnessEvent>();
     private HarnessRunStatus status;
     private Instant updatedAt;
     private long version;
@@ -1373,8 +1374,28 @@ public final class HarnessRun {
 
     private void addEvent(String eventType, HarnessStage stage, String actor,
                           String detail, Instant now) {
-        events.add(new HarnessEvent(events.size() + 1L, eventType, stage,
-                actor, detail, now));
+        HarnessEvent event = new HarnessEvent(events.size() + 1L, eventType, stage,
+                actor, detail, now);
+        events.add(event);
+        pendingEvents.add(event);
+    }
+
+    /**
+     * 返回本次操作产生的未发布事件并清空缓冲。
+     *
+     * <p>只有 {@link #create} / 业务方法内 {@code addEvent} 产生的事件会进入缓冲；
+     * {@link #restore} 恢复的 run 缓冲为空。调用者（应用层）在事务提交后
+     * 将返回的事件推送给 SSE 订阅者。</p>
+     *
+     * @return 不可修改的未发布事件列表；无待发布事件时返回空列表
+     */
+    public List<HarnessEvent> pullPendingEvents() {
+        if (pendingEvents.isEmpty()) {
+            return Collections.<HarnessEvent>emptyList();
+        }
+        List<HarnessEvent> snapshot = Collections.unmodifiableList(new ArrayList<HarnessEvent>(pendingEvents));
+        pendingEvents.clear();
+        return snapshot;
     }
 
     private void validateStageSet() {

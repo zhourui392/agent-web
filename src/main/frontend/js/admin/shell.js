@@ -14,6 +14,7 @@ import { createApp } from 'vue';
 import { setupElementPlus } from '../element-plus-setup.js';
 import 'element-plus/dist/index.css';
 import AdminShell from './AdminShell.vue';
+import { installAuthInterceptor } from '../lib/auth-interceptor.js';
 
 export { AdminShell };
 
@@ -28,6 +29,10 @@ export { AdminShell };
  * @param opts { chatPanel: Component } 传入即注册为 <chat-panel>(对话视图用)
  */
 export function bootstrapAdminApp(rootOptions, opts) {
+  // 会话过期时把 401 统一导向登录页。此前只有主站 app.js 装,管理台各页(尤其 Harness
+  // 的 2s 轮询)会一直弹「未登录」错误却不跳登录。/api/auth/status 恒返 200,
+  // AdminShell 的未登录内联卡片与非 ADMIN 的 403 提示都不受影响。
+  installAuthInterceptor();
   const options = opts || {};
   const app = createApp(rootOptions);
   setupElementPlus(app);

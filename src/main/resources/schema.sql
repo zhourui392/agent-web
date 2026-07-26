@@ -410,6 +410,9 @@ CREATE TABLE IF NOT EXISTS harness_approval (
     FOREIGN KEY(run_id) REFERENCES harness_run(id) ON DELETE CASCADE
 );
 
+CREATE INDEX IF NOT EXISTS idx_harness_gate_result_run ON harness_gate_result(run_id);
+CREATE INDEX IF NOT EXISTS idx_harness_approval_run ON harness_approval(run_id);
+
 CREATE TABLE IF NOT EXISTS harness_question (
     question_id    TEXT    NOT NULL,
     run_id         TEXT    NOT NULL,
