@@ -1,20 +1,22 @@
 <template>
   <admin-shell active="workflows" @ready="loadAll">
     <template #header-actions>
-      <el-button text @click="loadAll" :loading="loading">刷新</el-button>
+      <el-button text :loading="loading" @click="loadAll">刷新</el-button>
     </template>
 
     <div class="view-wrap">
       <div class="conv-toolbar">
         <el-button type="primary" size="small" @click="openCreate">新建</el-button>
-        <el-button size="small" @click="loadAll" :loading="loading">刷新</el-button>
+        <el-button size="small" :loading="loading" @click="loadAll">刷新</el-button>
       </div>
 
-      <el-table :data="workflows" v-loading="loading" size="small" empty-text="暂无工作流"
+      <el-table
+v-loading="loading" :data="workflows" size="small" empty-text="暂无工作流"
                 @row-click="selectWorkflow">
         <el-table-column label="名称" min-width="220">
           <template #default="{ row }">
-            <div data-test="workflow-row" :data-name="row.name"
+            <div
+data-test="workflow-row" :data-name="row.name"
                  style="font-weight: 600; color: #303133; word-break: break-word;">{{ row.name }}</div>
             <div class="muted" style="font-size: 12px; word-break: break-all;">{{ row.workingDir }}</div>
           </template>
@@ -43,7 +45,8 @@
 
       <div style="margin-top: 14px;">
         <div class="section-title">执行历史</div>
-        <el-table :data="executions" v-loading="executionLoading" size="small" empty-text="请选择工作流或暂无执行记录"
+        <el-table
+v-loading="executionLoading" :data="executions" size="small" empty-text="请选择工作流或暂无执行记录"
                   @row-click="openExecution">
           <el-table-column label="执行 ID" min-width="220">
             <template #default="{ row }">
@@ -71,7 +74,8 @@
       </div>
     </div>
 
-    <el-dialog v-model="editOpen" :title="editForm.id ? '编辑工作流' : '新建工作流'"
+    <el-dialog
+v-model="editOpen" :title="editForm.id ? '编辑工作流' : '新建工作流'"
                :width="isMobile ? '96%' : '860px'" :close-on-click-modal="false">
       <el-form label-position="top" :model="editForm" size="small">
         <el-form-item label="名称">
@@ -107,7 +111,7 @@
               </el-form-item>
             </el-col>
             <el-col :span="isMobile ? 24 : 8" style="display: flex; align-items: center;">
-              <el-button size="small" type="danger" text @click="removeStep(index)" :disabled="editForm.steps.length <= 1">删除步骤</el-button>
+              <el-button size="small" type="danger" text :disabled="editForm.steps.length <= 1" @click="removeStep(index)">删除步骤</el-button>
             </el-col>
           </el-row>
           <el-form-item label="Prompt 模板">
@@ -116,7 +120,7 @@
         </div>
       </el-form>
       <template #footer>
-        <el-button @click="editOpen = false" :disabled="saving">取消</el-button>
+        <el-button :disabled="saving" @click="editOpen = false">取消</el-button>
         <el-button type="primary" :loading="saving" @click="saveWorkflow">保存</el-button>
       </template>
     </el-dialog>
@@ -125,7 +129,7 @@
       <div v-if="runTarget" style="font-weight: 600; margin-bottom: 10px;">{{ runTarget.name }}</div>
       <el-input v-model="runInputs" type="textarea" :autosize="{ minRows: 8, maxRows: 18 }"></el-input>
       <template #footer>
-        <el-button @click="runOpen = false" :disabled="running">取消</el-button>
+        <el-button :disabled="running" @click="runOpen = false">取消</el-button>
         <el-button type="primary" :loading="running" @click="submitRun">运行</el-button>
       </template>
     </el-dialog>
@@ -140,7 +144,8 @@
           <div v-if="detail.errorMessage">错误：{{ detail.errorMessage }}</div>
         </div>
         <el-collapse>
-          <el-collapse-item v-for="step in detail.steps" :key="step.id"
+          <el-collapse-item
+v-for="step in detail.steps" :key="step.id"
                             :title="(step.stepIndex + 1) + '. ' + step.stepName + ' · ' + step.status"
                             :name="step.id">
             <div class="section-title">Prompt</div>

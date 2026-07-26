@@ -11,5 +11,5 @@ installAuthInterceptor();
 const app = createApp(App);
 setupElementPlus(app);
 // 注册可复用的 ChatPanel 组件 (ES import from components/chat-panel.js)
-app.component('chat-panel', ChatPanel);
+app.component('ChatPanel', ChatPanel);
 app.mount('#app');

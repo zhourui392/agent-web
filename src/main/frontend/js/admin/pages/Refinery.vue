@@ -1,7 +1,7 @@
 <template>
   <admin-shell active="refinery" @ready="onReady">
     <template #header-actions>
-      <el-button text @click="loadHistory" :loading="ragLoading">刷新</el-button>
+      <el-button text :loading="ragLoading" @click="loadHistory">刷新</el-button>
     </template>
 
     <div class="view-wrap">
@@ -13,11 +13,12 @@
         </el-radio-group>
       </div>
 
-      <el-table :data="ragList" v-loading="ragLoading" empty-text="暂无召回记录" border size="small">
+      <el-table v-loading="ragLoading" :data="ragList" empty-text="暂无召回记录" border size="small">
         <el-table-column label="标题 / 结论" min-width="280">
           <template #default="{ row }">
             <div class="title" style="font-size:13px; font-weight:500;">{{ row.title }}</div>
-            <div v-if="row.conclusion" class="muted" style="font-size:12px; margin-top:2px;
+            <div
+v-if="row.conclusion" class="muted" style="font-size:12px; margin-top:2px;
                  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ row.conclusion }}</div>
           </template>
         </el-table-column>
@@ -37,7 +38,8 @@
         <el-table-column label="评分" width="120">
           <template #default="{ row }">
             <span>{{ formatScore(row.score) }}</span>
-            <span v-if="row.status === 'DISCARDED' && typeof row.threshold === 'number'"
+            <span
+v-if="row.status === 'DISCARDED' && typeof row.threshold === 'number'"
                   style="color:#e6a23c; font-size:12px; margin-left:4px;">&lt; {{ formatScore(row.threshold) }}</span>
           </template>
         </el-table-column>
@@ -60,7 +62,8 @@
       </el-table>
 
       <div class="conv-pager">
-        <el-pagination background layout="total, sizes, prev, pager, next, jumper"
+        <el-pagination
+background layout="total, sizes, prev, pager, next, jumper"
                        :total="ragTotal" :page-size="ragSize" :current-page="ragPage"
                        :page-sizes="[10, 20, 50, 100]"
                        @current-change="onPageChange" @size-change="onSizeChange"></el-pagination>
@@ -85,7 +88,8 @@
             <div v-if="msg.role === 'user'" class="history-msg-content">
               <div v-if="msg.bodyText" class="history-msg-text">{{ msg.bodyText }}</div>
               <div v-if="msg.images && msg.images.length" class="message-image-grid">
-                <el-image v-for="(img, ii) in msg.images" :key="ii" :src="imageUrl(img)"
+                <el-image
+v-for="(img, ii) in msg.images" :key="ii" :src="imageUrl(img)"
                           :preview-src-list="msg.images.map(imageUrl)" :initial-index="ii"
                           fit="cover" hide-on-click-modal preview-teleported class="history-image">
                   <template #error><div class="history-image-broken">图片不可用</div></template>

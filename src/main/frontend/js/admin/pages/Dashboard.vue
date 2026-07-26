@@ -1,12 +1,12 @@
 <template>
   <admin-shell active="dashboard" @ready="onReady">
     <template #header-actions>
-      <el-button text @click="loadAll" :loading="loading">刷新</el-button>
+      <el-button text :loading="loading" @click="loadAll">刷新</el-button>
     </template>
 
-    <div class="view-wrap" v-loading="loading">
+    <div v-loading="loading" class="view-wrap">
       <el-row :gutter="16">
-        <el-col :span="6" v-for="kpi in kpis" :key="kpi.label">
+        <el-col v-for="kpi in kpis" :key="kpi.label" :span="6">
           <el-card class="kpi-card" shadow="hover">
             <div class="kpi-value">{{ kpi.value }}</div>
             <div class="kpi-label">{{ kpi.label }}</div>
@@ -30,7 +30,7 @@
       </el-card>
 
       <el-row :gutter="16" class="mt16">
-        <el-col :span="8" v-for="dist in distributions" :key="dist.title">
+        <el-col v-for="dist in distributions" :key="dist.title" :span="8">
           <el-card shadow="never">
             <div class="section-title">{{ dist.title }}</div>
             <el-table :data="dist.rows" size="small" :show-header="false" empty-text="无数据">

@@ -1,26 +1,28 @@
 <template>
   <admin-shell active="harness" @ready="loadRuns">
     <template #header-actions>
-      <el-button text @click="refreshSelected" :loading="loadingRuns || loadingDetail">刷新</el-button>
-      <el-button type="primary" size="small" @click="openCreate" data-test="harness-create-run">
+      <el-button text :loading="loadingRuns || loadingDetail" @click="refreshSelected">刷新</el-button>
+      <el-button type="primary" size="small" data-test="harness-create-run" @click="openCreate">
         新建 Run
       </el-button>
     </template>
 
     <div class="view-wrap harness-view">
-      <el-alert v-if="!apiAvailable" type="warning" :closable="false" show-icon
+      <el-alert
+v-if="!apiAvailable" type="warning" :closable="false" show-icon
                 title="Harness Feature Flag 当前关闭"
                 description="设置 AGENT_HARNESS_ENABLED=true 并重启服务后才会装配管理 API；默认关闭不会删除既有 Run、Artifact 或审计数据。">
       </el-alert>
 
       <template v-else>
-        <el-alert type="info" :closable="false" show-icon class="harness-boundary-alert"
+        <el-alert
+type="info" :closable="false" show-icon class="harness-boundary-alert"
                   title="MVP 安全边界：仅 local、单 Codex Runtime、只读 MCP"
                   description="test / production 部署明确禁止；部署失败不会自动 rollback，重启后不确定的外部动作不会自动重放，必须人工对账。Harness 默认由 Feature Flag 关闭。">
         </el-alert>
 
         <div class="harness-layout">
-          <el-card shadow="never" class="harness-run-panel" v-loading="loadingRuns">
+          <el-card v-loading="loadingRuns" shadow="never" class="harness-run-panel">
             <template #header>
               <div class="harness-card-header">
                 <span>Run 列表</span>
@@ -29,26 +31,31 @@
             </template>
             <div class="harness-run-toolbar">
               <div class="harness-run-filters">
-                <span v-for="opt in runFilterOptions" :key="opt.value"
+                <span
+v-for="opt in runFilterOptions" :key="opt.value"
                       class="harness-run-filter-chip"
                       :class="{ active: runFilter === opt.value }"
                       :data-test="'harness-run-filter-' + opt.value"
                       @click="runFilter = opt.value">{{ opt.label }}</span>
               </div>
-              <el-input v-if="runSearchOpen" v-model="runSearch" size="small" clearable
+              <el-input
+v-if="runSearchOpen" v-model="runSearch" size="small" clearable
                         placeholder="按标题或 Run ID 搜索"
                         data-test="harness-run-search"></el-input>
-              <el-button v-else text size="small" @click="runSearchOpen = true"
-                         data-test="harness-run-search-toggle">搜索</el-button>
+              <el-button
+v-else text size="small" data-test="harness-run-search-toggle"
+                         @click="runSearchOpen = true">搜索</el-button>
             </div>
             <el-empty v-if="filteredRuns.length === 0" description="暂无匹配的 Harness Run"></el-empty>
-            <button v-for="run in filteredRuns" :key="run.runId" type="button"
+            <button
+v-for="run in filteredRuns" :key="run.runId" type="button"
                     class="harness-run-item"
                     :class="{ selected: selectedRun && selectedRun.runId === run.runId }"
                     :data-run-id="run.runId" data-test="harness-run-row"
                     @click="loadRun(run.runId)">
               <span class="harness-run-item-row">
-                <span class="harness-run-stage-dot" :class="runStageDotClass(run)"
+                <span
+class="harness-run-stage-dot" :class="runStageDotClass(run)"
                       :title="stageMeta(run.status).label"></span>
                 <span class="harness-run-title">{{ run.title }}</span>
               </span>
@@ -58,7 +65,7 @@
             </button>
           </el-card>
 
-          <div class="harness-detail-panel" v-loading="loadingDetail">
+          <div v-loading="loadingDetail" class="harness-detail-panel">
             <el-empty v-if="!selectedRun" description="选择或创建一个 Run 开始"></el-empty>
             <template v-else>
               <el-card shadow="never" class="harness-summary-card">
@@ -70,12 +77,14 @@
                   <div class="harness-title-actions">
                     <el-tag>{{ selectedRun.status }}</el-tag>
                     <el-tag type="success">local</el-tag>
-                    <a v-if="finalReport" :href="reportUrl()" target="_blank" rel="noopener"
+                    <a
+v-if="finalReport" :href="reportUrl()" target="_blank" rel="noopener"
                        data-test="harness-final-report">
                       <el-button type="success" size="small">最终报告</el-button>
                     </a>
-                    <el-button type="danger" plain size="small" @click="cancelRun"
-                               :loading="actionLoading">取消 Run</el-button>
+                    <el-button
+type="danger" plain size="small" :loading="actionLoading"
+                               @click="cancelRun">取消 Run</el-button>
                   </div>
                 </div>
 
@@ -113,7 +122,8 @@
 
               <div class="harness-stepper" data-test="harness-stage-strip">
                 <div v-for="(item, idx) in selectedRun.stages" :key="item.stage" class="harness-step-wrap">
-                  <button type="button"
+                  <button
+type="button"
                           class="harness-step-card"
                           :class="[
                             'status-' + item.status.toLowerCase().replace(/_/g, '-'),
@@ -128,16 +138,17 @@
                       <div class="harness-step-name">{{ stageLabel(item.stage) }}</div>
                       <div class="harness-step-status">
                         {{ stageMeta(item.status).label }}
-                        <span class="harness-step-attempt" v-if="stageAttemptNumber(item)">
+                        <span v-if="stageAttemptNumber(item)" class="harness-step-attempt">
                           · Attempt {{ stageAttemptNumber(item) }}
                         </span>
                       </div>
-                      <div class="harness-step-summary" v-if="stageSummary(item)">
+                      <div v-if="stageSummary(item)" class="harness-step-summary">
                         {{ stageSummary(item) }}
                       </div>
                     </div>
                   </button>
-                  <div v-if="idx < selectedRun.stages.length - 1"
+                  <div
+v-if="idx < selectedRun.stages.length - 1"
                        class="harness-step-connector"
                        :class="{
                          'is-active': isConnectorActive(idx),
@@ -156,29 +167,35 @@
                     </span>
                   </div>
                   <div class="harness-action-row">
-                    <el-button v-if="canStartStage" type="primary" size="small"
+                    <el-button
+v-if="canStartStage" type="primary" size="small"
                                data-test="harness-stage-start" :loading="actionLoading"
                                @click="startStage">启动阶段</el-button>
-                    <el-button v-if="canRetryStage" type="warning" plain size="small"
+                    <el-button
+v-if="canRetryStage" type="warning" plain size="small"
                                data-test="harness-stage-retry" :loading="actionLoading"
                                @click="retryStage">新 Attempt 重试</el-button>
-                    <el-button v-if="canOperateRunningStage" size="small"
+                    <el-button
+v-if="canOperateRunningStage" size="small"
                                data-test="harness-ask-question" @click="openQuestion">
                       登记问题
                     </el-button>
                   </div>
                 </div>
 
-                <el-alert v-if="selectedAttempt && selectedAttempt.failureReason" type="error"
+                <el-alert
+v-if="selectedAttempt && selectedAttempt.failureReason" type="error"
                           :closable="false" show-icon class="mt16"
                           :title="'Attempt 失败：' + selectedAttempt.failureReason">
                 </el-alert>
-                <el-alert v-for="failure in gateFailures" :key="failure" type="error"
+                <el-alert
+v-for="failure in gateFailures" :key="failure" type="error"
                           :closable="false" show-icon class="mt16" :title="failure"
                           data-test="harness-gate-failure">
                 </el-alert>
 
-                <section class="harness-conversation" v-loading="conversationLoading"
+                <section
+v-loading="conversationLoading" class="harness-conversation"
                          data-test="harness-conversation-workspace">
                   <div class="harness-conversation-header">
                     <div class="section-title">与 Codex 协作</div>
@@ -187,15 +204,17 @@
                     </el-tag>
                   </div>
 
-                  <div class="harness-conversation-feed" ref="conversationFeed">
-                    <div v-if="stageConversationMessages.length === 0"
+                  <div ref="conversationFeed" class="harness-conversation-feed">
+                    <div
+v-if="stageConversationMessages.length === 0"
                          class="harness-message assistant">
                       <div class="harness-message-meta">Codex · {{ stageLabel(selectedStage.stage) }}</div>
                       <div class="harness-message-content">
                         在这里输入本阶段目标即可。系统会自动选择阶段 Skill、固化能力快照并使用本机 Codex CLI 执行。
                       </div>
                     </div>
-                    <div v-for="message in stageConversationMessages" :key="message.messageId"
+                    <div
+v-for="message in stageConversationMessages" :key="message.messageId"
                          class="harness-message"
                          :class="message.role === 'USER' ? 'user' : 'assistant'"
                          :data-test="'harness-conversation-' + message.role.toLowerCase()">
@@ -207,7 +226,8 @@
                         </el-tag>
                       </div>
                       <!-- Artifact 消息：卡片化（可折叠 + Markdown） -->
-                      <div v-if="isArtifactMessage(message)" class="harness-artifact-card"
+                      <div
+v-if="isArtifactMessage(message)" class="harness-artifact-card"
                            :data-test="'harness-conversation-artifact-' + message.artifactType.toLowerCase()">
                         <div class="harness-artifact-header">
                           <span class="harness-artifact-icon">
@@ -215,25 +235,30 @@
                           </span>
                           <span class="harness-artifact-type">{{ artifactTypeLabel(message) }}</span>
                           <span v-if="messageArtifact(message)" class="harness-artifact-version">v{{ messageArtifact(message).version }}</span>
-                          <span class="harness-artifact-toggle"
+                          <span
+class="harness-artifact-toggle"
                                 @click="artifactCollapsed[message.messageId] = !artifactCollapsed[message.messageId]">
                             {{ artifactCollapsed[message.messageId] ? '展开' : '收起' }}
                           </span>
                         </div>
-                        <div class="harness-artifact-body"
+                        <div
+class="harness-artifact-body"
                              :class="{ 'is-collapsed': artifactCollapsed[message.messageId] }"
                              v-html="renderArtifactContent(message.content, message.contentType)"></div>
                         <div v-if="messageArtifact(message)" class="harness-artifact-footer">
-                          <code v-if="messageArtifact(message).sha256"
+                          <code
+v-if="messageArtifact(message).sha256"
                                 :title="messageArtifact(message).sha256">{{ shortHash(messageArtifact(message).sha256) }}</code>
                           <a :href="artifactUrl(messageArtifact(message))" target="_blank" rel="noopener">下载原文</a>
                         </div>
                       </div>
                       <!-- 普通消息：Markdown 气泡 -->
-                      <div v-else class="harness-message-content harness-message-md"
+                      <div
+v-else class="harness-message-content harness-message-md"
                            v-html="renderMarkdown(message.content)"></div>
                     </div>
-                    <div v-if="runtimeBusy" class="harness-message assistant working"
+                    <div
+v-if="runtimeBusy" class="harness-message assistant working"
                          data-test="harness-conversation-running">
                       <div class="harness-message-meta">Codex · Attempt {{ selectedAttempt ? selectedAttempt.number : '-' }}</div>
                       <div class="harness-message-content harness-working-line">
@@ -244,62 +269,73 @@
                   </div>
 
                   <div v-if="selectedStage.status === 'WAITING_INPUT'" class="harness-inline-questions">
-                    <el-alert type="warning" :closable="false" show-icon
+                    <el-alert
+type="warning" :closable="false" show-icon
                               title="Codex 正在等待补充信息；请先回答问题，再继续修改。">
                     </el-alert>
-                    <div v-for="question in unansweredQuestions"
+                    <div
+v-for="question in unansweredQuestions"
                          :key="question.questionId" class="harness-question-card mt16"
                          data-test="harness-question">
                       <strong>{{ question.question }}</strong>
                       <div class="harness-answer-form">
-                        <el-input v-model="answerDrafts[question.questionId]" type="textarea" :rows="3"
+                        <el-input
+v-model="answerDrafts[question.questionId]" type="textarea" :rows="3"
                                   placeholder="输入给 Codex 的回答"></el-input>
-                        <el-button type="primary" size="small" @click="answerQuestion(question)"
-                                   data-test="harness-answer-question"
-                                   :loading="actionLoading">提交回答</el-button>
+                        <el-button
+type="primary" size="small" data-test="harness-answer-question"
+                                   :loading="actionLoading"
+                                   @click="answerQuestion(question)">提交回答</el-button>
                       </div>
                     </div>
                   </div>
 
                   <div class="harness-conversation-composer">
-                    <el-input v-model="conversationDraft" type="textarea" :rows="4"
+                    <el-input
+v-model="conversationDraft" type="textarea" :rows="4"
                               resize="none" maxlength="20000" show-word-limit
                               data-test="harness-conversation-input"
                               :disabled="!canSendConversation || actionLoading"
-                              @keydown.enter="onComposerEnter"
-                              placeholder="例如：请把缓存一致性改为版本号校验，并补充并发测试。Ctrl+Enter 发送，Enter 换行。">
+                              placeholder="例如：请把缓存一致性改为版本号校验，并补充并发测试。Ctrl+Enter 发送，Enter 换行。"
+                              @keydown.enter="onComposerEnter">
                     </el-input>
                     <div class="harness-composer-actions">
                       <span class="muted-text">{{ conversationHint }}</span>
-                      <el-button type="primary" @click="sendConversation"
-                                 data-test="harness-send-conversation"
+                      <el-button
+type="primary" data-test="harness-send-conversation"
                                  :disabled="!canSendConversation || !conversationDraft.trim()"
-                                 :loading="actionLoading">
+                                 :loading="actionLoading"
+                                 @click="sendConversation">
                         {{ selectedAttempt ? '发送修改并重新执行' : '发送并开始' }}
                       </el-button>
                     </div>
                   </div>
 
-                  <div v-if="canValidateConversation || canDecideApproval"
+                  <div
+v-if="canValidateConversation || canDecideApproval"
                        class="harness-conversation-next">
                     <div class="harness-action-row">
-                      <el-button v-if="canValidateConversation" type="primary" plain size="small"
+                      <el-button
+v-if="canValidateConversation" type="primary" plain size="small"
                                  data-test="harness-validate-conversation"
                                  :loading="actionLoading" @click="validateAndRequestApproval">
                         校验并请求批准
                       </el-button>
-                      <el-button v-if="canDecideApproval" type="success" size="small"
+                      <el-button
+v-if="canDecideApproval" type="success" size="small"
                                  data-test="harness-approve"
                                  @click="openApproval('approve')">批准并进入下一阶段</el-button>
-                      <el-button v-if="canDecideApproval" type="danger" plain size="small"
+                      <el-button
+v-if="canDecideApproval" type="danger" plain size="small"
                                  data-test="harness-reject"
                                  @click="openApproval('reject')">拒绝</el-button>
                     </div>
                   </div>
                 </section>
 
-                <div class="harness-audit-toggle" @click="auditExpanded = !auditExpanded"
-                     data-test="harness-audit-toggle">
+                <div
+class="harness-audit-toggle" data-test="harness-audit-toggle"
+                     @click="auditExpanded = !auditExpanded">
                   <span class="harness-audit-toggle-icon" :class="{ expanded: auditExpanded }">&#9654;</span>
                   <span class="harness-audit-toggle-text">
                     {{ auditExpanded ? '收起' : '展开' }}审计与高级操作
@@ -312,29 +348,35 @@
                     <el-tabs class="harness-audit-tabs">
                       <!-- Tab 1: 能力快照 -->
                       <el-tab-pane label="能力快照">
-                        <el-alert type="info" :closable="false" show-icon
+                        <el-alert
+type="info" :closable="false" show-icon
                                   title="上游 Artifact 由服务端按已批准版本自动装配，客户端不能提交或覆盖正文。">
                         </el-alert>
 
                         <div class="harness-action-row mt16">
-                          <el-button type="primary" size="small" @click="openCapabilityPanel = true"
-                                     data-test="harness-resolve-snapshot"
+                          <el-button
+type="primary" size="small" data-test="harness-resolve-snapshot"
                                      :disabled="!canOperateRunningStage || !!runtime"
-                                     :loading="snapshotLoading">固化 Capability Snapshot</el-button>
-                          <el-button type="success" size="small" @click="launchRuntime"
-                                     data-test="harness-launch-runtime"
+                                     :loading="snapshotLoading"
+                                     @click="openCapabilityPanel = true">固化 Capability Snapshot</el-button>
+                          <el-button
+type="success" size="small" data-test="harness-launch-runtime"
                                      :disabled="!canOperateRunningStage || !snapshot || !!runtime"
-                                     :loading="actionLoading">启动 Codex Runtime</el-button>
+                                     :loading="actionLoading"
+                                     @click="launchRuntime">启动 Codex Runtime</el-button>
                         </div>
 
-                        <el-dialog v-model="openCapabilityPanel" title="配置并固化 Capability Snapshot"
+                        <el-dialog
+v-model="openCapabilityPanel" title="配置并固化 Capability Snapshot"
                                    :width="isMobile ? '96%' : '720px'" :close-on-click-modal="false">
-                          <el-alert type="info" :closable="false" show-icon
+                          <el-alert
+type="info" :closable="false" show-icon
                                     title="这些参数用于解析阶段能力快照；快照一经固化即不可变。">
                           </el-alert>
                           <el-form label-position="top" size="small" class="mt16">
                             <el-form-item label="当前阶段输入 / 补充指令">
-                              <el-input v-model="capabilityForm.currentInput" type="textarea" :rows="4"
+                              <el-input
+v-model="capabilityForm.currentInput" type="textarea" :rows="4"
                                         data-test="harness-current-input"
                                         placeholder="描述本 Attempt 的当前任务；已批准上游 Artifact 会由服务端自动加入 Prompt。">
                               </el-input>
@@ -390,9 +432,10 @@
                             </el-row>
                           </el-form>
                           <template #footer>
-                            <el-button @click="openCapabilityPanel = false" :disabled="snapshotLoading">取消</el-button>
-                            <el-button type="primary" @click="confirmResolveSnapshot" :loading="snapshotLoading"
-                                       data-test="harness-confirm-snapshot">
+                            <el-button :disabled="snapshotLoading" @click="openCapabilityPanel = false">取消</el-button>
+                            <el-button
+type="primary" :loading="snapshotLoading" data-test="harness-confirm-snapshot"
+                                       @click="confirmResolveSnapshot">
                               固化 Snapshot
                             </el-button>
                           </template>
@@ -460,7 +503,8 @@
                             <el-descriptions-item label="Evidence">{{ runtime.evidenceReference || '-' }}</el-descriptions-item>
                             <el-descriptions-item label="Cleanup">{{ runtime.cleanupStatus || '-' }}</el-descriptions-item>
                           </el-descriptions>
-                          <el-alert v-if="reconciliationMessage(runtime.status)" type="warning"
+                          <el-alert
+v-if="reconciliationMessage(runtime.status)" type="warning"
                                     :closable="false" show-icon class="mt16"
                                     :title="reconciliationMessage(runtime.status)">
                           </el-alert>
@@ -524,12 +568,14 @@
                         <!-- 手动操作（逃生口）：主流程用对话区底部的「校验并请求批准」；
                              此处仅用于单独触发 Gate 或请求批准，便于排障。批准/拒绝只在对话区底部。 -->
                         <div class="harness-audit-actions">
-                          <el-button size="small" text type="primary" @click="runGates"
-                                     data-test="harness-run-gates" :disabled="!canOperateRunningStage"
-                                     :loading="actionLoading">手动执行全部 Gate</el-button>
-                          <el-button size="small" text type="primary" @click="requestApproval"
-                                     data-test="harness-request-approval" :disabled="!canOperateRunningStage"
-                                     :loading="actionLoading">手动请求批准</el-button>
+                          <el-button
+size="small" text type="primary" data-test="harness-run-gates"
+                                     :disabled="!canOperateRunningStage" :loading="actionLoading"
+                                     @click="runGates">手动执行全部 Gate</el-button>
+                          <el-button
+size="small" text type="primary" data-test="harness-request-approval"
+                                     :disabled="!canOperateRunningStage" :loading="actionLoading"
+                                     @click="requestApproval">手动请求批准</el-button>
                         </div>
                       </el-tab-pane>
 
@@ -537,7 +583,8 @@
                       <el-tab-pane label="审计追踪">
                         <div class="section-title">补充输入</div>
                         <el-empty v-if="currentQuestions.length === 0" description="当前 Attempt 没有补充问题" size="small"></el-empty>
-                        <div v-for="question in currentQuestions" :key="question.questionId"
+                        <div
+v-for="question in currentQuestions" :key="question.questionId"
                              class="harness-question-card" data-test="harness-audit-question">
                           <div class="harness-card-header">
                             <strong>{{ question.question }}</strong>
@@ -551,24 +598,29 @@
                             <div class="muted-text">由 {{ question.answeredBy }} 回答于 {{ fmtTime(question.answeredAt) }}</div>
                           </template>
                           <div v-else class="harness-answer-form">
-                            <el-input v-model="answerDrafts[question.questionId]" type="textarea" :rows="3"
+                            <el-input
+v-model="answerDrafts[question.questionId]" type="textarea" :rows="3"
                                       placeholder="输入补充答案"></el-input>
-                            <el-button type="primary" size="small" @click="answerQuestion(question)"
-                                       data-test="harness-audit-answer-question" :loading="actionLoading">提交回答</el-button>
+                            <el-button
+type="primary" size="small" data-test="harness-audit-answer-question"
+                                       :loading="actionLoading" @click="answerQuestion(question)">提交回答</el-button>
                           </div>
                         </div>
 
                         <div class="section-title mt16">部署执行
                           <el-tag size="small" type="warning" style="margin-left: 8px;">DEPLOYMENT 阶段</el-tag>
                         </div>
-                        <el-alert v-if="selectedStageName !== 'DEPLOYMENT'" type="info" :closable="false"
+                        <el-alert
+v-if="selectedStageName !== 'DEPLOYMENT'" type="info" :closable="false"
                                   title="切换到 DEPLOYMENT 阶段后才能执行本机部署。" size="small">
                         </el-alert>
                         <template v-else>
-                          <el-alert type="warning" :closable="false" show-icon size="small"
+                          <el-alert
+type="warning" :closable="false" show-icon size="small"
                                     title="只允许 local 部署；test / production 被服务端拒绝；首版不自动 rollback。">
                           </el-alert>
-                          <el-descriptions v-if="deploymentReadiness" :column="isMobile ? 1 : 3"
+                          <el-descriptions
+v-if="deploymentReadiness" :column="isMobile ? 1 : 3"
                                            border size="small" class="mt16">
                             <el-descriptions-item label="输入基线 Hash">
                               <code :title="deploymentReadiness.inputBaselineHash">
@@ -583,13 +635,15 @@
                             </el-descriptions-item>
                           </el-descriptions>
                           <div class="harness-action-row mt16">
-                            <el-button type="warning" size="small" @click="approveDeployment"
-                                       data-test="harness-deployment-approval"
+                            <el-button
+type="warning" size="small" data-test="harness-deployment-approval"
                                        :disabled="!deploymentReadiness || deploymentReadiness.approved"
-                                       :loading="actionLoading">独立批准 local 部署</el-button>
-                            <el-button type="primary" size="small" @click="openDeployment"
-                                       data-test="harness-start-deployment"
-                                       :disabled="!canStartDeployment" :loading="actionLoading">
+                                       :loading="actionLoading"
+                                       @click="approveDeployment">独立批准 local 部署</el-button>
+                            <el-button
+type="primary" size="small" data-test="harness-start-deployment"
+                                       :disabled="!canStartDeployment"
+                                       :loading="actionLoading" @click="openDeployment">
                               使用模板部署
                             </el-button>
                           </div>
@@ -609,7 +663,8 @@
                             <el-table-column prop="failureReason" label="失败原因" min-width="220"></el-table-column>
                             <el-table-column label="操作" width="100">
                               <template #default="{ row }">
-                                <el-button v-if="row.status === 'RECONCILIATION_REQUIRED'" text type="warning"
+                                <el-button
+v-if="row.status === 'RECONCILIATION_REQUIRED'" text type="warning"
                                            size="small" data-test="harness-reconcile-deployment"
                                            @click="reconcileDeployment(row)">人工对账</el-button>
                               </template>
@@ -619,7 +674,8 @@
 
                         <div class="section-title mt16">事件时间线</div>
                         <el-timeline>
-                          <el-timeline-item v-for="event in events" :key="event.sequence"
+                          <el-timeline-item
+v-for="event in events" :key="event.sequence"
                                             :timestamp="fmtTime(event.occurredAt)" placement="top">
                             <div class="harness-event-title">
                               #{{ event.sequence }} {{ event.eventType }}
@@ -639,9 +695,11 @@
         </template>
       </div>
 
-      <el-dialog v-model="createOpen" title="新建 Harness Run"
+      <el-dialog
+v-model="createOpen" title="新建 Harness Run"
                  :width="isMobile ? '96%' : '720px'" :close-on-click-modal="false">
-        <el-alert type="info" :closable="false" show-icon
+        <el-alert
+type="info" :closable="false" show-icon
                   title="原始需求创建后立即冻结为 ORIGINAL_REQUIREMENT Artifact；后续阶段只能消费服务端批准版本。">
         </el-alert>
         <el-form label-position="top" size="small" class="mt16">
@@ -649,7 +707,8 @@
             <el-input v-model="createForm.title" data-test="harness-create-title"></el-input>
           </el-form-item>
           <el-form-item label="Git 工作目录">
-            <el-autocomplete v-model="createForm.workingDir" style="width: 100%"
+            <el-autocomplete
+v-model="createForm.workingDir" style="width: 100%"
                              :fetch-suggestions="queryWorkingDir"
                              data-test="harness-create-working-dir"
                              placeholder="可从历史 Run 联想，或手动输入绝对路径"></el-autocomplete>
@@ -669,11 +728,13 @@
           <el-form-item>
             <template #label>
               <span>原始需求</span>
-              <el-button text type="primary" size="small" style="margin-left: 8px;"
+              <el-button
+text type="primary" size="small" style="margin-left: 8px;"
                          data-test="harness-insert-template"
                          @click="insertRequirementTemplate">插入需求模板</el-button>
             </template>
-            <el-input v-model="createForm.originalRequirement" type="textarea" :rows="8"
+            <el-input
+v-model="createForm.originalRequirement" type="textarea" :rows="8"
                       data-test="harness-create-requirement"
                       placeholder="建议包含背景、目标、验收标准、范围。可点击「插入需求模板」快速开始。"></el-input>
             <div class="muted-text" style="font-size: 12px; margin-top: 4px;">
@@ -682,28 +743,33 @@
           </el-form-item>
         </el-form>
         <template #footer>
-          <el-button @click="createOpen = false" :disabled="actionLoading">取消</el-button>
-          <el-button type="primary" @click="createRun" :loading="actionLoading"
-                     data-test="harness-submit-create">创建</el-button>
+          <el-button :disabled="actionLoading" @click="createOpen = false">取消</el-button>
+          <el-button
+type="primary" :loading="actionLoading" data-test="harness-submit-create"
+                     @click="createRun">创建</el-button>
         </template>
       </el-dialog>
 
-      <el-dialog v-model="previewOpen" :title="previewTitle || 'Artifact 正文'"
+      <el-dialog
+v-model="previewOpen" :title="previewTitle || 'Artifact 正文'"
                  :width="isMobile ? '96%' : '720px'" :close-on-click-modal="false">
-        <div v-loading="previewLoading" class="harness-artifact-preview"
+        <div
+v-loading="previewLoading" class="harness-artifact-preview"
              v-html="renderArtifactContent(previewContent, previewContentType)"></div>
         <template #footer>
           <el-button @click="previewOpen = false">关闭</el-button>
         </template>
       </el-dialog>
 
-      <el-dialog v-model="approvalOpen"
+      <el-dialog
+v-model="approvalOpen"
                  :title="approvalDecision === 'approve' ? '批准当前 Artifact 基线' : '拒绝当前 Artifact 基线'"
                  :width="isMobile ? '96%' : '560px'" :close-on-click-modal="false">
         <div v-if="selectedStage" class="mono-text">
           {{ selectedStage.stage }} · {{ selectedStage.artifactBaselineHash }}
         </div>
-        <div v-loading="approvalArtifactLoading" v-if="approvalArtifactContent"
+        <div
+v-if="approvalArtifactContent" v-loading="approvalArtifactLoading"
              class="harness-artifact-preview mt16"
              v-html="renderArtifactContent(approvalArtifactContent, approvalArtifactContentType)"></div>
         <el-form label-position="top" size="small" class="mt16">
@@ -712,14 +778,16 @@
           </el-form-item>
         </el-form>
         <template #footer>
-          <el-button @click="approvalOpen = false" :disabled="actionLoading">取消</el-button>
-          <el-button :type="approvalDecision === 'approve' ? 'success' : 'danger'"
-                     @click="submitApproval" :loading="actionLoading"
-                     data-test="harness-submit-approval">提交</el-button>
+          <el-button :disabled="actionLoading" @click="approvalOpen = false">取消</el-button>
+          <el-button
+:type="approvalDecision === 'approve' ? 'success' : 'danger'"
+                     :loading="actionLoading" data-test="harness-submit-approval"
+                     @click="submitApproval">提交</el-button>
         </template>
       </el-dialog>
 
-      <el-dialog v-model="questionOpen" title="登记当前 Attempt 补充问题"
+      <el-dialog
+v-model="questionOpen" title="登记当前 Attempt 补充问题"
                  :width="isMobile ? '96%' : '620px'" :close-on-click-modal="false">
         <el-form label-position="top" size="small">
           <el-form-item label="问题 ID">
@@ -733,14 +801,16 @@
           </el-form-item>
         </el-form>
         <template #footer>
-          <el-button @click="questionOpen = false" :disabled="actionLoading">取消</el-button>
-          <el-button type="primary" @click="submitQuestion" :loading="actionLoading">提交</el-button>
+          <el-button :disabled="actionLoading" @click="questionOpen = false">取消</el-button>
+          <el-button type="primary" :loading="actionLoading" @click="submitQuestion">提交</el-button>
         </template>
       </el-dialog>
 
-      <el-dialog v-model="deploymentOpen" title="执行受控 local 部署"
+      <el-dialog
+v-model="deploymentOpen" title="执行受控 local 部署"
                  :width="isMobile ? '96%' : '620px'" :close-on-click-modal="false">
-        <el-alert type="warning" :closable="false" show-icon
+        <el-alert
+type="warning" :closable="false" show-icon
                   title="命令只能来自管理员注册的模板；页面不接受任意 Shell。">
         </el-alert>
         <el-form label-position="top" size="small" class="mt16">
@@ -752,9 +822,10 @@
           </el-form-item>
         </el-form>
         <template #footer>
-          <el-button @click="deploymentOpen = false" :disabled="actionLoading">取消</el-button>
-          <el-button type="primary" @click="startDeployment" :loading="actionLoading"
-                     data-test="harness-submit-deployment">开始部署</el-button>
+          <el-button :disabled="actionLoading" @click="deploymentOpen = false">取消</el-button>
+          <el-button
+type="primary" :loading="actionLoading" data-test="harness-submit-deployment"
+                     @click="startDeployment">开始部署</el-button>
         </template>
       </el-dialog>
     </admin-shell>

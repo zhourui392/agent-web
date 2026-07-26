@@ -31,9 +31,9 @@ export function bootstrapAdminApp(rootOptions, opts) {
   const options = opts || {};
   const app = createApp(rootOptions);
   setupElementPlus(app);
-  app.component('admin-shell', AdminShell);
+  app.component('AdminShell', AdminShell);
   if (options.chatPanel) {
-    app.component('chat-panel', options.chatPanel);
+    app.component('ChatPanel', options.chatPanel);
   }
   app.mount('#app');
   return app;

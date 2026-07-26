@@ -5,27 +5,30 @@
       <div class="chat-header-title"></div>
       <div v-if="canFeedback" class="feedback-bar">
         <span class="feedback-label">分析评价</span>
-        <button type="button" class="feedback-chip feedback-chip--correct"
+        <button
+type="button" class="feedback-chip feedback-chip--correct"
                 :class="{ active: feedback.rating === 'CORRECT' }"
-                @click="setRating('CORRECT')" title="分析正确">✓ 正确</button>
-        <button type="button" class="feedback-chip feedback-chip--partial"
+                title="分析正确" @click="setRating('CORRECT')">✓ 正确</button>
+        <button
+type="button" class="feedback-chip feedback-chip--partial"
                 :class="{ active: feedback.rating === 'PARTIALLY_CORRECT' }"
-                @click="setRating('PARTIALLY_CORRECT')" title="分析部分正确">~ 部分正确</button>
-        <button type="button" class="feedback-chip feedback-chip--incorrect"
+                title="分析部分正确" @click="setRating('PARTIALLY_CORRECT')">~ 部分正确</button>
+        <button
+type="button" class="feedback-chip feedback-chip--incorrect"
                 :class="{ active: feedback.rating === 'INCORRECT' }"
-                @click="setRating('INCORRECT')" title="分析错误">✗ 错误</button>
-        <el-button size="small" text type="primary" @click="openFeedbackDialog" title="补充文字说明">
+                title="分析错误" @click="setRating('INCORRECT')">✗ 错误</button>
+        <el-button size="small" text type="primary" title="补充文字说明" @click="openFeedbackDialog">
           <el-icon><edit-pen /></el-icon>
           <span>{{ feedback.comment ? '说明·已填' : '补充说明' }}</span>
         </el-button>
       </div>
-      <el-button v-if="canShare" size="small" text type="primary" @click="shareSession" title="分享会话">
+      <el-button v-if="canShare" size="small" text type="primary" title="分享会话" @click="shareSession">
         <el-icon><share /></el-icon>
         <span>分享</span>
       </el-button>
     </div>
     <!-- 聊天消息区 -->
-    <div class="chat-messages" ref="chatContainer">
+    <div ref="chatContainer" class="chat-messages">
       <MessageItem
         v-for="(msg, index) in messages"
         :key="msg.id != null ? 'm-' + msg.id : 'tmp-' + index"
@@ -50,7 +53,7 @@
         @select="selectCommand"
       />
       <PendingImageList :images="pendingImages" @remove="removePendingImage" />
-      <div class="pending-file-card" v-if="pendingFile">
+      <div v-if="pendingFile" class="pending-file-card">
         <el-icon><document /></el-icon>
         <span class="pending-file-name" :title="pendingFile.name">{{ pendingFile.name }}</span>
         <span class="pending-file-size">{{ formatChatFileSize(pendingFile.size) }}</span>
@@ -61,16 +64,16 @@
         type="textarea"
         :rows="3"
         placeholder="输入你的问题，例如：traceId: xxx，问题描述"
-        @keydown.enter.exact.prevent="handleEnter" @keydown.up.prevent="handleArrowUp" @keydown.down.prevent="handleArrowDown" @keydown.tab.prevent="handleTab" @keydown.escape="hideCommandPopup"
+        :disabled="!workingDir" @keydown.enter.exact.prevent="handleEnter" @keydown.up.prevent="handleArrowUp" @keydown.down.prevent="handleArrowDown" @keydown.tab.prevent="handleTab"
+        @keydown.escape="hideCommandPopup"
         @keydown.ctrl.enter.exact.prevent="insertNewline"
         @paste="handlePaste"
-        :disabled="!workingDir"
       ></el-input>
       <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
         <div style="display: flex; align-items: center; gap: 8px;">
-          <span class="hidden-mobile" style="color: #909399; font-size: 13px;" v-if="workingDir">Enter 发送 | Ctrl+Enter 换行</span>
+          <span v-if="workingDir" class="hidden-mobile" style="color: #909399; font-size: 13px;">Enter 发送 | Ctrl+Enter 换行</span>
           <span v-if="!workingDir" style="color: #E6A23C; font-weight: bold; font-size: 13px;">⚠ 请先选择工作目录</span>
-          <el-button size="small" @click="clearContext" :disabled="!sessionId" plain>
+          <el-button size="small" :disabled="!sessionId" plain @click="clearContext">
             <el-icon><delete /></el-icon>
             <span>清除上下文</span>
           </el-button>
@@ -97,16 +100,17 @@
               <span>{{ pendingFile ? '附件已选' : '附件 (≤5MB)' }}</span>
             </el-button>
           </el-upload>
-          <el-switch v-if="ragEnabled" v-model="ragRecall" size="small"
+          <el-switch
+v-if="ragEnabled" v-model="ragRecall" size="small"
                      active-text="RAG召回" inline-prompt
                      title="开启后每条消息自动召回历史参考拼到提问中"></el-switch>
         </div>
         <div style="display: flex; gap: 8px;">
-          <el-button type="danger" @click="stopSession" v-if="sending" plain>
+          <el-button v-if="sending" type="danger" plain @click="stopSession">
             <el-icon><video-pause /></el-icon>
             <span>停止</span>
           </el-button>
-          <el-button type="primary" @click="sendMessageStream" :loading="sending" :disabled="!workingDir || !userInput.trim()">
+          <el-button type="primary" :loading="sending" :disabled="!workingDir || !userInput.trim()" @click="sendMessageStream">
             <el-icon><connection /></el-icon>
             <span>发送</span>
           </el-button>
@@ -116,7 +120,8 @@
 
     <!-- 分析评价补充说明弹窗 -->
     <el-dialog v-model="feedbackDialogVisible" title="补充反馈说明" :width="isMobile ? '92%' : '460px'" append-to-body>
-      <el-input v-model="feedbackCommentDraft" type="textarea" :rows="5"
+      <el-input
+v-model="feedbackCommentDraft" type="textarea" :rows="5"
                 maxlength="1000" show-word-limit
                 placeholder="描述 AI 分析中哪里不准确、遗漏了什么，或其他改进建议（选填）"></el-input>
       <template #footer>

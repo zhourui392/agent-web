@@ -1,11 +1,12 @@
 <template>
   <div>
     <div v-if="!authed" class="login-wrap">
-      <el-card class="login-card" v-loading="checking">
+      <el-card v-loading="checking" class="login-card">
         <template #header><div style="font-weight:700;">管理后台 · 管理员登录</div></template>
         <div style="color:#606266; font-size:14px;">请使用 ADMIN 账户登录后访问。</div>
         <div v-if="loginError" style="color:#f56c6c; font-size:12px; margin-top:8px;">{{ loginError }}</div>
-        <el-button type="primary" size="large" style="width:100%; margin-top:16px;"
+        <el-button
+type="primary" size="large" style="width:100%; margin-top:16px;"
                    @click="login">前往登录</el-button>
       </el-card>
     </div>

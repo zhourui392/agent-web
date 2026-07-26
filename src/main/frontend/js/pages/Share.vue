@@ -4,7 +4,7 @@
     <div class="share-header">
       <span class="logo">Agent Q&A</span>
       <div style="width: 1px; height: 24px; background: #dcdfe6; flex-shrink: 0;"></div>
-      <span class="session-info" v-if="session">
+      <span v-if="session" class="session-info">
         {{ session.title || '共享对话' }} &middot; {{ formatTime(session.createdAt) }}
       </span>
       <span style="flex: 1;"></span>
@@ -23,7 +23,7 @@
     </div>
 
     <!-- Messages -->
-    <div v-else class="share-body" ref="bodyRef">
+    <div v-else ref="bodyRef" class="share-body">
       <div class="chat-messages" style="padding: 0; background: transparent;">
         <div v-for="(msg, i) in messages" :key="i" class="chat-message">
           <div v-if="msg.role === 'user'" style="display: flex; justify-content: flex-end;">

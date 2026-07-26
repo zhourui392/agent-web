@@ -3,7 +3,8 @@
     <!-- continue-as-chat 内嵌续聊;无交接数据时空态提示 -->
     <div class="chat-view-wrap">
       <el-empty v-if="!chatSessionId" description="从「诊断历史」详情点「继续对话」即可在此续聊" :image-size="120"></el-empty>
-      <chat-panel v-else
+      <chat-panel
+v-else
         :working-dir="chatWorkingDir"
         :agent-type="chatAgentType"
         :initial-session-id="chatSessionId"

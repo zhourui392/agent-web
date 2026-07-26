@@ -1,10 +1,10 @@
 <template>
   <admin-shell active="recall" @ready="onReady">
     <template #header-actions>
-      <el-button text @click="loadAll" :loading="loading">刷新</el-button>
+      <el-button text :loading="loading" @click="loadAll">刷新</el-button>
     </template>
 
-    <div class="view-wrap recall-view" v-loading="loading">
+    <div v-loading="loading" class="view-wrap recall-view">
       <el-collapse class="recall-help">
         <el-collapse-item name="help">
           <template #title>
@@ -70,7 +70,7 @@
       </el-collapse>
 
       <el-row :gutter="16" class="mt16">
-        <el-col :span="6" v-for="kpi in kpis" :key="kpi.label">
+        <el-col v-for="kpi in kpis" :key="kpi.label" :span="6">
           <el-card class="kpi-card" shadow="never">
             <div class="kpi-value">{{ kpi.value }}</div>
             <div class="kpi-label">{{ kpi.label }}</div>
@@ -99,7 +99,8 @@
             <el-option label="PENDING" value="PENDING"></el-option>
             <el-option label="EXPLORATORY" value="EXPLORATORY"></el-option>
           </el-select>
-          <el-date-picker v-model="dateRange" type="datetimerange" range-separator="至"
+          <el-date-picker
+v-model="dateRange" type="datetimerange" range-separator="至"
                           start-placeholder="开始时间" end-placeholder="结束时间"
                           value-format="x" @change="onDateRangeChange"></el-date-picker>
           <div class="recall-filter-actions">
@@ -210,7 +211,8 @@
         </el-table>
 
         <div class="conv-pager">
-          <el-pagination background layout="total, sizes, prev, pager, next, jumper"
+          <el-pagination
+background layout="total, sizes, prev, pager, next, jumper"
                          :total="total" :page-size="pageSize" :current-page="page"
                          :page-sizes="[10, 20, 50, 100]"
                          @current-change="onPageChange" @size-change="onSizeChange"></el-pagination>

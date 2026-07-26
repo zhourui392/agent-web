@@ -4,7 +4,7 @@
     <el-header height="52px" style="padding: 0;">
       <div class="topbar">
         <!-- ① 汉堡菜单（移动端） -->
-        <el-button v-if="isMobile" text @click="sidebarVisible = !sidebarVisible" class="hamburger-btn">
+        <el-button v-if="isMobile" text class="hamburger-btn" @click="sidebarVisible = !sidebarVisible">
           <el-icon size="20"><fold /></el-icon>
         </el-button>
         <!-- ① Logo -->
@@ -12,7 +12,7 @@
         <div class="divider hidden-mobile"></div>
 
         <!-- ②.5 Agent 选择 -->
-        <el-radio-group v-model="agentType" size="small" @change="onAgentTypeChange" :disabled="!!activeSessionId" :class="['hidden-mobile', { 'locked-radio-group': !!activeSessionId }]" style="flex-shrink: 0;">
+        <el-radio-group v-model="agentType" size="small" :disabled="!!activeSessionId" :class="['hidden-mobile', { 'locked-radio-group': !!activeSessionId }]" style="flex-shrink: 0;" @change="onAgentTypeChange">
           <el-radio-button value="CODEX">
             <span :style="{ fontWeight: 700, fontSize: '12px' }">Codex</span>
           </el-radio-button>
@@ -32,7 +32,8 @@
         <!-- ④ 分支标签 -->
           <el-popover v-model:visible="branchPopoverVisible" trigger="click" width="400" placement="bottom-start">
             <template #reference>
-              <el-tag :type="currentBranch ? 'success' : 'warning'"
+              <el-tag
+:type="currentBranch ? 'success' : 'warning'"
                       :effect="currentBranch ? 'light' : 'dark'"
                       :class="{ 'branch-tag-attention': !currentBranch }"
                       style="cursor: pointer; flex-shrink: 0;">
@@ -41,27 +42,31 @@
             </template>
             <!-- 分支切换内容 -->
             <div style="display: flex; align-items: center; gap: 8px;">
-              <el-select v-model="selectedBranch" filterable allow-create default-first-option
+              <el-select
+v-model="selectedBranch" filterable allow-create default-first-option
                          placeholder="选择或输入分支名" style="flex: 1;" clearable
                          :teleported="false" @clear="clearBranch">
                 <el-option v-for="b in branchOptions" :key="b" :label="b" :value="b"></el-option>
               </el-select>
-              <el-button type="primary" size="default" @click="switchBranch"
-                         :loading="switchingBranch" :disabled="!selectedBranch || !currentPath">
+              <el-button
+type="primary" size="default" :loading="switchingBranch"
+                         :disabled="!selectedBranch || !currentPath" @click="switchBranch">
                 切换
               </el-button>
-              <el-button size="default" @click="updateBranch"
-                         :loading="updatingBranch" :disabled="!currentBranch">
+              <el-button
+size="default" :loading="updatingBranch"
+                         :disabled="!currentBranch" @click="updateBranch">
                 更新
               </el-button>
             </div>
             <div v-if="savedBranches.length > 0" style="margin-top: 8px;">
-              <el-tag v-for="b in savedBranches" :key="b" closable size="small"
+              <el-tag
+v-for="b in savedBranches" :key="b" closable size="small"
                       :type="b === currentBranch ? 'success' : 'info'"
                       :effect="b === selectedBranch ? 'dark' : 'light'"
                       :disabled="removingBranch === b"
-                      @close="removeSavedBranch(b)"
                       :style="{ margin: '2px', cursor: 'pointer', outline: b === selectedBranch ? '2px solid #409eff' : 'none' }"
+                      @close="removeSavedBranch(b)"
                       @click="selectedBranch = b">
                 <template v-if="removingBranch === b">
                   <el-icon class="is-loading" style="margin-right: 4px;"><loading /></el-icon>
@@ -138,14 +143,14 @@
         <!-- 召回历史已迁移至管理后台「召回历史」页(/admin/refinery.html);此处只保留聊天内的召回开关 -->
 
         <!-- ⑧ 定时任务按钮 -->
-        <el-button v-if="canUseScheduledTask" @click="taskManagerVisible = true" style="flex-shrink: 0;">
+        <el-button v-if="canUseScheduledTask" style="flex-shrink: 0;" @click="taskManagerVisible = true">
           <el-icon><timer /></el-icon>
           <span class="hidden-mobile">定时任务</span>
-          <el-badge :value="taskList.length" v-if="taskList.length" :offset="[6, -2]" />
+          <el-badge v-if="taskList.length" :value="taskList.length" :offset="[6, -2]" />
         </el-button>
 
         <!-- ⑨ 登出按钮（仅在开启鉴权时显示） -->
-        <el-button v-if="authEnabled" @click="doLogout" style="flex-shrink: 0;" plain>
+        <el-button v-if="authEnabled" style="flex-shrink: 0;" plain @click="doLogout">
           <el-icon><switch-button /></el-icon>
           <span class="hidden-mobile">登出</span>
         </el-button>
@@ -158,7 +163,7 @@
       <el-aside v-if="!isMobile" width="280px">
         <!-- 新对话按钮 -->
         <div class="sidebar-header">
-          <el-button type="primary" @click="newConversation" :loading="starting" :disabled="!currentPath" style="width: 100%;">
+          <el-button type="primary" :loading="starting" :disabled="!currentPath" style="width: 100%;" @click="newConversation">
             <el-icon><plus /></el-icon>
             <span>新对话</span>
           </el-button>
@@ -169,7 +174,7 @@
           <div v-for="(group, gi) in groupedHistory" :key="group.label">
             <div class="history-group-title" style="display: flex; align-items: center; justify-content: space-between;">
               <span>{{ group.label }}</span>
-              <el-button v-if="gi === 0" size="small" text :loading="historyLoading" @click="loadHistory(true)" title="刷新列表" style="padding: 0; height: auto; min-height: 0;">
+              <el-button v-if="gi === 0" size="small" text :loading="historyLoading" title="刷新列表" style="padding: 0; height: auto; min-height: 0;" @click="loadHistory(true)">
                 <el-icon><refresh /></el-icon>
               </el-button>
             </div>
@@ -184,10 +189,10 @@
                   {{ h.workingDir.split('/').pop() }} · {{ h.messageCount }} 条 · {{ formatTime(h.createdAt) }}
                 </div>
               </div>
-              <el-button size="small" text type="primary" @click.stop="resumeHistory(h)" style="flex-shrink: 0; margin-left: 4px;" title="继续对话">
+              <el-button size="small" text type="primary" style="flex-shrink: 0; margin-left: 4px;" title="继续对话" @click.stop="resumeHistory(h)">
                 <el-icon><video-play /></el-icon>
               </el-button>
-              <el-button v-if="canDelete(h)" size="small" text type="danger" @click.stop="deleteHistory(h.sessionId)" style="flex-shrink: 0; margin-left: 4px;">
+              <el-button v-if="canDelete(h)" size="small" text type="danger" style="flex-shrink: 0; margin-left: 4px;" @click.stop="deleteHistory(h.sessionId)">
                 <el-icon><delete /></el-icon>
               </el-button>
             </div>
@@ -204,7 +209,7 @@
           <!-- Agent 切换（移动端放侧边栏） -->
           <div style="padding: 12px 16px; border-bottom: 1px solid #f0f0f0;">
             <div style="font-size: 12px; color: #909399; margin-bottom: 8px;">Agent {{ activeSessionId ? '（会话进行中）' : '' }}</div>
-            <el-radio-group v-model="agentType" size="small" @change="onAgentTypeChange" :disabled="!!activeSessionId" :class="{ 'locked-radio-group': !!activeSessionId }">
+            <el-radio-group v-model="agentType" size="small" :disabled="!!activeSessionId" :class="{ 'locked-radio-group': !!activeSessionId }" @change="onAgentTypeChange">
               <el-radio-button value="CODEX">
                 <span :style="{ fontWeight: 700, fontSize: '12px' }">Codex</span>
               </el-radio-button>
@@ -215,17 +220,17 @@
           </div>
           <!-- 新对话按钮 -->
           <div class="sidebar-header">
-            <el-button type="primary" @click="newConversation(); sidebarVisible = false;" :loading="starting" :disabled="!currentPath" style="width: 100%;">
+            <el-button type="primary" :loading="starting" :disabled="!currentPath" style="width: 100%;" @click="newConversation(); sidebarVisible = false;">
               <el-icon><plus /></el-icon>
               <span>新对话</span>
             </el-button>
           </div>
           <!-- 历史列表 -->
-          <div class="history-list" @scroll="onHistoryScroll" style="flex: 1; min-height: 0; overflow-y: auto;">
+          <div class="history-list" style="flex: 1; min-height: 0; overflow-y: auto;" @scroll="onHistoryScroll">
             <div v-for="(group, gi) in groupedHistory" :key="group.label">
               <div class="history-group-title" style="display: flex; align-items: center; justify-content: space-between;">
                 <span>{{ group.label }}</span>
-                <el-button v-if="gi === 0" size="small" text :loading="historyLoading" @click="loadHistory(true)" title="刷新列表" style="padding: 0; height: auto; min-height: 0;">
+                <el-button v-if="gi === 0" size="small" text :loading="historyLoading" title="刷新列表" style="padding: 0; height: auto; min-height: 0;" @click="loadHistory(true)">
                   <el-icon><refresh /></el-icon>
                 </el-button>
               </div>
@@ -239,10 +244,10 @@
                     {{ h.workingDir.split('/').pop() }} · {{ h.messageCount }} 条 · {{ formatTime(h.createdAt) }}
                   </div>
                 </div>
-                <el-button size="small" text type="primary" @click.stop="resumeHistory(h); sidebarVisible = false;" style="flex-shrink: 0; margin-left: 4px;" title="继续对话">
+                <el-button size="small" text type="primary" style="flex-shrink: 0; margin-left: 4px;" title="继续对话" @click.stop="resumeHistory(h); sidebarVisible = false;">
                   <el-icon><video-play /></el-icon>
                 </el-button>
-                <el-button v-if="canDelete(h)" size="small" text type="danger" @click.stop="deleteHistory(h.sessionId)" style="flex-shrink: 0; margin-left: 4px;">
+                <el-button v-if="canDelete(h)" size="small" text type="danger" style="flex-shrink: 0; margin-left: 4px;" @click.stop="deleteHistory(h.sessionId)">
                   <el-icon><delete /></el-icon>
                 </el-button>
               </div>
@@ -269,7 +274,8 @@
     </el-container>
 
     <!-- ========== 工作空间弹窗 ========== -->
-    <el-dialog v-model="workspaceDialogVisible" title="工作空间" :width="previewVisible ? (isMobile ? '92%' : '80%') : (isMobile ? '92%' : '520px')"
+    <el-dialog
+v-model="workspaceDialogVisible" title="工作空间" :width="previewVisible ? (isMobile ? '92%' : '80%') : (isMobile ? '92%' : '520px')"
                data-test="workspace-dialog">
       <el-form label-position="top" size="default">
         <el-form-item label="根路径">
@@ -288,19 +294,20 @@
 
       <!-- 文件/目录列表 -->
       <el-scrollbar v-if="!previewVisible" height="280px">
-        <div v-for="item in folderList" :key="item.path" class="fs-item"
+        <div
+v-for="item in folderList" :key="item.path" class="fs-item"
              data-test="fs-row" :data-name="item.name || item.path"
              @click="item.dir ? loadList(item.path) : null">
           <el-icon v-if="item.dir"><folder /></el-icon>
           <el-icon v-else><document /></el-icon>
           <span class="fs-name">{{ item.name || item.path }}</span>
           <span v-if="!item.dir" style="color:#909399;font-size:12px;margin-right:8px;">{{ formatSize(item.size) }}</span>
-          <span class="fs-actions" v-if="!item.dir && item.name !== '..'">
+          <span v-if="!item.dir && item.name !== '..'" class="fs-actions">
             <el-dropdown trigger="click" @command="handleFileCommand($event, item)" @click.stop>
               <el-icon style="cursor:pointer; font-size: 16px; color: #909399;" @click.stop><more-filled /></el-icon>
               <template #dropdown>
                 <el-dropdown-menu>
-                  <el-dropdown-item command="preview" v-if="isMarkdown(item.name)">预览</el-dropdown-item>
+                  <el-dropdown-item v-if="isMarkdown(item.name)" command="preview">预览</el-dropdown-item>
                   <el-dropdown-item command="download">下载</el-dropdown-item>
                   <el-dropdown-item command="delete" style="color:#f56c6c;">删除</el-dropdown-item>
                 </el-dropdown-menu>
@@ -318,7 +325,7 @@
           <el-button size="small" @click="closePreview">返回</el-button>
         </div>
         <el-scrollbar height="380px">
-          <div class="md-preview-body" v-html="previewHtml" v-loading="previewLoading"></div>
+          <div v-loading="previewLoading" class="md-preview-body" v-html="previewHtml"></div>
         </el-scrollbar>
       </div>
 
@@ -352,7 +359,7 @@
           <el-icon><refresh /></el-icon>
           <span>刷新</span>
         </el-button>
-        <el-button size="small" type="primary" @click="openTaskDialog(null)" style="margin-left: 8px;">
+        <el-button size="small" type="primary" style="margin-left: 8px;" @click="openTaskDialog(null)">
           <el-icon><plus /></el-icon>
           <span>新建</span>
         </el-button>

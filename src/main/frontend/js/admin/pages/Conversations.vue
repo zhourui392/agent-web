@@ -1,17 +1,18 @@
 <template>
   <admin-shell active="conversations" @ready="onReady">
     <template #header-actions>
-      <el-button text @click="loadConversations" :loading="convLoading">刷新</el-button>
+      <el-button text :loading="convLoading" @click="loadConversations">刷新</el-button>
     </template>
 
     <div class="view-wrap">
       <div class="conv-toolbar">
-        <el-input v-model="convKeyword" placeholder="搜索标题 / 用户名 / 工号" clearable
+        <el-input
+v-model="convKeyword" placeholder="搜索标题 / 用户名 / 工号" clearable
                   @keyup.enter="searchConversations" @clear="searchConversations"></el-input>
-        <el-button type="primary" @click="searchConversations" :loading="convLoading">搜索</el-button>
+        <el-button type="primary" :loading="convLoading" @click="searchConversations">搜索</el-button>
       </div>
 
-      <el-table :data="conversations" v-loading="convLoading" empty-text="暂无对话记录" border size="small">
+      <el-table v-loading="convLoading" :data="conversations" empty-text="暂无对话记录" border size="small">
         <el-table-column label="用户" min-width="120">
           <template #default="{ row }">
             <div class="user-cell">
@@ -33,7 +34,8 @@
         <el-table-column label="消息数" width="80" align="right" prop="messageCount"></el-table-column>
         <el-table-column label="反馈" width="90">
           <template #default="{ row }">
-            <el-tag v-if="row.feedbackRating" size="small" disable-transitions
+            <el-tag
+v-if="row.feedbackRating" size="small" disable-transitions
                     :type="feedbackTagType(row.feedbackRating)">{{ feedbackLabel(row.feedbackRating) }}</el-tag>
             <span v-else class="muted">—</span>
           </template>
@@ -49,7 +51,8 @@
       </el-table>
 
       <div class="conv-pager">
-        <el-pagination background layout="total, prev, pager, next"
+        <el-pagination
+background layout="total, prev, pager, next"
                        :total="convTotal" :page-size="convSize" :current-page="convPage"
                        @current-change="onPageChange"></el-pagination>
       </div>
@@ -73,7 +76,8 @@
             <div v-if="msg.role === 'user'" class="history-msg-content">
               <div v-if="msg.bodyText" class="history-msg-text">{{ msg.bodyText }}</div>
               <div v-if="msg.images && msg.images.length" class="message-image-grid">
-                <el-image v-for="(img, ii) in msg.images" :key="ii" :src="imageUrl(img)"
+                <el-image
+v-for="(img, ii) in msg.images" :key="ii" :src="imageUrl(img)"
                           :preview-src-list="msg.images.map(imageUrl)" :initial-index="ii"
                           fit="cover" hide-on-click-modal preview-teleported class="history-image">
                   <template #error><div class="history-image-broken">图片不可用</div></template>

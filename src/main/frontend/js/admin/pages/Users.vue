@@ -1,12 +1,12 @@
 <template>
   <admin-shell active="users" @ready="loadUsers">
     <template #header-actions>
-      <el-button text @click="loadUsers" :loading="loading">刷新</el-button>
+      <el-button text :loading="loading" @click="loadUsers">刷新</el-button>
       <el-button type="primary" @click="openCreateDialog">新增用户</el-button>
     </template>
 
     <div class="view-wrap">
-      <el-card shadow="never" v-loading="loading">
+      <el-card v-loading="loading" shadow="never">
         <template #header>
           <div style="font-weight: 700;">用户账号</div>
         </template>
@@ -42,11 +42,13 @@
     <el-dialog v-model="createDialogOpen" title="新增用户" width="460px" destroy-on-close>
       <el-form ref="createFormRef" :model="createForm" :rules="createRules" label-position="top">
         <el-form-item label="用户名" prop="username">
-          <el-input v-model="createForm.username" maxlength="64"
+          <el-input
+v-model="createForm.username" maxlength="64"
                     placeholder="请输入用户名" autocomplete="off"></el-input>
         </el-form-item>
         <el-form-item label="初始密码" prop="password">
-          <el-input v-model="createForm.password" type="password" show-password maxlength="256"
+          <el-input
+v-model="createForm.password" type="password" show-password maxlength="256"
                     placeholder="至少 12 个字符" autocomplete="new-password"></el-input>
         </el-form-item>
         <el-form-item label="角色" prop="role">

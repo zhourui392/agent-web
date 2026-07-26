@@ -6,7 +6,7 @@
       <el-button text @click="goBack">返回控制台</el-button>
     </div>
 
-    <div class="wrap" v-loading="loading">
+    <div v-loading="loading" class="wrap">
       <el-card shadow="never">
         <template #header>
           <div style="font-weight:700;">每用户 Git 提交身份与凭证</div>
@@ -17,7 +17,8 @@
           <span class="uid">（工号 {{ userId || '-' }}）</span>
         </div>
 
-        <el-alert v-if="form.readOnly" type="info" :closable="false" show-icon
+        <el-alert
+v-if="form.readOnly" type="info" :closable="false" show-icon
                   title="当前为系统默认用户，使用机器默认 git 配置，不可修改"
                   description="IP 直连入口绑定的默认用户继承机器全局 ~/.gitconfig 与机器凭证。"
                   style="margin-bottom: 16px;"></el-alert>
@@ -36,7 +37,8 @@
             <el-input v-model="form.credUsername" placeholder="GitLab 用户名" maxlength="120"></el-input>
           </el-form-item>
           <el-form-item label="GitLab 密码">
-            <el-input v-model="form.credPassword" type="password" show-password
+            <el-input
+v-model="form.credPassword" type="password" show-password
                       :placeholder="credentialConfigured ? '已配置（••••），留空保持不变' : 'GitLab 密码'" />
             <div class="hint">
               凭证以 AES-256-GCM 加密落库，绝不明文存储 / 回显。
@@ -45,7 +47,7 @@
           </el-form-item>
 
           <el-form-item>
-            <el-button type="primary" :loading="saving" @click="save" :disabled="form.readOnly">保存</el-button>
+            <el-button type="primary" :loading="saving" :disabled="form.readOnly" @click="save">保存</el-button>
           </el-form-item>
         </el-form>
       </el-card>

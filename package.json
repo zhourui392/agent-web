@@ -6,7 +6,10 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/main/frontend/",
+    "lint:fix": "eslint --fix src/main/frontend/",
+    "format": "prettier --write \"src/main/frontend/**/*.{js,ts,vue,html,css}\""
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",
@@ -18,6 +21,11 @@
   "devDependencies": {
     "@types/node": "^26.1.1",
     "@vitejs/plugin-vue": "^5.2.0",
+    "eslint": "^9.0.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-vue": "^9.28.0",
+    "@vue/eslint-config-typescript": "^14.0.0",
+    "prettier": "^3.3.0",
     "typescript": "^7.0.2",
     "vite": "^6.4.3"
   }

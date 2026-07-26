@@ -4,16 +4,18 @@
       <h2 class="login-title">Agent Q&A</h2>
       <p class="login-subtitle">使用用户名和密码登录 · 会话保留 7 天</p>
 
-      <el-form @submit.prevent="onLogin" label-position="top">
+      <el-form label-position="top" @submit.prevent="onLogin">
         <el-form-item label="用户名">
           <el-input v-model="username" autocomplete="username" placeholder="请输入用户名" clearable></el-input>
         </el-form-item>
         <el-form-item label="密码">
-          <el-input v-model="password" type="password" autocomplete="current-password"
+          <el-input
+v-model="password" type="password" autocomplete="current-password"
                     placeholder="请输入密码" show-password @keyup.enter="onLogin"></el-input>
         </el-form-item>
-        <el-button :loading="submitting" @click="onLogin"
-                   style="width: 100%;">登录</el-button>
+        <el-button
+:loading="submitting" style="width: 100%;"
+                   @click="onLogin">登录</el-button>
       </el-form>
 
       <div v-if="errorMessage" class="error-tip">{{ errorMessage }}</div>
