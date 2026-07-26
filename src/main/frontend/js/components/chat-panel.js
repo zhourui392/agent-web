@@ -22,11 +22,10 @@ import {
 } from '../lib/formatters.js';
 import { copySegment } from '../lib/clipboard.js';
 import { shareSession as shareSessionFn } from '../lib/share-session.js';
-import { createStore, selectActiveRun } from '../lib/chat-run-state.js';
-import { open as openResumableSse } from '../lib/resumable-sse-client.js';
 import { useFeedback } from '../composables/useFeedback.js';
 import { useImageUpload } from '../composables/useImageUpload.js';
 import { useSlashCommand } from '../composables/useSlashCommand.js';
+import { useResumableRun } from '../composables/useResumableRun.js';
 import { ref, reactive, computed, onMounted, nextTick, watch } from 'vue';
 import { ElMessageBox, ElMessage } from 'element-plus';
 
@@ -240,10 +239,6 @@ const ChatPanel = {
       const sending = ref(false);
       const sessionId = ref('');
       const resumeId = ref('');
-      const activeRunId = ref('');
-      const runStatus = ref('');
-      const lastAppliedEventSeq = ref(0);
-      const reconnecting = ref(false);
       const chatContainer = ref(null);
       const toolStates = reactive({});
       // RAG 召回开关: 默认开, 持久化 localStorage
@@ -255,11 +250,6 @@ const ChatPanel = {
       const isMobile = ref(window.innerWidth <= 768);
       const onResize = () => { isMobile.value = window.innerWidth <= 768; };
       window.addEventListener('resize', onResize);
-
-      // 每实例独立的可恢复 SSE 与运行标记状态。
-      let currentES = null;
-      let restoringActiveRun = false;
-      let runStore = null;
 
       // ===== computed =====
       const canShare = computed(() =>
@@ -330,60 +320,6 @@ const ChatPanel = {
         ElMessage.success('上下文已清除');
       };
 
-      const stopSession = async () => {
-        if (!sessionId.value || !sending.value) return;
-        if (!activeRunId.value) {
-          ElMessage.warning('运行任务标识尚未返回，请稍后重试或刷新页面恢复');
-          return;
-        }
-        try {
-          const res = await fetch('/api/chat/runs/' + encodeURIComponent(activeRunId.value) + '/stop', {
-            method: 'POST',
-          });
-          if (!res.ok) throw new Error(await res.text());
-          const result = await res.json();
-          runStatus.value = result.status || 'CANCEL_REQUESTED';
-          addMessage('system', '已请求停止，等待任务退出');
-        } catch (e) {
-          ElMessage.error('停止失败: ' + (e.message || e));
-        }
-      };
-
-      // 清空当前对话(切目录 / 新对话),不留系统消息——与原 watch(currentPath) 行为一致
-      const clearConversation = () => {
-        if (currentES) { currentES.close(); currentES = null; }
-        sending.value = false;
-        sessionId.value = '';
-        resumeId.value = '';
-        activeRunId.value = '';
-        runStatus.value = '';
-        lastAppliedEventSeq.value = 0;
-        reconnecting.value = false;
-        messages.value = [];
-        feedback.value = { rating: null, comment: null };
-        pendingImages.value = [];
-        pendingFile.value = null;
-      };
-
-      // ===== FE-R3.5 composable: 分析评价 / 图片附件 / 命令弹窗 =====
-      const {
-        feedback, feedbackDialogVisible, feedbackCommentDraft, feedbackSaving,
-        loadFeedback, persistFeedback, setRating, openFeedbackDialog, submitFeedbackComment
-      } = useFeedback({ sessionId });
-      const {
-        pendingImages, pendingFile, maxImagesPerMessage, maxImageBytes, maxChatFileBytes,
-        allowedChatFileExts, readAsDataURL, uploadImageFile, beforeChatImageUpload,
-        uploadChatImage, removePendingImage, formatChatFileSize, beforeChatFileUpload,
-        uploadChatFile, removePendingFile, handlePaste
-      } = useImageUpload({ ensureSession, sessionId, workingDir: workingDirRef });
-      const {
-        slashCommands, showCommandPopup, selectedCommandIdx, filteredCommands,
-        loadSlashCommands, handleEnter, handleArrowUp, handleArrowDown,
-        handleTab, selectCommand, hideCommandPopup
-      } = useSlashCommand({ userInput, workingDir: workingDirRef, sendMessageStream: () => sendMessageStream() });
-
-      const shareSession = () => shareSessionFn(sessionId.value);
-
       async function reloadMessages() {
         try {
           const prevRecalls = messages.value
@@ -414,218 +350,63 @@ const ChatPanel = {
         } catch (e) { /* ignore */ }
       }
 
-      // ===== 可恢复 ChatRun =====
-      async function ensureRunStore() {
-        if (runStore) return runStore;
-        let userKey = 'anonymous';
-        try {
-          const status = await fetch('/api/auth/status').then(r => r.json());
-          userKey = status.userId || status.username || userKey;
-        } catch (e) { /* 使用 anonymous 隔离桶 */ }
-        runStore = createStore(localStorage, userKey);
-        return runStore;
-      }
+      // ===== FE-R3.5/R3.6 composable: 分析评价 / 图片附件 / 可恢复 ChatRun / 命令弹窗 =====
+      const {
+        feedback, feedbackDialogVisible, feedbackCommentDraft, feedbackSaving,
+        loadFeedback, persistFeedback, setRating, openFeedbackDialog, submitFeedbackComment
+      } = useFeedback({ sessionId });
+      const {
+        pendingImages, pendingFile, maxImagesPerMessage, maxImageBytes, maxChatFileBytes,
+        allowedChatFileExts, readAsDataURL, uploadImageFile, beforeChatImageUpload,
+        uploadChatImage, removePendingImage, formatChatFileSize, beforeChatFileUpload,
+        uploadChatFile, removePendingFile, handlePaste
+      } = useImageUpload({ ensureSession, sessionId, workingDir: workingDirRef });
+      const {
+        activeRunId, runStatus, lastAppliedEventSeq, reconnecting,
+        restoreActiveRun, sendMessageStream, resetRunState
+      } = useResumableRun({
+        messages, userInput, sending, sessionId, resumeId, chatContainer, ragRecall,
+        pendingImages, pendingFile, workingDir: workingDirRef,
+        ensureSession, addMessage, userMessageEntry, reloadMessages, loadFeedback, emit
+      });
+      const {
+        slashCommands, showCommandPopup, selectedCommandIdx, filteredCommands,
+        loadSlashCommands, handleEnter, handleArrowUp, handleArrowDown,
+        handleTab, selectCommand, hideCommandPopup
+      } = useSlashCommand({ userInput, workingDir: workingDirRef, sendMessageStream });
 
-      async function queryActiveRuns() {
-        const response = await fetch('/api/chat/runs/active');
-        if (!response.ok) throw new Error('HTTP ' + response.status);
-        const runs = await response.json();
-        return Array.isArray(runs) ? runs : [];
-      }
-
-      async function saveRunMarker(extra) {
-        if (!activeRunId.value) return;
-        const store = await ensureRunStore();
-        store.put(Object.assign({
-          runId: activeRunId.value,
-          sessionId: sessionId.value,
-          workingDir: props.workingDir,
-          lastAppliedEventSeq: lastAppliedEventSeq.value,
-          startedAt: Date.now(),
-        }, extra || {}));
-      }
-
-      async function removeRunMarker(runId) {
-        const store = await ensureRunStore();
-        store.remove(runId);
-      }
-
-      function createResumableRenderer(msgIndex) {
-        const chunks = [];
-        let flushTimer = null;
-        function flush() {
-          if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
-          const target = messages.value[msgIndex];
-          if (!target || target.role !== 'agent') return;
-          const output = chunks.join('\n');
-          target.segments = output
-            ? (isStreamJson(output) ? parseStreamJson(output) : [{ type: 'text', content: output }])
-            : [];
-          nextTick(() => {
-            if (chatContainer.value) chatContainer.value.scrollTop = chatContainer.value.scrollHeight;
-          });
+      const stopSession = async () => {
+        if (!sessionId.value || !sending.value) return;
+        if (!activeRunId.value) {
+          ElMessage.warning('运行任务标识尚未返回，请稍后重试或刷新页面恢复');
+          return;
         }
-        return {
-          recall: function (data) {
-            const target = messages.value[msgIndex];
-            if (!target || target.role !== 'agent') return;
-            try { target.recall = JSON.parse(data); target.recallOpen = false; } catch (e) { /* ignore */ }
-          },
-          chunk: function (data) {
-            chunks.push(data);
-            if (!flushTimer) flushTimer = setTimeout(flush, 100);
-          },
-          flush: flush,
-        };
-      }
-
-      function rememberEventCursor(event) {
-        const sequence = Number(event.lastEventId || 0);
-        if (sequence > lastAppliedEventSeq.value) {
-          lastAppliedEventSeq.value = sequence;
-          saveRunMarker();
-        }
-      }
-
-      async function finishResumableRun(runId, terminalData, renderer) {
-        renderer.flush();
-        let terminal = {};
-        try { terminal = JSON.parse(terminalData || '{}'); } catch (e) { terminal = {}; }
-        runStatus.value = terminal.status || 'FAILED';
-        sending.value = false;
-        reconnecting.value = false;
-        if (currentES) { currentES.close(); currentES = null; }
-        await removeRunMarker(runId);
-        activeRunId.value = '';
-        lastAppliedEventSeq.value = 0;
-        await reloadMessages();
-        if (runStatus.value === 'SUCCEEDED') addMessage('system', '任务已完成');
-        else if (runStatus.value === 'CANCELLED') addMessage('system', '任务已取消');
-        else addMessage('error', terminal.errorMessage || '任务执行失败');
-        emit('refresh-history');
-      }
-
-      async function handleExpiredCursor(runId, data) {
-        let expired = {};
-        try { expired = JSON.parse(data || '{}'); } catch (e) { expired = {}; }
-        await reloadMessages();
-        addMessage('system', '早期流式片段已过期，已重新加载持久化消息');
         try {
-          const statusResponse = await fetch('/api/chat/runs/' + encodeURIComponent(runId));
-          if (!statusResponse.ok) throw new Error('HTTP ' + statusResponse.status);
-          const status = await statusResponse.json();
-          runStatus.value = status.status || '';
-          if (['PENDING', 'RUNNING', 'CANCEL_REQUESTED'].indexOf(runStatus.value) >= 0) {
-            const msgIndex = messages.value.length;
-            messages.value.push({ id: null, role: 'agent', segments: [], recall: null, recallOpen: false });
-            sending.value = true;
-            subscribeResumableRun(runId, Number(expired.lastEventSeq || status.lastEventSeq || 0), msgIndex);
-            return;
-          }
-        } catch (e) { /* 终态或已不可见，按快照收口 */ }
-        sending.value = false;
-        await removeRunMarker(runId);
-        activeRunId.value = '';
-      }
-
-      function redirectToLogin() {
-        fetch('/api/auth/status').then(r => r.json()).then(status => {
-          if (!status.authenticated && status.loginUrl) window.location.href = status.loginUrl;
-        }).catch(() => {});
-      }
-
-      function subscribeResumableRun(runId, cursor, msgIndex) {
-        const renderer = createResumableRenderer(msgIndex);
-        const url = '/api/chat/runs/' + encodeURIComponent(runId) + '/events';
-        const client = openResumableSse(url, { after: Math.max(0, Number(cursor) || 0) });
-        currentES = client;
-        client.addEventListener('run_status', event => {
-          rememberEventCursor(event);
-          reconnecting.value = false;
-          try { runStatus.value = JSON.parse(event.data).status || runStatus.value; } catch (e) { /* ignore */ }
-        });
-        client.addEventListener('recall', event => {
-          rememberEventCursor(event);
-          reconnecting.value = false;
-          renderer.recall(event.data);
-        });
-        client.addEventListener('chunk', event => {
-          rememberEventCursor(event);
-          reconnecting.value = false;
-          renderer.chunk(event.data);
-        });
-        client.addEventListener('ping', () => { reconnecting.value = false; });
-        client.addEventListener('reconnecting', () => { reconnecting.value = true; });
-        client.addEventListener('terminal', event => {
-          rememberEventCursor(event);
-          finishResumableRun(runId, event.data, renderer);
-        });
-        client.addEventListener('cursor_expired', event => {
-          currentES = null;
-          handleExpiredCursor(runId, event.data);
-        });
-        client.addEventListener('unauthorized', redirectToLogin);
-        client.addEventListener('fatal', event => {
-          renderer.flush();
-          sending.value = false;
-          reconnecting.value = false;
-          currentES = null;
-          addMessage('error', event.data || 'SSE 连接错误');
-          if (event.data === 'HTTP 404') {
-            removeRunMarker(runId);
-            activeRunId.value = '';
-          }
-        });
-      }
-
-      async function restoreActiveRun(preferredSessionId) {
-        if (restoringActiveRun || sending.value || !props.workingDir) return;
-        restoringActiveRun = true;
-        try {
-          const activeRuns = await queryActiveRuns();
-          const store = await ensureRunStore();
-          const localRuns = store.list();
-          const activeIds = {};
-          activeRuns.forEach(run => { activeIds[run.runId] = true; });
-          Object.keys(localRuns).forEach(runId => {
-            if (!activeIds[runId]) store.remove(runId);
+          const res = await fetch('/api/chat/runs/' + encodeURIComponent(activeRunId.value) + '/stop', {
+            method: 'POST',
           });
-          let selected = preferredSessionId
-            ? activeRuns.find(run => run.sessionId === preferredSessionId)
-            : null;
-          if (!selected) {
-            selected = selectActiveRun(activeRuns, localRuns, props.workingDir);
-          }
-          if (!selected) return;
-
-          sessionId.value = selected.sessionId;
-          resumeId.value = '';
-          activeRunId.value = selected.runId;
-          runStatus.value = selected.status;
-          lastAppliedEventSeq.value = 0;
-          sending.value = true;
-          reconnecting.value = false;
-          await reloadMessages();
-          addMessage('system', '正在恢复运行中的任务');
-          const msgIndex = messages.value.length;
-          messages.value.push({ id: null, role: 'agent', segments: [], recall: null, recallOpen: false });
-          await saveRunMarker({
-            workingDir: selected.workingDir,
-            startedAt: selected.startedAt || selected.createdAt || Date.now(),
-          });
-          emit('session-created', {
-            sessionId: selected.sessionId,
-            workingDir: selected.workingDir,
-            agentType: selected.agentType,
-          });
-          // 新页面没有旧的局部渲染状态，必须从 0 回放完整保留窗口；同页断线由客户端按 cursor 续传。
-          subscribeResumableRun(selected.runId, 0, msgIndex);
+          if (!res.ok) throw new Error(await res.text());
+          const result = await res.json();
+          runStatus.value = result.status || 'CANCEL_REQUESTED';
+          addMessage('system', '已请求停止，等待任务退出');
         } catch (e) {
-          ElMessage.warning('恢复运行中任务失败: ' + (e.message || e));
-        } finally {
-          restoringActiveRun = false;
+          ElMessage.error('停止失败: ' + (e.message || e));
         }
-      }
+      };
+
+      // 清空当前对话(切目录 / 新对话),不留系统消息——与原 watch(currentPath) 行为一致
+      const clearConversation = () => {
+        resetRunState();
+        sending.value = false;
+        sessionId.value = '';
+        resumeId.value = '';
+        messages.value = [];
+        feedback.value = { rating: null, comment: null };
+        pendingImages.value = [];
+        pendingFile.value = null;
+      };
+
+      const shareSession = () => shareSessionFn(sessionId.value);
 
       // ===== 对话回退 =====
       const rewindToMessage = async (msg, index) => {
@@ -656,87 +437,6 @@ const ChatPanel = {
           ElMessage.error('回退失败: ' + (e.message || e));
         }
       };
-
-      function newIdempotencyKey() {
-        if (window.crypto && typeof window.crypto.randomUUID === 'function') {
-          return window.crypto.randomUUID();
-        }
-        return Date.now().toString(36) + '-' + Math.random().toString(36).substring(2);
-      }
-
-      async function submitResumableRun(idempotencyKey, payload) {
-        let lastError = null;
-        for (let attempt = 0; attempt < 2; attempt++) {
-          try {
-            return await fetch('/api/chat/session/' + encodeURIComponent(sessionId.value) + '/runs', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Idempotency-Key': idempotencyKey,
-              },
-              body: JSON.stringify(payload),
-            });
-          } catch (e) {
-            lastError = e;
-            if (attempt === 0) await new Promise(resolve => setTimeout(resolve, 1000));
-          }
-        }
-        throw lastError || new Error('提交任务失败');
-      }
-
-      const sendMessageResumable = async () => {
-        if (!props.workingDir || !userInput.value.trim() || sending.value) return;
-        try {
-          await ensureSession();
-        } catch (error) {
-          ElMessage.error('创建会话失败: ' + error.message);
-          return;
-        }
-
-        const baseText = userInput.value.trim();
-        const imagePaths = pendingImages.value.map(img => img.path);
-        const filePath = pendingFile.value ? pendingFile.value.path : null;
-        let message = baseText;
-        if (imagePaths.length) message += '\n' + imagePaths.join('\n');
-        if (filePath) message += '\n\n[附件清单]\n- ' + filePath;
-        messages.value.push(userMessageEntry(null, message));
-        userInput.value = '';
-        pendingImages.value = [];
-        pendingFile.value = null;
-        sending.value = true;
-        reconnecting.value = false;
-
-        const msgIndex = messages.value.length;
-        messages.value.push({ id: null, role: 'agent', segments: [], recall: null, recallOpen: false });
-        const idempotencyKey = newIdempotencyKey();
-        try {
-          const response = await submitResumableRun(idempotencyKey, {
-            message: message,
-            resumeId: resumeId.value || null,
-            recall: !!ragRecall.value,
-          });
-          if (!response.ok) {
-            let error = {};
-            try { error = await response.json(); } catch (e) { error = {}; }
-            throw new Error(error.message || error.code || ('HTTP ' + response.status));
-          }
-          const submitted = await response.json();
-          activeRunId.value = submitted.runId;
-          runStatus.value = submitted.status || 'PENDING';
-          lastAppliedEventSeq.value = 0;
-          await saveRunMarker({ startedAt: Date.now() });
-          subscribeResumableRun(submitted.runId, 0, msgIndex);
-          emit('refresh-history');
-        } catch (e) {
-          sending.value = false;
-          reconnecting.value = false;
-          messages.value.splice(msgIndex, 1);
-          await reloadMessages();
-          ElMessage.error('发送失败: ' + (e.message || e));
-        }
-      };
-
-      const sendMessageStream = () => sendMessageResumable();
 
       // ===== 恢复历史会话(宿主通过 initialSessionId 触发) =====
       const applyResume = async (sid, rid) => {
