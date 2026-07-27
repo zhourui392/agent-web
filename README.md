@@ -39,7 +39,7 @@
 |------|------|
 | 后端框架 | Spring Boot 3.3.13 / Java 21 / Maven（jakarta 命名空间） |
 | 数据库 | SQLite（用户、会话、定时任务、工作流、向量库、召回明细、Git 配置） |
-| 前端 | Vue 3 + Element Plus（CDN，无构建步骤）；主应用 + 管理台 MPA |
+| 前端 | Vue 3 + Element Plus + Vite（源码在 `frontend/`，构建到 `frontend/dist/`）；主应用 + 管理台 MPA |
 | 通信 | RESTful API + Server-Sent Events |
 | 架构 | DDD + 六边形架构，按限界上下文分包 |
 | 代码质量 | Alibaba P3C (PMD) |
@@ -301,8 +301,7 @@ src/main/resources/
 ├── application.yml              主配置（各 agent.* 节点带内联注释）
 ├── schema.sql                  SQLite 建表脚本
 ├── *-prompt.md                 refinery 评分与 issue-log prompt
-└── static/                     Vue3 + Element Plus（CDN，无构建）：
-                                index / login / share / git-settings + admin/（MPA）
+└── static/                     （前端分离后此目录不再使用，构建产物在 frontend/dist/）
 
 tests/                          前端测试工程：Vitest 纯函数单测 + Playwright E2E（自带 e2e profile）
 docs/                           设计文档（domain-model.md / event-storming.md，部分早于本次重构，以源码为准）

@@ -4,7 +4,7 @@
 // 这是浏览器里实际走的路径 -- formatters.spec.ts 跑 node 环境, DOMPurify.isSupported=false,
 // 只能覆盖 fail-closed 转义分支, 覆盖不到净化本身。两个文件合起来才是完整的安全断言。
 import { describe, it, expect } from 'vitest';
-import { renderMarkdown } from '../../src/main/frontend/js/lib/formatters.js';
+import { renderMarkdown } from '../../frontend/js/lib/formatters.js';
 
 describe('renderMarkdown (jsdom: marked + DOMPurify 实际生效)', () => {
   it('renders markdown to HTML', () => {

@@ -180,32 +180,6 @@ function Find-Maven {
     return $maven.Source
 }
 
-function Build-Frontend {
-    $npm = Get-Command "npm.cmd" -ErrorAction SilentlyContinue
-    if ($null -eq $npm) {
-        $npm = Get-Command "npm" -ErrorAction SilentlyContinue
-    }
-    if ($null -eq $npm) {
-        throw "npm was not found. Install Node.js 20+ and add npm to PATH."
-    }
-    Write-Host "[2/4] Building the frontend with Vite..."
-    Push-Location $ProjectDirectory
-    try {
-        if (-not (Test-Path -LiteralPath (Join-Path $ProjectDirectory "node_modules") -PathType Container)) {
-            & $npm.Source install
-            if ($LASTEXITCODE -ne 0) {
-                throw "npm install failed with exit code $LASTEXITCODE."
-            }
-        }
-        & $npm.Source run build
-        if ($LASTEXITCODE -ne 0) {
-            throw "npm run build failed with exit code $LASTEXITCODE."
-        }
-    } finally {
-        Pop-Location
-    }
-}
-
 function Build-Application {
     $maven = Find-Maven
     Write-Host "[3/4] Building the application with Maven..."
@@ -320,7 +294,6 @@ function Start-ServiceWithBuild {
         Write-Host "agent-web is already running (PID $($runningProcess.Id))."
         return
     }
-    Build-Frontend
     Build-Application
     Start-Application $Arguments
 }
@@ -382,7 +355,6 @@ Environment:
 switch ($Command.ToLowerInvariant()) {
     "build" {
         Set-JdkEnvironment
-        Build-Frontend
         Build-Application
     }
     "start" {
@@ -395,7 +367,6 @@ switch ($Command.ToLowerInvariant()) {
     "restart" {
         Set-JdkEnvironment
         Stop-Application
-        Build-Frontend
         Build-Application
         Start-Application $ApplicationArguments
     }

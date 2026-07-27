@@ -40,15 +40,26 @@ export SERVER_FORWARD_HEADERS_STRATEGY=framework
 
 ```caddyfile
 agent.mokatu.shop {
-    reverse_proxy 127.0.0.1:18092 {
+    # API 反代到后端 Spring Boot
+    @api path /api/*
+    reverse_proxy @api 127.0.0.1:18092 {
         flush_interval -1
         lb_try_duration 15s
         lb_try_interval 250ms
     }
+
+    # /admin → /admin/dashboard.html
+    redir /admin /admin/dashboard.html
+    redir /admin/ /admin/dashboard.html
+
+    # 其余由 Caddy 直接提供前端静态文件
+    file_server {
+        root /home/ubuntu/workspace/agent-web/frontend/dist
+    }
 }
 ```
 
-Caddy 自动完成 HTTP → HTTPS 跳转、证书申请和续期，并为上游设置 `X-Forwarded-For`、`X-Forwarded-Proto`、`X-Forwarded-Host`。`flush_interval -1` 让聊天和诊断 SSE 事件立即向浏览器刷新；`lb_try_*` 会在应用滚动重启的短窗口内重试可安全重试的 GET 请求，避免直接返回瞬时 502。
+前端源码在 `frontend/`，`npm run build` 输出到 `frontend/dist/`。Caddy `/api/*` 反代到后端 18092（`flush_interval -1` 让 SSE 事件立即刷新），其余由 `file_server` 直接提供 `frontend/dist/` 下的静态文件。`/admin` 重定向由 Caddy `redir` 处理。
 
 配置变更后使用以下命令校验和无中断加载：
 

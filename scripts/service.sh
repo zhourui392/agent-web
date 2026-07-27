@@ -146,20 +146,6 @@ find_maven() {
     }
 }
 
-build_frontend() {
-    if ! command -v npm >/dev/null 2>&1; then
-        printf 'npm was not found. Install Node.js 20+ and add npm to PATH.\n' >&2
-        return 1
-    fi
-    printf '[2/4] Building the frontend with Vite...\n'
-    (cd "$PROJECT_DIR" && {
-        if [[ ! -d node_modules ]]; then
-            npm install
-        fi
-        npm run build
-    })
-}
-
 build_app() {
     local maven_bin
     local -a artifacts
@@ -250,7 +236,6 @@ start_service() {
         printf 'agent-web is already running (PID %s).\n' "$pid"
         return 0
     fi
-    build_frontend
     build_app
     launch_app "$@"
 }
@@ -323,7 +308,6 @@ fi
 case "$command_name" in
     build)
         configure_jdk
-        build_frontend
         build_app
         ;;
     start)
@@ -336,7 +320,6 @@ case "$command_name" in
     restart)
         configure_jdk
         stop_service
-        build_frontend
         build_app
         launch_app "$@"
         ;;

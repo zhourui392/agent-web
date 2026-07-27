@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 // @ts-ignore - JS 源码模块
-import { sanitizeRedirect } from '../../src/main/frontend/js/lib/redirect.js';
+import { sanitizeRedirect } from '../../frontend/js/lib/redirect.js';
 
 /**
  * 承接原 base.spec.ts 中 sanitizeRedirect 的用例。挂载前缀(/qa)废弃后 base 参数取消,

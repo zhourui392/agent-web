@@ -52,10 +52,9 @@ env.local
 # Node
 node_modules/
 
-# Vite build 产物 (源码在 src/main/frontend/, 产物输出到 src/main/resources/static/)
+# Vite build 产物 (源码在 frontend/, 产物输出到 frontend/dist/)
+frontend/dist/
 src/main/resources/static/
-# Vite dev/默认产物 (cd src/main/frontend && vite build 时的默认 dist/, 非生产路径)
-src/main/frontend/dist/
 
 # Playwright / E2E 跑出来的产物 (无前导 / : 匹配仓库根与 tests/ 下任意层级)
 test-results/

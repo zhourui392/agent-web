@@ -1,11 +1,11 @@
 {
-  "extends": "../tsconfig.json",
+  "extends": "../frontend/tsconfig.json",
   "compilerOptions": {
     "types": ["node", "vitest/globals"]
   },
   "include": [
     "unit/**/*.ts",
-    "../src/main/frontend/js/lib/**/*.ts"
+    "../frontend/js/lib/**/*.ts"
   ],
   "exclude": ["node_modules"]
 }

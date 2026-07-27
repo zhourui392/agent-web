@@ -10,7 +10,7 @@ function productionSource(relativePath: string): string {
 
 describe('single ChatRun page path', () => {
   it('does not retain the legacy POST SSE fallback', () => {
-    const panel = productionSource('src/main/frontend/js/components/chat-panel.vue');
+    const panel = productionSource('frontend/js/components/chat-panel.vue');
 
     expect(panel).not.toContain('AgentPostSse');
     expect(panel).not.toContain('/message/stream');
@@ -19,8 +19,8 @@ describe('single ChatRun page path', () => {
   });
 
   it('does not load the legacy POST SSE client', () => {
-    const index = productionSource('src/main/resources/static/index.html');
-    const adminChat = productionSource('src/main/resources/static/admin/chat.html');
+    const index = productionSource('frontend/dist/index.html');
+    const adminChat = productionSource('frontend/dist/admin/chat.html');
 
     expect(index).not.toContain('post-sse-client.js');
     expect(adminChat).not.toContain('post-sse-client.js');

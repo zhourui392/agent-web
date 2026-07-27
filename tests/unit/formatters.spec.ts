@@ -10,7 +10,7 @@ import {
   escapeHtml,
   parseStreamJson,
   isStreamJson,
-} from '../../src/main/frontend/js/lib/formatters.js';
+} from '../../frontend/js/lib/formatters.js';
 
 // formatters.js 现在静态 import marked / dompurify (npm), 不再读全局。
 // 本文件跑在 node 环境: DOMPurify.isSupported=false -> renderMarkdown 走 fail-closed 转义分支。

@@ -149,6 +149,12 @@ v-for="b in savedBranches" :key="b" closable size="small"
           <el-badge v-if="taskList.length" :value="taskList.length" :offset="[6, -2]" />
         </el-button>
 
+        <!-- ⑧b 管理后台按钮（仅管理员可见） -->
+        <el-button v-if="isAdmin" style="flex-shrink: 0;" plain @click="goToAdmin">
+          <el-icon><monitor /></el-icon>
+          <span class="hidden-mobile">管理后台</span>
+        </el-button>
+
         <!-- ⑨ 登出按钮（仅在开启鉴权时显示） -->
         <el-button v-if="authEnabled" style="flex-shrink: 0;" plain @click="doLogout">
           <el-icon><switch-button /></el-icon>
@@ -553,8 +559,9 @@ export default {
   setup() {
     // auth + file-system 从 composable 引入(FE-R3.2 拆出,原内联状态/方法删除)
     const {
-      authEnabled, username, currentUserId, canUseScheduledTask, initAuth, doLogout
+      authEnabled, username, currentUserId, canUseScheduledTask, isAdmin, initAuth, doLogout
     } = useAuth();
+    const goToAdmin = () => { window.location.href = '/admin/dashboard.html'; };
     const {
       roots, selectedRoot, workspaceCandidatePath, currentPath, folderList,
       workspaceDialogVisible, previewVisible, previewTitle, previewHtml, previewLoading,
@@ -772,6 +779,8 @@ export default {
       isMobile,
       groupedHistory,
       authEnabled,
+      isAdmin,
+      goToAdmin,
       doLogout,
     };
   }

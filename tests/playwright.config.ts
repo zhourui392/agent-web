@@ -41,7 +41,7 @@ export default defineConfig({
   testIgnore: ['harness.spec.ts'],
 
   use: {
-    baseURL: 'http://localhost:18099',
+    baseURL: 'http://localhost:5174',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -56,15 +56,13 @@ export default defineConfig({
     { name: 'chromium', use: { ...devices['Desktop Chrome'], viewport: { width: 1600, height: 900 } } },
   ],
 
-  // 自动启停 Spring Boot (e2e profile)
-  // 用显式 plugin goal 避免 prefix lookup 在仓库根之外失败
+  // 自动启停 vite preview (前端) + Spring Boot (后端 API)
+  // 前端分离后 Spring Boot 不再提供静态文件，vite preview 提供 frontend/dist/ 并代理 /api 到后端。
   webServer: {
-    // webServer 启动前先清 e2e db,避免上次跑残留的数据干扰本轮(如 git-settings 保存的凭证会让
-    // credentialConfigured=true,placeholder 变"已配置(••••)",spec fill('GitLab 密码') 找不到而超时)。
-    command: `node ${path.join(repoRoot, 'tests', 'scripts', 'e2e-clean.js')} && npm run build && mvn -f "${path.join(repoRoot, 'pom.xml')}" org.springframework.boot:spring-boot-maven-plugin:run -Dspring-boot.run.profiles=${springProfiles} -Dspring-boot.run.jvmArguments=-Dfile.encoding=UTF-8`,
+    command: `bash ${path.join(repoRoot, 'tests', 'scripts', 'e2e-start.sh')}`,
     cwd: repoRoot,
-    env: webServerEnv,
-    url: 'http://localhost:18099/',
+    env: { ...webServerEnv, SPRING_PROFILES: springProfiles },
+    url: 'http://localhost:5174/',
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
     stdout: 'pipe',

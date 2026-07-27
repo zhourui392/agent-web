@@ -33,7 +33,7 @@ export default defineConfig({
   reporter: [['list'], ['html', { open: 'never', outputFolder: 'playwright-report-harness' }]],
   globalSetup: './e2e/global-setup.ts',
   use: {
-    baseURL: 'http://localhost:18100',
+    baseURL: 'http://localhost:5175',
     testIdAttribute: 'data-test',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
@@ -46,10 +46,10 @@ export default defineConfig({
     { name: 'chromium', use: { ...devices['Desktop Chrome'], viewport: { width: 1600, height: 900 } } },
   ],
   webServer: {
-    command: `mvn -f "${path.join(repoRoot, 'pom.xml')}" org.springframework.boot:spring-boot-maven-plugin:run -Dspring-boot.run.profiles=${springProfiles} -Dspring-boot.run.jvmArguments=-Dfile.encoding=UTF-8`,
+    command: `VITE_PORT=5175 VITE_API_PROXY_TARGET=http://localhost:18100 bash ${path.join(repoRoot, 'tests', 'scripts', 'e2e-start.sh')}`,
     cwd: repoRoot,
-    env: webServerEnv,
-    url: 'http://localhost:18100/',
+    env: { ...webServerEnv, SPRING_PROFILES: springProfiles },
+    url: 'http://localhost:5175/',
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
     stdout: 'pipe',

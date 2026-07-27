@@ -9,12 +9,13 @@ import { join, resolve } from 'node:path';
  * 漏注册的失败模式很隐蔽: 组件解析不到时 Vue 不抛异常, 标签原样留在 DOM 里不渲染,
  * 且只在用到它的那个页面暴露 -- e2e 未必覆盖到每个页面的每个分支。故用静态断言兜住。
  */
-const FRONTEND = resolve(__dirname, '../../src/main/frontend');
+const FRONTEND = resolve(__dirname, '../../frontend');
 
 function walk(dir: string, exts: string[], out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
     const p = join(dir, name);
     if (statSync(p).isDirectory()) {
+      if (name === 'dist' || name === 'node_modules') continue;
       walk(p, exts, out);
     } else if (exts.some((e) => name.endsWith(e))) {
       out.push(p);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createStore, selectActiveRun } from '../../src/main/frontend/js/lib/chat-run-state.js';
+import { createStore, selectActiveRun } from '../../frontend/js/lib/chat-run-state.js';
 
 type Run = {
   runId: string;

@@ -39,7 +39,7 @@ class SessionAuthFilterTest {
     @Test
     void should_ContinueWithoutAuthentication_When_PathIsPublic() throws Exception {
         // Given
-        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/login.html");
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/auth/status");
         MockHttpServletResponse response = new MockHttpServletResponse();
         FilterChain chain = mock(FilterChain.class);
 

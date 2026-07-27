@@ -12,7 +12,7 @@ import { loginAdminUI } from './_admin';
  * 覆盖全部 12 个页面, 与各页自身业务 spec 是否通过无关 -- 部分页面的业务 spec
  * 因既有数据/状态机问题本就失败, 渲染层面反而没人看。
  */
-// 实际存在的 admin 页面 (src/main/frontend/admin/*.html)。新增页面时补进来。
+// 实际存在的 admin 页面 (frontend/admin/*.html)。新增页面时补进来。
 // harness.html 用了 207 处 el-*, 是按需注册风险最高的一页, 必须在列。
 const ADMIN_PAGES = [
   'dashboard', 'conversations', 'workflows', 'recall',

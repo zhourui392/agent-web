@@ -2,14 +2,15 @@
   "name": "agent-web-frontend",
   "private": true,
   "version": "0.1.0",
+  "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src/main/frontend/",
-    "lint:fix": "eslint --fix src/main/frontend/",
-    "format": "prettier --write \"src/main/frontend/**/*.{js,ts,vue,html,css}\""
+    "lint": "eslint .",
+    "lint:fix": "eslint --fix .",
+    "format": "prettier --write \"**/*.{js,ts,vue,html,css}\""
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.2",

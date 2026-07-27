@@ -30,30 +30,27 @@ public class PublicPathsTest {
 
     @Test
     void shareViewerCorePaths_arePublic() {
-        assertTrue(PublicPaths.isPublic("/share.html"));
+        // /share.html 由 Caddy file_server 提供, 不经过后端, 不在白名单内。
+        // /api/share/ 仍是后端公开 API。
+        assertFalse(PublicPaths.isPublic("/share.html"));
         assertTrue(PublicPaths.isPublic("/api/share/abc123"));
     }
 
     @Test
-    void staticAssetDirs_arePublic() {
-        // login.html 是未登录入口页, 它的 JS/CSS 全部是 Vite 产物, 落在 /assets/ 下
-        // (第三方库已 npm 化打进 chunk, 不再有 /vendor/ 与 /js/); 连同 /css/ 必须放行。
-        // 否则未登录浏览器请求这些资源被 302 到 login.html(HTML), 浏览器当 JS 解析报
-        // "Unexpected token '<'" → 应用起不来 → 登录页白屏。
-        assertTrue(PublicPaths.isPublic("/assets/index-D1vUlBIU.js"),
-                "/assets/ 必须公开, 否则登录页加载不了自己的 bundle");
-        assertTrue(PublicPaths.isPublic("/assets/index-C7hiMiSR.css"));
-        assertTrue(PublicPaths.isPublic("/css/app.css"));
+    void staticAssetDirs_notHandledByBackend() {
+        // 前端分离后 /assets/ 和 /css/ 由 Caddy file_server 提供, 不经过后端 SessionAuthFilter。
+        assertFalse(PublicPaths.isPublic("/assets/index-D1vUlBIU.js"));
+        assertFalse(PublicPaths.isPublic("/assets/index-C7hiMiSR.css"));
+        assertFalse(PublicPaths.isPublic("/css/app.css"));
     }
 
     @Test
-    void adminStaticShell_isPublic() {
-        // 管理页是 MPA 静态壳(/admin 入口重定向 + /admin/<page>.html), 登录卡由壳内 JS 渲染。
-        // 登录会话 不放行的话, 未登录访问者被 302 到 登录会话 登录页, 壳加载不出来 → 管理口令登录框永不显示。
-        assertTrue(PublicPaths.isPublic("/admin"), "/admin 入口重定向必须公开");
-        assertTrue(PublicPaths.isPublic("/admin/"), "/admin/ 必须公开");
-        assertTrue(PublicPaths.isPublic("/admin/dashboard.html"), "/admin/dashboard.html 必须公开");
-        assertTrue(PublicPaths.isPublic("/admin/conversations.html"));
+    void adminStaticShell_notHandledByBackend() {
+        // 前端分离后 /admin 系列由 Caddy file_server + redir 提供, 不经过后端。
+        assertFalse(PublicPaths.isPublic("/admin"));
+        assertFalse(PublicPaths.isPublic("/admin/"));
+        assertFalse(PublicPaths.isPublic("/admin/dashboard.html"));
+        assertFalse(PublicPaths.isPublic("/admin/conversations.html"));
     }
 
     @Test

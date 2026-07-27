@@ -95,15 +95,15 @@ cd tests && npx playwright test chat.spec.ts           # 单个 E2E spec
 
 代码改完后不要主动执行 `mvn package`、`./scripts/service.sh restart` 或部署命令，除非用户明确要求编译、打包、部署或重启。验证优先选择能覆盖改动的最小测试命令。
 
-**push 到 master 前必须跑一次全量验证**（对齐 `.github/workflows/frontend-ci.yml` 的 4 个 job）：
+**push 到 master 前必须跑一次全量验证**（对齐 `.github/workflows/frontend-ci.yml` 的 job）：
 
 ```bash
-mvn -B test                              # 1. backend-test
-npm run typecheck && npm run lint && npm run build  # 2. frontend-build（仓库根目录）
-cd tests && npm run typecheck && npm test  # 3. vitest（tests 目录）
+mvn -B test                                          # 1. backend-test
+cd frontend && npm run typecheck && npm run lint && npm run build  # 2. frontend-build（frontend 目录）
+cd tests && npm run typecheck && npm test            # 3. vitest（tests 目录）
 ```
 
-特别注意：`src/main/frontend/` 和 `tests/` 是两个独立的 tsconfig，**两个 typecheck 都要跑**——只跑 `tests/` 的 typecheck 会漏掉 `src/main/frontend/` 下的类型错误。
+特别注意：`frontend/` 和 `tests/` 是两个独立的 tsconfig，**两个 typecheck 都要跑**——只跑 `tests/` 的 typecheck 会漏掉 `frontend/` 下的类型错误。
 
 ### Maven 测试分组
 
@@ -164,7 +164,7 @@ JAVA_HOME=/usr/local/jdk-21 mvn test
 
 - 后端：Spring Boot 3.3.13、Java 21、Maven
 - 数据库：SQLite + Spring JDBC
-- 前端：Vue 3 + Element Plus，静态文件/CDN vendor，无生产构建步骤
+- 前端：Vue 3 + Element Plus + Vite（源码在 `frontend/`，构建输出到 `frontend/dist/`，Caddy file_server 提供）
 - 测试：JUnit 5、Mockito、MockMvc、Vitest、Playwright
 - 质量检查：Alibaba P3C PMD、`mvn verify` 中的 JaCoCo 覆盖率门禁
 - 外部集成：Claude CLI、Codex CLI、飞书开放平台、Volcengine Ark embedding API

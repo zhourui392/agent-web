@@ -1,10 +1,12 @@
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
-import { resolve } from 'node:path';
+import { resolve, dirname } from 'node:path';
 import { readdirSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 // 多入口 MPA: 收集 frontend/ 及 frontend/admin/ 下所有 HTML 作为入口
-const root = resolve('src/main/frontend');
+// vite.config.js 在 frontend/ 下，root 即当前目录
+const root = dirname(fileURLToPath(import.meta.url));
 
 function collectHtmlEntries() {
   const entries = {};
@@ -37,10 +39,20 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: resolve('src/main/resources/static'),
+    outDir: resolve(root, 'dist'),
     emptyOutDir: true,
     rollupOptions: {
       input: collectHtmlEntries(),
+    },
+  },
+  // E2E 时 vite preview 提供前端静态文件，/api 代理到后端 Spring Boot。
+  // 生产环境由 Caddy file_server + reverse_proxy /api/* 实现同域分流。
+  preview: {
+    proxy: {
+      '/api': {
+        target: process.env.VITE_API_PROXY_TARGET || 'http://localhost:18092',
+        changeOrigin: true,
+      },
     },
   },
 });

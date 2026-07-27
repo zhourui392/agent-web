@@ -14,26 +14,15 @@ public final class PublicPaths {
     /**
      * 是否为无需登录即可访问的路径。
      *
-     * <p>放行规则按职责分组:
-     * <ul>
-     *   <li>分享页与静态资源：对所有访问者无条件公开</li>
-     *   <li>{@code /admin} 静态壳不含敏感数据，可用于展示登录/无权限状态。</li>
-     *   <li>管理数据接口不在白名单：先校验数据库会话，再校验 ADMIN 角色。</li>
-     * </ul>
+     * <p>前端静态文件（/login.html、/share.html、/admin/*、/css/、/assets/）由 Caddy
+     * file_server 直接提供，不经过后端 SessionAuthFilter，因此不在白名单内。
+     * 此处只保留 API 级别的公开端点。
      */
     public static boolean isPublic(String path) {
         return "/api/auth/logout".equals(path)
                 || "/api/auth/status".equals(path)
                 || "/api/auth/login".equals(path)
-                || "/login.html".equals(path)
-                || "/share.html".equals(path)
-                || "/admin".equals(path)
-                || path.startsWith("/admin/")
-                || path.startsWith("/api/share/")
-                || path.startsWith("/css/")
-                // Vite 打包产物 (hashed JS/CSS chunk) 统一落 /assets/, 必须公开:
-                // 被拦截会让登录页自身的 JS 302 到登录页, 全站白屏。
-                || path.startsWith("/assets/");
+                || path.startsWith("/api/share/");
     }
 
     /**

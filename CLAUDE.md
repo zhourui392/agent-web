@@ -9,7 +9,8 @@ Spring Boot web service that provides a browser UI for driving local CLI AI agen
 ## Build & Run Commands
 
 ```bash
-mvn clean package                # Build JAR
+cd frontend && npm run build     # Build frontend (输出到 frontend/dist/)
+mvn clean package                # Build JAR (后端，不再含前端产物)
 mvn spring-boot:run              # Run locally (默认 http://localhost:18092/，公网经 Caddy HTTPS)
 mvn test                         # Run all tests
 mvn test -Dtest=ChatFlowTest     # Run single test class
@@ -17,7 +18,7 @@ mvn test -Dtest=ChatFlowTest#testMethodName  # Run single test method
 mvn pmd:check                    # Code quality check (Alibaba P3C)
 ```
 
-> **端口 / 路径**：`application.yml` 里 `server.address=127.0.0.1`、`server.port=18092`、`server.servlet.context-path` 为空；公网由同机 Caddy 把 `https://agent.mokatu.shop/` 反代到该 loopback 端口。
+> **端口 / 路径**：`application.yml` 里 `server.address=127.0.0.1`、`server.port=18092`、`server.servlet.context-path` 为空；公网由同机 Caddy 把 `https://agent.mokatu.shop/` 的 `/api/*` 反代到后端 18092，其余由 `file_server` 提供 `frontend/dist/` 静态文件。
 
 > **Claude 行为约束**：代码改动后**不要自动 `mvn package` / 重启服务**。除非用户明确说"编译"/"打包"/"重启"/"部署"，否则停在改完代码 + 跑测试这一步，让用户自己控制何时重启服务。Linux / Windows 服务脚本分别为 `scripts/service.sh`、`scripts/service.ps1`，两者的 `start` / `restart` 都会先执行 Maven 编译，同样不得在未经用户明确要求时调用。
 
@@ -25,7 +26,7 @@ mvn pmd:check                    # Code quality check (Alibaba P3C)
 
 - **Backend**: Spring Boot 3.3.13 / Java 21 / Maven (jakarta 命名空间; 运行时需 JDK 21+)
 - **Database**: SQLite (users, sessions, scheduled tasks, workflows, RAG vector store, recall traces, per-user git config; 建表见 `resources/schema.sql` + `SqliteInitializer`)
-- **Frontend**: Vue 3 + Element Plus via CDN (no build step, static HTML/JS/CSS in `src/main/resources/static/`)；主应用 + `/admin` 管理台 MPA
+- **Frontend**: Vue 3 + Element Plus + Vite (源码在 `frontend/`，构建输出到 `frontend/dist/`)；主应用 + `/admin` 管理台 MPA；生产由 Caddy `file_server` 提供静态文件，`/api/*` 反代到后端 18092
 - **Communication**: REST + Server-Sent Events (SSE)
 - **Code Quality**: Alibaba P3C (PMD plugin)
 - **External integrations**: Claude CLI, Codex CLI, OpenAI-compatible embedding API
@@ -209,7 +210,7 @@ SqliteXxxRepo repo = new SqliteXxxRepo(new JdbcTemplate(ds));
 
 ### 前端测试（CDN-only 工程）
 
-前端 `static/js/app.js` 是 CDN 引入的单文件 Vue 3，**不引入 Vite/Vitest 工程化生产代码**。测试工程独立在 `tests/`，两条路径已落地：
+前端源码在 `frontend/`（Vite + Vue 3 SFC），测试工程独立在 `tests/`，两条路径已落地：
 
 1. **纯函数单测 (Vitest)**：可外提的格式化/解析函数抽到 `static/js/lib/formatters.js` 走 UMD-lite（挂 `window.AgentFormatters` + `module.exports`），在独立 `tests/` npm 工程用 Vitest 跑（`tests/unit/*.spec.ts`）
 2. **E2E 主链路 (Playwright)**：`tests/e2e/` 独立 Playwright 工程，自动启停 Spring Boot e2e profile (端口 18099)。覆盖 chat / workflows / 管理台(auth/conversations/dashboard/recall/refinery) / fs / share / worktree / scheduled-task / git-settings 等（`tests/e2e/*.spec.ts`）

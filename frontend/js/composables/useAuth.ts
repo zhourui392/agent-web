@@ -15,6 +15,7 @@ interface AuthStatus {
   loginUrl?: string;
   username?: string;
   userId?: string;
+  role?: string;
 }
 
 export function useAuth(): {
@@ -22,13 +23,16 @@ export function useAuth(): {
   username: Ref<string>;
   currentUserId: Ref<string>;
   canUseScheduledTask: ComputedRef<boolean>;
+  isAdmin: ComputedRef<boolean>;
   initAuth: () => Promise<boolean>;
   doLogout: () => Promise<void>;
 } {
   const authEnabled = ref(true);
   const username = ref('admin');
   const currentUserId = ref('');
+  const role = ref('');
   const canUseScheduledTask = computed(() => Boolean(currentUserId.value));
+  const isAdmin = computed(() => role.value === 'ADMIN');
 
   async function initAuth(): Promise<boolean> {
     try {
@@ -43,6 +47,9 @@ export function useAuth(): {
       }
       if (authStatus.userId) {
         currentUserId.value = authStatus.userId;
+      }
+      if (authStatus.role) {
+        role.value = authStatus.role;
       }
       return true;
     } catch (e) {
@@ -65,5 +72,5 @@ export function useAuth(): {
     window.location.href = loginUrl;
   }
 
-  return { authEnabled, username, currentUserId, canUseScheduledTask, initAuth, doLogout };
+  return { authEnabled, username, currentUserId, canUseScheduledTask, isAdmin, initAuth, doLogout };
 }
