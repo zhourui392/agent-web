@@ -1,6 +1,6 @@
 package com.example.agentweb.app.harness;
 
-import com.example.agentweb.app.chatrun.AfterCommitExecutor;
+import com.example.agentweb.app.common.AfterCommitExecutor;
 import com.example.agentweb.domain.harness.HarnessRun;
 import com.example.agentweb.domain.harness.HarnessStage;
 import com.example.agentweb.domain.harness.StageContract;

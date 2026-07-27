@@ -1,5 +1,6 @@
 package com.example.agentweb.app.chatrun;
 
+import com.example.agentweb.app.common.AfterCommitExecutor;
 import com.example.agentweb.domain.chatrun.ChatRun;
 import com.example.agentweb.domain.chatrun.ChatRunRepository;
 import com.example.agentweb.domain.chatrun.EventSequenceRange;

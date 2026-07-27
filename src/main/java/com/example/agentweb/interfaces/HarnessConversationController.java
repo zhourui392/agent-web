@@ -4,9 +4,7 @@ import com.example.agentweb.app.harness.HarnessConversationMessageView;
 import com.example.agentweb.app.harness.HarnessConversationQueryService;
 import com.example.agentweb.app.harness.HarnessConversationService;
 import com.example.agentweb.app.harness.HarnessConversationTurnResult;
-import com.example.agentweb.app.harness.InvalidHarnessIdempotencyKeyException;
 import com.example.agentweb.app.harness.StartHarnessConversationCommand;
-import com.example.agentweb.domain.harness.HarnessStage;
 import com.example.agentweb.interfaces.dto.HarnessConversationRequest;
 import jakarta.validation.Valid;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -34,8 +32,6 @@ import java.util.Locale;
 @ConditionalOnProperty(prefix = "agent.harness", name = "enabled", havingValue = "true")
 public class HarnessConversationController {
 
-    private static final int MAXIMUM_IDEMPOTENCY_KEY_LENGTH = 128;
-
     private final HarnessConversationService conversationService;
     private final HarnessConversationQueryService queryService;
 
@@ -52,7 +48,7 @@ public class HarnessConversationController {
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody HarnessConversationRequest request) {
         StartHarnessConversationCommand command = new StartHarnessConversationCommand(
-                runId, stage(stage), requireIdempotencyKey(idempotencyKey), request.getMessage());
+                runId, HarnessControllerSupport.stage(stage), HarnessControllerSupport.requireIdempotencyKey(idempotencyKey), request.getMessage());
         return ResponseEntity.accepted().body(conversationService.send(command));
     }
 
@@ -61,15 +57,4 @@ public class HarnessConversationController {
         return queryService.list(runId);
     }
 
-    private HarnessStage stage(String value) {
-        return HarnessStage.valueOf(value.trim().toUpperCase(Locale.ROOT));
-    }
-
-    private String requireIdempotencyKey(String value) {
-        if (value == null || value.trim().isEmpty()
-                || value.trim().length() > MAXIMUM_IDEMPOTENCY_KEY_LENGTH) {
-            throw new InvalidHarnessIdempotencyKeyException();
-        }
-        return value.trim();
-    }
 }

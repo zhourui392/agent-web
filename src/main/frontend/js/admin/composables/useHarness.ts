@@ -9,8 +9,9 @@
  */
 import * as HarnessAdminUtils from '../harness-utils.js';
 import { renderMarkdown as renderMarkdownFn, escapeHtml } from '../../lib/formatters.js';
-import { open as openResumableSse } from '../../lib/resumable-sse-client.js';
-import { ref, reactive, computed, nextTick, onBeforeUnmount, watch } from 'vue';
+import { useHarnessApi } from './useHarnessApi.js';
+import { useHarnessSse } from './useHarnessSse.js';
+import { ref, reactive, computed, nextTick, onBeforeUnmount } from 'vue';
 import { ElMessageBox, ElMessage } from 'element-plus';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -226,84 +227,13 @@ export function useHarness(): Record<string, any> {
     return String(value || '').split(',').map(item => item.trim()).filter(Boolean);
   }
 
-  function runUrl(runId: string): string {
-    return '/api/harness/runs/' + encodeURIComponent(runId);
-  }
+  const { idempotencyKeyCache, runUrl, idempotencyKey, api, optionalApi, post, showError } = useHarnessApi();
 
   function stageUrl(stage: string): string {
     if (!selectedRun.value) {
       throw new Error('请先选择 Run');
     }
     return runUrl(selectedRun.value.runId) + '/stages/' + encodeURIComponent(stage);
-  }
-
-  function randomToken(): string {
-    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
-      return window.crypto.randomUUID();
-    }
-    return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
-  }
-
-  const idempotencyKeyCache: Map<string, string> = new Map();
-  function idempotencyKey(identity: string): string {
-    let value = idempotencyKeyCache.get(identity);
-    if (!value) {
-      value = 'harness-ui-' + randomToken();
-      idempotencyKeyCache.set(identity, value);
-    }
-    return value;
-  }
-
-  async function api(path: string, options?: RequestInit): Promise<any> {
-    const response = await fetch(path, options || {});
-    const text = await response.text();
-    let body: any = {};
-    if (text) {
-      try {
-        body = JSON.parse(text);
-      } catch (ignored) {
-        body = text;
-      }
-    }
-    if (!response.ok) {
-      const message = body && typeof body === 'object'
-        ? (body.message || body.error || body.code) : body;
-      const error = new Error(message || ('HTTP ' + response.status));
-      (error as any).status = response.status;
-      (error as any).body = body;
-      throw error;
-    }
-    return body;
-  }
-
-  async function optionalApi(path: string): Promise<any> {
-    try {
-      return await api(path);
-    } catch (error: any) {
-      if (error.status === 404) {
-        return null;
-      }
-      throw error;
-    }
-  }
-
-  async function post(path: string, payload?: any, identity?: string): Promise<any> {
-    const headers: Record<string, string> = {};
-    if (payload !== undefined) {
-      headers['Content-Type'] = 'application/json';
-    }
-    if (identity) {
-      headers['Idempotency-Key'] = idempotencyKey(identity);
-    }
-    return api(path, {
-      method: 'POST',
-      headers,
-      body: payload === undefined ? undefined : JSON.stringify(payload)
-    });
-  }
-
-  function showError(prefix: string, error: any): void {
-    ElMessage.error(prefix + '：' + (error.message || error));
   }
 
   async function loadRuns(preferredRunId?: string): Promise<void> {
@@ -1090,63 +1020,17 @@ export function useHarness(): Record<string, any> {
     return selectedRun.value ? runUrl(selectedRun.value.runId) + '/report' : '#';
   }
 
-  let sseClient: ReturnType<typeof openResumableSse> | null = null;
-  let sseRefreshInFlight = false;
-
-  function closeSse() {
-    if (sseClient) { sseClient.close(); sseClient = null; }
-  }
-
-  function connectSse(runId: string) {
-    closeSse();
-    if (!runId) return;
-    const url = `/api/harness/runs/${encodeURIComponent(runId)}/stream`;
-    sseClient = openResumableSse(url, { after: 0 });
-    // 通配监听：收到任何 SSE 事件就刷新 run 详情 + conversation。
-    // harness 事件量低（一次操作 1-3 个事件），不需要按 event type 精细刷新。
-    sseClient.addEventListener('*', () => { refreshFromSse(runId); });
-  }
-
-  async function refreshFromSse(runId: string) {
-    if (sseRefreshInFlight || !selectedRun.value || selectedRun.value.runId !== runId) {
-      return;
-    }
-    sseRefreshInFlight = true;
-    try {
-      const base = runUrl(runId);
-      const values = await Promise.all([api(base), api(base + '/conversation')]);
-      if (!selectedRun.value || selectedRun.value.runId !== runId) {
-        return;
-      }
-      const nextRun = values[0];
-      const prevRun = selectedRun.value;
-      // 仅在 run 实质变化（updatedAt/status）时才替换 selectedRun 与消息列表，
-      // 避免每次 SSE 事件全量替换触发 el-descriptions/el-table/v-html 重渲染造成抖动。
-      if (!prevRun || prevRun.updatedAt !== nextRun.updatedAt
-          || prevRun.status !== nextRun.status) {
-        selectedRun.value = nextRun;
-        conversationMessages.value = Array.isArray(values[1]) ? values[1] : [];
-      }
-      await loadStageResources();
-      scrollConversationToEnd();
-    } catch (error: any) {
-      showError('刷新 Harness 状态失败', error);
-    } finally {
-      sseRefreshInFlight = false;
-    }
-  }
-
-  // selectedRun 变化时重连 SSE（切换 run 或首次加载）。
-  watch(() => selectedRun.value?.runId, (newRunId) => {
-    if (newRunId) {
-      connectSse(newRunId);
-    } else {
-      closeSse();
-    }
+  useHarnessSse({
+    selectedRun,
+    conversationMessages,
+    runUrl,
+    api,
+    loadStageResources,
+    scrollConversationToEnd,
+    showError,
   });
 
   onBeforeUnmount(() => {
-    closeSse();
     window.removeEventListener('keydown', onGlobalKeydown);
     window.removeEventListener('resize', onResize);
     idempotencyKeyCache.clear();

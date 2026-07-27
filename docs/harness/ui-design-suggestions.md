@@ -2,7 +2,7 @@
 
 > 基于 MVP 实现（`admin/harness.html` + `js/admin/pages/harness.js` + `css/admin.css`）的界面审视，按优先级从高到低排列。
 > 审查时间：2026-07-24
-> 对应版本：M4 纵向切片完成，Feature Flag `agent.harness.enabled` 默认关闭
+> 对应版本：M4 纵向切片完成，Feature Flag `agent.harness.enabled` 默认开启
 > 页面结构：左侧 Run 列表（270px）+ 右侧详情区（Summary Card → 四阶段卡片 → 阶段详情 Card）
 
 ---

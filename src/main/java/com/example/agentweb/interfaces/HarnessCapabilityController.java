@@ -54,7 +54,7 @@ public class HarnessCapabilityController {
         CapabilityGrant grant = new CapabilityGrant(set(request.getReadableFileRoots()),
                 set(request.getWritableFileRoots()), set(request.getExecutableCommands()));
         ResolveHarnessCapabilityCommand command = new ResolveHarnessCapabilityCommand(
-                runId, stage(stage), set(request.getExplicitSkillIds()), set(request.getTechnicalTags()),
+                runId, HarnessControllerSupport.stage(stage), set(request.getExplicitSkillIds()), set(request.getTechnicalTags()),
                 set(request.getApprovedWorkspaceSkillIds()), grant,
                 set(request.getExplicitMcpServerIds()), set(request.getRequiredMcpServerIds()),
                 set(request.getGrantedMcpServerIds()),
@@ -70,14 +70,10 @@ public class HarnessCapabilityController {
         if (attemptNumber < 1) {
             throw new IllegalArgumentException("attempt number must be positive");
         }
-        HarnessStage harnessStage = stage(stage);
+        HarnessStage harnessStage = HarnessControllerSupport.stage(stage);
         return queryService.find(runId, harnessStage, attemptNumber)
                 .orElseThrow(() -> new HarnessCapabilitySnapshotNotFoundException(
                         runId, harnessStage.name(), attemptNumber));
-    }
-
-    private HarnessStage stage(String value) {
-        return HarnessStage.valueOf(value.trim().toUpperCase(Locale.ROOT));
     }
 
     private Set<String> set(List<String> values) {

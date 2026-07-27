@@ -468,7 +468,7 @@ agent:
 
 配置要求：
 
-- 默认关闭；
+- 默认开启；
 - 路径必须规范化并通过白名单；
 - Secret 只通过环境变量、Secret Store 或现有安全引用提供；
 - `auth-mode` 默认 `local-login`，由系统 `codex` 使用服务账户的本机登录态；Adapter 不直接读取、复制或修改认证文件；
@@ -606,7 +606,7 @@ GET  /api/harness/runs/{runId}/report
 
 只有以下条件全部满足，首版才算完成：
 
-- [x] Harness Feature Flag 默认关闭，开启后可创建 Run。
+- [x] Harness Feature Flag 默认开启，关闭后不注册管理 API。
 - [x] 四阶段领域状态机和 Repository 通过测试。
 - [x] 四个 Prompt Pack 可热发现、版本化、快照和计算 Hash。
 - [x] 至少两个阶段能动态选择不同 Skill，并记录选择原因和 Package Hash。

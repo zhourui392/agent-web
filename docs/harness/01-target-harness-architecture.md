@@ -935,7 +935,7 @@ Application 测试只验证编排，不把状态判断锁在应用层。
 
 ## 19. 发布与兼容策略
 
-- 所有 Harness 入口由 Feature Flag 控制，默认关闭后不影响现有 Chat、Workflow 和 Diagnose。
+- 所有 Harness 入口由 Feature Flag 控制，关闭后不影响现有 Chat、Workflow 和 Diagnose。
 - 新表和已有 Harness 表的新增列均使用幂等迁移；不改现有 Workflow 数据语义。
 - 旧 M2 Snapshot 按旧 Schema、空 MCP 读取并保持原 Hash，禁止迁移时重算或覆盖。
 - Prompt Pack、Definition、Skill 和 MCP Manifest 都有显式版本。
