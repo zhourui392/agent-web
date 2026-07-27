@@ -95,6 +95,16 @@ cd tests && npx playwright test chat.spec.ts           # 单个 E2E spec
 
 代码改完后不要主动执行 `mvn package`、`./scripts/service.sh restart` 或部署命令，除非用户明确要求编译、打包、部署或重启。验证优先选择能覆盖改动的最小测试命令。
 
+**push 到 master 前必须跑一次全量验证**（对齐 `.github/workflows/frontend-ci.yml` 的 4 个 job）：
+
+```bash
+mvn -B test                              # 1. backend-test
+npm run typecheck && npm run lint && npm run build  # 2. frontend-build（仓库根目录）
+cd tests && npm run typecheck && npm test  # 3. vitest（tests 目录）
+```
+
+特别注意：`src/main/frontend/` 和 `tests/` 是两个独立的 tsconfig，**两个 typecheck 都要跑**——只跑 `tests/` 的 typecheck 会漏掉 `src/main/frontend/` 下的类型错误。
+
 ### Maven 测试分组
 
 `mvn -q test` 是默认快速测试集，不等价于全量后端测试。`pom.xml` 通过 `test.excludedGroups` 默认排除：
