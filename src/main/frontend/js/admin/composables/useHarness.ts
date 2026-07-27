@@ -227,7 +227,7 @@ export function useHarness(): Record<string, any> {
     return String(value || '').split(',').map(item => item.trim()).filter(Boolean);
   }
 
-  const { idempotencyKeyCache, runUrl, idempotencyKey, api, optionalApi, post, showError } = useHarnessApi();
+  const { idempotencyKeyCache, runUrl, randomToken, idempotencyKey, api, optionalApi, post, showError } = useHarnessApi();
 
   function stageUrl(stage: string): string {
     if (!selectedRun.value) {

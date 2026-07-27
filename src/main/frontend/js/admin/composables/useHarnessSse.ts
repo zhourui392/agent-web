@@ -10,9 +10,6 @@
 import { open as openResumableSse } from '../../lib/resumable-sse-client.js';
 import { watch, onBeforeUnmount, type Ref } from 'vue';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyRef = ReturnType<typeof Ref<any>>;
-
 interface HarnessSseDeps {
   selectedRun: Ref<any>;
   conversationMessages: Ref<any[]>;

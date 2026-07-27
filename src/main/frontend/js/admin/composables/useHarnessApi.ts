@@ -83,5 +83,5 @@ export function useHarnessApi() {
     ElMessage.error(prefix + '：' + (error.message || error));
   }
 
-  return { idempotencyKeyCache, runUrl, idempotencyKey, api, optionalApi, post, showError };
+  return { idempotencyKeyCache, runUrl, randomToken, idempotencyKey, api, optionalApi, post, showError };
 }
