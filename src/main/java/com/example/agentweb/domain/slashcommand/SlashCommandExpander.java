@@ -28,8 +28,12 @@ public class SlashCommandExpander {
      * @return 展开后的消息，或原始消息
      */
     public String expandIfCommand(String workingDir, String message) {
+        return expand(workingDir, message).getExpandedPrompt();
+    }
+
+    public SlashExpansionResult expand(String workingDir, String message) {
         if (message == null || !message.startsWith(SLASH_PREFIX)) {
-            return message;
+            return new SlashExpansionResult(message, false, false, null, "");
         }
 
         String commandName = extractCommandName(message);
@@ -38,7 +42,7 @@ public class SlashCommandExpander {
         SlashCommand matched = findCommand(workingDir, commandName);
         if (matched == null) {
             log.debug("slash-command-no-match commandName={} workingDir={}", commandName, workingDir);
-            return message;
+            return new SlashExpansionResult(message, false, false, commandName, arguments);
         }
 
         String expanded = matched.getBody().replace("$ARGUMENTS", arguments);
@@ -47,7 +51,7 @@ public class SlashCommandExpander {
                 arguments.length(),
                 matched.getBody() == null ? 0 : matched.getBody().length(),
                 expanded.length());
-        return expanded;
+        return new SlashExpansionResult(expanded, true, matched.isSkill(), commandName, arguments);
     }
 
     /**

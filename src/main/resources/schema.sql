@@ -77,6 +77,82 @@ CREATE TABLE IF NOT EXISTS chat_run_event (
 CREATE INDEX IF NOT EXISTS idx_chat_run_event_created
     ON chat_run_event(created_at);
 
+-- 对话工具调用旁路结构化投影。原 chat_message.content 与 SSE 仍是聊天展示事实源。
+CREATE TABLE IF NOT EXISTS chat_tool_invocation (
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id            TEXT    NOT NULL,
+    run_id                TEXT,
+    assistant_message_id  INTEGER,
+    provider              TEXT    NOT NULL,
+    provider_call_id      TEXT,
+    invocation_index      INTEGER NOT NULL,
+    invocation_kind       TEXT    NOT NULL,
+    tool_name             TEXT,
+    skill_name            TEXT,
+    trigger_source        TEXT    NOT NULL,
+    input_json            TEXT,
+    output_text           TEXT,
+    status                TEXT    NOT NULL,
+    is_error              INTEGER NOT NULL DEFAULT 0,
+    exit_code             INTEGER,
+    provider_item_type    TEXT,
+    provider_status       TEXT,
+    input_truncated       INTEGER NOT NULL DEFAULT 0,
+    output_truncated      INTEGER NOT NULL DEFAULT 0,
+    output_original_size  INTEGER,
+    started_at            INTEGER,
+    completed_at          INTEGER,
+    created_at            INTEGER NOT NULL,
+    updated_at            INTEGER NOT NULL,
+    source                TEXT    NOT NULL,
+    source_message_id     INTEGER,
+    migration_confidence  TEXT,
+    CHECK (provider IN ('CLAUDE', 'CODEX', 'NATIVE')),
+    CHECK (invocation_kind IN ('TOOL_USE', 'COMMAND_EXECUTION', 'SKILL')),
+    CHECK ((invocation_kind = 'TOOL_USE' AND tool_name IS NOT NULL AND skill_name IS NULL)
+        OR (invocation_kind = 'COMMAND_EXECUTION' AND tool_name IS NULL AND skill_name IS NULL)
+        OR (invocation_kind = 'SKILL' AND tool_name = 'Skill')),
+    CHECK (trigger_source IN ('AGENT', 'USER_SLASH')),
+    CHECK (status IN ('STARTED', 'SUCCEEDED', 'FAILED', 'INCOMPLETE', 'UNKNOWN')),
+    CHECK (source IN ('LIVE', 'HISTORY_MIGRATION')),
+    CHECK (migration_confidence IS NULL OR migration_confidence IN ('HIGH', 'MEDIUM', 'LOW')),
+    CHECK (is_error IN (0, 1)),
+    CHECK (input_truncated IN (0, 1)),
+    CHECK (output_truncated IN (0, 1))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uk_chat_tool_invocation_provider_call
+    ON chat_tool_invocation(session_id, source_message_id, provider_call_id)
+    WHERE source_message_id IS NOT NULL AND provider_call_id IS NOT NULL AND provider_call_id <> '';
+CREATE UNIQUE INDEX IF NOT EXISTS uk_chat_tool_invocation_live_provider_call
+    ON chat_tool_invocation(run_id, provider_call_id)
+    WHERE run_id IS NOT NULL AND provider_call_id IS NOT NULL AND provider_call_id <> '';
+CREATE UNIQUE INDEX IF NOT EXISTS uk_chat_tool_invocation_message_index
+    ON chat_tool_invocation(session_id, source_message_id, invocation_index, trigger_source)
+    WHERE source_message_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uk_chat_tool_invocation_live_index
+    ON chat_tool_invocation(run_id, invocation_index, trigger_source)
+    WHERE run_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_chat_tool_invocation_session
+    ON chat_tool_invocation(session_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_chat_tool_invocation_run
+    ON chat_tool_invocation(run_id, invocation_index);
+CREATE INDEX IF NOT EXISTS idx_chat_tool_invocation_message
+    ON chat_tool_invocation(assistant_message_id);
+CREATE INDEX IF NOT EXISTS idx_chat_tool_invocation_tool
+    ON chat_tool_invocation(tool_name, created_at);
+CREATE INDEX IF NOT EXISTS idx_chat_tool_invocation_skill
+    ON chat_tool_invocation(skill_name, created_at) WHERE skill_name IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS chat_tool_invocation_migration_state (
+    migration_name        TEXT PRIMARY KEY,
+    last_message_id       INTEGER NOT NULL,
+    scanned_messages      INTEGER NOT NULL,
+    inserted_invocations  INTEGER NOT NULL,
+    parse_failures        INTEGER NOT NULL,
+    replayed_results      INTEGER NOT NULL,
+    updated_at            INTEGER NOT NULL
+);
+
 -- /recall 命中明细, 1:1 挂在 assistant 消息上 (key=chat_message.id), 供刷新/重开历史时回放召回卡片
 CREATE TABLE IF NOT EXISTS chat_message_recall (
     message_id    INTEGER PRIMARY KEY,

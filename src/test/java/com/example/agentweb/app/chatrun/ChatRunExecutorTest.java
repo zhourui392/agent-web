@@ -40,6 +40,8 @@ class ChatRunExecutorTest {
     private SessionRepository sessionRepository;
     private ChatRunPromptBuilder promptBuilder;
     private ChatRunEventBufferFactory eventBufferFactory;
+    private ChatToolInvocationTrackerFactory toolInvocationTrackerFactory;
+    private ChatToolInvocationTrackerFactory.Tracker toolTracker;
     private ChatRunEventBuffer eventBuffer;
     private ChatRunExecutor executor;
 
@@ -51,6 +53,9 @@ class ChatRunExecutorTest {
         sessionRepository = mock(SessionRepository.class);
         promptBuilder = mock(ChatRunPromptBuilder.class);
         eventBufferFactory = mock(ChatRunEventBufferFactory.class);
+        toolInvocationTrackerFactory = mock(ChatToolInvocationTrackerFactory.class);
+        toolTracker = mock(ChatToolInvocationTrackerFactory.Tracker.class);
+        when(toolInvocationTrackerFactory.open(anyString(), anyString(), any())).thenReturn(toolTracker);
         eventBuffer = mock(ChatRunEventBuffer.class);
         when(eventBufferFactory.open(eq(ChatRunId.of("run-1")), any())).thenReturn(eventBuffer);
         Executor directExecutor = new Executor() {
@@ -60,7 +65,7 @@ class ChatRunExecutorTest {
             }
         };
         executor = new ChatRunExecutor(directExecutor, queryService, lifecycleService,
-                gateway, sessionRepository, promptBuilder, eventBufferFactory,
+                gateway, sessionRepository, promptBuilder, eventBufferFactory, toolInvocationTrackerFactory,
                 Optional.<RefineryRecaller>empty(), Optional.<RecallObservationRecorder>empty());
     }
 
@@ -117,7 +122,7 @@ class ChatRunExecutorTest {
             }
         };
         ChatRunExecutor rejecting = new ChatRunExecutor(rejectingExecutor, queryService, lifecycleService,
-                gateway, sessionRepository, promptBuilder, eventBufferFactory,
+                gateway, sessionRepository, promptBuilder, eventBufferFactory, toolInvocationTrackerFactory,
                 Optional.<RefineryRecaller>empty(), Optional.<RecallObservationRecorder>empty());
 
         rejecting.launch(ChatRunId.of("run-1"));

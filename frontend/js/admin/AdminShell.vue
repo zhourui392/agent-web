@@ -24,6 +24,7 @@ type="primary" size="large" style="width:100%; margin-top:16px;"
           <el-menu :default-active="active" @select="onMenuSelect">
             <el-menu-item index="dashboard"><span>大盘</span></el-menu-item>
             <el-menu-item index="conversations"><span>对话记录</span></el-menu-item>
+            <el-menu-item index="tool-invocations"><span>工具调用</span></el-menu-item>
             <el-menu-item index="users"><span>用户管理</span></el-menu-item>
             <el-menu-item index="workflows"><span>工作流</span></el-menu-item>
             <el-menu-item v-if="harnessEnabled" index="harness"><span>Harness</span></el-menu-item>

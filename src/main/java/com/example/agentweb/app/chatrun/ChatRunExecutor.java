@@ -43,6 +43,7 @@ public class ChatRunExecutor implements ChatRunLauncher {
     private final SessionRepository sessionRepository;
     private final ChatRunPromptBuilder promptBuilder;
     private final ChatRunEventBufferFactory eventBufferFactory;
+    private final ChatToolInvocationTrackerFactory toolInvocationTrackerFactory;
     private final Optional<RefineryRecaller> recaller;
     private final Optional<RecallObservationRecorder> recallRecorder;
 
@@ -53,6 +54,7 @@ public class ChatRunExecutor implements ChatRunLauncher {
                            SessionRepository sessionRepository,
                            ChatRunPromptBuilder promptBuilder,
                            ChatRunEventBufferFactory eventBufferFactory,
+                           ChatToolInvocationTrackerFactory toolInvocationTrackerFactory,
                            Optional<RefineryRecaller> recaller,
                            Optional<RecallObservationRecorder> recallRecorder) {
         this.executor = executor;
@@ -62,6 +64,7 @@ public class ChatRunExecutor implements ChatRunLauncher {
         this.sessionRepository = sessionRepository;
         this.promptBuilder = promptBuilder;
         this.eventBufferFactory = eventBufferFactory;
+        this.toolInvocationTrackerFactory = toolInvocationTrackerFactory;
         this.recaller = recaller;
         this.recallRecorder = recallRecorder;
     }
@@ -102,6 +105,8 @@ public class ChatRunExecutor implements ChatRunLauncher {
                 new AtomicReference<AgentStreamResult>(AgentStreamResult.completed(-1));
         final ChatRunEventBuffer eventBuffer = eventBufferFactory.open(runId,
                 error -> gateway.stopStream(runId.getValue()));
+        final ChatToolInvocationTrackerFactory.Tracker toolTracker = toolInvocationTrackerFactory.open(
+                context.getSessionId(), runId.getValue(), context.getAgentType());
         Optional<String> attemptId = createRecallAttempt(context);
         String recallJson = null;
         try {
@@ -111,21 +116,33 @@ public class ChatRunExecutor implements ChatRunLauncher {
                 recallJson = recallJson(recall);
                 eventBuffer.append("recall", recallJson);
             }
-            String prompt = promptBuilder.prepare(context, promptInput);
+            PreparedChatRunPrompt preparedPrompt = promptBuilder.prepareDetailed(context, promptInput);
+            if (preparedPrompt == null) {
+                preparedPrompt = new PreparedChatRunPrompt(promptBuilder.prepare(context, promptInput), null);
+            }
+            String prompt = preparedPrompt.getPrompt();
+            toolTracker.recordExplicitSkill(preparedPrompt.getExplicitSkillInvocation());
             final String finalRecallJson = recallJson;
+            final java.util.function.Consumer<String> messageChunkHandler =
+                    handler.onChunk(chunk -> eventBuffer.append("chunk", chunk));
             gateway.runStreamWithResult(context.getAgentType(), context.getWorkingDir(), prompt,
                     runId.getValue(), context.getResumeId(), context.getEnv(), 0L,
-                    handler.onChunk(chunk -> eventBuffer.append("chunk", chunk)),
+                    chunk -> {
+                        toolTracker.accept(chunk);
+                        messageChunkHandler.accept(chunk);
+                    },
                     streamResult::set, context.getUserId(), null);
             eventBuffer.flush();
             eventBuffer.close();
             Long assistantMessageId = lifecycleService.complete(runId,
                     handler.accumulatedResponse(), streamResult.get(), finalRecallJson);
+            toolTracker.finish(assistantMessageId);
             attachAssistant(attemptId, assistantMessageId);
         } catch (Exception ex) {
             log.error("chat-run-execution-failed runId={} sessionId={}",
                     runId.getValue(), context.getSessionId(), ex);
             gateway.stopStream(runId.getValue());
+            toolTracker.finish(null);
             closeBuffer(eventBuffer);
             if (eventBuffer.getFailure() != null) {
                 safeEventStoreFail(runId, streamResult.get().getExitCode());

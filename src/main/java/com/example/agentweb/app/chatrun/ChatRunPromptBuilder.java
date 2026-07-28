@@ -2,6 +2,7 @@ package com.example.agentweb.app.chatrun;
 
 import com.example.agentweb.app.StreamOutputExtractor;
 import com.example.agentweb.domain.slashcommand.SlashCommandExpander;
+import com.example.agentweb.domain.slashcommand.SlashExpansionResult;
 import org.springframework.stereotype.Component;
 
 /**
@@ -27,13 +28,26 @@ public class ChatRunPromptBuilder {
     }
 
     public String prepare(ChatRunExecutionContext context, String input) {
-        String prompt = input.equals(context.getMessage())
-                ? commandExpander.expandIfCommand(context.getWorkingDir(), input)
-                : input;
+        return prepareDetailed(context, input).getPrompt();
+    }
+
+    public PreparedChatRunPrompt prepareDetailed(ChatRunExecutionContext context, String input) {
+        SlashExpansionResult expansion = input.equals(context.getMessage())
+                ? commandExpander.expand(context.getWorkingDir(), input)
+                : new SlashExpansionResult(input, false, false, null, "");
+        if (expansion == null) {
+            expansion = new SlashExpansionResult(
+                    commandExpander.expandIfCommand(context.getWorkingDir(), input),
+                    false, false, null, "");
+        }
+        String prompt = expansion.getExpandedPrompt();
         if (shouldInjectHistory(context)) {
             prompt = historyPrefix(context, prompt);
         }
-        return appendFinalAnswerInstruction(prompt);
+        PreparedChatRunPrompt.ExplicitSkillInvocation skill = expansion.isMatched() && expansion.isSkill()
+                ? new PreparedChatRunPrompt.ExplicitSkillInvocation(
+                        expansion.getCommandName(), expansion.getArguments()) : null;
+        return new PreparedChatRunPrompt(appendFinalAnswerInstruction(prompt), skill);
     }
 
     private boolean shouldInjectHistory(ChatRunExecutionContext context) {

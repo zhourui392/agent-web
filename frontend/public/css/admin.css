@@ -32,6 +32,34 @@ body { margin: 0; background: #f5f7fa; font-family: -apple-system, BlinkMacSyste
 .conv-toolbar { display: flex; gap: 8px; margin-bottom: 12px; }
 .conv-toolbar .el-input { max-width: 320px; }
 .conv-pager { margin-top: 16px; display: flex; justify-content: flex-end; }
+.tool-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(160px, 1fr));
+  gap: 10px;
+  align-items: center;
+}
+.tool-filter-grid .el-date-editor { width: 100%; grid-column: span 2; }
+.tool-detail-pre {
+  box-sizing: border-box;
+  max-height: 360px;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  color: #303133;
+  background: #f6f8fa;
+  border: 1px solid #ebeef5;
+  border-radius: 4px;
+  font: 12px/1.6 'Consolas','Monaco',monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+@media (max-width: 1100px) {
+  .tool-filter-grid { grid-template-columns: repeat(2, minmax(160px, 1fr)); }
+}
+@media (max-width: 720px) {
+  .tool-filter-grid { grid-template-columns: 1fr; }
+  .tool-filter-grid .el-date-editor { grid-column: auto; }
+}
 .recall-view { max-width: 1280px; }
 .recall-filter-grid {
   display: grid;

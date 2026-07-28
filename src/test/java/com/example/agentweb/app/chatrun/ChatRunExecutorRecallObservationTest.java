@@ -74,8 +74,11 @@ class ChatRunExecutorRecallObservationTest {
         }).when(gateway).runStreamWithResult(any(), anyString(), anyString(), anyString(), any(), any(),
                 anyLong(), any(), any(), any(), any());
         Executor direct = Runnable::run;
+        ChatToolInvocationTrackerFactory trackerFactory = mock(ChatToolInvocationTrackerFactory.class);
+        ChatToolInvocationTrackerFactory.Tracker tracker = mock(ChatToolInvocationTrackerFactory.Tracker.class);
+        when(trackerFactory.open(anyString(), anyString(), any())).thenReturn(tracker);
         executor = new ChatRunExecutor(direct, queryService, lifecycleService, gateway,
-                mock(SessionRepository.class), promptBuilder, eventBufferFactory,
+                mock(SessionRepository.class), promptBuilder, eventBufferFactory, trackerFactory,
                 Optional.of(recaller), Optional.of(recorder));
     }
 
