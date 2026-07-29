@@ -1,6 +1,6 @@
 package com.example.agentweb.infra.chatrun;
 
-import com.example.agentweb.app.chatrun.CodexCommandToolNameResolver;
+import com.example.agentweb.app.chatrun.ShellCommandToolNameResolver;
 import com.example.agentweb.app.chatrun.ToolInvocationAdminFilter;
 import com.example.agentweb.app.chatrun.ToolInvocationAdminQueryService.ToolInvocationAdminPage;
 import com.example.agentweb.domain.chatrun.ToolInvocation;
@@ -40,23 +40,37 @@ class SqliteToolInvocationAdminQueryServiceTest {
                 + "updated_at INTEGER NOT NULL,source TEXT NOT NULL,source_message_id INTEGER,migration_confidence TEXT)");
         repository = new SqliteToolInvocationRepository(jdbc);
         queryService = new SqliteToolInvocationAdminQueryService(jdbc,
-                new CodexCommandToolNameResolver(new ObjectMapper()));
+                new ShellCommandToolNameResolver(new ObjectMapper()));
     }
 
     @Test
-    void findPage_shouldExposeAndFilterCodexActualCommandName() {
+    void findPage_shouldExposeAndFilterShellCommandNameAcrossProviders() {
         repository.save(invocation("item-1", AgentType.CODEX, ToolInvocationKind.COMMAND_EXECUTION,
-                null, "{\"command\":\"/bin/bash -lc 'cd /workspace && rg -n tool src'\"}", 2L));
+                null, "{\"command\":\"/bin/bash -lc 'cd /workspace && rg -n tool src'\"}", 4L));
+        repository.save(invocation("bash-1", AgentType.CLAUDE, ToolInvocationKind.TOOL_USE,
+                "Bash", "{\"command\":\"/bin/bash -lc 'mvn test'\"}", 3L));
+        repository.save(invocation("bash-2", AgentType.CLAUDE, ToolInvocationKind.TOOL_USE,
+                "Bash", "{\"other\":true}", 2L));
         repository.save(invocation("tool-1", AgentType.CLAUDE, ToolInvocationKind.TOOL_USE,
                 "Read", "{\"file_path\":\"README.md\"}", 1L));
 
         ToolInvocationAdminPage all = queryService.findPage(filter(null));
         assertEquals("rg", all.getItems().get(0).getDisplayToolName());
-        assertEquals("Read", all.getItems().get(1).getDisplayToolName());
+        assertEquals("mvn", all.getItems().get(1).getDisplayToolName());
+        assertEquals("Bash", all.getItems().get(2).getDisplayToolName());
+        assertEquals("Read", all.getItems().get(3).getDisplayToolName());
 
-        ToolInvocationAdminPage filtered = queryService.findPage(filter("rg"));
+        ToolInvocationAdminPage filtered = queryService.findPage(filter("mvn"));
         assertEquals(1, filtered.getTotal());
-        assertEquals("rg", filtered.getItems().get(0).getDisplayToolName());
+        assertEquals("mvn", filtered.getItems().get(0).getDisplayToolName());
+    }
+
+    @Test
+    void findPage_shouldKeepShellNameForClaudeComplexScript() {
+        repository.save(invocation("bash-complex", AgentType.CLAUDE, ToolInvocationKind.TOOL_USE,
+                "Bash", "{\"command\":\"bash -lc 'result=$(git status); printf %s result'\"}", 1L));
+
+        assertEquals("bash", queryService.findPage(filter(null)).getItems().get(0).getDisplayToolName());
     }
 
     private ToolInvocationAdminFilter filter(String toolName) {

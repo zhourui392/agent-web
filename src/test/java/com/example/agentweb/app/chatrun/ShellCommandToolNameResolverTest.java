@@ -6,8 +6,8 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
-class CodexCommandToolNameResolverTest {
-    private final CodexCommandToolNameResolver resolver = new CodexCommandToolNameResolver(new ObjectMapper());
+class ShellCommandToolNameResolverTest {
+    private final ShellCommandToolNameResolver resolver = new ShellCommandToolNameResolver(new ObjectMapper());
 
     @Test
     void resolveCommand_shouldSkipShellAndWorkingDirectoryPrefix() {

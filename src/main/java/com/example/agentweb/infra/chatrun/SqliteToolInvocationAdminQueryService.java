@@ -1,9 +1,11 @@
 package com.example.agentweb.infra.chatrun;
 
-import com.example.agentweb.app.chatrun.CodexCommandToolNameResolver;
+import com.example.agentweb.app.chatrun.ShellCommandToolNameResolver;
 import com.example.agentweb.app.chatrun.ToolInvocationAdminFilter;
 import com.example.agentweb.app.chatrun.ToolInvocationAdminQueryService;
 import com.example.agentweb.domain.chatrun.ToolInvocation;
+import com.example.agentweb.domain.chatrun.ToolInvocationKind;
+import com.example.agentweb.domain.shared.AgentType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -16,12 +18,12 @@ import java.util.Map;
 public class SqliteToolInvocationAdminQueryService implements ToolInvocationAdminQueryService {
     private static final int SUMMARY_LENGTH = 180;
     private final JdbcTemplate jdbc;
-    private final CodexCommandToolNameResolver commandToolNameResolver;
+    private final ShellCommandToolNameResolver commandToolNameResolver;
     private final SqliteToolInvocationRepository.InvocationRowMapper rowMapper =
             new SqliteToolInvocationRepository.InvocationRowMapper();
 
     public SqliteToolInvocationAdminQueryService(JdbcTemplate jdbc,
-                                                  CodexCommandToolNameResolver commandToolNameResolver) {
+                                                  ShellCommandToolNameResolver commandToolNameResolver) {
         this.jdbc = jdbc;
         this.commandToolNameResolver = commandToolNameResolver;
     }
@@ -134,8 +136,18 @@ public class SqliteToolInvocationAdminQueryService implements ToolInvocationAdmi
 
     private String displayToolName(ToolInvocation value) {
         if (value.getSkillName() != null) return value.getSkillName();
-        if (value.getToolName() != null) return value.getToolName();
-        return commandToolNameResolver.resolveInputJson(value.getInputJson());
+        if (isShellCommand(value)) {
+            String commandName = commandToolNameResolver.resolveInputJson(value.getInputJson());
+            if (commandName != null) return commandName;
+        }
+        return value.getToolName();
+    }
+
+    private boolean isShellCommand(ToolInvocation value) {
+        return value.getInvocationKind() == ToolInvocationKind.COMMAND_EXECUTION
+                || (value.getProvider() == AgentType.CLAUDE
+                && value.getInvocationKind() == ToolInvocationKind.TOOL_USE
+                && "Bash".equals(value.getToolName()));
     }
 
     private String trimToNull(String value) {

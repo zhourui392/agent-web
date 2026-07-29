@@ -12,7 +12,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 @Component
-public class CodexCommandToolNameResolver {
+public class ShellCommandToolNameResolver {
     private static final Pattern TOKEN = Pattern.compile("(?:'([^']*)'|\"((?:\\\\.|[^\"])*)\"|([^\\s;|&]+))");
     private static final Pattern ASSIGNMENT = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*=.*");
     private static final Pattern COMPLEX_SHELL_SCRIPT = Pattern.compile(
@@ -29,7 +29,7 @@ public class CodexCommandToolNameResolver {
 
     private final ObjectMapper mapper;
 
-    public CodexCommandToolNameResolver(ObjectMapper mapper) {
+    public ShellCommandToolNameResolver(ObjectMapper mapper) {
         this.mapper = mapper;
     }
 
