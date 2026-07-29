@@ -1,5 +1,6 @@
 package com.example.agentweb.infra.chatrun;
 
+import com.example.agentweb.app.chatrun.CodexCommandToolNameResolver;
 import com.example.agentweb.app.chatrun.ToolInvocationAdminFilter;
 import com.example.agentweb.app.chatrun.ToolInvocationAdminQueryService;
 import com.example.agentweb.domain.chatrun.ToolInvocation;
@@ -15,29 +16,45 @@ import java.util.Map;
 public class SqliteToolInvocationAdminQueryService implements ToolInvocationAdminQueryService {
     private static final int SUMMARY_LENGTH = 180;
     private final JdbcTemplate jdbc;
+    private final CodexCommandToolNameResolver commandToolNameResolver;
     private final SqliteToolInvocationRepository.InvocationRowMapper rowMapper =
             new SqliteToolInvocationRepository.InvocationRowMapper();
 
-    public SqliteToolInvocationAdminQueryService(JdbcTemplate jdbc) {
+    public SqliteToolInvocationAdminQueryService(JdbcTemplate jdbc,
+                                                  CodexCommandToolNameResolver commandToolNameResolver) {
         this.jdbc = jdbc;
+        this.commandToolNameResolver = commandToolNameResolver;
     }
 
     @Override
     public ToolInvocationAdminPage findPage(ToolInvocationAdminFilter filter) {
-        SqlFilter sqlFilter = buildFilter(filter);
+        String toolName = trimToNull(filter.getToolName());
+        SqlFilter sqlFilter = buildFilter(filter, toolName == null);
+        if (toolName != null) {
+            List<ToolInvocation> candidates = jdbc.query("SELECT * FROM chat_tool_invocation"
+                            + sqlFilter.where + " ORDER BY created_at DESC,id DESC",
+                    rowMapper, sqlFilter.arguments.toArray());
+            List<ToolInvocation> matches = new ArrayList<ToolInvocation>();
+            for (ToolInvocation candidate : candidates) {
+                String displayToolName = displayToolName(candidate);
+                if (displayToolName != null && displayToolName.toLowerCase().contains(toolName.toLowerCase())) {
+                    matches.add(candidate);
+                }
+            }
+            int from = Math.min((filter.getPage() - 1) * filter.getSize(), matches.size());
+            int to = Math.min(from + filter.getSize(), matches.size());
+            return new ToolInvocationAdminPage(toRows(matches.subList(from, to)), matches.size(),
+                    filter.getPage(), filter.getSize());
+        }
         long total = jdbc.queryForObject("SELECT count(*) FROM chat_tool_invocation" + sqlFilter.where,
                 Long.class, sqlFilter.arguments.toArray());
         List<Object> pageArguments = new ArrayList<Object>(sqlFilter.arguments);
         pageArguments.add(filter.getSize());
         pageArguments.add((filter.getPage() - 1) * filter.getSize());
-        List<ToolInvocationAdminRow> items = jdbc.query("SELECT * FROM chat_tool_invocation"
+        List<ToolInvocation> values = jdbc.query("SELECT * FROM chat_tool_invocation"
                         + sqlFilter.where + " ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?",
-                (rs, rowNum) -> {
-                    ToolInvocation value = rowMapper.mapRow(rs, rowNum);
-                    return new ToolInvocationAdminRow(value, summarize(value.getInputJson()),
-                            summarize(value.getOutputText()));
-                }, pageArguments.toArray());
-        return new ToolInvocationAdminPage(items, total, filter.getPage(), filter.getSize());
+                rowMapper, pageArguments.toArray());
+        return new ToolInvocationAdminPage(toRows(values), total, filter.getPage(), filter.getSize());
     }
 
     @Override
@@ -64,7 +81,7 @@ public class SqliteToolInvocationAdminQueryService implements ToolInvocationAdmi
         return jdbc.queryForObject("SELECT count(*) FROM chat_tool_invocation WHERE " + predicate, Long.class);
     }
 
-    private SqlFilter buildFilter(ToolInvocationAdminFilter filter) {
+    private SqlFilter buildFilter(ToolInvocationAdminFilter filter, boolean includeToolName) {
         List<String> clauses = new ArrayList<String>();
         List<Object> arguments = new ArrayList<Object>();
         equalsFilter(clauses, arguments, "provider", filter.getProvider());
@@ -73,7 +90,9 @@ public class SqliteToolInvocationAdminQueryService implements ToolInvocationAdmi
         equalsFilter(clauses, arguments, "trigger_source", filter.getTriggerSource());
         equalsFilter(clauses, arguments, "session_id", filter.getSessionId());
         equalsFilter(clauses, arguments, "run_id", filter.getRunId());
-        containsFilter(clauses, arguments, "tool_name", filter.getToolName());
+        if (includeToolName) {
+            containsFilter(clauses, arguments, "tool_name", filter.getToolName());
+        }
         containsFilter(clauses, arguments, "skill_name", filter.getSkillName());
         if (filter.getStartedAfter() != null) {
             clauses.add("started_at>=?");
@@ -102,6 +121,26 @@ public class SqliteToolInvocationAdminQueryService implements ToolInvocationAdmi
 
     private String escapeLike(String value) {
         return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+    }
+
+    private List<ToolInvocationAdminRow> toRows(List<ToolInvocation> values) {
+        List<ToolInvocationAdminRow> rows = new ArrayList<ToolInvocationAdminRow>(values.size());
+        for (ToolInvocation value : values) {
+            rows.add(new ToolInvocationAdminRow(value, displayToolName(value), summarize(value.getInputJson()),
+                    summarize(value.getOutputText())));
+        }
+        return rows;
+    }
+
+    private String displayToolName(ToolInvocation value) {
+        if (value.getSkillName() != null) return value.getSkillName();
+        if (value.getToolName() != null) return value.getToolName();
+        return commandToolNameResolver.resolveInputJson(value.getInputJson());
+    }
+
+    private String trimToNull(String value) {
+        if (value == null || value.trim().isEmpty()) return null;
+        return value.trim();
     }
 
     private String summarize(String value) {

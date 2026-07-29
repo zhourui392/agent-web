@@ -43,9 +43,11 @@ v-if="row.feedbackRating" size="small" disable-transitions
         <el-table-column label="创建时间" width="160">
           <template #default="{ row }">{{ fmtTime(row.createdAt) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="80" fixed="right">
+        <el-table-column label="操作" width="150" fixed="right">
           <template #default="{ row }">
             <el-button text type="primary" size="small" @click="openDetail(row.sessionId)">查看</el-button>
+            <el-button text type="primary" size="small" data-test="conversation-tool-invocations"
+                       @click="openToolInvocations(row)">工具调用</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -107,15 +109,69 @@ v-for="(img, ii) in msg.images" :key="ii" :src="imageUrl(img)"
         <el-empty v-else-if="detail" description="暂无消息" :image-size="60"></el-empty>
       </div>
     </el-drawer>
+
+    <el-drawer v-model="toolOpen" title="工具调用" size="62%" direction="rtl">
+      <div v-loading="toolLoading">
+        <el-table :data="toolRows" border size="small" empty-text="暂无工具调用"
+                  data-test="conversation-tool-invocation-table">
+          <el-table-column label="时间" width="170">
+            <template #default="{ row }">{{ fmtTime(row.startedAt) }}</template>
+          </el-table-column>
+          <el-table-column label="Provider" width="90" prop="provider"></el-table-column>
+          <el-table-column label="类别" width="100">
+            <template #default="{ row }">{{ kindLabel(row.invocationKind) }}</template>
+          </el-table-column>
+          <el-table-column label="工具 / Skill" min-width="140">
+            <template #default="{ row }"><b>{{ row.displayToolName || '命令执行' }}</b></template>
+          </el-table-column>
+          <el-table-column label="状态" width="90">
+            <template #default="{ row }">
+              <el-tag size="small" :type="statusType(row.status)">{{ statusLabel(row.status) }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="输入摘要" min-width="220" show-overflow-tooltip prop="inputSummary"></el-table-column>
+          <el-table-column label="操作" width="70" fixed="right">
+            <template #default="{ row }">
+              <el-button text type="primary" size="small" @click="openToolDetail(row.id)">详情</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+        <div class="conv-pager">
+          <el-pagination background layout="total, prev, pager, next" :total="toolTotal"
+                         :page-size="toolSize" :current-page="toolPage"
+                         @current-change="changeToolPage"></el-pagination>
+        </div>
+      </div>
+    </el-drawer>
+
+    <el-drawer v-model="toolDetailOpen" title="工具调用详情" size="58%" direction="rtl">
+      <div v-loading="toolDetailLoading" v-if="toolDetail">
+        <el-descriptions :column="2" border size="small">
+          <el-descriptions-item label="Provider">{{ toolDetail.provider }}</el-descriptions-item>
+          <el-descriptions-item label="类别">{{ kindLabel(toolDetail.invocationKind) }}</el-descriptions-item>
+          <el-descriptions-item label="工具">{{ toolDetailDisplayName }}</el-descriptions-item>
+          <el-descriptions-item label="状态">{{ statusLabel(toolDetail.status) }}</el-descriptions-item>
+          <el-descriptions-item label="Exit Code">{{ toolDetail.exitCode == null ? '—' : toolDetail.exitCode }}</el-descriptions-item>
+          <el-descriptions-item label="Provider Status">{{ toolDetail.providerStatus || '—' }}</el-descriptions-item>
+          <el-descriptions-item label="输入截断">{{ toolDetail.inputTruncated ? '是' : '否' }}</el-descriptions-item>
+          <el-descriptions-item label="输出截断">{{ toolDetail.outputTruncated ? '是' : '否' }}</el-descriptions-item>
+        </el-descriptions>
+        <div class="section-title mt16">输入</div>
+        <pre class="tool-detail-pre">{{ prettyJson(toolDetail.inputJson) }}</pre>
+        <div class="section-title mt16">输出</div>
+        <pre class="tool-detail-pre">{{ toolDetail.outputText || '—' }}</pre>
+      </div>
+    </el-drawer>
   </admin-shell>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { renderMarkdown, imageUrl, formatTime, formatBeijingDateTime } from '../../lib/formatters.js';
 import { enrichMessage, ROLE_LABELS, roleLabel } from '../../lib/message-view.js';
 import { copySegment } from '../../lib/clipboard.js';
+import { fetchJson, withLoading } from '../../lib/admin-fetch.ts';
 
 const conversations = ref<any[]>([]);
 const convTotal = ref<number>(0);
@@ -129,6 +185,22 @@ const detailOpen = ref<boolean>(false);
 const detailLoading = ref<boolean>(false);
 const detail = ref<any>(null);
 const detailTitle = ref<string>('对话详情');
+
+const toolOpen = ref<boolean>(false);
+const toolLoading = ref<boolean>(false);
+const toolRows = ref<any[]>([]);
+const toolTotal = ref<number>(0);
+const toolPage = ref<number>(1);
+const toolSize = ref<number>(20);
+const toolSessionId = ref<string>('');
+const toolDetailOpen = ref<boolean>(false);
+const toolDetailLoading = ref<boolean>(false);
+const toolDetail = ref<any>(null);
+const toolDetailDisplayName = computed<string>(() => {
+  if (!toolDetail.value) return '—';
+  const row = toolRows.value.find((item) => item.id === toolDetail.value.id);
+  return row?.displayToolName || toolDetail.value.skillName || toolDetail.value.toolName || '命令执行';
+});
 
 async function loadConversations(): Promise<void> {
   convLoading.value = true;
@@ -181,9 +253,77 @@ async function openDetail(sessionId: string): Promise<void> {
   }
 }
 
-function fmtTime(iso: string | null | undefined): string {
+async function loadToolInvocations(): Promise<void> {
+  const params = new URLSearchParams({
+    page: String(toolPage.value), size: String(toolSize.value), sessionId: toolSessionId.value,
+  });
+  try {
+    await withLoading(toolLoading, async () => {
+      const data = await fetchJson('/api/admin-tool-invocations?' + params.toString());
+      toolRows.value = Array.isArray(data.items) ? data.items : [];
+      toolTotal.value = data.total || 0;
+    });
+  } catch (e) {
+    ElMessage.error('加载工具调用失败: ' + e);
+  }
+}
+
+function openToolInvocations(row: any): void {
+  toolSessionId.value = row.sessionId;
+  toolPage.value = 1;
+  toolRows.value = [];
+  toolOpen.value = true;
+  loadToolInvocations();
+}
+
+function changeToolPage(page: number): void {
+  toolPage.value = page;
+  loadToolInvocations();
+}
+
+async function openToolDetail(id: number): Promise<void> {
+  toolDetailOpen.value = true;
+  toolDetail.value = null;
+  try {
+    await withLoading(toolDetailLoading, async () => {
+      toolDetail.value = await fetchJson('/api/admin-tool-invocations/' + id);
+    });
+  } catch (e) {
+    ElMessage.error('加载工具调用详情失败: ' + e);
+    toolDetailOpen.value = false;
+  }
+}
+
+function kindLabel(value: string): string {
+  return ({ TOOL_USE: '工具', COMMAND_EXECUTION: '命令执行', SKILL: 'Skill' } as Record<string, string>)[value] || value;
+}
+
+function statusLabel(value: string): string {
+  return ({ STARTED: '执行中', SUCCEEDED: '成功', FAILED: '失败', INCOMPLETE: '不完整', UNKNOWN: '未知' } as Record<string, string>)[value] || value;
+}
+
+function statusType(value: string): string {
+  if (value === 'SUCCEEDED') return 'success';
+  if (value === 'FAILED') return 'danger';
+  if (value === 'INCOMPLETE') return 'warning';
+  return 'info';
+}
+
+function prettyJson(value: string | null): string {
+  if (!value) return '—';
+  try {
+    return JSON.stringify(JSON.parse(value), null, 2);
+  } catch (e) {
+    return value;
+  }
+}
+
+function fmtTime(iso: string | number | null | undefined): string {
   if (!iso) {
     return '—';
+  }
+  if (typeof iso === 'number') {
+    return new Date(iso).toLocaleString('zh-CN');
   }
   return formatBeijingDateTime(iso) || '—';
 }

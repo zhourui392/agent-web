@@ -28,11 +28,14 @@ public interface ToolInvocationAdminQueryService {
 
     final class ToolInvocationAdminRow {
         private final ToolInvocation invocation;
+        private final String displayToolName;
         private final String inputSummary;
         private final String outputSummary;
 
-        public ToolInvocationAdminRow(ToolInvocation invocation, String inputSummary, String outputSummary) {
+        public ToolInvocationAdminRow(ToolInvocation invocation, String displayToolName,
+                                      String inputSummary, String outputSummary) {
             this.invocation = invocation;
+            this.displayToolName = displayToolName;
             this.inputSummary = inputSummary;
             this.outputSummary = outputSummary;
         }
@@ -43,6 +46,7 @@ public interface ToolInvocationAdminQueryService {
         public String getProvider() { return invocation.getProvider().name(); }
         public String getInvocationKind() { return invocation.getInvocationKind().name(); }
         public String getToolName() { return invocation.getToolName(); }
+        public String getDisplayToolName() { return displayToolName; }
         public String getSkillName() { return invocation.getSkillName(); }
         public String getStatus() { return invocation.getStatus().name(); }
         public String getTriggerSource() { return invocation.getTriggerSource().name(); }
