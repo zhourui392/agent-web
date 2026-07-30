@@ -1,6 +1,7 @@
 package com.example.agentweb.app.chatrun;
 
 import com.example.agentweb.app.StreamOutputExtractor;
+import com.example.agentweb.app.agentrun.port.HistoryDeliveryMode;
 import com.example.agentweb.domain.slashcommand.SlashCommandExpander;
 import com.example.agentweb.domain.slashcommand.SlashExpansionResult;
 import org.springframework.stereotype.Component;
@@ -32,6 +33,11 @@ public class ChatRunPromptBuilder {
     }
 
     public PreparedChatRunPrompt prepareDetailed(ChatRunExecutionContext context, String input) {
+        return prepareDetailed(context, input, HistoryDeliveryMode.PROMPT_PREFIX);
+    }
+
+    public PreparedChatRunPrompt prepareDetailed(ChatRunExecutionContext context, String input,
+                                                 HistoryDeliveryMode historyMode) {
         SlashExpansionResult expansion = input.equals(context.getMessage())
                 ? commandExpander.expand(context.getWorkingDir(), input)
                 : new SlashExpansionResult(input, false, false, null, "");
@@ -41,7 +47,7 @@ public class ChatRunPromptBuilder {
                     false, false, null, "");
         }
         String prompt = expansion.getExpandedPrompt();
-        if (shouldInjectHistory(context)) {
+        if (shouldInjectHistory(context, historyMode)) {
             prompt = historyPrefix(context, prompt);
         }
         PreparedChatRunPrompt.ExplicitSkillInvocation skill = expansion.isMatched() && expansion.isSkill()
@@ -50,8 +56,10 @@ public class ChatRunPromptBuilder {
         return new PreparedChatRunPrompt(appendFinalAnswerInstruction(prompt), skill);
     }
 
-    private boolean shouldInjectHistory(ChatRunExecutionContext context) {
-        return (context.getResumeId() == null || context.getResumeId().trim().isEmpty())
+    private boolean shouldInjectHistory(ChatRunExecutionContext context,
+                                        HistoryDeliveryMode historyMode) {
+        return historyMode != HistoryDeliveryMode.TYPED
+                && (context.getResumeId() == null || context.getResumeId().trim().isEmpty())
                 && !context.getHistory().isEmpty();
     }
 

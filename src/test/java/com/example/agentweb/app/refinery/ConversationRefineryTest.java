@@ -381,7 +381,7 @@ public class ConversationRefineryTest {
         return new CliInvokeException(CliInvokeException.Reason.NON_ZERO_EXIT,
                 "CLI exited with code 1, output={\"type\":\"result\",\"subtype\":\"error\","
                         + "\"error\":{\"message\":\"unexpected status 503 Service Unavailable: "
-                        + "Service temporarily unavailable, url: https://sub.mokatu.shop/v1/responses\"}}");
+                        + "Service temporarily unavailable, url: https://provider.invalid/responses\"}}");
     }
 
     private ConversationView newView(String userMsg, String assistantMsg) {

@@ -77,6 +77,9 @@ public class RewindFeatureTest {
     @MockBean
     private com.example.agentweb.infra.setting.RuntimeAgentSettings runtimeAgentSettings;
 
+    @MockBean
+    private com.example.agentweb.app.agentrun.AgentCatalogService agentCatalogService;
+
     /** {@code @WebMvcTest} 会扫描 Filter Bean,需补齐其构造依赖以免 ApplicationContext 加载失败。 */
     @MockBean
     private AuthProperties authProperties;

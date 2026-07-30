@@ -144,24 +144,12 @@ v-for="(img, ii) in msg.images" :key="ii" :src="imageUrl(img)"
       </div>
     </el-drawer>
 
-    <el-drawer v-model="toolDetailOpen" title="工具调用详情" size="58%" direction="rtl">
-      <div v-loading="toolDetailLoading" v-if="toolDetail">
-        <el-descriptions :column="2" border size="small">
-          <el-descriptions-item label="Provider">{{ toolDetail.provider }}</el-descriptions-item>
-          <el-descriptions-item label="类别">{{ kindLabel(toolDetail.invocationKind) }}</el-descriptions-item>
-          <el-descriptions-item label="工具">{{ toolDetailDisplayName }}</el-descriptions-item>
-          <el-descriptions-item label="状态">{{ statusLabel(toolDetail.status) }}</el-descriptions-item>
-          <el-descriptions-item label="Exit Code">{{ toolDetail.exitCode == null ? '—' : toolDetail.exitCode }}</el-descriptions-item>
-          <el-descriptions-item label="Provider Status">{{ toolDetail.providerStatus || '—' }}</el-descriptions-item>
-          <el-descriptions-item label="输入截断">{{ toolDetail.inputTruncated ? '是' : '否' }}</el-descriptions-item>
-          <el-descriptions-item label="输出截断">{{ toolDetail.outputTruncated ? '是' : '否' }}</el-descriptions-item>
-        </el-descriptions>
-        <div class="section-title mt16">输入</div>
-        <pre class="tool-detail-pre">{{ prettyJson(toolDetail.inputJson) }}</pre>
-        <div class="section-title mt16">输出</div>
-        <pre class="tool-detail-pre">{{ toolDetail.outputText || '—' }}</pre>
-      </div>
-    </el-drawer>
+    <tool-invocation-detail-drawer
+      v-model:open="toolDetailOpen"
+      :loading="toolDetailLoading"
+      :detail="toolDetail"
+      :display-name="toolDetailDisplayName"
+    />
   </admin-shell>
 </template>
 
@@ -172,6 +160,7 @@ import { renderMarkdown, imageUrl, formatTime, formatBeijingDateTime } from '../
 import { enrichMessage, ROLE_LABELS, roleLabel } from '../../lib/message-view.js';
 import { copySegment } from '../../lib/clipboard.js';
 import { fetchJson, withLoading } from '../../lib/admin-fetch.ts';
+import ToolInvocationDetailDrawer from '../components/ToolInvocationDetailDrawer.vue';
 
 const conversations = ref<any[]>([]);
 const convTotal = ref<number>(0);
@@ -309,15 +298,6 @@ function statusType(value: string): string {
   return 'info';
 }
 
-function prettyJson(value: string | null): string {
-  if (!value) return '—';
-  try {
-    return JSON.stringify(JSON.parse(value), null, 2);
-  } catch (e) {
-    return value;
-  }
-}
-
 function fmtTime(iso: string | number | null | undefined): string {
   if (!iso) {
     return '—';
@@ -334,5 +314,11 @@ const FEEDBACK_TYPES: Record<string, string> = { CORRECT: 'success', PARTIALLY_C
 const feedbackLabel = (r: string): string => FEEDBACK_LABELS[r] || r;
 const feedbackTagType = (r: string): string => FEEDBACK_TYPES[r] || 'info';
 
-const onReady = loadConversations;
+async function onReady(): Promise<void> {
+  await loadConversations();
+  const sessionId = new URLSearchParams(location.search).get('sessionId');
+  if (sessionId) {
+    await openDetail(sessionId);
+  }
+}
 </script>

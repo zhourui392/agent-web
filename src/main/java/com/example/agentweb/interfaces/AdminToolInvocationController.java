@@ -33,6 +33,7 @@ public class AdminToolInvocationController {
             @RequestParam(value = "skillName", required = false) String skillName,
             @RequestParam(value = "status", required = false) String status,
             @RequestParam(value = "triggerSource", required = false) String triggerSource,
+            @RequestParam(value = "source", required = false) String source,
             @RequestParam(value = "sessionId", required = false) String sessionId,
             @RequestParam(value = "runId", required = false) String runId,
             @RequestParam(value = "startedAfter", required = false) Long startedAfter,
@@ -40,7 +41,7 @@ public class AdminToolInvocationController {
         return queryService.findPage(ToolInvocationAdminFilter.builder()
                 .page(Math.max(1, page)).size(Math.min(MAX_PAGE_SIZE, Math.max(1, size)))
                 .provider(provider).invocationKind(invocationKind).toolName(toolName).skillName(skillName)
-                .status(status).triggerSource(triggerSource).sessionId(sessionId).runId(runId)
+                .status(status).triggerSource(triggerSource).source(source).sessionId(sessionId).runId(runId)
                 .startedAfter(startedAfter).startedBefore(startedBefore).build());
     }
 

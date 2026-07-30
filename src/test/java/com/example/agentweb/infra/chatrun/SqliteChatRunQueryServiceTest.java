@@ -8,7 +8,10 @@ import com.example.agentweb.domain.auth.UserContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.jdbc.UncategorizedSQLException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.sqlite.SQLiteErrorCode;
+import org.sqlite.SQLiteException;
 import org.sqlite.SQLiteDataSource;
 
 import java.nio.file.Path;
@@ -19,6 +22,12 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * @author zhourui(V33215020)
@@ -115,6 +124,22 @@ class SqliteChatRunQueryServiceTest {
                 + "started_at=1784714400000, finished_at=1784714401000 WHERE id='run-finished'");
 
         assertEquals(Arrays.asList("run-pending", "run-running"), queryService.findActiveRunIds());
+    }
+
+    @Test
+    void active_run_ids_should_retry_sqlite_shared_cache_lock() {
+        JdbcTemplate lockingJdbc = mock(JdbcTemplate.class);
+        when(lockingJdbc.queryForList(anyString(), eq(String.class)))
+                .thenThrow(new UncategorizedSQLException("find active runs", "SELECT",
+                        new SQLiteException(SQLiteErrorCode.SQLITE_LOCKED_SHAREDCACHE.message,
+                                SQLiteErrorCode.SQLITE_LOCKED_SHAREDCACHE)))
+                .thenReturn(Arrays.asList("run-1"));
+        SqliteChatRunQueryService lockingQueryService = new SqliteChatRunQueryService(
+                lockingJdbc, mock(CurrentUserProvider.class));
+
+        assertEquals(Arrays.asList("run-1"), lockingQueryService.findActiveRunIds());
+
+        verify(lockingJdbc, times(2)).queryForList(anyString(), eq(String.class));
     }
 
     private void insertSession(String id, String userId) {

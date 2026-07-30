@@ -88,6 +88,8 @@ const ChatPanel = {
     props: {
       workingDir: { type: String, default: '' },
       agentType: { type: String, default: 'CODEX' },
+      environment: { type: String, default: '' },
+      runtimeAvailable: { type: Boolean, default: true },
       initialSessionId: { type: String, default: '' },
       initialResumeId: { type: String, default: '' },
       ragEnabled: { type: Boolean, default: true },
@@ -151,10 +153,14 @@ const ChatPanel = {
 
       // ===== 会话生命周期 =====
       const ensureSession = async () => {
+        if (!props.runtimeAvailable) {
+          throw new Error('诊断 Agent 当前不可用，无法继续发送');
+        }
         if (sessionId.value) return;
         const req = {
           workingDir: props.workingDir,
           agentType: props.agentType,
+          env: props.environment || null,
         };
         const res = await fetch('/api/chat/session', {
           method: 'POST',
@@ -170,6 +176,7 @@ const ChatPanel = {
           sessionId: data.sessionId,
           workingDir: data.workingDir,
           agentType: data.agentType,
+          env: data.env || props.environment || '',
         });
       };
 
@@ -226,6 +233,7 @@ const ChatPanel = {
       } = useResumableRun({
         messages, userInput, sending, sessionId, resumeId, chatContainer, ragRecall,
         pendingImages, pendingFile, workingDir: workingDirRef,
+        runtimeAvailable: computed(() => props.runtimeAvailable),
         ensureSession, addMessage, userMessageEntry, reloadMessages, loadFeedback, emit
       });
       const {
@@ -363,6 +371,7 @@ const ChatPanel = {
       provide('inputAreaState', {
         userInput, sending, sessionId, ragRecall,
         workingDir: computed(() => props.workingDir),
+        runtimeAvailable: computed(() => props.runtimeAvailable),
         ragEnabled: computed(() => props.ragEnabled),
         pendingImages, pendingFile, maxImagesPerMessage,
         showCommandPopup, filteredCommands, selectedCommandIdx,

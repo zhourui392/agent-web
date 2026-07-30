@@ -12,6 +12,36 @@ import java.util.List;
 public interface AgentGateway {
 
     /**
+     * Execute a complete structured invocation. Legacy adapters inherit a compatibility delegate.
+     */
+    default void runStreamWithResult(AgentRunInvocation invocation,
+                                     java.util.function.Consumer<String> onChunk,
+                                     final java.util.function.Consumer<AgentExecutionResult> onComplete)
+            throws IOException, InterruptedException {
+        runStreamWithResult(invocation.getAgentType(), invocation.getWorkingDir(),
+                invocation.getPrompt(), invocation.getRunId(), invocation.getResumeId(),
+                invocation.getEnv(), invocation.getTimeoutSeconds(), onChunk,
+                result -> onComplete.accept(AgentExecutionResult.fromStream(result)),
+                invocation.getUserId(), invocation.getExtraEnv());
+    }
+
+    /**
+     * Runtime history delivery capability used by prompt assembly.
+     */
+    default HistoryDeliveryMode historyDeliveryMode(AgentType type) {
+        return HistoryDeliveryMode.PROMPT_PREFIX;
+    }
+
+    /**
+     * Verifies that the selected runtime supports the legacy synchronous one-shot surface.
+     * Implementations with only the resumable ChatRun contract must reject before callers
+     * persist a user message.
+     */
+    default void requireOneShotSupported(AgentType type) {
+        // Legacy CLI gateways support this surface.
+    }
+
+    /**
      * Execute one prompt against the selected agent in the given working directory.
      * @param type Agent type
      * @param workingDir Working directory (must exist)

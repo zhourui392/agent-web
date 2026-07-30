@@ -5,6 +5,8 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -12,6 +14,13 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 /**
  * @author zhourui(V33215020)
@@ -27,24 +36,25 @@ class StreamProcessWatchdogTest {
     }
 
     @Test
-    void activity_should_reschedule_idle_timeout() throws Exception {
-        CountDownLatch timedOut = new CountDownLatch(1);
-        AtomicReference<StreamProcessWatchdog.TimeoutReason> reason =
-                new AtomicReference<StreamProcessWatchdog.TimeoutReason>();
+    void activity_should_reschedule_idle_timeout() {
+        ScheduledExecutorService deterministicScheduler = mock(ScheduledExecutorService.class);
+        ScheduledFuture<?> initialIdle = mock(ScheduledFuture.class);
+        ScheduledFuture<?> absolute = mock(ScheduledFuture.class);
+        ScheduledFuture<?> renewedIdle = mock(ScheduledFuture.class);
+        doReturn(initialIdle, absolute, renewedIdle).when(deterministicScheduler)
+                .schedule(any(Runnable.class), anyLong(), eq(TimeUnit.MILLISECONDS));
         StreamProcessWatchdog watchdog = new StreamProcessWatchdog(
-                scheduler, Duration.ofMillis(160L), Duration.ofSeconds(2L),
+                deterministicScheduler, Duration.ofMillis(160L), Duration.ofSeconds(2L),
                 StreamProcessWatchdog.TimeoutReason.MAX_RUNTIME,
-                value -> {
-                    reason.set(value);
-                    timedOut.countDown();
-                });
+                value -> { });
 
-        assertFalse(timedOut.await(100L, TimeUnit.MILLISECONDS));
         watchdog.recordActivity();
-        assertFalse(timedOut.await(100L, TimeUnit.MILLISECONDS),
-                "stdout activity should renew the idle deadline");
-        assertTrue(timedOut.await(200L, TimeUnit.MILLISECONDS));
-        assertEquals(StreamProcessWatchdog.TimeoutReason.IDLE, reason.get());
+
+        verify(initialIdle).cancel(false);
+        verify(deterministicScheduler, times(2)).schedule(
+                any(Runnable.class), eq(160L), eq(TimeUnit.MILLISECONDS));
+        verify(deterministicScheduler).schedule(
+                any(Runnable.class), eq(2000L), eq(TimeUnit.MILLISECONDS));
         watchdog.close();
     }
 

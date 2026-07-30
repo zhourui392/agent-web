@@ -151,6 +151,7 @@ public class SqliteSessionRepo implements SessionRepository {
     @Override
     @Transactional
     public void deleteById(String id) {
+        jdbc.update("DELETE FROM native_diagnosis_checkpoint WHERE session_id = ?", id);
         // 先清召回明细 (按 message_id 关联), 再删消息, 避免 chat_message_recall 残留孤儿行
         jdbc.update("DELETE FROM chat_message_recall WHERE message_id IN "
                 + "(SELECT id FROM chat_message WHERE session_id = ?)", id);
@@ -162,6 +163,9 @@ public class SqliteSessionRepo implements SessionRepository {
     @Override
     @Transactional
     public int truncateFrom(String sessionId, long fromId) {
+        jdbc.update("DELETE FROM native_diagnosis_checkpoint WHERE session_id = ? "
+                        + "AND (user_message_id >= ? OR assistant_message_id >= ?)",
+                sessionId, fromId, fromId);
         // 同步清掉被截断消息的召回明细
         jdbc.update("DELETE FROM chat_message_recall WHERE message_id IN "
                 + "(SELECT id FROM chat_message WHERE session_id = ? AND id >= ?)", sessionId, fromId);

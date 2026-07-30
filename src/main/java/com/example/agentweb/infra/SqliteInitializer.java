@@ -163,6 +163,18 @@ public class SqliteInitializer {
         migrateWorkflowTables();
         migrateHarnessM3();
         migrateHarnessM4();
+        createToolInvocationStatisticsIndexes();
+    }
+
+    private void createToolInvocationStatisticsIndexes() {
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_chat_tool_invocation_started "
+                + "ON chat_tool_invocation(started_at)");
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_chat_tool_invocation_source_started "
+                + "ON chat_tool_invocation(source, started_at)");
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_chat_tool_invocation_kind_started "
+                + "ON chat_tool_invocation(invocation_kind, started_at)");
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_chat_tool_invocation_status_started "
+                + "ON chat_tool_invocation(status, started_at)");
     }
 
     private void migrateChatRecallObservation() {

@@ -10,6 +10,8 @@ import com.example.agentweb.app.harness.HarnessDeploymentExecutionNotFoundExcept
 import com.example.agentweb.app.harness.HarnessArtifactNotFoundException;
 import com.example.agentweb.app.harness.HarnessSensitiveArtifactException;
 import com.example.agentweb.domain.auth.UsernameAlreadyExistsException;
+import com.example.agentweb.domain.agentrun.AgentPolicyViolationException;
+import com.example.agentweb.domain.agentrun.AgentRuntimeUnavailableException;
 import com.example.agentweb.domain.chat.ChatSessionNotFoundException;
 import com.example.agentweb.domain.chat.SessionDeletionForbiddenException;
 import com.example.agentweb.domain.chatrun.ActiveChatRunExistsException;
@@ -38,6 +40,24 @@ import java.util.Map;
  */
 @ControllerAdvice
 public class GlobalExceptionHandler {
+
+    @ExceptionHandler(AgentPolicyViolationException.class)
+    public ResponseEntity<Map<String, Object>> handleAgentPolicyViolation(
+            AgentPolicyViolationException ex) {
+        Map<String, Object> body = new HashMap<String, Object>(2);
+        body.put("code", ex.getCode());
+        body.put("message", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
+    }
+
+    @ExceptionHandler(AgentRuntimeUnavailableException.class)
+    public ResponseEntity<Map<String, Object>> handleAgentRuntimeUnavailable(
+            AgentRuntimeUnavailableException ex) {
+        Map<String, Object> body = new HashMap<String, Object>(2);
+        body.put("code", ex.getCode());
+        body.put("message", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
+    }
 
     @ExceptionHandler(UsernameAlreadyExistsException.class)
     public ResponseEntity<Map<String, Object>> handleUsernameAlreadyExists(

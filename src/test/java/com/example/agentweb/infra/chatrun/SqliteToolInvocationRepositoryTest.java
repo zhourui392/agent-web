@@ -5,12 +5,21 @@ import com.example.agentweb.domain.shared.AgentType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.jdbc.UncategorizedSQLException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.sqlite.SQLiteErrorCode;
+import org.sqlite.SQLiteException;
 import org.sqlite.SQLiteDataSource;
 
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class SqliteToolInvocationRepositoryTest {
 
@@ -45,6 +54,22 @@ class SqliteToolInvocationRepositoryTest {
         assertEquals(ToolInvocationKind.COMMAND_EXECUTION, saved.getInvocationKind());
         assertNull(saved.getToolName());
         assertEquals("ok", saved.getOutputText());
+    }
+
+    @Test
+    void save_shouldRetrySqliteSharedCacheLock() {
+        JdbcTemplate lockingJdbc = mock(JdbcTemplate.class);
+        when(lockingJdbc.update(anyString(), any(Object[].class)))
+                .thenThrow(new UncategorizedSQLException("save tool invocation", "INSERT",
+                        new SQLiteException(SQLiteErrorCode.SQLITE_LOCKED_SHAREDCACHE.message,
+                                SQLiteErrorCode.SQLITE_LOCKED_SHAREDCACHE)))
+                .thenReturn(1);
+        SqliteToolInvocationRepository lockingRepository =
+                new SqliteToolInvocationRepository(lockingJdbc);
+
+        lockingRepository.save(invocation(ToolInvocationStatus.SUCCEEDED, "ok"));
+
+        verify(lockingJdbc, times(2)).update(anyString(), any(Object[].class));
     }
 
     private ToolInvocation invocation(ToolInvocationStatus status, String output) {

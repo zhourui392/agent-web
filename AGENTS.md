@@ -156,9 +156,11 @@ JAVA_HOME=/usr/local/jdk-21 mvn test
 
 探测失败时用 `JAVA_BIN=/usr/local/jdk-21/bin/java ./scripts/service.sh build` 覆盖。不要靠调低 `-Djava.version` 绕过——那只会掩盖环境问题，偏离项目构建目标。
 
-### Native Diagnose Profile
+### NATIVE 进程内诊断 Agent
 
-进程内 CCLC 诊断引擎是可选能力。其 Spring 配置和适配器在 `src/native-diagnose/`，仅在 Maven profile `native-diagnose` 下编译，该 profile 引入 `com.anthropic:cclc-agent-diagnosis:0.1.0-SNAPSHOT` 依赖并追加额外源码目录。默认构建刻意排除此 profile：SNAPSHOT 制品在本地 / CI 仓库可能解析不到，且 `agent.native-diagnose.enabled` 默认 `false`。只有制品可用、且确实要测试或打包原生诊断时才加 `-Pnative-diagnose`。
+NATIVE 是可选的进程内只读诊断能力。`pom.xml` 正常依赖正式制品 `com.anthropic:agentkit-agent-diagnosis:0.2.1`，并由其传递引入 `agentkit-kernel`；构建和运行都不依赖 AgentKit CLI，也没有额外 Maven profile 或 sibling 源码目录。Spring 装配与 AgentKit 类型只允许位于 `config.nativeagent`、`infra.nativeagent`。
+
+`agent.native.enabled` 默认 `false`，禁用时不要求模型和密钥，Catalog 仍返回 NATIVE 描述但标记不可用。启用时必须配置模型、API key、`bound-environment` 和安全后端；配置不完整会 fail fast。常用覆盖变量是 `AGENT_NATIVE_ENABLED`、`AGENT_NATIVE_PROVIDER`、`AGENT_NATIVE_MODEL`、`AGENT_NATIVE_API_KEY`、`AGENT_NATIVE_BASE_URL`、`AGENT_NATIVE_BOUND_ENVIRONMENT`。NATIVE 凭据和地址只读取 `AGENT_NATIVE_API_KEY`、`AGENT_NATIVE_BASE_URL`，不回退 `OPENAI_API_KEY`、`OPENAI_BASE_URL`，避免和 Codex CLI/官方 OpenAI 客户端串用 Provider。NATIVE 只允许用户在普通聊天手动选择，不能成为全局默认，也不能进入 schedule/workflow/harness/refinery。
 
 ## 技术栈
 

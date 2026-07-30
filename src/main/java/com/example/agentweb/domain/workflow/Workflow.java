@@ -1,5 +1,7 @@
 package com.example.agentweb.domain.workflow;
 
+import com.example.agentweb.domain.agentrun.AgentOfferPolicy;
+import com.example.agentweb.domain.agentrun.AgentSurface;
 import com.example.agentweb.domain.shared.AgentType;
 import lombok.Getter;
 
@@ -64,6 +66,7 @@ public class Workflow {
         if (agentType == null) {
             throw new IllegalArgumentException("Agent 类型不能为空");
         }
+        AgentOfferPolicy.requireSurfaceEligible(agentType, AgentSurface.WORKFLOW);
         requireText(workingDir, "工作目录不能为空");
         if (steps == null || steps.isEmpty()) {
             throw new IllegalArgumentException("工作流至少需要一个步骤");

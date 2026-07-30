@@ -7,6 +7,7 @@ import com.example.agentweb.app.ChatSessionSummary;
 import com.example.agentweb.app.SendMessageCommand;
 import com.example.agentweb.app.StartSessionCommand;
 import com.example.agentweb.app.TruncateResult;
+import com.example.agentweb.app.agentrun.AgentCatalogService;
 import com.example.agentweb.domain.chat.ChatSession;
 import com.example.agentweb.domain.chat.Feedback;
 import com.example.agentweb.domain.slashcommand.SlashCommand;
@@ -16,6 +17,7 @@ import com.example.agentweb.infra.setting.RuntimeAgentSettings;
 import com.example.agentweb.app.logging.LogSafe;
 import com.example.agentweb.infra.log.MdcContext;
 import com.example.agentweb.interfaces.dto.CommandDto;
+import com.example.agentweb.interfaces.dto.AgentCatalogResponse;
 import com.example.agentweb.interfaces.dto.EnvDto;
 import com.example.agentweb.interfaces.dto.FeedbackRequest;
 import com.example.agentweb.interfaces.dto.FeedbackResponse;
@@ -50,16 +52,19 @@ public class ChatController {
     private final EnvProperties envProperties;
     private final com.example.agentweb.domain.slashcommand.SlashCommandExpander commandExpander;
     private final RuntimeAgentSettings runtimeAgentSettings;
+    private final AgentCatalogService agentCatalogService;
 
     public ChatController(ChatAppService appService, ChatSessionQueryService sessionQueryService,
                           EnvProperties envProperties,
                           com.example.agentweb.domain.slashcommand.SlashCommandExpander commandExpander,
-                          RuntimeAgentSettings runtimeAgentSettings) {
+                          RuntimeAgentSettings runtimeAgentSettings,
+                          AgentCatalogService agentCatalogService) {
         this.appService = appService;
         this.sessionQueryService = sessionQueryService;
         this.envProperties = envProperties;
         this.commandExpander = commandExpander;
         this.runtimeAgentSettings = runtimeAgentSettings;
+        this.agentCatalogService = agentCatalogService;
     }
 
     @PostMapping("/session")
@@ -155,6 +160,18 @@ public class ChatController {
         body.put("agentType", runtimeAgentSettings.getChatDefaultAgent().name());
         body.put("version", runtimeAgentSettings.getChatDefaultAgentVersion());
         return body;
+    }
+
+    /**
+     * Effective user-facing agent catalog.
+     *
+     * @return versioned default and all known offers
+     */
+    @GetMapping("/agents")
+    public AgentCatalogResponse agents() {
+        return AgentCatalogResponse.from(agentCatalogService.currentCatalog(),
+                runtimeAgentSettings.getChatDefaultAgent().name(),
+                runtimeAgentSettings.getChatDefaultAgentVersion());
     }
 
     @PutMapping("/session/{id}/feedback")

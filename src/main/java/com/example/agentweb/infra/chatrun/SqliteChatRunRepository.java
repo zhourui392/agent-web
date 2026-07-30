@@ -31,22 +31,25 @@ public class SqliteChatRunRepository implements ChatRunRepository {
             + "created_at, started_at, cancel_requested_at, finished_at, updated_at, version";
 
     private final JdbcTemplate jdbc;
+    private final SqliteTransientLockRetry lockRetry;
 
     public SqliteChatRunRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
+        this.lockRetry = new SqliteTransientLockRetry();
     }
 
     @Override
     public void add(ChatRun run) {
         try {
-            jdbc.update("INSERT INTO chat_run (" + COLUMNS + ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            lockRetry.execute(() -> jdbc.update(
+                    "INSERT INTO chat_run (" + COLUMNS + ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     run.getId().getValue(), run.getSessionId(), run.getUserMessageId(),
                     run.getAssistantMessageId(), run.getIdempotencyKey(), run.isRecallEnabled() ? 1 : 0,
                     run.getStatus().name(),
                     run.getLastEventSeq(), run.getExitCode(), run.getFailureCode(), run.getErrorMessage(),
                     toMillis(run.getCreatedAt()), toMillis(run.getStartedAt()),
                     toMillis(run.getCancelRequestedAt()), toMillis(run.getFinishedAt()),
-                    toMillis(run.getUpdatedAt()), run.getVersion());
+                    toMillis(run.getUpdatedAt()), run.getVersion()));
         } catch (DataAccessException ex) {
             throw translateInsertFailure(run, ex);
         }
@@ -55,14 +58,15 @@ public class SqliteChatRunRepository implements ChatRunRepository {
     @Override
     public void update(ChatRun run) {
         long expectedVersion = run.getVersion();
-        int rows = jdbc.update("UPDATE chat_run SET assistant_message_id=?, status=?, last_event_seq=?, "
+        int rows = lockRetry.execute(() -> jdbc.update(
+                "UPDATE chat_run SET assistant_message_id=?, status=?, last_event_seq=?, "
                         + "exit_code=?, failure_code=?, error_message=?, started_at=?, cancel_requested_at=?, "
                         + "finished_at=?, updated_at=?, version=version+1 WHERE id=? AND version=?",
                 run.getAssistantMessageId(), run.getStatus().name(), run.getLastEventSeq(),
                 run.getExitCode(), run.getFailureCode(), run.getErrorMessage(),
                 toMillis(run.getStartedAt()), toMillis(run.getCancelRequestedAt()),
                 toMillis(run.getFinishedAt()), toMillis(run.getUpdatedAt()),
-                run.getId().getValue(), expectedVersion);
+                run.getId().getValue(), expectedVersion));
         if (rows != 1) {
             throw new IllegalStateException("stale or missing chat run: " + run.getId().getValue());
         }

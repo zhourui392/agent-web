@@ -146,11 +146,23 @@ find_maven() {
     }
 }
 
+build_frontend() {
+    local npm_bin
+
+    npm_bin=$(command -v npm 2>/dev/null) || {
+        printf 'npm was not found. Install Node.js/npm before building agent-web.\n' >&2
+        return 1
+    }
+    printf '[2/4] Building the frontend with Vite...\n'
+    (cd "$PROJECT_DIR/frontend" && "$npm_bin" run build)
+}
+
 build_app() {
     local maven_bin
     local -a artifacts
 
     maven_bin=$(find_maven)
+    build_frontend
     printf '[3/4] Building the application with Maven...\n'
     (cd "$PROJECT_DIR" && "$maven_bin" clean package)
 
@@ -212,10 +224,12 @@ launch_app() {
     fi
 
     mkdir -p "$APP_DIR" "$LOG_DIR"
+    touch "$SERVICE_LOG"
+    chmod 600 "$SERVICE_LOG"
     printf '[4/4] Starting agent-web...\n'
     # 固定进程工作目录，确保 Spring 始终从仓库根 ./data/secrets.properties 读取本地敏感配置。
     cd "$PROJECT_DIR"
-    nohup "$JAVA_HOME/bin/java" "${java_options[@]}" -jar "$RUNTIME_JAR" \
+    nohup setsid "$JAVA_HOME/bin/java" "${java_options[@]}" -jar "$RUNTIME_JAR" \
         "${app_arguments[@]}" >> "$SERVICE_LOG" 2>&1 &
     pid=$!
     printf '%s\n' "$pid" > "$PID_FILE"

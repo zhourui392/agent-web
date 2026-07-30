@@ -17,10 +17,109 @@ server:
     # 由浏览器按地址栏的公网域名解析。显式配置的登录页绝对 URL 不受影响。
     use-relative-redirects: true
 
+# Export operational metrics only on a loopback management socket. The public reverse proxy must
+# not route this port; Prometheus scrapes it locally or through an authenticated collector.
+management:
+  server:
+    address: ${MANAGEMENT_SERVER_ADDRESS:127.0.0.1}
+    port: ${MANAGEMENT_SERVER_PORT:18093}
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: never
+  metrics:
+    tags:
+      application: agent-web
+
 # Allowed roots for browsing on the host running this web service.
 # IMPORTANT: narrow this to specific workspace folders in production.
 agent:
   default-type: CODEX    # 对话默认模型「首启种子」: DB(app_setting) 无值时回退此值; 落库后以管理后台为准。可选 CODEX/CLAUDE
+  # 进程内只读诊断 Agent。使用独立变量，避免与 Codex CLI/官方 OpenAI 配置串用；默认关闭且不要求凭据。
+  native:
+    enabled: false
+    bound-environment: test
+    provider: OPENAI
+    model: ${AGENT_NATIVE_MODEL:gpt-5.6-sol}
+    api-key: ${AGENT_NATIVE_API_KEY:}
+    base-url: ${AGENT_NATIVE_BASE_URL:}
+    timezone: ${AGENT_NATIVE_TIMEZONE:UTC}
+    max-tokens: 8192
+    timeout-seconds: 1800
+    prompt-packs: ""
+    skills-root: ""
+    local-logs:
+      enabled: ${AGENT_NATIVE_LOCAL_LOGS_ENABLED:true}
+      root: ${AGENT_NATIVE_LOCAL_LOG_ROOT:${user.dir}/logs}
+      service: ${AGENT_NATIVE_LOCAL_LOG_SERVICE:agent-web}
+      service-aliases:
+        - web
+      data-source-id: ${AGENT_NATIVE_LOCAL_LOG_DATA_SOURCE_ID:local-agent-web-logs}
+      allowed-globs:
+        - "*.log"
+      log-zone: ${AGENT_NATIVE_LOCAL_LOG_ZONE:UTC}
+      max-files: 20
+      max-depth: 8
+      max-lines: 10000
+      max-bytes: 4194304
+      max-scan-duration-ms: 2000
+    budget:
+      max-turns: 20
+      max-tool-calls: 50
+      max-input-tokens: 400000
+      max-output-tokens: 50000
+      max-output-characters: 500000
+      max-llm-calls: 30
+    tools:
+      # Per environment and per tool, shared by all concurrent diagnosis runs.
+      max-calls-per-minute: ${AGENT_NATIVE_TOOL_MAX_CALLS_PER_MINUTE:60}
+      http-enabled: false
+      allowed-http-hosts: []
+      dubbo-enabled: false
+      allowed-dubbo-addresses: []
+      allowed-dubbo-methods: []
+      allowed-es-indices: []
+      allowed-mysql-schemas: []
+      allowed-redis-key-prefixes: []
+    backends:
+      es-base-url: ""
+      mysql-jdbc-url: ""
+      mysql-user: ""
+      mysql-password: ""
+      redis-host: ""
+      redis-port: 6379
+      redis-password: ""
+      redis-database: 0
+      log-query-url: ""
+      # HTTP 为固定查询 endpoint；ELASTICSEARCH/LOKI 为固定 base URL。
+      log-query-adapter: HTTP
+      log-query-health-url: ""
+      log-query-data-source-id: ""
+      log-query-service: ""
+      log-query-service-aliases: []
+      log-query-headers: {}
+      log-query-max-retries: 1
+      log-query-retry-max-elapsed-ms: 30000
+      log-query-timeout-ms: 30000
+      log-query-max-body-bytes: 1048576
+      log-query-max-results: 500
+      log-query-legacy-text-allowed: false
+      # ELASTICSEARCH adapter 的 index 和字段映射全部由宿主固定。
+      log-query-es-index-pattern: ""
+      log-query-es-timestamp-field: "@timestamp"
+      log-query-es-service-field: "service.name"
+      log-query-es-level-field: "log.level"
+      log-query-es-message-field: "message"
+      log-query-es-trace-field: "trace.id"
+      log-query-es-fixed-term-filters: {}
+      # LOKI adapter 的 tenant、selector 和 label 映射全部由宿主固定。
+      log-query-loki-tenant-id: ""
+      log-query-loki-base-selector: {}
+      log-query-loki-service-label: "service"
+      log-query-loki-level-label: "level"
   chat:
     # 对话用户隔离开关。true=普通用户仅见自己的会话(+老数据 user_id IS NULL);
     # false=全员互见(可看到其他用户的对话)。默认安全地按用户隔离。

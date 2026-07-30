@@ -1,6 +1,10 @@
 package com.example.agentweb.interfaces;
 
 import com.example.agentweb.app.setting.WorkspaceSettingsAppServiceImpl;
+import com.example.agentweb.app.agentrun.AgentCatalogService;
+import com.example.agentweb.domain.agentrun.AgentCatalog;
+import com.example.agentweb.domain.agentrun.AgentPolicyViolationException;
+import com.example.agentweb.domain.agentrun.AgentRuntimeAvailability;
 import com.example.agentweb.domain.setting.WorkspaceSettings;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.infra.auth.AuthProperties;
@@ -41,6 +45,9 @@ public class AdminSettingsControllerTest {
     private RuntimeAgentSettings runtimeAgentSettings;
 
     @MockBean
+    private AgentCatalogService agentCatalogService;
+
+    @MockBean
     private WorkspaceSettingsAppServiceImpl workspaceSettingsAppService;
 
     @MockBean
@@ -58,6 +65,7 @@ public class AdminSettingsControllerTest {
     @Test
     public void get_should_return_current_models_and_options() throws Exception {
         when(runtimeAgentSettings.getChatDefaultAgent()).thenReturn(AgentType.CLAUDE);
+        when(agentCatalogService.currentCatalog()).thenReturn(defaultCatalog());
 
         mvc.perform(get("/api/admin-settings/agent-models"))
                 .andExpect(status().isOk())
@@ -69,6 +77,10 @@ public class AdminSettingsControllerTest {
 
     @Test
     public void put_valid_should_persist_and_return_updated() throws Exception {
+        when(agentCatalogService.requireDefaultEligible(AgentType.CODEX))
+                .thenReturn(AgentType.CODEX);
+        when(agentCatalogService.currentCatalog()).thenReturn(defaultCatalog());
+
         mvc.perform(put("/api/admin-settings/agent-models")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"chatDefaultAgent\":\"CODEX\"}"))
@@ -88,10 +100,20 @@ public class AdminSettingsControllerTest {
 
     @Test
     public void put_nativeAgent_should_return_400() throws Exception {
+        when(agentCatalogService.requireDefaultEligible(AgentType.NATIVE))
+                .thenThrow(new AgentPolicyViolationException(
+                        "AGENT_NOT_DEFAULT_ELIGIBLE", "NATIVE cannot be default"));
+
         mvc.perform(put("/api/admin-settings/agent-models")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"chatDefaultAgent\":\"NATIVE\"}"))
                 .andExpect(status().isBadRequest());
+    }
+
+    private AgentCatalog defaultCatalog() {
+        return new AgentCatalog(Arrays.asList(
+                AgentRuntimeAvailability.availableEverywhere(AgentType.CODEX),
+                AgentRuntimeAvailability.availableEverywhere(AgentType.CLAUDE)));
     }
 
     @Test

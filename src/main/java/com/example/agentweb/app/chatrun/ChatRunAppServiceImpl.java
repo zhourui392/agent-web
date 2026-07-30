@@ -1,6 +1,7 @@
 package com.example.agentweb.app.chatrun;
 
 import com.example.agentweb.app.agentrun.port.AgentGateway;
+import com.example.agentweb.app.agentrun.AgentCatalogService;
 import com.example.agentweb.domain.chat.ChatMessage;
 import com.example.agentweb.domain.chat.ChatSession;
 import com.example.agentweb.domain.chat.ChatSessionNotFoundException;
@@ -41,6 +42,7 @@ public class ChatRunAppServiceImpl implements ChatRunAppService {
     private final ChatRunStreamSettings settings;
     private final ChatRunActivityGuard activityGuard;
     private final ChatRunSubmissionExecutor submissionExecutor;
+    private final AgentCatalogService agentCatalogService;
 
     public ChatRunAppServiceImpl(SessionRepository sessionRepository,
                                  ChatRunRepository runRepository,
@@ -53,7 +55,8 @@ public class ChatRunAppServiceImpl implements ChatRunAppService {
                                  Clock clock,
                                  ChatRunStreamSettings settings,
                                  ChatRunActivityGuard activityGuard,
-                                 ChatRunSubmissionExecutor submissionExecutor) {
+                                 ChatRunSubmissionExecutor submissionExecutor,
+                                 AgentCatalogService agentCatalogService) {
         this.sessionRepository = sessionRepository;
         this.runRepository = runRepository;
         this.eventStore = eventStore;
@@ -66,6 +69,7 @@ public class ChatRunAppServiceImpl implements ChatRunAppService {
         this.settings = settings;
         this.activityGuard = activityGuard;
         this.submissionExecutor = submissionExecutor;
+        this.agentCatalogService = agentCatalogService;
     }
 
     @Override
@@ -74,12 +78,13 @@ public class ChatRunAppServiceImpl implements ChatRunAppService {
     }
 
     private ChatRunSubmission submitInTransaction(SubmitChatRunCommand command) {
-        requireSession(command.getSessionId());
+        ChatSession session = requireSession(command.getSessionId());
         Optional<ChatRun> duplicate = runRepository.findBySessionAndIdempotencyKey(
                 command.getSessionId(), command.getIdempotencyKey());
         if (duplicate.isPresent()) {
             return ChatRunSubmission.from(duplicate.get(), true);
         }
+        agentCatalogService.requireChatAvailable(session.getAgentType(), session.getEnv());
         int capacity = Math.max(1, settings.getMaxActiveRuns());
         if (queryService.countActiveRuns() >= capacity) {
             throw new RunCapacityExceededException(capacity);

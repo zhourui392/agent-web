@@ -1,6 +1,7 @@
 package com.example.agentweb.app.chatrun;
 
 import com.example.agentweb.app.agentrun.port.AgentGateway;
+import com.example.agentweb.app.agentrun.AgentCatalogService;
 import com.example.agentweb.app.common.AfterCommitExecutor;
 import com.example.agentweb.domain.chat.ChatSession;
 import com.example.agentweb.domain.chat.SessionRepository;
@@ -12,6 +13,7 @@ import com.example.agentweb.domain.chatrun.ChatRunNotFoundException;
 import com.example.agentweb.domain.chatrun.ChatRunRepository;
 import com.example.agentweb.domain.chatrun.ChatRunStatus;
 import com.example.agentweb.domain.shared.AgentType;
+import com.example.agentweb.domain.agentrun.AgentRuntimeUnavailableException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -53,6 +55,7 @@ class ChatRunAppServiceImplTest {
     private ChatRunStreamSettings settings;
     private ChatRunActivityGuard activityGuard;
     private AgentGateway gateway;
+    private AgentCatalogService agentCatalogService;
     private ChatRunAppServiceImpl service;
 
     @BeforeEach
@@ -67,13 +70,15 @@ class ChatRunAppServiceImplTest {
         when(settings.getMaxActiveRuns()).thenReturn(8);
         activityGuard = mock(ChatRunActivityGuard.class);
         gateway = mock(AgentGateway.class);
+        agentCatalogService = mock(AgentCatalogService.class);
         ChatRunEventAppender appender = new ChatRunEventAppender(
                 runRepository, eventStore, eventHub, new AfterCommitExecutor());
         ChatRunIdGenerator idGenerator = mock(ChatRunIdGenerator.class);
         when(idGenerator.nextId()).thenReturn(ChatRunId.of("run-1"));
         service = new ChatRunAppServiceImpl(sessionRepository, runRepository, eventStore, appender,
                 launcher, queryService, gateway, idGenerator,
-                Clock.fixed(NOW, ZoneOffset.UTC), settings, activityGuard, action -> action.get());
+                Clock.fixed(NOW, ZoneOffset.UTC), settings, activityGuard, action -> action.get(),
+                agentCatalogService);
     }
 
     @Test
@@ -135,6 +140,23 @@ class ChatRunAppServiceImplTest {
     }
 
     @Test
+    void submit_when_bound_native_runtime_became_unavailable_should_reject_before_writing_message() {
+        ChatSession session = session("session-1", AgentType.NATIVE, "test");
+        when(sessionRepository.findById("session-1")).thenReturn(session);
+        when(runRepository.findBySessionAndIdempotencyKey("session-1", "key-2"))
+                .thenReturn(Optional.<ChatRun>empty());
+        org.mockito.Mockito.doThrow(new AgentRuntimeUnavailableException(
+                        "AGENT_RUNTIME_UNAVAILABLE", "native disabled"))
+                .when(agentCatalogService).requireChatAvailable(AgentType.NATIVE, "test");
+
+        assertThrows(AgentRuntimeUnavailableException.class, () -> service.submit(
+                new SubmitChatRunCommand("session-1", "question", null, true, "key-2")));
+
+        verify(sessionRepository, never()).addMessageReturningId(any(), any());
+        verify(runRepository, never()).add(any());
+    }
+
+    @Test
     void submit_when_global_capacity_is_reached_should_reject_before_writing_message() {
         when(sessionRepository.findById("session-1")).thenReturn(session("session-1"));
         when(runRepository.findBySessionAndIdempotencyKey("session-1", "key-2"))
@@ -176,7 +198,13 @@ class ChatRunAppServiceImplTest {
     }
 
     private ChatSession session(String id) {
-        return new ChatSession(id, AgentType.CODEX, "/workspace", NOW,
+        return session(id, AgentType.CODEX, null);
+    }
+
+    private ChatSession session(String id, AgentType type, String env) {
+        ChatSession session = new ChatSession(id, type, "/workspace", NOW,
                 Collections.emptyList());
+        session.setEnv(env);
+        return session;
     }
 }

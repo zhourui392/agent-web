@@ -46,6 +46,7 @@ interface ResumableRunParams {
   pendingImages: Ref<PendingImage[]>;
   pendingFile: Ref<PendingFile | null>;
   workingDir: Ref<string>;
+  runtimeAvailable: Ref<boolean>;
   ensureSession: () => Promise<void>;
   addMessage: (role: string, text: string) => void;
   userMessageEntry: (id: number | null, content: string) => ChatMessage;
@@ -313,7 +314,8 @@ export function useResumableRun(p: ResumableRunParams): {
   }
 
   async function sendMessageResumable() {
-    if (!p.workingDir.value || !p.userInput.value.trim() || p.sending.value) return;
+    if (!p.runtimeAvailable.value || !p.workingDir.value
+      || !p.userInput.value.trim() || p.sending.value) return;
     try {
       await p.ensureSession();
     } catch (error) {

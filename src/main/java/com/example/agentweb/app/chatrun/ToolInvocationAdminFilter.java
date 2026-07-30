@@ -14,6 +14,7 @@ public class ToolInvocationAdminFilter {
     private final String skillName;
     private final String status;
     private final String triggerSource;
+    private final String source;
     private final String sessionId;
     private final String runId;
     private final Long startedAfter;

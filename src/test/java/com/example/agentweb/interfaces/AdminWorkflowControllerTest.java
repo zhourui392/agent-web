@@ -21,6 +21,8 @@ import java.util.Collections;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -68,6 +70,19 @@ class AdminWorkflowControllerTest {
                 .andExpect(jsonPath("$.id").value("wf-1"))
                 .andExpect(jsonPath("$.agentType").value("CODEX"))
                 .andExpect(jsonPath("$.steps[0].name").value("review"));
+    }
+
+    @Test
+    void create_native_shouldRejectUnsupportedWorkflowSurfaceBeforeServiceCall() throws Exception {
+        mvc.perform(post("/api/admin-workflows")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Native workflow\",\"agentType\":\"NATIVE\","
+                                + "\"workingDir\":\"E:/repo\",\"steps\":[{\"name\":\"diagnose\","
+                                + "\"promptTemplate\":\"Diagnose\",\"timeoutSeconds\":1800}]}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("AGENT_SURFACE_UNAVAILABLE"));
+
+        verify(workflowAppService, never()).create(any());
     }
 
     @Test

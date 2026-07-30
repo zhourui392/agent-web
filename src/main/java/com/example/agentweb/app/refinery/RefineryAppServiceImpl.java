@@ -1,5 +1,7 @@
 package com.example.agentweb.app.refinery;
 
+import com.example.agentweb.domain.agentrun.AgentOfferPolicy;
+import com.example.agentweb.domain.agentrun.AgentSurface;
 import com.example.agentweb.domain.refinery.DiscardedRefineRecord;
 import com.example.agentweb.domain.refinery.DiscardedRefineRepository;
 import com.example.agentweb.domain.refinery.RagChunk;
@@ -82,6 +84,11 @@ public class RefineryAppServiceImpl implements RefineryAppService {
             return false;
         }
         ConversationView view = viewOpt.get();
+        if (!supportsRefinerySurface(view)) {
+            log.info("refinery-ingest-skip-agent-surface sourceId={} agentType={}",
+                    sessionId, view.getAgentType());
+            return false;
+        }
         if (!tierPolicy.shouldIngest(view.getSourceType(), view.getVerdict())) {
             log.info("refinery-ingest-skip-policy sourceId={} sourceType={} verdict={}",
                     sessionId, view.getSourceType(), view.getVerdict());
@@ -119,6 +126,11 @@ public class RefineryAppServiceImpl implements RefineryAppService {
 
     @Override
     public Optional<String> ingest(ConversationView view) {
+        if (!supportsRefinerySurface(view)) {
+            log.info("refinery-ingest-skip-agent-surface sourceId={} agentType={}",
+                    view.getSourceId(), view.getAgentType());
+            return Optional.empty();
+        }
         if (!tierPolicy.shouldIngest(view.getSourceType(), view.getVerdict())) {
             log.info("refinery-ingest-skip-policy sourceId={} sourceType={} verdict={}",
                     view.getSourceId(), view.getSourceType(), view.getVerdict());
@@ -133,6 +145,12 @@ public class RefineryAppServiceImpl implements RefineryAppService {
         log.info("refinery-ingest-saved sourceId={} sourceType={} chunkId={} score={}",
                 view.getSourceId(), view.getSourceType(), outcome.chunkId, outcome.score);
         return Optional.of(outcome.chunkId);
+    }
+
+    private boolean supportsRefinerySurface(ConversationView view) {
+        return view.getAgentType() == null
+                || AgentOfferPolicy.supportsSurface(
+                        view.getAgentType(), AgentSurface.REFINERY);
     }
 
     /**

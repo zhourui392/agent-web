@@ -8,7 +8,10 @@ import com.example.agentweb.domain.chatrun.DuplicateChatRunSubmissionException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.jdbc.UncategorizedSQLException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.sqlite.SQLiteErrorCode;
+import org.sqlite.SQLiteException;
 import org.sqlite.SQLiteDataSource;
 
 import java.nio.file.Path;
@@ -18,6 +21,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * @author zhourui(V33215020)
@@ -110,8 +119,61 @@ class SqliteChatRunRepositoryTest {
         assertFalse(repository.findById(ChatRunId.of("missing")).isPresent());
     }
 
+    @Test
+    void update_should_retry_sqlite_shared_cache_lock_and_preserve_version_semantics() {
+        JdbcTemplate lockingJdbc = mock(JdbcTemplate.class);
+        when(lockingJdbc.update(anyString(), any(Object[].class)))
+                .thenThrow(sqliteFailure(SQLiteErrorCode.SQLITE_LOCKED_SHAREDCACHE))
+                .thenThrow(sqliteFailure(SQLiteErrorCode.SQLITE_BUSY))
+                .thenReturn(1);
+        SqliteChatRunRepository lockingRepository = new SqliteChatRunRepository(lockingJdbc);
+        ChatRun run = newRun("run-retry", "session-retry", "key-retry", 11L);
+        run.start(CREATED_AT.plusSeconds(1));
+
+        lockingRepository.update(run);
+
+        assertEquals(1L, run.getVersion());
+        verify(lockingJdbc, times(3)).update(anyString(), any(Object[].class));
+    }
+
+    @Test
+    void update_should_not_retry_non_lock_sqlite_failure() {
+        JdbcTemplate failingJdbc = mock(JdbcTemplate.class);
+        UncategorizedSQLException failure = sqliteFailure(SQLiteErrorCode.SQLITE_CONSTRAINT);
+        when(failingJdbc.update(anyString(), any(Object[].class))).thenThrow(failure);
+        SqliteChatRunRepository failingRepository = new SqliteChatRunRepository(failingJdbc);
+        ChatRun run = newRun("run-failure", "session-failure", "key-failure", 11L);
+        run.start(CREATED_AT.plusSeconds(1));
+
+        assertEquals(failure, assertThrows(UncategorizedSQLException.class,
+                () -> failingRepository.update(run)));
+        assertEquals(0L, run.getVersion());
+        verify(failingJdbc).update(anyString(), any(Object[].class));
+    }
+
+    @Test
+    void update_should_stop_after_bounded_sqlite_lock_retries() {
+        JdbcTemplate lockedJdbc = mock(JdbcTemplate.class);
+        UncategorizedSQLException failure = sqliteFailure(
+                SQLiteErrorCode.SQLITE_LOCKED_SHAREDCACHE);
+        when(lockedJdbc.update(anyString(), any(Object[].class))).thenThrow(failure);
+        SqliteChatRunRepository lockedRepository = new SqliteChatRunRepository(lockedJdbc);
+        ChatRun run = newRun("run-locked", "session-locked", "key-locked", 11L);
+        run.start(CREATED_AT.plusSeconds(1));
+
+        assertEquals(failure, assertThrows(UncategorizedSQLException.class,
+                () -> lockedRepository.update(run)));
+        assertEquals(0L, run.getVersion());
+        verify(lockedJdbc, times(6)).update(anyString(), any(Object[].class));
+    }
+
     private ChatRun newRun(String runId, String sessionId, String key, long messageId) {
         return ChatRun.submit(ChatRunId.of(runId), sessionId, messageId, key, CREATED_AT);
+    }
+
+    private UncategorizedSQLException sqliteFailure(SQLiteErrorCode errorCode) {
+        return new UncategorizedSQLException("update chat run", "UPDATE chat_run",
+                new SQLiteException(errorCode.message, errorCode));
     }
 
     static void createSchema(JdbcTemplate jdbc) {

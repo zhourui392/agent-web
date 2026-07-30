@@ -26,10 +26,12 @@ public class SqliteChatRunQueryService implements ChatRunQueryService {
 
     private final JdbcTemplate jdbc;
     private final CurrentUserProvider currentUserProvider;
+    private final SqliteTransientLockRetry lockRetry;
 
     public SqliteChatRunQueryService(JdbcTemplate jdbc, CurrentUserProvider currentUserProvider) {
         this.jdbc = jdbc;
         this.currentUserProvider = currentUserProvider;
+        this.lockRetry = new SqliteTransientLockRetry();
     }
 
     @Override
@@ -55,10 +57,10 @@ public class SqliteChatRunQueryService implements ChatRunQueryService {
 
     @Override
     public List<String> findActiveRunIds() {
-        return jdbc.queryForList("SELECT id FROM chat_run "
-                        + "WHERE status IN ('PENDING','RUNNING','CANCEL_REQUESTED') "
-                        + "ORDER BY created_at ASC, id ASC",
-                String.class);
+        return lockRetry.execute(() -> jdbc.queryForList("SELECT id FROM chat_run "
+                                + "WHERE status IN ('PENDING','RUNNING','CANCEL_REQUESTED') "
+                                + "ORDER BY created_at ASC, id ASC",
+                        String.class));
     }
 
     @Override

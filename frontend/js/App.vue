@@ -13,11 +13,12 @@
 
         <!-- ②.5 Agent 选择 -->
         <el-radio-group v-model="agentType" size="small" :disabled="!!activeSessionId" :class="['hidden-mobile', { 'locked-radio-group': !!activeSessionId }]" style="flex-shrink: 0;" @change="onAgentTypeChange">
-          <el-radio-button value="CODEX">
-            <span :style="{ fontWeight: 700, fontSize: '12px' }">Codex</span>
-          </el-radio-button>
-          <el-radio-button value="CLAUDE">
-            <span :style="{ fontWeight: 700, fontSize: '12px' }">Claude</span>
+          <el-radio-button
+            v-for="agent in displayedAgentOptions"
+            :key="agent.type"
+            :value="agent.type"
+            :disabled="agent.disabled">
+            <span :style="{ fontWeight: 700, fontSize: '12px' }">{{ agent.label }}</span>
           </el-radio-button>
         </el-radio-group>
         <div class="divider hidden-mobile"></div>
@@ -169,7 +170,7 @@ v-for="b in savedBranches" :key="b" closable size="small"
       <el-aside v-if="!isMobile" width="280px">
         <!-- 新对话按钮 -->
         <div class="sidebar-header">
-          <el-button type="primary" :loading="starting" :disabled="!currentPath" style="width: 100%;" @click="newConversation">
+          <el-button type="primary" :loading="starting" :disabled="!currentPath || selectableAgentOptions.length === 0" style="width: 100%;" @click="newConversation">
             <el-icon><plus /></el-icon>
             <span>新对话</span>
           </el-button>
@@ -191,7 +192,7 @@ v-for="b in savedBranches" :key="b" closable size="small"
                   <el-tag v-if="h.running" size="small" type="warning" effect="plain">运行中</el-tag>
                 </div>
                 <div class="history-meta">
-                  <span v-if="h.agentType" :class="'agent-tag agent-tag-' + h.agentType.toLowerCase()">{{ h.agentType }}</span>
+                  <span v-if="h.agentType" :class="'agent-tag agent-tag-' + h.agentType.toLowerCase()">{{ historyAgentLabel(h) }}</span>
                   {{ h.workingDir.split('/').pop() }} · {{ h.messageCount }} 条 · {{ formatTime(h.createdAt) }}
                 </div>
               </div>
@@ -216,17 +217,18 @@ v-for="b in savedBranches" :key="b" closable size="small"
           <div style="padding: 12px 16px; border-bottom: 1px solid #f0f0f0;">
             <div style="font-size: 12px; color: #909399; margin-bottom: 8px;">Agent {{ activeSessionId ? '（会话进行中）' : '' }}</div>
             <el-radio-group v-model="agentType" size="small" :disabled="!!activeSessionId" :class="{ 'locked-radio-group': !!activeSessionId }" @change="onAgentTypeChange">
-              <el-radio-button value="CODEX">
-                <span :style="{ fontWeight: 700, fontSize: '12px' }">Codex</span>
-              </el-radio-button>
-              <el-radio-button value="CLAUDE">
-                <span :style="{ fontWeight: 700, fontSize: '12px' }">Claude</span>
+              <el-radio-button
+                v-for="agent in displayedAgentOptions"
+                :key="agent.type"
+                :value="agent.type"
+                :disabled="agent.disabled">
+                <span :style="{ fontWeight: 700, fontSize: '12px' }">{{ agent.label }}</span>
               </el-radio-button>
             </el-radio-group>
           </div>
           <!-- 新对话按钮 -->
           <div class="sidebar-header">
-            <el-button type="primary" :loading="starting" :disabled="!currentPath" style="width: 100%;" @click="newConversation(); sidebarVisible = false;">
+            <el-button type="primary" :loading="starting" :disabled="!currentPath || selectableAgentOptions.length === 0" style="width: 100%;" @click="newConversation(); sidebarVisible = false;">
               <el-icon><plus /></el-icon>
               <span>新对话</span>
             </el-button>
@@ -247,6 +249,7 @@ v-for="b in savedBranches" :key="b" closable size="small"
                     <el-tag v-if="h.running" size="small" type="warning" effect="plain">运行中</el-tag>
                   </div>
                   <div class="history-meta">
+                    <span v-if="h.agentType" :class="'agent-tag agent-tag-' + h.agentType.toLowerCase()">{{ historyAgentLabel(h) }}</span>
                     {{ h.workingDir.split('/').pop() }} · {{ h.messageCount }} 条 · {{ formatTime(h.createdAt) }}
                   </div>
                 </div>
@@ -267,10 +270,19 @@ v-for="b in savedBranches" :key="b" closable size="small"
 
       <!-- ========== 主内容区 ========== -->
       <el-main style="padding: 0;">
+        <el-alert
+          v-if="activeSessionId && !activeRuntimeAvailable"
+          type="warning"
+          :closable="false"
+          show-icon
+          title="诊断 Agent 当前不可用；历史仍可查看、分享、评价和回退，但暂时不能继续发送。"
+        />
         <!-- 聊天闭环抽成 ChatPanel 组件(window.ChatPanel),主控台/admin 共享同一实现 -->
         <chat-panel
           :working-dir="currentPath"
           :agent-type="agentType"
+          :environment="effectiveEnvironment"
+          :runtime-available="activeRuntimeAvailable"
           :initial-session-id="activeSessionId"
           :initial-resume-id="activeResumeId"
           :rag-enabled="chatRagEnabled"
@@ -547,7 +559,14 @@ import {
 } from './lib/formatters.js';
 import { copySegment } from './lib/clipboard.js';
 import { shareSession } from './lib/share-session.js';
-import { ref, onMounted, watch } from 'vue';
+import {
+  agentLabel,
+  isAgentUsable,
+  resolveNewConversationAgent,
+  selectableAgents,
+  shouldApplyCatalogDefault,
+} from './lib/agent-catalog.js';
+import { ref, computed, onMounted, watch } from 'vue';
 import { ElMessage } from 'element-plus';
 import { useAuth } from './composables/useAuth.js';
 import { useFileSystem } from './composables/useFileSystem.js';
@@ -578,10 +597,8 @@ export default {
       switchBranch, updateBranch, clearBranch, removeSavedBranch,
       restoreWorktreeState
     } = useWorktree({ selectedRoot, currentPath, loadList });
-    // 对话默认模型由管理后台控制: GET /api/chat/agent-default 返回 {agentType, version}。
-    // 「强制全员跟随」: 本地记录的版本(agent_type_force_version)与服务端不一致时, 覆盖本地选择
-    // (agent_type)并切到服务端默认、写回新版本; 一致则尊重用户后续手动选择。
-    // 同步初始化先用本地缓存(或 CLAUDE 兜底), 服务端版本回来后由 applyServerAgentDefault 再按需强制。
+    // Agent 身份、展示名、运行时可用性和默认版本全部由后端 Catalog 提供。
+    // localStorage 只保存新对话偏好；已绑定会话始终以服务端 session.agentType/env 为准。
     const readPreferredAgentType = () => {
       const stored = localStorage.getItem('agent_type');
       return stored || 'CLAUDE';
@@ -591,6 +608,33 @@ export default {
     // 驱动顶栏 Agent 选择器锁定,并作为 initialSessionId/initialResumeId 传给组件触发 resume。
     const activeSessionId = ref('');
     const activeResumeId = ref('');
+    const activeEnvironment = ref('');
+    const agentCatalog = ref(null);
+    const environments = ref([]);
+    const selectedEnvironment = ref(localStorage.getItem('agent_env') || '');
+    const effectiveEnvironment = computed(() =>
+      activeSessionId.value ? activeEnvironment.value : selectedEnvironment.value);
+    const selectableAgentOptions = computed(() =>
+      selectableAgents(agentCatalog.value, effectiveEnvironment.value));
+    const activeRuntimeAvailable = computed(() =>
+      !activeSessionId.value || isAgentUsable(
+        agentCatalog.value, agentType.value, effectiveEnvironment.value));
+    const displayedAgentOptions = computed(() => {
+      const options = selectableAgentOptions.value.map((offer) => ({
+        type: offer.type,
+        label: offer.displayName,
+        disabled: false,
+      }));
+      if (activeSessionId.value && !options.some((option) => option.type === agentType.value)) {
+        options.push({
+          type: agentType.value,
+          label: agentLabel(agentCatalog.value, agentType.value,
+            effectiveEnvironment.value, true),
+          disabled: true,
+        });
+      }
+      return options;
+    });
     const starting = ref(false);
     // 历史 + 定时任务 从 composable 引入(FE-R3.4 拆出,原内联状态/方法删除)
     const {
@@ -598,7 +642,9 @@ export default {
       historyMessages, historyDrawerVisible, currentHistorySessionId,
       groupedHistory, loadHistory, onHistoryScroll, canDelete,
       deleteHistory, viewHistory, resumeHistory, shareSessionFor
-    } = useHistory({ currentUserId, agentType, activeResumeId, activeSessionId });
+    } = useHistory({
+      currentUserId, agentType, activeResumeId, activeSessionId, activeEnvironment,
+    });
     const {
       taskList, taskDialogVisible, taskEditing, taskForm, taskLoading, taskManagerVisible,
       loadTasks, openTaskDialog, saveTask, deleteTask, toggleTask, runTask, setCronPreset
@@ -627,21 +673,40 @@ export default {
       } catch (e) {
         // 忽略，保留 false
       }
-      // 对话默认模型「强制全员跟随」: 服务端版本与本地不一致即覆盖本地选择并切换(仅在无进行中会话时切)。
+      // 先加载环境和 Agent Catalog。第一个声明环境是新会话的兼容默认值，界面不另行
+      // 暴露环境切换；NATIVE 会因此精确携带其 bound environment 创建会话。
       try {
-        const def = await fetch('/api/chat/agent-default').then(r => r.json());
-        if (def && def.agentType) {
+        const [envResponse, catalogResponse] = await Promise.all([
+          fetch('/api/chat/envs'),
+          fetch('/api/chat/agents'),
+        ]);
+        if (!envResponse.ok || !catalogResponse.ok) throw new Error('catalog unavailable');
+        environments.value = await envResponse.json();
+        agentCatalog.value = await catalogResponse.json();
+        const knownEnvironment = environments.value.some(
+          (environment) => environment.key === selectedEnvironment.value);
+        if (!knownEnvironment) {
+          selectedEnvironment.value = environments.value[0]?.key || '';
+          if (selectedEnvironment.value) {
+            localStorage.setItem('agent_env', selectedEnvironment.value);
+          }
+        }
+        if (agentCatalog.value && agentCatalog.value.defaultAgent) {
           const appliedVer = localStorage.getItem('agent_type_force_version');
-          if (appliedVer !== String(def.version)) {
-            localStorage.setItem('agent_type', def.agentType);
-            localStorage.setItem('agent_type_force_version', String(def.version));
-            if (!activeSessionId.value) {
-              agentType.value = def.agentType;
-            }
+          if (shouldApplyCatalogDefault(appliedVer,
+            agentCatalog.value.defaultVersion, activeSessionId.value)) {
+            localStorage.setItem('agent_type', agentCatalog.value.defaultAgent);
+            localStorage.setItem('agent_type_force_version',
+              String(agentCatalog.value.defaultVersion));
+            agentType.value = resolveNewConversationAgent(agentCatalog.value,
+              agentCatalog.value.defaultAgent, selectedEnvironment.value);
+          } else if (!activeSessionId.value) {
+            agentType.value = resolveNewConversationAgent(agentCatalog.value,
+              readPreferredAgentType(), selectedEnvironment.value);
           }
         }
       } catch (e) {
-        // 忽略: 取不到默认值就保留本地选择
+        ElMessage.warning('Agent 列表加载失败，请刷新页面重试');
       }
       // fs roots(useFileSystem.initFileSystem) + worktree 恢复(useWorktree.restoreWorktreeState)
       const data = await initFileSystem();
@@ -657,7 +722,11 @@ export default {
     const newConversation = async () => {
       activeSessionId.value = '';
       activeResumeId.value = '';
-      agentType.value = readPreferredAgentType();
+      activeEnvironment.value = '';
+      if (agentCatalog.value) {
+        agentType.value = resolveNewConversationAgent(agentCatalog.value,
+          readPreferredAgentType(), selectedEnvironment.value);
+      }
       ElMessage.success('新对话已就绪');
     };
 
@@ -667,7 +736,11 @@ export default {
     const onAgentTypeChange = (val) => {
       // 会话开始后下拉是 disabled 的, 这里只处理新建态的切换
       localStorage.setItem('agent_type', val);
-      ElMessage.info({ message: '已切换到 ' + val, duration: 2000 });
+      ElMessage.info({
+        message: '已切换到 ' + agentLabel(agentCatalog.value, val,
+          selectedEnvironment.value, false),
+        duration: 2000,
+      });
     };
 
     // ========== ChatPanel 宿主回调 ==========
@@ -675,6 +748,8 @@ export default {
     const onSessionCreated = (payload) => {
       activeSessionId.value = payload.sessionId;
       activeResumeId.value = '';
+      activeEnvironment.value = payload.env || selectedEnvironment.value;
+      if (payload.agentType) agentType.value = payload.agentType;
       loadHistory(true);
     };
     // 组件流结束 / 回退后:重拉历史列表,同步标题与消息数
@@ -693,11 +768,19 @@ export default {
     watch(currentPath, () => {
       activeSessionId.value = '';
       activeResumeId.value = '';
+      activeEnvironment.value = '';
     });
 
     watch(branchPopoverVisible, (v) => {
       if (v) loadWorktreeBranches();
     });
+
+    const historyAgentLabel = (session) => agentLabel(
+      agentCatalog.value,
+      session.agentType || '',
+      session.env || selectedEnvironment.value,
+      true,
+    );
 
     return {
       roots,
@@ -714,6 +797,11 @@ export default {
       agentType,
       activeSessionId,
       activeResumeId,
+      activeEnvironment,
+      effectiveEnvironment,
+      selectableAgentOptions,
+      displayedAgentOptions,
+      activeRuntimeAvailable,
       username,
       starting,
       handleRootChange,
@@ -722,6 +810,7 @@ export default {
       confirmWorkspace,
       newConversation,
       onAgentTypeChange,
+      historyAgentLabel,
       onSessionCreated,
       onRefreshHistory,
       formatSize,

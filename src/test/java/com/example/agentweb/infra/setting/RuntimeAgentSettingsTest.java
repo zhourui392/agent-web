@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -46,6 +47,13 @@ class RuntimeAgentSettingsTest {
     }
 
     @Test
+    void getters_nullSeed_shouldFallbackToHardDefault() {
+        chatDefaults.setDefaultType(null);
+
+        assertEquals(AgentType.CLAUDE, newSettings().getChatDefaultAgent());
+    }
+
+    @Test
     void getChatDefaultAgent_supportedDbValue_shouldWinOverSeed() {
         when(repo.get(RuntimeAgentSettings.KEY_CHAT_AGENT)).thenReturn(Optional.of("CODEX"));
         assertEquals(AgentType.CODEX, newSettings().getChatDefaultAgent());
@@ -64,6 +72,13 @@ class RuntimeAgentSettingsTest {
     }
 
     @Test
+    void getChatDefaultAgent_nativeValue_shouldFallbackBecauseNativeIsNotDefaultEligible() {
+        when(repo.get(RuntimeAgentSettings.KEY_CHAT_AGENT)).thenReturn(Optional.of("NATIVE"));
+
+        assertEquals(AgentType.CLAUDE, newSettings().getChatDefaultAgent());
+    }
+
+    @Test
     void setChatDefaultAgent_shouldPersistAndBumpVersion() {
         when(repo.get(RuntimeAgentSettings.KEY_CHAT_AGENT_VERSION)).thenReturn(Optional.of("3"));
         RuntimeAgentSettings s = newSettings();
@@ -73,5 +88,13 @@ class RuntimeAgentSettingsTest {
         assertEquals(4L, s.getChatDefaultAgentVersion());
         verify(repo).put(eq(RuntimeAgentSettings.KEY_CHAT_AGENT), eq("CODEX"), anyLong());
         verify(repo).put(eq(RuntimeAgentSettings.KEY_CHAT_AGENT_VERSION), eq("4"), anyLong());
+    }
+
+    @Test
+    void setChatDefaultAgent_native_shouldRejectBeforePersistence() {
+        RuntimeAgentSettings settings = newSettings();
+
+        assertThrows(IllegalArgumentException.class,
+                () -> settings.setChatDefaultAgent(AgentType.NATIVE));
     }
 }

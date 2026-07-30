@@ -20,15 +20,18 @@ public class SqliteToolInvocationRepository implements ToolInvocationRepository 
 
     private final JdbcTemplate jdbc;
     private final RowMapper<ToolInvocation> rowMapper = new InvocationRowMapper();
+    private final SqliteTransientLockRetry lockRetry;
 
     public SqliteToolInvocationRepository(JdbcTemplate jdbc) {
         this.jdbc = jdbc;
+        this.lockRetry = new SqliteTransientLockRetry();
     }
 
     @Override
     public void save(ToolInvocation value) {
         value.validate();
-        jdbc.update("INSERT INTO chat_tool_invocation (session_id,run_id,assistant_message_id,provider,"
+        lockRetry.execute(() -> jdbc.update(
+                "INSERT INTO chat_tool_invocation (session_id,run_id,assistant_message_id,provider,"
                         + "provider_call_id,invocation_index,invocation_kind,tool_name,skill_name,trigger_source,"
                         + "input_json,output_text,status,is_error,exit_code,provider_item_type,provider_status,"
                         + "input_truncated,output_truncated,output_original_size,started_at,completed_at,created_at,"
@@ -46,21 +49,23 @@ public class SqliteToolInvocationRepository implements ToolInvocationRepository 
                 value.getProviderItemType(), value.getProviderStatus(), value.isInputTruncated() ? 1 : 0,
                 value.isOutputTruncated() ? 1 : 0, value.getOutputOriginalSize(), value.getStartedAt(),
                 value.getCompletedAt(), value.getCreatedAt(), value.getUpdatedAt(), value.getSource().name(),
-                value.getSourceMessageId(), value.getMigrationConfidence());
+                value.getSourceMessageId(), value.getMigrationConfidence()));
     }
 
     @Override
     public void attachAssistantMessage(String runId, long assistantMessageId) {
-        jdbc.update("UPDATE chat_tool_invocation SET assistant_message_id=?, updated_at=? WHERE run_id=?",
-                assistantMessageId, System.currentTimeMillis(), runId);
+        lockRetry.execute(() -> jdbc.update(
+                "UPDATE chat_tool_invocation SET assistant_message_id=?, updated_at=? WHERE run_id=?",
+                assistantMessageId, System.currentTimeMillis(), runId));
     }
 
     @Override
     public void completeExplicitSkills(String runId, ToolInvocationStatus status) {
         long now = System.currentTimeMillis();
-        jdbc.update("UPDATE chat_tool_invocation SET status=?,is_error=?,completed_at=?,updated_at=? "
+        lockRetry.execute(() -> jdbc.update(
+                "UPDATE chat_tool_invocation SET status=?,is_error=?,completed_at=?,updated_at=? "
                         + "WHERE run_id=? AND trigger_source='USER_SLASH' AND status='STARTED'",
-                status.name(), status == ToolInvocationStatus.FAILED ? 1 : 0, now, now, runId);
+                status.name(), status == ToolInvocationStatus.FAILED ? 1 : 0, now, now, runId));
     }
 
     @Override

@@ -1,7 +1,11 @@
 package com.example.agentweb.app.chatrun;
 
 import com.example.agentweb.app.agentrun.port.AgentGateway;
+import com.example.agentweb.app.agentrun.port.AgentExecutionResult;
+import com.example.agentweb.app.agentrun.port.AgentHistoryMessage;
+import com.example.agentweb.app.agentrun.port.AgentRunInvocation;
 import com.example.agentweb.app.agentrun.port.AgentStreamResult;
+import com.example.agentweb.app.agentrun.port.HistoryDeliveryMode;
 import com.example.agentweb.app.refinery.RecallObservationRecorder;
 import com.example.agentweb.app.refinery.RefineryRecaller;
 import com.example.agentweb.domain.chat.SessionRepository;
@@ -9,18 +13,20 @@ import com.example.agentweb.domain.chatrun.ChatRunId;
 import com.example.agentweb.domain.shared.AgentType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.io.IOException;
 import java.util.Collections;
+import java.util.Arrays;
 import java.util.Optional;
 import java.util.concurrent.Executor;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.function.Consumer;
 
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
@@ -73,39 +79,58 @@ class ChatRunExecutorTest {
     void launch_should_start_once_stream_normalized_chunks_and_complete() throws Exception {
         ChatRunExecutionContext context = context();
         when(queryService.findExecutionContext("run-1")).thenReturn(Optional.of(context));
-        when(promptBuilder.prepare(context, "question")).thenReturn("prepared prompt");
+        when(gateway.historyDeliveryMode(AgentType.CODEX)).thenReturn(HistoryDeliveryMode.TYPED);
+        when(promptBuilder.prepareDetailed(context, "question", HistoryDeliveryMode.TYPED))
+                .thenReturn(new PreparedChatRunPrompt("prepared prompt", null));
         when(gateway.extractResumeId(AgentType.CODEX, "raw")).thenReturn(null);
         when(gateway.normalizeChunk(AgentType.CODEX, "raw"))
                 .thenReturn(Collections.singletonList("normalized"));
+        AgentExecutionResult terminalResult =
+                AgentExecutionResult.fromStream(AgentStreamResult.completed(0));
         doAnswer(invocation -> {
-            Consumer<String> chunk = invocation.getArgument(7);
-            Consumer<AgentStreamResult> exit = invocation.getArgument(8);
+            Consumer<String> chunk = invocation.getArgument(1);
+            Consumer<AgentExecutionResult> exit = invocation.getArgument(2);
             chunk.accept("raw");
-            exit.accept(AgentStreamResult.completed(0));
+            exit.accept(terminalResult);
             return null;
-        }).when(gateway).runStreamWithResult(eq(AgentType.CODEX), eq("/workspace"), eq("prepared prompt"),
-                eq("run-1"), eq("resume-1"), eq("test"), eq(0L), any(), any(), eq("user-1"), eq(null));
+        }).when(gateway).runStreamWithResult(any(AgentRunInvocation.class), any(), any());
 
         executor.launch(ChatRunId.of("run-1"));
 
         org.mockito.InOrder order = inOrder(lifecycleService, gateway, eventBuffer);
         order.verify(lifecycleService).start(ChatRunId.of("run-1"));
-        order.verify(gateway).runStreamWithResult(eq(AgentType.CODEX), eq("/workspace"), eq("prepared prompt"),
-                eq("run-1"), eq("resume-1"), eq("test"), eq(0L), any(), any(), eq("user-1"), eq(null));
+        ArgumentCaptor<AgentRunInvocation> invocation = ArgumentCaptor.forClass(AgentRunInvocation.class);
+        order.verify(gateway).runStreamWithResult(invocation.capture(), any(), any());
         order.verify(eventBuffer).append("chunk", "normalized");
         order.verify(eventBuffer).flush();
         order.verify(lifecycleService).complete(ChatRunId.of("run-1"), "normalized",
-                AgentStreamResult.completed(0), null);
+                terminalResult, null);
         verify(eventBuffer).close();
+
+        AgentRunInvocation captured = invocation.getValue();
+        assertEquals("run-1", captured.getRunId());
+        assertEquals("session-1", captured.getConversationId());
+        assertEquals(11L, captured.getUserMessageId());
+        assertEquals(AgentType.CODEX, captured.getAgentType());
+        assertEquals("/workspace", captured.getWorkingDir());
+        assertEquals("prepared prompt", captured.getPrompt());
+        assertEquals("resume-1", captured.getResumeId());
+        assertEquals("test", captured.getEnv());
+        assertEquals("user-1", captured.getUserId());
+        assertEquals(Arrays.asList(
+                new AgentHistoryMessage("user", "prior question"),
+                new AgentHistoryMessage("assistant", "prior answer")), captured.getHistory());
     }
 
     @Test
     void execution_failure_should_finish_run_without_retrying_cli() throws Exception {
         ChatRunExecutionContext context = context();
         when(queryService.findExecutionContext("run-1")).thenReturn(Optional.of(context));
-        when(promptBuilder.prepare(context, "question")).thenReturn("prepared prompt");
-        doThrow(new IOException("spawn failed")).when(gateway).runStreamWithResult(any(), anyString(), anyString(),
-                anyString(), any(), any(), anyLong(), any(), any(), any(), any());
+        when(gateway.historyDeliveryMode(AgentType.CODEX)).thenReturn(HistoryDeliveryMode.PROMPT_PREFIX);
+        when(promptBuilder.prepareDetailed(context, "question", HistoryDeliveryMode.PROMPT_PREFIX))
+                .thenReturn(new PreparedChatRunPrompt("prepared prompt", null));
+        doThrow(new IOException("spawn failed")).when(gateway)
+                .runStreamWithResult(any(AgentRunInvocation.class), any(), any());
 
         executor.launch(ChatRunId.of("run-1"));
 
@@ -134,6 +159,7 @@ class ChatRunExecutorTest {
     private ChatRunExecutionContext context() {
         return new ChatRunExecutionContext("run-1", "session-1", 11L, AgentType.CODEX,
                 "/workspace", "resume-1", "test", "user-1", "question", false,
-                Collections.<ChatRunHistoryMessageView>emptyList());
+                Arrays.asList(new ChatRunHistoryMessageView("user", "prior question"),
+                        new ChatRunHistoryMessageView("assistant", "prior answer")));
     }
 }

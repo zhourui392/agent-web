@@ -25,6 +25,7 @@ const webServerEnv = {
   JAVA_HOME: jdk21Home,
   PATH: `${path.join(jdk21Home, 'bin')}${pathSeparator}${process.env.PATH || ''}`,
   GIT_CRED_ENC_KEY: process.env.GIT_CRED_ENC_KEY || 'MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=',
+  VITE_API_PROXY_TARGET: 'http://localhost:18099',
 } as Record<string, string>;
 const userStorageState = path.join(__dirname, '.auth', 'user.json');
 

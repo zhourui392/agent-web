@@ -1,7 +1,11 @@
 package com.example.agentweb.app.chatrun;
 
 import com.example.agentweb.app.agentrun.port.AgentGateway;
+import com.example.agentweb.app.agentrun.port.AgentExecutionResult;
+import com.example.agentweb.app.agentrun.port.AgentHistoryMessage;
+import com.example.agentweb.app.agentrun.port.AgentRunInvocation;
 import com.example.agentweb.app.agentrun.port.AgentStreamResult;
+import com.example.agentweb.app.agentrun.port.HistoryDeliveryMode;
 import com.example.agentweb.app.StreamChunkHandler;
 import com.example.agentweb.app.refinery.RecallObservationRecorder;
 import com.example.agentweb.app.refinery.RecallObservationStart;
@@ -19,8 +23,10 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -101,8 +107,9 @@ public class ChatRunExecutor implements ChatRunLauncher {
 
         final StreamChunkHandler handler = new StreamChunkHandler(sessionRepository,
                 context.getSessionId(), gateway, context.getAgentType());
-        final AtomicReference<AgentStreamResult> streamResult =
-                new AtomicReference<AgentStreamResult>(AgentStreamResult.completed(-1));
+        final AtomicReference<AgentExecutionResult> executionResult =
+                new AtomicReference<AgentExecutionResult>(
+                        AgentExecutionResult.fromStream(AgentStreamResult.completed(-1)));
         final ChatRunEventBuffer eventBuffer = eventBufferFactory.open(runId,
                 error -> gateway.stopStream(runId.getValue()));
         final ChatToolInvocationTrackerFactory.Tracker toolTracker = toolInvocationTrackerFactory.open(
@@ -116,7 +123,9 @@ public class ChatRunExecutor implements ChatRunLauncher {
                 recallJson = recallJson(recall);
                 eventBuffer.append("recall", recallJson);
             }
-            PreparedChatRunPrompt preparedPrompt = promptBuilder.prepareDetailed(context, promptInput);
+            HistoryDeliveryMode historyMode = gateway.historyDeliveryMode(context.getAgentType());
+            PreparedChatRunPrompt preparedPrompt =
+                    promptBuilder.prepareDetailed(context, promptInput, historyMode);
             if (preparedPrompt == null) {
                 preparedPrompt = new PreparedChatRunPrompt(promptBuilder.prepare(context, promptInput), null);
             }
@@ -125,17 +134,29 @@ public class ChatRunExecutor implements ChatRunLauncher {
             final String finalRecallJson = recallJson;
             final java.util.function.Consumer<String> messageChunkHandler =
                     handler.onChunk(chunk -> eventBuffer.append("chunk", chunk));
-            gateway.runStreamWithResult(context.getAgentType(), context.getWorkingDir(), prompt,
-                    runId.getValue(), context.getResumeId(), context.getEnv(), 0L,
+            AgentRunInvocation invocation = AgentRunInvocation.builder()
+                    .runId(runId.getValue())
+                    .conversationId(context.getSessionId())
+                    .userMessageId(context.getUserMessageId())
+                    .agentType(context.getAgentType())
+                    .workingDir(context.getWorkingDir())
+                    .prompt(prompt)
+                    .resumeId(context.getResumeId())
+                    .env(context.getEnv())
+                    .userId(context.getUserId())
+                    .timeoutSeconds(0L)
+                    .history(toAgentHistory(context.getHistory()))
+                    .build();
+            gateway.runStreamWithResult(invocation,
                     chunk -> {
                         toolTracker.accept(chunk);
                         messageChunkHandler.accept(chunk);
                     },
-                    streamResult::set, context.getUserId(), null);
+                    executionResult::set);
             eventBuffer.flush();
             eventBuffer.close();
             Long assistantMessageId = lifecycleService.complete(runId,
-                    handler.accumulatedResponse(), streamResult.get(), finalRecallJson);
+                    handler.accumulatedResponse(), executionResult.get(), finalRecallJson);
             toolTracker.finish(assistantMessageId);
             attachAssistant(attemptId, assistantMessageId);
         } catch (Exception ex) {
@@ -145,11 +166,17 @@ public class ChatRunExecutor implements ChatRunLauncher {
             toolTracker.finish(null);
             closeBuffer(eventBuffer);
             if (eventBuffer.getFailure() != null) {
-                safeEventStoreFail(runId, streamResult.get().getExitCode());
+                safeEventStoreFail(runId, executionResult.get().getStreamResult().getExitCode());
             } else {
                 safeFail(runId);
             }
         }
+    }
+
+    private List<AgentHistoryMessage> toAgentHistory(List<ChatRunHistoryMessageView> history) {
+        return history.stream()
+                .map(message -> new AgentHistoryMessage(message.getRole(), message.getContent()))
+                .collect(Collectors.toList());
     }
 
     private void closeBuffer(ChatRunEventBuffer eventBuffer) {

@@ -1,6 +1,7 @@
 package com.example.agentweb.interfaces;
 
 import com.example.agentweb.app.setting.WorkspaceSettingsAppServiceImpl;
+import com.example.agentweb.app.agentrun.AgentCatalogService;
 import com.example.agentweb.domain.setting.WorkspaceSettings;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.infra.setting.RuntimeAgentSettings;
@@ -15,9 +16,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -35,11 +34,14 @@ public class AdminSettingsController {
 
     private final RuntimeAgentSettings runtimeAgentSettings;
     private final WorkspaceSettingsAppServiceImpl workspaceSettingsAppService;
+    private final AgentCatalogService agentCatalogService;
 
     public AdminSettingsController(RuntimeAgentSettings runtimeAgentSettings,
-                                   WorkspaceSettingsAppServiceImpl workspaceSettingsAppService) {
+                                   WorkspaceSettingsAppServiceImpl workspaceSettingsAppService,
+                                   AgentCatalogService agentCatalogService) {
         this.runtimeAgentSettings = runtimeAgentSettings;
         this.workspaceSettingsAppService = workspaceSettingsAppService;
+        this.agentCatalogService = agentCatalogService;
     }
 
     /**
@@ -53,15 +55,15 @@ public class AdminSettingsController {
     }
 
     /**
-     * 更新对话默认模型。非法或不可选的 agent 由 {@link AgentType#parseSelectable}
-     * 抛 {@link IllegalArgumentException} → GlobalExceptionHandler 转 400。
+     * 更新对话默认模型。稳定身份解析后由 AgentCatalog 校验默认资格。
      *
      * @param req {@code {chatDefaultAgent}}
      * @return 更新后的最新值
      */
     @PutMapping("/agent-models")
     public Map<String, Object> updateAgentModels(@RequestBody Map<String, String> req) {
-        AgentType chat = AgentType.parseSelectable(req.get("chatDefaultAgent"));
+        AgentType chat = AgentType.parseKnown(req.get("chatDefaultAgent"));
+        agentCatalogService.requireDefaultEligible(chat);
         runtimeAgentSettings.setChatDefaultAgent(chat);
         log.info("admin-agent-models-updated chat={}", chat);
         return body(chat);
@@ -90,12 +92,8 @@ public class AdminSettingsController {
     private Map<String, Object> body(AgentType chat) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("chatDefaultAgent", chat.name());
-        List<String> options = new ArrayList<>();
-        for (AgentType t : AgentType.values()) {
-            if (t.isSelectable()) {
-                options.add(t.name());
-            }
-        }
+        java.util.List<String> options = agentCatalogService.currentCatalog()
+                .defaultEligibleTypes().stream().map(AgentType::name).toList();
         m.put("options", options);
         return m;
     }

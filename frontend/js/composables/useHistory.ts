@@ -31,6 +31,7 @@ interface HostState {
   agentType: Ref<string>;
   activeResumeId: Ref<string>;
   activeSessionId: Ref<string>;
+  activeEnvironment: Ref<string>;
 }
 
 export function useHistory(host: HostState): {
@@ -159,6 +160,7 @@ export function useHistory(host: HostState): {
   const resumeHistory = (session: HistoryItem | null | undefined) => {
     if (!session || !session.sessionId) return;
     if (session.agentType) host.agentType.value = session.agentType;
+    host.activeEnvironment.value = typeof session.env === 'string' ? session.env : '';
     host.activeResumeId.value = session.resumeId || '';
     host.activeSessionId.value = session.sessionId;
   };

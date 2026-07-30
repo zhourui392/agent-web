@@ -90,6 +90,7 @@ public class SqliteToolInvocationAdminQueryService implements ToolInvocationAdmi
         equalsFilter(clauses, arguments, "invocation_kind", filter.getInvocationKind());
         equalsFilter(clauses, arguments, "status", filter.getStatus());
         equalsFilter(clauses, arguments, "trigger_source", filter.getTriggerSource());
+        equalsFilter(clauses, arguments, "source", filter.getSource());
         equalsFilter(clauses, arguments, "session_id", filter.getSessionId());
         equalsFilter(clauses, arguments, "run_id", filter.getRunId());
         if (includeToolName) {

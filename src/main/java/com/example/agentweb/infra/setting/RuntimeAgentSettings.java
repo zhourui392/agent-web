@@ -2,6 +2,7 @@ package com.example.agentweb.infra.setting;
 
 import com.example.agentweb.app.ChatAgentDefaults;
 import com.example.agentweb.domain.shared.AgentType;
+import com.example.agentweb.domain.agentrun.AgentOfferPolicy;
 import com.example.agentweb.infra.AgentDefaultProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -63,6 +64,7 @@ public class RuntimeAgentSettings implements ChatAgentDefaults {
      * @param agent 新的默认 agent(须可选)
      */
     public synchronized void setChatDefaultAgent(AgentType agent) {
+        AgentOfferPolicy.requireDefaultEligible(agent);
         ensureLoaded();
         long now = System.currentTimeMillis();
         long nextVersion = chatDefaultAgentVersion + 1;
@@ -93,7 +95,7 @@ public class RuntimeAgentSettings implements ChatAgentDefaults {
             return fallback;
         }
         try {
-            return AgentType.parseSelectable(raw.get());
+            return AgentOfferPolicy.requireDefaultEligible(AgentType.parseKnown(raw.get()));
         } catch (IllegalArgumentException e) {
             log.warn("runtime-setting-invalid key={} value={} fallback={}", key, raw.get(), fallback);
             return fallback;
@@ -118,6 +120,10 @@ public class RuntimeAgentSettings implements ChatAgentDefaults {
     }
 
     private AgentType sanitize(AgentType candidate) {
-        return candidate != null && candidate.isSelectable() ? candidate : HARD_DEFAULT;
+        try {
+            return AgentOfferPolicy.requireDefaultEligible(candidate);
+        } catch (IllegalArgumentException ex) {
+            return HARD_DEFAULT;
+        }
     }
 }

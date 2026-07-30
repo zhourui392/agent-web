@@ -55,4 +55,19 @@ public class ArchitectureTest {
     static final ArchRule A6_WORKFLOW_DOMAIN_SEPARATE_FROM_HARNESS = noClasses()
             .that().resideInAPackage("com.example.agentweb.domain.workflow..")
             .should().dependOnClassesThat().resideInAPackage("com.example.agentweb.domain.harness..");
+
+    @ArchTest
+    static final ArchRule A7_AGENTKIT_NOT_EXPOSED_TO_CORE_OR_INTERFACES = noClasses()
+            .that().resideInAnyPackage(
+                    "com.example.agentweb.app..",
+                    "com.example.agentweb.domain..",
+                    "com.example.agentweb.interfaces..")
+            .should().dependOnClassesThat().resideInAPackage("com.anthropic.agentkit..");
+
+    @ArchTest
+    static final ArchRule A8_AGENTKIT_DEPENDENCIES_CONFINED_TO_NATIVE_ADAPTER = noClasses()
+            .that().resideOutsideOfPackages(
+                    "com.example.agentweb.config.nativeagent..",
+                    "com.example.agentweb.infra.nativeagent..")
+            .should().dependOnClassesThat().resideInAPackage("com.anthropic.agentkit..");
 }

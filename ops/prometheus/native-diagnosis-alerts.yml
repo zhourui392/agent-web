@@ -1,0 +1,48 @@
+groups:
+  - name: agent-web-native-diagnosis
+    rules:
+      - alert: NativeDiagnosisBackendUnavailable
+        expr: max by (environment, data_source, tool) (diagnosis_backend_readiness) == 0
+        for: 5m
+        labels:
+          severity: critical
+          service: agent-web
+        annotations:
+          summary: NATIVE diagnosis backend is unavailable
+          description: "{{ $labels.environment }}/{{ $labels.data_source }} ({{ $labels.tool }}) has been unavailable for 5 minutes."
+
+      - alert: NativeDiagnosisRunFailureRatioHigh
+        expr: |
+          sum(rate(diagnosis_run_total{outcome=~"FAILED|BACKEND_UNHEALTHY"}[10m]))
+          /
+          clamp_min(sum(rate(diagnosis_run_total[10m])), 0.001) > 0.20
+        for: 10m
+        labels:
+          severity: warning
+          service: agent-web
+        annotations:
+          summary: NATIVE diagnosis run failure ratio is high
+          description: More than 20% of NATIVE diagnosis runs failed during the last 10 minutes.
+
+      - alert: NativeDiagnosisBackendRateLimited
+        expr: increase(diagnosis_plan_blocked_total{code="BACKEND_RATE_LIMITED"}[5m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          service: agent-web
+        annotations:
+          summary: NATIVE diagnosis backend rate limit reached
+          description: At least one diagnosis plan was blocked by backend rate limiting in the last 5 minutes.
+
+      - alert: NativeDiagnosisToolFailureRatioHigh
+        expr: |
+          sum by (environment, tool, data_source) (rate(diagnosis_tool_calls_total{status="ERROR"}[10m]))
+          /
+          clamp_min(sum by (environment, tool, data_source) (rate(diagnosis_tool_calls_total[10m])), 0.001) > 0.25
+        for: 10m
+        labels:
+          severity: warning
+          service: agent-web
+        annotations:
+          summary: NATIVE diagnosis tool failure ratio is high
+          description: "{{ $labels.tool }}/{{ $labels.data_source }} has exceeded a 25% failure ratio for 10 minutes."

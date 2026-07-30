@@ -1,7 +1,10 @@
 package com.example.agentweb.app.chatrun;
 
 import com.example.agentweb.app.agentrun.port.AgentGateway;
+import com.example.agentweb.app.agentrun.port.AgentExecutionResult;
+import com.example.agentweb.app.agentrun.port.AgentRunInvocation;
 import com.example.agentweb.app.agentrun.port.AgentStreamResult;
+import com.example.agentweb.app.agentrun.port.HistoryDeliveryMode;
 import com.example.agentweb.app.refinery.RecallObservationRecorder;
 import com.example.agentweb.app.refinery.RecallObservationStart;
 import com.example.agentweb.app.refinery.RecallStats;
@@ -26,7 +29,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
@@ -64,15 +66,16 @@ class ChatRunExecutorRecallObservationTest {
         eventBuffer = mock(ChatRunEventBuffer.class);
         recaller = mock(RefineryRecaller.class);
         recorder = mock(RecallObservationRecorder.class);
+        when(gateway.historyDeliveryMode(AgentType.CODEX)).thenReturn(HistoryDeliveryMode.PROMPT_PREFIX);
         when(eventBufferFactory.open(eq(ChatRunId.of("run-1")), any())).thenReturn(eventBuffer);
-        when(lifecycleService.complete(eq(ChatRunId.of("run-1")), anyString(), any(), any()))
+        when(lifecycleService.complete(eq(ChatRunId.of("run-1")), anyString(),
+                any(AgentExecutionResult.class), any()))
                 .thenReturn(20L);
         doAnswer(invocation -> {
-            Consumer<AgentStreamResult> exit = invocation.getArgument(8);
-            exit.accept(AgentStreamResult.completed(0));
+            Consumer<AgentExecutionResult> exit = invocation.getArgument(2);
+            exit.accept(AgentExecutionResult.fromStream(AgentStreamResult.completed(0)));
             return null;
-        }).when(gateway).runStreamWithResult(any(), anyString(), anyString(), anyString(), any(), any(),
-                anyLong(), any(), any(), any(), any());
+        }).when(gateway).runStreamWithResult(any(AgentRunInvocation.class), any(), any());
         Executor direct = Runnable::run;
         ChatToolInvocationTrackerFactory trackerFactory = mock(ChatToolInvocationTrackerFactory.class);
         ChatToolInvocationTrackerFactory.Tracker tracker = mock(ChatToolInvocationTrackerFactory.Tracker.class);
@@ -89,7 +92,8 @@ class ChatRunExecutorRecallObservationTest {
         when(queryService.findExecutionContext("run-1")).thenReturn(Optional.of(context));
         when(recorder.tryCreateStart(any())).thenReturn(Optional.of("attempt-1"));
         when(recaller.traceForChat("退款问题", "/workspace")).thenReturn(trace);
-        when(promptBuilder.prepare(context, "augmented prompt")).thenReturn("prepared prompt");
+        when(promptBuilder.prepareDetailed(context, "augmented prompt", HistoryDeliveryMode.PROMPT_PREFIX))
+                .thenReturn(new PreparedChatRunPrompt("prepared prompt", null));
 
         executor.launch(ChatRunId.of("run-1"));
 
@@ -99,7 +103,7 @@ class ChatRunExecutorRecallObservationTest {
         assertEquals(11L, start.getValue().getUserMessageId());
         assertEquals(RecallStatus.PENDING, start.getValue().getStatus());
         verify(recorder).tryRecordTrace("attempt-1", trace);
-        verify(promptBuilder).prepare(context, "augmented prompt");
+        verify(promptBuilder).prepareDetailed(context, "augmented prompt", HistoryDeliveryMode.PROMPT_PREFIX);
         verify(recorder).tryAttachAssistantMessage("attempt-1", 20L);
 
         ArgumentCaptor<String> recallJson = ArgumentCaptor.forClass(String.class);
@@ -115,7 +119,8 @@ class ChatRunExecutorRecallObservationTest {
         ChatRunExecutionContext context = context(false);
         when(queryService.findExecutionContext("run-1")).thenReturn(Optional.of(context));
         when(recorder.tryCreateStart(any())).thenReturn(Optional.of("attempt-disabled"));
-        when(promptBuilder.prepare(context, "退款问题")).thenReturn("退款问题");
+        when(promptBuilder.prepareDetailed(context, "退款问题", HistoryDeliveryMode.PROMPT_PREFIX))
+                .thenReturn(new PreparedChatRunPrompt("退款问题", null));
 
         executor.launch(ChatRunId.of("run-1"));
 
@@ -125,8 +130,9 @@ class ChatRunExecutorRecallObservationTest {
         assertEquals("DISABLED_BY_CLIENT", start.getValue().getSkipReason());
         verify(recaller, never()).traceForChat(anyString(), anyString());
         verify(recorder, never()).tryRecordTrace(anyString(), any(RecallTrace.class));
-        verify(gateway).runStreamWithResult(any(), anyString(), eq("退款问题"), anyString(), any(), any(),
-                anyLong(), any(), any(), any(), any());
+        ArgumentCaptor<AgentRunInvocation> invocation = ArgumentCaptor.forClass(AgentRunInvocation.class);
+        verify(gateway).runStreamWithResult(invocation.capture(), any(), any());
+        assertEquals("退款问题", invocation.getValue().getPrompt());
     }
 
     @Test
@@ -136,13 +142,15 @@ class ChatRunExecutorRecallObservationTest {
         when(queryService.findExecutionContext("run-1")).thenReturn(Optional.of(context));
         when(recorder.tryCreateStart(any())).thenThrow(new IllegalStateException("observation db down"));
         when(recaller.traceForChat("退款问题", "/workspace")).thenReturn(trace);
-        when(promptBuilder.prepare(context, "augmented prompt")).thenReturn("prepared prompt");
+        when(promptBuilder.prepareDetailed(context, "augmented prompt", HistoryDeliveryMode.PROMPT_PREFIX))
+                .thenReturn(new PreparedChatRunPrompt("prepared prompt", null));
 
         executor.launch(ChatRunId.of("run-1"));
 
         verify(recaller).traceForChat("退款问题", "/workspace");
-        verify(gateway).runStreamWithResult(any(), anyString(), eq("prepared prompt"), anyString(), any(), any(),
-                anyLong(), any(), any(), any(), any());
+        ArgumentCaptor<AgentRunInvocation> invocation = ArgumentCaptor.forClass(AgentRunInvocation.class);
+        verify(gateway).runStreamWithResult(invocation.capture(), any(), any());
+        assertEquals("prepared prompt", invocation.getValue().getPrompt());
         verify(lifecycleService, never()).fail(any(), anyString(), anyString(), any());
     }
 
@@ -153,7 +161,8 @@ class ChatRunExecutorRecallObservationTest {
         when(queryService.findExecutionContext("run-1")).thenReturn(Optional.of(context));
         when(recorder.tryCreateStart(any())).thenReturn(Optional.of("attempt-1"));
         when(recaller.traceForChat("退款问题", "/workspace")).thenReturn(trace);
-        when(promptBuilder.prepare(context, "augmented prompt")).thenReturn("prepared prompt");
+        when(promptBuilder.prepareDetailed(context, "augmented prompt", HistoryDeliveryMode.PROMPT_PREFIX))
+                .thenReturn(new PreparedChatRunPrompt("prepared prompt", null));
         doThrow(new IllegalStateException("trace write failed"))
                 .when(recorder).tryRecordTrace("attempt-1", trace);
         doThrow(new IllegalStateException("attach write failed"))
@@ -161,9 +170,11 @@ class ChatRunExecutorRecallObservationTest {
 
         executor.launch(ChatRunId.of("run-1"));
 
-        verify(gateway).runStreamWithResult(any(), anyString(), eq("prepared prompt"), anyString(), any(), any(),
-                anyLong(), any(), any(), any(), any());
-        verify(lifecycleService).complete(eq(ChatRunId.of("run-1")), anyString(), any(), any());
+        ArgumentCaptor<AgentRunInvocation> invocation = ArgumentCaptor.forClass(AgentRunInvocation.class);
+        verify(gateway).runStreamWithResult(invocation.capture(), any(), any());
+        assertEquals("prepared prompt", invocation.getValue().getPrompt());
+        verify(lifecycleService).complete(eq(ChatRunId.of("run-1")), anyString(),
+                any(AgentExecutionResult.class), any());
         verify(lifecycleService, never()).fail(any(), anyString(), anyString(), any());
     }
 

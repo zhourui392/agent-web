@@ -1,5 +1,7 @@
 package com.example.agentweb.app.workflow;
 
+import com.example.agentweb.domain.agentrun.AgentOfferPolicy;
+import com.example.agentweb.domain.agentrun.AgentSurface;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.workflow.WorkflowStep;
 import lombok.Getter;
@@ -37,7 +39,8 @@ public class WorkflowCreateCommand {
                                  List<WorkflowStep> steps, boolean enabled) {
         this.name = name;
         this.description = description;
-        this.agentType = agentType == null ? AgentType.CODEX : agentType;
+        this.agentType = AgentOfferPolicy.requireSurfaceEligible(
+                agentType == null ? AgentType.CODEX : agentType, AgentSurface.WORKFLOW);
         this.workingDir = workingDir;
         this.steps = steps == null ? new ArrayList<>() : new ArrayList<>(steps);
         this.enabled = enabled;

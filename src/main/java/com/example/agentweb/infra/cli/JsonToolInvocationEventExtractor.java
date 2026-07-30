@@ -51,10 +51,13 @@ public class JsonToolInvocationEventExtractor implements ToolInvocationEventExtr
                 ToolInvocationKind kind = "Skill".equals(name)
                         ? ToolInvocationKind.SKILL : ToolInvocationKind.TOOL_USE;
                 events.add(new ToolInvocationEvent.Started(id, kind, name, "tool_use",
-                        mapper.writeValueAsString(block.path("input"))));
+                        initialInputJson(block)));
             } else if ("content_block_delta".equals(event.path("type").asText())
                     && "input_json_delta".equals(event.path("delta").path("type").asText())) {
-                String id = claudeCallsByBlock.get().get(event.path("index").asInt(-1));
+                String id = event.path("delta").path("tool_use_id").asText("");
+                if (id.isBlank()) {
+                    id = claudeCallsByBlock.get().get(event.path("index").asInt(-1));
+                }
                 if (id != null) {
                     events.add(new ToolInvocationEvent.InputDelta(id,
                             event.path("delta").path("partial_json").asText("")));
@@ -71,6 +74,11 @@ public class JsonToolInvocationEventExtractor implements ToolInvocationEventExtr
             }
         }
         return events;
+    }
+
+    private String initialInputJson(JsonNode block) throws Exception {
+        JsonNode input = block.get("input");
+        return input == null || input.isNull() ? "{}" : mapper.writeValueAsString(input);
     }
 
     private List<ToolInvocationEvent> codex(JsonNode root) throws Exception {

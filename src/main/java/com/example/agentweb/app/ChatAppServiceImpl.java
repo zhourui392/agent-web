@@ -1,6 +1,8 @@
 package com.example.agentweb.app;
 
 import com.example.agentweb.app.agentrun.port.AgentGateway;
+import com.example.agentweb.app.agentrun.AgentCatalogService;
+import com.example.agentweb.domain.agentrun.AgentRuntimeAvailability;
 import com.example.agentweb.app.refinery.RecallObservationRecorder;
 import com.example.agentweb.domain.auth.CurrentUserProvider;
 import com.example.agentweb.domain.shared.AgentType;
@@ -45,6 +47,7 @@ public class ChatAppServiceImpl implements ChatAppService {
     private final UploadFileStorage uploadFileStore;
     private final Optional<RecallObservationRecorder> recallObservationRecorder;
     private final CurrentUserProvider currentUserProvider;
+    private final AgentCatalogService agentCatalogService;
     private WorkspacePathPolicy workspacePathPolicy;
     private ChatRunActivityGuard chatRunActivityGuard = ChatRunActivityGuard.permissive();
 
@@ -78,7 +81,6 @@ public class ChatAppServiceImpl implements ChatAppService {
         };
     }
 
-    @Autowired
     public ChatAppServiceImpl(SessionCache sessionCache,
                               SessionRepository sessionRepository,
                               AgentGateway gateway,
@@ -88,6 +90,22 @@ public class ChatAppServiceImpl implements ChatAppService {
                               UploadFileStorage uploadFileStore,
                               Optional<RecallObservationRecorder> recallObservationRecorder,
                               CurrentUserProvider currentUserProvider) {
+        this(sessionCache, sessionRepository, gateway, commandExpander, chatAgentDefaults,
+                uploadPicStore, uploadFileStore, recallObservationRecorder, currentUserProvider,
+                legacyAgentCatalogService());
+    }
+
+    @Autowired
+    public ChatAppServiceImpl(SessionCache sessionCache,
+                              SessionRepository sessionRepository,
+                              AgentGateway gateway,
+                              SlashCommandExpander commandExpander,
+                              ChatAgentDefaults chatAgentDefaults,
+                              UploadPicStorage uploadPicStore,
+                              UploadFileStorage uploadFileStore,
+                              Optional<RecallObservationRecorder> recallObservationRecorder,
+                              CurrentUserProvider currentUserProvider,
+                              AgentCatalogService agentCatalogService) {
         this.sessionCache = sessionCache;
         this.sessionRepository = sessionRepository;
         this.gateway = gateway;
@@ -97,7 +115,14 @@ public class ChatAppServiceImpl implements ChatAppService {
         this.uploadFileStore = uploadFileStore;
         this.recallObservationRecorder = recallObservationRecorder;
         this.currentUserProvider = currentUserProvider;
+        this.agentCatalogService = agentCatalogService;
         this.workspacePathPolicy = permissivePathPolicy();
+    }
+
+    private static AgentCatalogService legacyAgentCatalogService() {
+        return new AgentCatalogService(() -> java.util.Arrays.asList(
+                AgentRuntimeAvailability.availableEverywhere(AgentType.CODEX),
+                AgentRuntimeAvailability.availableEverywhere(AgentType.CLAUDE)));
     }
 
     /**
@@ -119,7 +144,8 @@ public class ChatAppServiceImpl implements ChatAppService {
     @Override
     public ChatSession startSession(StartSessionCommand command, String clientIp) {
         Assert.notNull(command, "command is null");
-        AgentType type = AgentType.resolveSelection(command.agentType(), chatAgentDefaults.getChatDefaultAgent());
+        AgentType type = agentCatalogService.resolveChatSelection(command.agentType(),
+                chatAgentDefaults.getChatDefaultAgent(), command.env());
         String workingDir = workspacePathPolicy.requireExistingDirectory(command.workingDir());
         ChatSession s = new ChatSession(type, workingDir);
         // 持久化创建时选定的环境, 用于后续恢复时回填; null/空串均按 "无环境" 处理
@@ -151,6 +177,7 @@ public class ChatAppServiceImpl implements ChatAppService {
         }
         log.info("chat-send-once sessionId={} agentType={} messageLen={}",
                 sessionId, s.getAgentType(), LogSafe.safeLen(command.message()));
+        gateway.requireOneShotSupported(s.getAgentType());
         // persist user message
         ChatMessage userMsg = new ChatMessage("user", command.message());
         sessionRepository.addMessage(sessionId, userMsg);

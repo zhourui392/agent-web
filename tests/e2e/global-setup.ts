@@ -1,4 +1,4 @@
-import { request, type FullConfig } from '@playwright/test';
+import { request, type APIResponse, type FullConfig } from '@playwright/test';
 import fs from 'fs';
 import path from 'path';
 
@@ -12,11 +12,16 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
   if (!password) {
     throw new Error('AGENT_E2E_ADMIN_PASSWORD is required for E2E database login');
   }
-  const response = await context.post('/api/auth/login', {
-    data: { username: 'admin', password }
-  });
-  if (!response.ok()) {
-    throw new Error(`E2E login failed: ${response.status()} ${await response.text()}`);
+  let response: APIResponse | undefined;
+  for (let attempt = 0; attempt < 30; attempt++) {
+    response = await context.post('/api/auth/login', { data: { username: 'admin', password } });
+    if (response.ok() || response.status() === 401) {
+      break;
+    }
+    await new Promise(resolve => setTimeout(resolve, 1_000));
+  }
+  if (!response?.ok()) {
+    throw new Error(`E2E login failed: ${response?.status()} ${response ? await response.text() : ''}`);
   }
   await context.storageState({ path: storageStatePath });
   await context.dispose();

@@ -1,6 +1,7 @@
 package com.example.agentweb.app.chatrun;
 
 import com.example.agentweb.app.StreamOutputExtractor;
+import com.example.agentweb.app.agentrun.port.HistoryDeliveryMode;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.slashcommand.SlashCommandExpander;
 import org.junit.jupiter.api.BeforeEach;
@@ -69,6 +70,20 @@ class ChatRunPromptBuilderTest {
         assertTrue(prompt.contains("[user]: earlier question"));
         assertTrue(prompt.contains("[assistant]: plain assistant"));
         assertTrue(prompt.contains("<new_user_message>\nnew question\n</new_user_message>"));
+    }
+
+    @Test
+    void typedHistoryMode_shouldNeverDuplicateHistoryIntoPrompt() {
+        ChatRunExecutionContext context = context(null, "new question",
+                Collections.singletonList(new ChatRunHistoryMessageView("user", "earlier")));
+        when(commandExpander.expandIfCommand("/workspace", "new question"))
+                .thenReturn("new question");
+
+        String prompt = builder.prepareDetailed(
+                context, "new question", HistoryDeliveryMode.TYPED).getPrompt();
+
+        assertEquals("new question", prompt);
+        assertFalse(prompt.contains("<conversation_history>"));
     }
 
     @Test

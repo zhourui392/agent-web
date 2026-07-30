@@ -152,8 +152,10 @@ class HarnessFlowTest {
     private void registerAnalysisArtifacts(String runId) throws Exception {
         registerArtifact(runId, "REQUIREMENT", "# REQ-1 Harness flow", "text/markdown");
         registerArtifact(runId, "ACCEPTANCE_CRITERIA",
-                "{\"acceptanceCriteria\":[{\"id\":\"AC-1\",\"requirementId\":\"REQ-1\","
-                        + "\"description\":\"flow completes\",\"verification\":\"HTTP 200\"}]}",
+                "{\"acceptanceCriteria\":[{\"acceptanceCriteriaId\":\"AC-1\","
+                        + "\"relatedRequirementIds\":[\"REQ-1\"],"
+                        + "\"expectedObservableResult\":\"flow completes\","
+                        + "\"observability\":\"HTTP 200\"}]}",
                 "application/json");
         registerArtifact(runId, "IMPACT_ANALYSIS", "Harness flow impact", "text/markdown");
         registerArtifact(runId, "OPEN_QUESTIONS", "{\"questions\":[]}", "application/json");

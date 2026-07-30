@@ -1,8 +1,13 @@
 package com.example.agentweb.app.chatrun;
 
 import com.example.agentweb.app.agentrun.port.AgentStreamResult;
+import com.example.agentweb.app.agentrun.port.AgentExecutionResult;
+import com.example.agentweb.app.agentrun.port.AgentStateCheckpointPayload;
+import com.example.agentweb.app.agentrun.port.AgentUsage;
 import com.example.agentweb.app.common.AfterCommitExecutor;
 import com.example.agentweb.domain.chat.SessionRepository;
+import com.example.agentweb.domain.diagnosis.DiagnosisCheckpoint;
+import com.example.agentweb.domain.diagnosis.DiagnosisCheckpointRepository;
 import com.example.agentweb.domain.chatrun.ChatRun;
 import com.example.agentweb.domain.chatrun.ChatRunId;
 import com.example.agentweb.domain.chatrun.ChatRunRepository;
@@ -40,6 +45,7 @@ class ChatRunLifecycleServiceTest {
     private ChatRunRepository runRepository;
     private SessionRepository sessionRepository;
     private ChatRunEventStore eventStore;
+    private DiagnosisCheckpointRepository checkpointRepository;
     private ChatRunLifecycleService service;
 
     @BeforeEach
@@ -47,11 +53,12 @@ class ChatRunLifecycleServiceTest {
         runRepository = mock(ChatRunRepository.class);
         sessionRepository = mock(SessionRepository.class);
         eventStore = mock(ChatRunEventStore.class);
+        checkpointRepository = mock(DiagnosisCheckpointRepository.class);
         ChatRunEventHub eventHub = mock(ChatRunEventHub.class);
         ChatRunEventAppender appender = new ChatRunEventAppender(
                 runRepository, eventStore, eventHub, new AfterCommitExecutor());
-        service = new ChatRunLifecycleService(runRepository, sessionRepository, appender,
-                Clock.fixed(NOW, ZoneOffset.UTC));
+        service = new ChatRunLifecycleService(runRepository, sessionRepository,
+                checkpointRepository, appender, Clock.fixed(NOW, ZoneOffset.UTC));
         when(eventStore.appendAssigned(any(), any(), anyList(), any()))
                 .thenReturn(Collections.<ChatRunEvent>emptyList());
     }
@@ -85,6 +92,68 @@ class ChatRunLifecycleServiceTest {
         order.verify(eventStore).appendAssigned(eq(ChatRunId.of("run-1")), any(), anyList(), eq(NOW));
         assertEquals(ChatRunStatus.SUCCEEDED, run.getStatus());
         assertEquals(Long.valueOf(21L), run.getAssistantMessageId());
+    }
+
+    @Test
+    void complete_nativeSuccess_shouldPersistCheckpointAtAssistantBoundaryInSameOrchestration() {
+        ChatRun run = runningRun();
+        when(runRepository.findById(ChatRunId.of("run-1"))).thenReturn(Optional.of(run));
+        when(sessionRepository.addMessageReturningId(eq("session-1"), any())).thenReturn(21L);
+        AgentExecutionResult result = new AgentExecutionResult(
+                AgentStreamResult.completed(0),
+                new AgentStateCheckpointPayload("state-v1", "schema-v1"),
+                new AgentUsage(100L, 30L, 8L), "SUCCESS", "");
+
+        service.complete(ChatRunId.of("run-1"), "normalized output", result, null);
+
+        ArgumentCaptor<DiagnosisCheckpoint> checkpoint =
+                ArgumentCaptor.forClass(DiagnosisCheckpoint.class);
+        org.mockito.InOrder order = inOrder(sessionRepository, checkpointRepository,
+                runRepository, eventStore);
+        order.verify(sessionRepository).addMessageReturningId(eq("session-1"), any());
+        order.verify(checkpointRepository).save(checkpoint.capture());
+        order.verify(runRepository).update(run);
+        order.verify(eventStore).appendAssigned(eq(ChatRunId.of("run-1")), any(), anyList(), eq(NOW));
+        assertEquals("run-1", checkpoint.getValue().getRunId());
+        assertEquals("session-1", checkpoint.getValue().getSessionId());
+        assertEquals(11L, checkpoint.getValue().getUserMessageId());
+        assertEquals(21L, checkpoint.getValue().getAssistantMessageId());
+        assertEquals("state-v1", checkpoint.getValue().getStateSnapshot());
+        assertEquals("schema-v1", checkpoint.getValue().getSnapshotSchemaVersion());
+        assertEquals(100L, checkpoint.getValue().getInputTokens());
+        assertEquals(30L, checkpoint.getValue().getOutputTokens());
+        assertEquals(8L, checkpoint.getValue().getCacheReadInputTokens());
+        assertEquals(NOW, checkpoint.getValue().getCreatedAt());
+    }
+
+    @Test
+    void complete_rejected_shouldUseStablePublicFailureWithoutLeakingProviderDetail() {
+        ChatRun run = runningRun();
+        when(runRepository.findById(ChatRunId.of("run-1"))).thenReturn(Optional.of(run));
+        AgentExecutionResult result = new AgentExecutionResult(
+                AgentStreamResult.completed(1), null, AgentUsage.zero(),
+                "REJECTED", "api-key=secret provider detail");
+
+        service.complete(ChatRunId.of("run-1"), "", result, null);
+
+        assertEquals(ChatRunStatus.FAILED, run.getStatus());
+        assertEquals("AGENT_REJECTED", run.getFailureCode());
+        assertEquals("Agent 拒绝执行当前请求，请检查配置或稍后重试", run.getErrorMessage());
+        verify(checkpointRepository, never()).save(any());
+    }
+
+    @Test
+    void complete_stoppedWithoutCancellationRequest_shouldFailInsteadOfCancelling() {
+        ChatRun run = runningRun();
+        when(runRepository.findById(ChatRunId.of("run-1"))).thenReturn(Optional.of(run));
+        AgentExecutionResult result = new AgentExecutionResult(
+                AgentStreamResult.completed(-1), null, AgentUsage.zero(), "STOPPED", "");
+
+        service.complete(ChatRunId.of("run-1"), "", result, null);
+
+        assertEquals(ChatRunStatus.FAILED, run.getStatus());
+        assertEquals("AGENT_EXECUTION_ERROR", run.getFailureCode());
+        verify(checkpointRepository, never()).save(any());
     }
 
     @Test

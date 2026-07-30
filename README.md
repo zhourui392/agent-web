@@ -19,6 +19,7 @@
 - **Git Worktree** — 按分支切换工作空间，支持嵌套工作空间布局、一键更新所有 worktree、分支名校验
 - **Slash Commands** — 自动扫描工作目录下 `.claude/commands` `.claude/skills` `.codex/skills` 的自定义命令并展开
 - **AgentRun 统一 Prompt 组装** — 各执行入口经 `app/agentrun/` 应用层管线装配 prompt：环境约束 → workspace 上下文 → 知识预召回 → 历史 RAG → 用户问题 → 输出格式，六段可开关、可降级、可观测（SHA-256 prompt hash）
+- **NATIVE 进程内诊断 Agent** — 用户可在普通聊天手动选择只读诊断运行时；以 AgentKit 0.2.1 普通 JAR 集成，复用 ChatRun、SQLite checkpoint 与可恢复 SSE，不启动 AgentKit CLI
 
 ### 知识精炼与召回（Knowledge Refinery，默认关闭）
 
@@ -178,6 +179,19 @@ agent:
 
 > CLI 方言参数、知识精炼（`agent.refinery.*`）和 issue-log（`agent.issue-log.*`）的完整配置与内联注释见 `application.yml`。
 
+NATIVE 默认关闭，默认模型为 `gpt-5.6-sol`。开启时至少设置 `AGENT_NATIVE_ENABLED=true`、
+`AGENT_NATIVE_API_KEY` 和 `AGENT_NATIVE_BOUND_ENVIRONMENT`；需要换模型时再覆盖
+`AGENT_NATIVE_MODEL`。OpenAI-compatible 凭据与地址只使用
+`AGENT_NATIVE_API_KEY`、`AGENT_NATIVE_BASE_URL`。NATIVE 不读取 `OPENAI_API_KEY` 或
+`OPENAI_BASE_URL`，避免和 Codex CLI、官方 OpenAI 客户端串用 Provider。任何真实 key 都只通过
+进程环境、Secret Store 或下述 Git 忽略文件注入，不写入仓库配置或受版本控制的启动脚本。
+
+NATIVE 默认把宿主 `logs/` 目录作为 test-bound 只读日志源，允许 `*.log`，逻辑服务为
+`agent-web`、逻辑数据源为 `local-agent-web-logs`。日志根由
+`AGENT_NATIVE_LOCAL_LOG_ROOT` 固定，不能由用户消息或聊天 `workingDir` 改写；根目录必须是
+存在且可读的绝对目录。若改用远程 `agent.native.backends.log-query-url`，必须关闭
+`AGENT_NATIVE_LOCAL_LOGS_ENABLED`，两者同时启用会 fail-fast，避免同名 `LogQuery` 被静默覆盖。
+
 知识精炼默认关闭。开启知识精炼需经 `REFINERY_EMBED_API_KEY` 注入 embedding 鉴权，且 `agent.refinery.embedding.dimension` 须与模型维度一致（不一致启动 fail-fast）。凭证走环境变量或下述 Git 忽略配置，勿写进 `application.yml`。
 
 本机文件化的服务端敏感配置统一放在 Git 忽略的 `data/secrets.properties`，应用启动时会自动读取；外部环境变量优先级更高。普通 Codex CLI 和 Claude Code 不读取该文件中的认证配置，仍使用各自的本机默认登录态。正式 Harness Runtime 默认也是 `local-login`：Adapter 不直接读取、复制或修改认证文件，而是让系统 `codex` 按服务账户的 `HOME/CODEX_HOME` 正常使用现有登录态。需要生产多用户隔离时，显式切换为 `isolated-key`，此时 Runtime 使用临时 Home，只从 Provider Credential Reference 解析并注入单次进程。M4 在线验收脚本同样支持这两种模式。示例只列变量名，不要把真实值写入受 Git 跟踪的文件：
@@ -185,6 +199,8 @@ agent:
 ```properties
 GIT_CRED_ENC_KEY=<32 字节密钥的 base64>
 REFINERY_EMBED_API_KEY=<embedding key>
+agent.native.api-key=<NATIVE Provider key>
+agent.native.base-url=<NATIVE OpenAI-compatible base URL>
 AGENT_BOOTSTRAP_ADMIN_PASSWORD=<仅首次公网启动使用的新管理员密码>
 ```
 
@@ -199,7 +215,17 @@ AGENT_BOOTSTRAP_ADMIN_PASSWORD=<仅首次公网启动使用的新管理员密码
 | `SERVER_ADDRESS` | `127.0.0.1` | 应用监听地址；同机 Caddy 通过 loopback 访问 18092 |
 | `SERVER_FORWARD_HEADERS_STRATEGY` | `framework` | 识别代理传入的 HTTPS / 客户端地址；仅在代理受信且后端端口隔离时使用 |
 | `CODEX_HOME` | `~/.codex` | Codex 配置 / 鉴权目录 |
-| `OPENAI_API_KEY` | _(无)_ | Codex CLI 鉴权，已通过 `~/.codex/auth.json` 登录可不设 |
+| `OPENAI_API_KEY` | _(无)_ | Codex CLI/官方 OpenAI 客户端鉴权；NATIVE 不读取，避免 Provider 冲突 |
+| `OPENAI_BASE_URL` | Provider 默认值 | Codex CLI/官方 OpenAI 客户端地址；NATIVE 不读取 |
+| `AGENT_NATIVE_ENABLED` | `false` | 是否注册进程内只读诊断运行时并在 Agent Catalog 标记可用 |
+| `AGENT_NATIVE_PROVIDER` / `AGENT_NATIVE_MODEL` | `OPENAI` / `gpt-5.6-sol` | NATIVE Provider 类型和模型；可显式覆盖模型 |
+| `AGENT_NATIVE_API_KEY` / `AGENT_NATIVE_BASE_URL` | _(无)_ | NATIVE 专用凭据和 OpenAI-compatible 地址；不回退标准 OpenAI 变量 |
+| `AGENT_NATIVE_BOUND_ENVIRONMENT` | `test` | NATIVE 唯一允许的聊天环境，必须存在于 `agent.envs` |
+| `AGENT_NATIVE_LOCAL_LOGS_ENABLED` | `true` | 是否注册宿主受限本机日志 `LogQuery`；远程 LogQuery 启用时必须关闭 |
+| `AGENT_NATIVE_LOCAL_LOG_ROOT` | `${user.dir}/logs` | 本机日志 allowlist 根，必须为存在且可读的绝对目录 |
+| `AGENT_NATIVE_LOCAL_LOG_SERVICE` | `agent-web` | 宿主注入的默认逻辑服务，不从 Prompt 猜测 |
+| `AGENT_NATIVE_LOCAL_LOG_DATA_SOURCE_ID` | `local-agent-web-logs` | 对外证据使用的逻辑数据源 ID，不暴露真实路径 |
+| `AGENT_NATIVE_LOCAL_LOG_ZONE` | `UTC` | 无时区本地日志时间戳的解析时区 |
 | `AGENT_DB_PATH` | `data/agent-web.db` | SQLite 数据库路径 |
 | `AGENT_CHAT_USER_ISOLATION_ENABLED` | `true` | 对话可见性；`true`=普通用户仅见自己 + 无主老数据 |
 | `AGENT_AUTH_SESSION_TTL_SECONDS` | `604800` | 数据库登录会话有效期（秒） |

@@ -58,7 +58,7 @@ public class ChatToolInvocationTrackerFactory {
             this.provider = provider;
         }
 
-        public void accept(String rawLine) {
+        public synchronized void accept(String rawLine) {
             if (!enabled) {
                 return;
             }
@@ -72,7 +72,7 @@ public class ChatToolInvocationTrackerFactory {
             }
         }
 
-        public void recordExplicitSkill(PreparedChatRunPrompt.ExplicitSkillInvocation skill) {
+        public synchronized void recordExplicitSkill(PreparedChatRunPrompt.ExplicitSkillInvocation skill) {
             if (!enabled || skill == null) {
                 return;
             }
@@ -92,7 +92,7 @@ public class ChatToolInvocationTrackerFactory {
             }
         }
 
-        public void finish(Long assistantMessageId) {
+        public synchronized void finish(Long assistantMessageId) {
             if (!enabled) {
                 return;
             }

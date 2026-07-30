@@ -72,6 +72,16 @@ public class SqliteSessionRepoTest {
                         + "payload_json TEXT NOT NULL)"
         );
         jdbc.execute(
+                "CREATE TABLE native_diagnosis_checkpoint ("
+                        + "run_id TEXT PRIMARY KEY, session_id TEXT NOT NULL,"
+                        + "user_message_id INTEGER NOT NULL, assistant_message_id INTEGER NOT NULL,"
+                        + "state_snapshot TEXT NOT NULL, snapshot_schema_version TEXT,"
+                        + "input_tokens INTEGER NOT NULL DEFAULT 0,"
+                        + "output_tokens INTEGER NOT NULL DEFAULT 0,"
+                        + "cache_read_input_tokens INTEGER NOT NULL DEFAULT 0,"
+                        + "created_at INTEGER NOT NULL, UNIQUE (assistant_message_id))"
+        );
+        jdbc.execute(
                 "CREATE TABLE chat_session_rag_state ("
                         + "session_id TEXT PRIMARY KEY,"
                         + "last_refined_at INTEGER NOT NULL,"
@@ -238,6 +248,33 @@ public class SqliteSessionRepoTest {
     }
 
     @Test
+    public void truncateFrom_shouldDeleteCheckpointCrossingRemovedMessageBoundary() {
+        ChatSession session = newSession("sess-checkpoint", "/tmp/work", AgentType.NATIVE);
+        repo.saveSession(session);
+        long user1 = repo.addMessageReturningId("sess-checkpoint",
+                new com.example.agentweb.domain.chat.ChatMessage(
+                        "user", "q1", Instant.parse("2026-05-25T10:00:00Z")));
+        long assistant1 = repo.addMessageReturningId("sess-checkpoint",
+                new com.example.agentweb.domain.chat.ChatMessage(
+                        "assistant", "a1", Instant.parse("2026-05-25T10:00:01Z")));
+        insertCheckpoint("run-1", "sess-checkpoint", user1, assistant1);
+        long user2 = repo.addMessageReturningId("sess-checkpoint",
+                new com.example.agentweb.domain.chat.ChatMessage(
+                        "user", "q2", Instant.parse("2026-05-25T10:00:02Z")));
+        long assistant2 = repo.addMessageReturningId("sess-checkpoint",
+                new com.example.agentweb.domain.chat.ChatMessage(
+                        "assistant", "a2", Instant.parse("2026-05-25T10:00:03Z")));
+        insertCheckpoint("run-2", "sess-checkpoint", user2, assistant2);
+
+        repo.truncateFrom("sess-checkpoint", user2);
+
+        assertEquals(1, checkpointCount("sess-checkpoint"));
+        assertEquals("run-1", jdbc.queryForObject(
+                "SELECT run_id FROM native_diagnosis_checkpoint WHERE session_id = ?",
+                String.class, "sess-checkpoint"));
+    }
+
+    @Test
     public void setShareToken_first_write_returns_new_token_repeat_call_returns_old_token() {
         ChatSession session = newSession("sess-1", "/tmp/work", AgentType.CLAUDE);
         repo.saveSession(session);
@@ -286,6 +323,36 @@ public class SqliteSessionRepoTest {
                 "SELECT COUNT(*) FROM chat_message WHERE session_id = ?",
                 Integer.class, "sess-1");
         assertEquals(0, remaining);
+    }
+
+    @Test
+    public void deleteById_shouldDeleteAllNativeDiagnosisCheckpoints() {
+        ChatSession session = newSession("sess-checkpoint", "/tmp/work", AgentType.NATIVE);
+        repo.saveSession(session);
+        long user = repo.addMessageReturningId("sess-checkpoint",
+                new com.example.agentweb.domain.chat.ChatMessage(
+                        "user", "q", Instant.parse("2026-05-25T10:00:00Z")));
+        long assistant = repo.addMessageReturningId("sess-checkpoint",
+                new com.example.agentweb.domain.chat.ChatMessage(
+                        "assistant", "a", Instant.parse("2026-05-25T10:00:01Z")));
+        insertCheckpoint("run-1", "sess-checkpoint", user, assistant);
+
+        repo.deleteById("sess-checkpoint");
+
+        assertEquals(0, checkpointCount("sess-checkpoint"));
+    }
+
+    private void insertCheckpoint(String runId, String sessionId,
+                                  long userMessageId, long assistantMessageId) {
+        jdbc.update("INSERT INTO native_diagnosis_checkpoint (run_id, session_id, "
+                        + "user_message_id, assistant_message_id, state_snapshot, created_at) "
+                        + "VALUES (?, ?, ?, ?, ?, ?)",
+                runId, sessionId, userMessageId, assistantMessageId, "state", 1L);
+    }
+
+    private int checkpointCount(String sessionId) {
+        return jdbc.queryForObject("SELECT COUNT(*) FROM native_diagnosis_checkpoint "
+                + "WHERE session_id = ?", Integer.class, sessionId);
     }
 
     @Test

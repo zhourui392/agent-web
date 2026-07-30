@@ -189,6 +189,28 @@ public class RefineryAppServiceImplTest {
     }
 
     @Test
+    public void refineAndIngest_nativeAgent_shouldSkipUnsupportedRefinerySurface() {
+        ConversationView view = nativeView("native-chat");
+        when(viewBuilder.build("native-chat")).thenReturn(Optional.of(view));
+
+        assertFalse(service.refineAndIngest("native-chat"));
+
+        verify(refinery, never()).refine(any());
+        verify(embeddingClient, never()).embed(any());
+        verify(chunkRepo, never()).save(any());
+        verify(stateRepo, never()).save(any());
+    }
+
+    @Test
+    public void ingest_nativeAgent_shouldSkipUnsupportedRefinerySurface() {
+        assertTrue(service.ingest(nativeView("native-direct")).isEmpty());
+
+        verify(refinery, never()).refine(any());
+        verify(embeddingClient, never()).embed(any());
+        verify(chunkRepo, never()).save(any());
+    }
+
+    @Test
     public void refineAndIngest_score_below_threshold_does_not_save_chunk_state_has_no_chunkId() {
         ConversationView view = newView("sess-low");
         when(viewBuilder.build("sess-low")).thenReturn(Optional.of(view));
@@ -446,6 +468,19 @@ public class RefineryAppServiceImplTest {
                 .agentType(AgentType.CLAUDE)
                 .workingDir("/w")
                 .turns(turns)
+                .build();
+    }
+
+    private ConversationView nativeView(String id) {
+        return ConversationView.builder()
+                .sourceId(id)
+                .sourceType(SourceType.CHAT)
+                .agentType(AgentType.NATIVE)
+                .workingDir("/w")
+                .env("test")
+                .turns(Arrays.asList(
+                        new ConversationTurn("user", "symptom", NOW.minusSeconds(60)),
+                        new ConversationTurn("assistant", "diagnosis", NOW.minusSeconds(30))))
                 .build();
     }
 

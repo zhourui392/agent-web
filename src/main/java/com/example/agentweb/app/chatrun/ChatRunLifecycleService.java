@@ -1,8 +1,11 @@
 package com.example.agentweb.app.chatrun;
 
 import com.example.agentweb.app.agentrun.port.AgentStreamResult;
+import com.example.agentweb.app.agentrun.port.AgentExecutionResult;
 import com.example.agentweb.domain.chat.ChatMessage;
 import com.example.agentweb.domain.chat.SessionRepository;
+import com.example.agentweb.domain.diagnosis.DiagnosisCheckpoint;
+import com.example.agentweb.domain.diagnosis.DiagnosisCheckpointRepository;
 import com.example.agentweb.domain.chatrun.ChatRun;
 import com.example.agentweb.domain.chatrun.ChatRunCompletionDecision;
 import com.example.agentweb.domain.chatrun.ChatRunId;
@@ -34,15 +37,18 @@ public class ChatRunLifecycleService {
 
     private final ChatRunRepository runRepository;
     private final SessionRepository sessionRepository;
+    private final DiagnosisCheckpointRepository checkpointRepository;
     private final ChatRunEventAppender eventAppender;
     private final Clock clock;
 
     public ChatRunLifecycleService(ChatRunRepository runRepository,
                                    SessionRepository sessionRepository,
+                                   DiagnosisCheckpointRepository checkpointRepository,
                                    ChatRunEventAppender eventAppender,
                                    Clock clock) {
         this.runRepository = runRepository;
         this.sessionRepository = sessionRepository;
+        this.checkpointRepository = checkpointRepository;
         this.eventAppender = eventAppender;
         this.clock = clock;
     }
@@ -78,10 +84,19 @@ public class ChatRunLifecycleService {
     @Transactional
     public Long complete(ChatRunId runId, String normalizedOutput, AgentStreamResult streamResult,
                          String recallJson) {
+        return complete(runId, normalizedOutput,
+                AgentExecutionResult.fromStream(streamResult), recallJson);
+    }
+
+    @Transactional
+    public Long complete(ChatRunId runId, String normalizedOutput, AgentExecutionResult executionResult,
+                         String recallJson) {
         ChatRun run = require(runId);
         Instant now = clock.instant();
         String response = normalizedOutput == null ? "" : normalizedOutput.trim();
-        AgentStreamResult result = Objects.requireNonNull(streamResult, "streamResult");
+        AgentExecutionResult execution = Objects.requireNonNull(
+                executionResult, "executionResult");
+        AgentStreamResult result = execution.getStreamResult();
         int exitCode = result.getExitCode();
         ChatRunCompletionDecision decision = run.decideCompletion(exitCode, !response.isEmpty());
         if (decision == ChatRunCompletionDecision.SUCCEED) {
@@ -90,6 +105,13 @@ public class ChatRunLifecycleService {
             if (recallJson != null) {
                 sessionRepository.saveRecall(assistantMessageId, recallJson);
             }
+            execution.checkpoint().ifPresent(payload -> checkpointRepository.save(
+                    DiagnosisCheckpoint.record(run.getId().getValue(), run.getSessionId(),
+                            run.getUserMessageId(), assistantMessageId,
+                            payload.stateSnapshot(), payload.schemaVersion(),
+                            execution.getUsage().inputTokens(),
+                            execution.getUsage().outputTokens(),
+                            execution.getUsage().cacheReadInputTokens(), now)));
             run.succeed(assistantMessageId, exitCode, now);
             appendExisting(run, "terminal", terminalPayload(run), now);
             return Long.valueOf(assistantMessageId);
@@ -99,14 +121,16 @@ public class ChatRunLifecycleService {
             appendExisting(run, "terminal", terminalPayload(run), now);
             return null;
         }
-        String failureCode = failureCode(result.getTerminationReason());
-        String publicMessage = publicFailureMessage(result.getTerminationReason());
+        String failureCode = failureCode(execution);
+        String publicMessage = publicFailureMessage(execution);
         run.fail(failureCode, publicMessage, exitCode, now);
         appendExisting(run, "terminal", terminalPayload(run), now);
         return null;
     }
 
-    private String failureCode(AgentStreamResult.TerminationReason reason) {
+    private String failureCode(AgentExecutionResult execution) {
+        AgentStreamResult.TerminationReason reason =
+                execution.getStreamResult().getTerminationReason();
         switch (reason) {
             case IDLE_TIMEOUT:
                 return "IDLE_TIMEOUT";
@@ -117,13 +141,22 @@ public class ChatRunLifecycleService {
             case OUTPUT_LIMIT:
                 return "OUTPUT_LIMIT";
             case COMPLETED:
+                if ("REJECTED".equals(execution.getProviderExitReason())) {
+                    return "AGENT_REJECTED";
+                }
+                if ("ERROR".equals(execution.getProviderExitReason())
+                        || "STOPPED".equals(execution.getProviderExitReason())) {
+                    return "AGENT_EXECUTION_ERROR";
+                }
                 return "EXECUTION_FAILED";
             default:
                 throw new IllegalArgumentException("unsupported stream termination reason: " + reason);
         }
     }
 
-    private String publicFailureMessage(AgentStreamResult.TerminationReason reason) {
+    private String publicFailureMessage(AgentExecutionResult execution) {
+        AgentStreamResult.TerminationReason reason =
+                execution.getStreamResult().getTerminationReason();
         switch (reason) {
             case IDLE_TIMEOUT:
                 return "Agent 长时间无输出，任务已停止";
@@ -134,6 +167,9 @@ public class ChatRunLifecycleService {
             case OUTPUT_LIMIT:
                 return "输出超过上限，任务已停止";
             case COMPLETED:
+                if ("REJECTED".equals(execution.getProviderExitReason())) {
+                    return "Agent 拒绝执行当前请求，请检查配置或稍后重试";
+                }
                 return "Agent 执行失败，请稍后重试";
             default:
                 throw new IllegalArgumentException("unsupported stream termination reason: " + reason);

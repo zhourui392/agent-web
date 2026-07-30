@@ -61,6 +61,27 @@ CREATE UNIQUE INDEX IF NOT EXISTS uk_chat_run_active_session
     ON chat_run(session_id)
     WHERE status IN ('PENDING', 'RUNNING', 'CANCEL_REQUESTED');
 
+-- NATIVE 诊断状态按成功 ChatRun 的消息边界追加，不能用 session 级可变 latest 行。
+CREATE TABLE IF NOT EXISTS native_diagnosis_checkpoint (
+    run_id                   TEXT PRIMARY KEY,
+    session_id               TEXT    NOT NULL,
+    user_message_id          INTEGER NOT NULL,
+    assistant_message_id     INTEGER NOT NULL,
+    state_snapshot           TEXT    NOT NULL,
+    snapshot_schema_version  TEXT,
+    input_tokens             INTEGER NOT NULL DEFAULT 0,
+    output_tokens            INTEGER NOT NULL DEFAULT 0,
+    cache_read_input_tokens  INTEGER NOT NULL DEFAULT 0,
+    created_at               INTEGER NOT NULL,
+    UNIQUE (assistant_message_id),
+    CHECK (input_tokens >= 0),
+    CHECK (output_tokens >= 0),
+    CHECK (cache_read_input_tokens >= 0)
+);
+
+CREATE INDEX IF NOT EXISTS idx_native_checkpoint_session_boundary
+    ON native_diagnosis_checkpoint(session_id, assistant_message_id DESC);
+
 -- 浏览器可见的 append-only 流投影，cursor 仅在单个 run 内有意义。
 CREATE TABLE IF NOT EXISTS chat_run_event (
     run_id       TEXT    NOT NULL,
@@ -142,6 +163,14 @@ CREATE INDEX IF NOT EXISTS idx_chat_tool_invocation_tool
     ON chat_tool_invocation(tool_name, created_at);
 CREATE INDEX IF NOT EXISTS idx_chat_tool_invocation_skill
     ON chat_tool_invocation(skill_name, created_at) WHERE skill_name IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_chat_tool_invocation_started
+    ON chat_tool_invocation(started_at);
+CREATE INDEX IF NOT EXISTS idx_chat_tool_invocation_source_started
+    ON chat_tool_invocation(source, started_at);
+CREATE INDEX IF NOT EXISTS idx_chat_tool_invocation_kind_started
+    ON chat_tool_invocation(invocation_kind, started_at);
+CREATE INDEX IF NOT EXISTS idx_chat_tool_invocation_status_started
+    ON chat_tool_invocation(status, started_at);
 
 CREATE TABLE IF NOT EXISTS chat_tool_invocation_migration_state (
     migration_name        TEXT PRIMARY KEY,

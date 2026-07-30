@@ -11,6 +11,7 @@ import { Page, expect } from '@playwright/test';
 const MENU_SLUG: Record<string, string> = {
   '大盘': 'dashboard',
   '对话记录': 'conversations',
+  '工具分析': 'tool-invocation-analytics',
   '工作流': 'workflows',
   '召回观测': 'recall',
   '召回历史': 'refinery',
@@ -19,7 +20,7 @@ const MENU_SLUG: Record<string, string> = {
 
 /** /admin 入口复用 global setup 已建立的 ADMIN 会话。 */
 export async function loginAdminUI(page: Page): Promise<void> {
-  await page.goto('/admin');
+  await page.goto('/admin/dashboard.html');
   const dashboardMenu = page.getByRole('menuitem', { name: '大盘' });
   if (await dashboardMenu.isVisible({ timeout: 2_000 }).catch(() => false)) {
     return;

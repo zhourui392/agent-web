@@ -23,7 +23,9 @@ sleep 3
 
 # 5. 前台启动后端，测试结束后自动杀掉 vite preview
 trap "kill $VITE_PID 2>/dev/null" EXIT
+ACTIVE_SPRING_PROFILES="${SPRING_PROFILES:-e2e}"
+unset SPRING_PROFILES
 cd "$REPO_ROOT"
 mvn org.springframework.boot:spring-boot-maven-plugin:run \
-  -Dspring-boot.run.profiles="${SPRING_PROFILES:-e2e}" \
+  -Dspring-boot.run.profiles="$ACTIVE_SPRING_PROFILES" \
   -Dspring-boot.run.jvmArguments=-Dfile.encoding=UTF-8

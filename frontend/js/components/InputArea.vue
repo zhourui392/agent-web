@@ -18,16 +18,17 @@
       type="textarea"
       :rows="3"
       placeholder="输入你的问题，例如：traceId: xxx，问题描述"
-      :disabled="!workingDir" @keydown.enter.exact.prevent="handleEnter" @keydown.up.prevent="handleArrowUp" @keydown.down.prevent="handleArrowDown" @keydown.tab.prevent="handleTab"
+      :disabled="!workingDir || !runtimeAvailable" @keydown.enter.exact.prevent="handleEnter" @keydown.up.prevent="handleArrowUp" @keydown.down.prevent="handleArrowDown" @keydown.tab.prevent="handleTab"
       @keydown.escape="hideCommandPopup"
       @keydown.ctrl.enter.exact.prevent="insertNewline"
       @paste="handlePaste"
     ></el-input>
     <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
       <div style="display: flex; align-items: center; gap: 8px;">
-        <span v-if="workingDir" class="hidden-mobile" style="color: #909399; font-size: 13px;">Enter 发送 | Ctrl+Enter 换行</span>
+        <span v-if="workingDir && runtimeAvailable" class="hidden-mobile" style="color: #909399; font-size: 13px;">Enter 发送 | Ctrl+Enter 换行</span>
         <span v-if="!workingDir" style="color: #E6A23C; font-weight: bold; font-size: 13px;">⚠ 请先选择工作目录</span>
-        <el-button size="small" :disabled="!sessionId" plain @click="clearContext">
+        <span v-else-if="!runtimeAvailable" style="color: #E6A23C; font-weight: bold; font-size: 13px;">⚠ 当前 Agent 不可用，暂时不能继续发送</span>
+        <el-button size="small" :disabled="!sessionId || !runtimeAvailable" plain @click="clearContext">
           <el-icon><delete /></el-icon>
           <span>清除上下文</span>
         </el-button>
@@ -38,7 +39,7 @@
           :show-file-list="false"
           :before-upload="beforeChatImageUpload"
           multiple>
-          <el-button size="small" :disabled="!workingDir || pendingImages.length >= maxImagesPerMessage" plain>
+          <el-button size="small" :disabled="!workingDir || !runtimeAvailable || pendingImages.length >= maxImagesPerMessage" plain>
             <el-icon><upload /></el-icon>
             <span>图片 ({{ pendingImages.length }}/{{ maxImagesPerMessage }})</span>
           </el-button>
@@ -49,7 +50,7 @@
           accept=".log,.txt,.json,.csv,.md,.yaml,.yml,.xml,.properties,.stacktrace,.out,.conf,.ini"
           :show-file-list="false"
           :before-upload="beforeChatFileUpload">
-          <el-button size="small" :disabled="!workingDir || !!pendingFile" plain>
+          <el-button size="small" :disabled="!workingDir || !runtimeAvailable || !!pendingFile" plain>
             <el-icon><document /></el-icon>
             <span>{{ pendingFile ? '附件已选' : '附件 (≤5MB)' }}</span>
           </el-button>
@@ -64,7 +65,7 @@ v-if="ragEnabled" v-model="ragRecall" size="small"
           <el-icon><video-pause /></el-icon>
           <span>停止</span>
         </el-button>
-        <el-button type="primary" :loading="sending" :disabled="!workingDir || !userInput.trim()" @click="sendMessageStream">
+        <el-button type="primary" :loading="sending" :disabled="!workingDir || !runtimeAvailable || !userInput.trim()" @click="sendMessageStream">
           <el-icon><connection /></el-icon>
           <span>发送</span>
         </el-button>
@@ -90,6 +91,7 @@ export default {
       // state (refs/computed — 模板自动解包)
       userInput: s.userInput, sending: s.sending, sessionId: s.sessionId, ragRecall: s.ragRecall,
       workingDir: s.workingDir, ragEnabled: s.ragEnabled,
+      runtimeAvailable: s.runtimeAvailable,
       pendingImages: s.pendingImages, pendingFile: s.pendingFile, maxImagesPerMessage: s.maxImagesPerMessage,
       showCommandPopup: s.showCommandPopup, filteredCommands: s.filteredCommands, selectedCommandIdx: s.selectedCommandIdx,
       // actions (普通函数)

@@ -6,6 +6,9 @@ import com.example.agentweb.app.ChatSessionQueryService;
 import com.example.agentweb.app.SendMessageCommand;
 import com.example.agentweb.app.StartSessionCommand;
 import com.example.agentweb.app.TruncateResult;
+import com.example.agentweb.app.agentrun.AgentCatalogService;
+import com.example.agentweb.domain.agentrun.AgentCatalog;
+import com.example.agentweb.domain.agentrun.AgentRuntimeAvailability;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.chat.ChatSession;
 import com.example.agentweb.domain.chat.Feedback;
@@ -78,6 +81,9 @@ class ChatControllerTest {
     private com.example.agentweb.infra.setting.RuntimeAgentSettings runtimeAgentSettings;
 
     @MockBean
+    private AgentCatalogService agentCatalogService;
+
+    @MockBean
     private AuthProperties authProperties;
 
     /** SessionAuthFilter 构造依赖, 扫描 Filter Bean 时需补齐。 */
@@ -121,6 +127,30 @@ class ChatControllerTest {
                 .andExpect(jsonPath("$.agentType").value("CLAUDE"))
                 .andExpect(jsonPath("$.workingDir").value("/tmp/work"))
                 .andExpect(jsonPath("$.env").value("test"));
+    }
+
+    @Test
+    void agents_shouldExposeNativeDiagnosisOfferWithoutMakingItDefaultEligible() throws Exception {
+        when(runtimeAgentSettings.getChatDefaultAgent()).thenReturn(AgentType.CODEX);
+        when(runtimeAgentSettings.getChatDefaultAgentVersion()).thenReturn(7L);
+        when(agentCatalogService.currentCatalog()).thenReturn(new AgentCatalog(Arrays.asList(
+                AgentRuntimeAvailability.availableEverywhere(AgentType.CODEX),
+                AgentRuntimeAvailability.availableEverywhere(AgentType.CLAUDE),
+                AgentRuntimeAvailability.availableOn(
+                        AgentType.NATIVE, Collections.singleton("test")))));
+
+        mvc.perform(get("/api/chat/agents"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.defaultAgent").value("CODEX"))
+                .andExpect(jsonPath("$.defaultVersion").value(7))
+                .andExpect(jsonPath("$.agents.length()").value(3))
+                .andExpect(jsonPath("$.agents[2].type").value("NATIVE"))
+                .andExpect(jsonPath("$.agents[2].displayName").value("诊断 Agent"))
+                .andExpect(jsonPath("$.agents[2].purpose").value("DIAGNOSIS"))
+                .andExpect(jsonPath("$.agents[2].available").value(true))
+                .andExpect(jsonPath("$.agents[2].userSelectable").value(true))
+                .andExpect(jsonPath("$.agents[2].defaultEligible").value(false))
+                .andExpect(jsonPath("$.agents[2].supportedEnvironments[0]").value("test"));
     }
 
     @Test
