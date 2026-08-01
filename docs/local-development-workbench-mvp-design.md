@@ -1,929 +1,904 @@
-# 本地开发工作台 MVP 设计方案
+# 本地开发工作台 MVP 产品设计文档
 
-> 状态：Proposed v1.0
+> 状态：Draft v1.2
 > 日期：2026-08-01
+> 文档定位：产品设计，不包含实现级技术方案
 > 适用范围：`agent-web` B/S 版本、本机 Agent Runtime、`workspace` 开发能力接入
 > @author alex
 
-## 0. 设计结论
+## 0. 产品结论
 
-MVP 新建一个轻量的“本地开发工作台”，不继续在现有 Harness 页面上叠加或删减功能。新工作台稳定并
-完成必要能力迁移后，现有 Harness 模块将按本方案的退役计划整体移除。工作台以阶段化 Agent 对话为
-中心，固定提供四个全尺寸阶段页面：
+MVP 建设一个面向个人开发者的本地开发工作台，以阶段化 Agent 对话为核心，固定提供四个全尺寸阶段页面：
 
 1. 需求分析；
 2. 技术方案设计；
 3. 开发、部署与自动化测试；
-4. 重构与测试。
+4. 人工 Review、重构与测试。
 
-每个阶段只提供三类可人工调整的 Agent 能力配置：
+每个阶段由系统预先配置三类 Agent 能力：
 
 - **Rules**：本阶段注入 Agent 的规则和约束；
-- **Skills**：本阶段允许使用的 Skill；
-- **MCP**：本阶段允许连接的 MCP Server。
+- **Skills**：本阶段默认使用的 Skill；
+- **MCP**：本阶段默认连接的 MCP Server。
 
-主页面由全尺寸对话区、可伸缩的右侧只读文档查看区和独立的能力配置抽屉组成。阶段推进、回退、
-交接摘要和能力选择均由用户手动控制。MVP 不对 Agent 生成的需求、方案、代码总结或测试结论执行
-Artifact Schema、确定性 Gate 或内容质量校验。
+用户进入阶段后可以直接开始对话，不需要理解或配置 Rules、Skills、MCP。主页面由全尺寸对话区和
+可伸缩的右侧只读文档查看区组成；阶段能力只在高级设置中按需查看或覆盖。用户手动控制阶段切换、
+上下文交接、Review 意见和重构动作。MVP 不对 Agent 生成的需求、方案、代码总结或测试结论执行格式、
+规则或质量 Gate。
 
-“不校验生成内容”不取消本地执行安全校验。路径白名单、Capability Catalog、MCP 授权、命令来源、
-进程超时、输出上限、停止恢复和敏感信息脱敏仍然必须保留。
+产品从第一版开始支持“一个工作空间选择一个或多个代码仓库”的模型。用户必须明确选择本次 Workbench
+涉及的仓库、主仓库和写入范围，不能把整个父目录默认授权给 Agent。
 
-## 1. 背景与现状
+现有 Harness 不是长期兼容层。Workbench 开发前先把需要复用的 Runtime、Skill Catalog 和 MCP Catalog
+解耦为中性公共能力；Workbench 完成真实试点后停止新增 Harness Run，最终移除 Harness 页面、领域模块、
+API、配置和数据结构。正式交付能力后续直接接入 workspace `requirement-flow`。
+
+## 1. 文档定位
+
+本文只回答产品问题：
+
+- 用户是谁、解决什么问题；
+- 页面有哪些区域和操作；
+- 四个阶段如何协作；
+- 多仓库、阶段默认能力、上下文交接和文档查看如何使用；
+- 哪些行为属于 MVP，哪些后续再做；
+- Harness 如何从产品层面退出。
+
+本文不确定以下实现细节：
+
+- Java 包结构和聚合类设计；
+- SQLite 表结构；
+- REST/SSE API 契约；
+- Runtime、Capability 和文件读取 Adapter；
+- 前端组件目录和状态管理方式；
+- Harness 代码与数据库的具体迁移脚本；
+- 测试类、Fixture 和部署脚本。
+
+这些内容在产品方案确认后拆分为独立技术设计，见 §21。
+
+## 2. 产品背景
 
 现有 Harness 已覆盖 Stage、Attempt、Artifact、Gate、Approval、Capability Snapshot、Runtime、Deployment
-和审计时间线，适合受控交付场景，但作为日常本地开发界面信息密度过高。用户主要活动是与 Agent
-持续对话、观察运行过程、查看文件和调整阶段能力，不需要在主界面操作完整的交付审计模型。
+和审计时间线，适合受控交付控制面，但不适合作为日常本地开发入口：
 
-`agent-web` 已有以下可复用能力：
+- 对话区域小，用户无法持续阅读 Agent 输出；
+- Artifact、Gate、Approval 和审计操作长期占据主界面；
+- 能力快照偏审计展示，用户需要理解本应由系统自动处理的 Rules、Skills 和 MCP；
+- 查看代码和文档需要离开阶段页面；
+- 一个简单本地开发任务也需要理解完整交付状态机。
 
-- `frontend/js/components/chat-panel.vue`：消息区、输入区和会话交互；
-- `frontend/js/composables/useResumableRun.ts`：后台 Run、SSE 重连、刷新恢复和停止；
-- `MessageItem.vue` / `ToolBlock.vue`：Agent 文本和工具调用展示；
-- ChatSession / ChatRun：会话持久化和与浏览器连接解耦的运行模型；
-- 文件系统白名单、目录列表和文件下载；
-- 当前位于 Harness 内的 Prompt、Skill、MCP Catalog 与 Runtime Adapter。
-
-本方案复用上述基础设施，但不复用 `HarnessRun` 的四阶段状态机作为新工作台聚合。可复用的 Runtime、
-Skill Catalog 和 MCP Catalog 必须先迁移到中性的公共边界，新工作台禁止直接依赖 `domain.harness`、
-`app.harness` 或 `infra.harness`。现有 Harness 页面和数据只在迁移窗口内保留，工作台完成替代验收后
-停止新建 Harness Run，并按 §20 的计划退役和删除。
-
-## 2. 目标与非目标
-
-### 2.1 目标
-
-- 对话区成为页面主视觉，体验与现有普通对话页面一致；
-- Agent 运行期间持续展示可观察的执行过程；
-- 每个阶段独立配置 Rules、Skills、MCP，并允许用户随时调整；
-- 四个阶段拥有独立会话，避免能力变化和历史上下文互相污染；
-- 用户通过可编辑交接摘要，把必要上下文传递到下一阶段；
-- 点击 Agent 输出中的文件路径即可在右侧查看文件内容；
-- 文档查看区支持拖动伸缩、收起、恢复和最大化；
-- 复用 `workspace` 的规则、Skills、工具和端内开发流程，不在 Web 层复制具体 Java、前端或部署逻辑；
-- B/S 架构稳定后，可由本地客户端外壳直接承载，不重写后端能力。
-
-### 2.2 非目标
-
-MVP 明确不实现：
-
-- Agent 生成内容的 Schema 校验、质量评分或确定性 Gate；
-- Artifact、Approval、Attempt 失效传播和审计工作台；
-- 自动判断阶段是否完成或自动进入下一阶段；
-- 文档在线编辑、保存冲突和多人协同；
-- 多文件并排比较、完整 IDE、终端模拟器或调试器；
-- 自动 commit、push、部署或生产环境写入；
-- 桌面客户端封装；
-- 将新工作台状态写入或伪装成正式 `requirement-flow` 交付状态。
-
-## 3. 术语
-
-| 术语 | 含义 |
-| --- | --- |
-| Workbench | 围绕一个本地研发目标建立的工作台 |
-| Phase | 四个固定开发阶段之一 |
-| Phase Session | 某阶段独立的 Agent 会话 |
-| Rules | 注入本阶段 Agent Prompt 的人工可编辑规则，不是生成内容校验器 |
-| Capability Draft | 当前阶段下一轮运行将采用的 Rules、Skills、MCP 配置 |
-| Capability Snapshot | 单次 Agent Run 启动时冻结的不可变能力配置 |
-| Handoff Summary | 用户人工编辑并传递给下一阶段的阶段结论 |
-| Document Viewer | 页面右侧的只读文件内容查看区 |
-| Observable Process | Agent 文本、工具调用、命令输出、文件变化和运行状态，不包含模型私有思维链 |
-
-## 4. 产品信息架构
-
-### 4.1 页面结构
+本地开发工作台的主要使用行为不同：
 
 ```text
-┌──────────────────────────────────────────────────────────────────────────┐
-│ 工作空间 / 工作台标题   [需求分析][技术方案][开发部署测试][重构测试]  [⚙] │
-├───────────────────────────────────────────────┬─┬────────────────────────┤
-│                                               │ │ 文档路径      刷新 收起 │
-│                                               │ │                        │
-│              全尺寸阶段对话区                  │拖│      文档内容查看区      │
-│                                               │动│                        │
-│  用户消息                                      │条│ Markdown / 代码 / 文本  │
-│  Agent 流式回复                                │ │                        │
-│  工具调用、命令输出、文件变化、测试进度          │ │                        │
-│                                               │ │                        │
-├───────────────────────────────────────────────┤ │                        │
-│ 输入框                              [停止][发送]│ │                        │
-└───────────────────────────────────────────────┴─┴────────────────────────┘
+与 Agent 讨论
+→ 观察 Agent 实际执行过程
+→ 查看相关代码和文档
+→ 人工决定下一步
+```
 
-点击右上角 [⚙]：打开 Capability Drawer
+因此新产品不对 Harness 页面继续做减法，而是建立一个独立的轻量工作台，并在完成替代后移除 Harness。
+
+## 3. 目标用户与场景
+
+### 3.1 目标用户
+
+- 在本机使用 Codex、Claude 等 CLI Agent 的开发者；
+- 需要结合 `workspace` Rules、Skills、MCP 完成后端或前端开发的用户；
+- 希望在浏览器中完成讨论、执行观察和文件阅读的个人开发者；
+- 后续需要从本地探索切换到正式 requirement-flow 交付的用户。
+
+MVP 面向单人主导的开发过程，不以多人同时编辑、多人审批或团队项目管理为目标。
+
+### 3.2 核心场景
+
+1. 用户选择本地工作空间和本次涉及的一个或多个仓库；
+2. 在需求分析阶段与 Agent 澄清需求和影响范围；
+3. 人工整理交接上下文后进入技术方案阶段；
+4. 在开发阶段观察 Agent 修改文件、运行测试和执行受控操作；
+5. 在右侧文档区持续查看 Agent 引用或修改的文件；
+6. 功能主链完成后，由人进入第四阶段 Review 代码并给出重构意见；
+7. Agent 按人工意见执行重构和回归测试；
+8. 用户决定任务结束，或进入正式 push、部署、验证流程。
+
+## 4. 产品目标与非目标
+
+### 4.1 产品目标
+
+- 对话区成为页面最大且最主要区域；
+- Agent 运行期间持续展示可观察的执行过程；
+- 每阶段自动获得可直接使用的 Rules、Skills、MCP；
+- 每阶段拥有独立会话，避免上下文和能力互相污染；
+- 使用结构化、人工可编辑的上下文包完成阶段交接；
+- 一个 Workbench 可以安全覆盖多个 sibling 仓库；
+- 点击 Agent 输出中的文件路径即可在右侧查看内容；
+- 文档查看区支持拖动、收起、恢复和最大化；
+- 复用 workspace 的专业开发能力，不在 Web 页面复制具体端内流程；
+- B/S 版本稳定后可以封装为本地客户端，而不重写产品主逻辑。
+
+### 4.2 MVP 非目标
+
+- 自动判断需求、方案或测试结论是否正确；
+- Artifact Schema、确定性 Gate、Approval 或审计工作台；
+- 自动判断阶段完成或自动推进；
+- 自动代码 Review 或无人确认的自动重构；
+- 文档在线编辑、保存冲突和 IDE 能力；
+- 自动 commit、push、部署或生产环境写入；
+- 正式 requirement-flow 的状态管理和交付 PASS；
+- 桌面客户端封装；
+- 把历史 Harness Run 自动迁移成 Workbench。
+
+## 5. 产品原则
+
+### 5.1 对话优先
+
+用户大部分时间在对话、观察执行和查看文件，配置与高级信息默认收起，不与对话争夺主空间。
+
+### 5.2 人工主导
+
+Agent 提供分析、建议和执行能力，用户决定：
+
+- 何时切换阶段；
+- 哪些结论交给下一阶段；
+- 是否接受 Review 建议；
+- 是否执行重构、commit、push 或部署。
+
+### 5.3 零配置优先
+
+系统根据阶段、workspace 和已选仓库自动准备 Rules、Skills、MCP。默认路径不要求用户打开能力页面，
+只有能力不可用、排障或高级定制时才需要用户关注。
+
+### 5.4 能力透明
+
+Agent 单次运行实际使用的 Rules、Skills、MCP 必须可追溯，但不长期占据主界面。高级用户覆盖阶段默认
+能力后，修改从下一轮运行生效，不在一次运行中途静默变化。
+
+### 5.5 仓库边界显式
+
+工作空间根只是目录边界，不等于 Agent 可以修改其中所有仓库。用户必须显式选择仓库集合和主仓库。
+
+### 5.6 本地状态不冒充交付状态
+
+“人工完成阶段”只表示用户认为可以继续，不等于需求、设计或交付已经通过正式门禁。
+
+### 5.7 产品与技术设计分离
+
+产品文档保持用户心智、交互和范围稳定；API、数据、包结构、运行时和迁移细节分别进入后续技术设计。
+
+## 6. 核心产品概念
+
+| 概念 | 产品含义 |
+| --- | --- |
+| Workspace Root | 本次本地开发允许访问的工作空间根目录 |
+| Repository Scope | 用户明确选择的仓库集合、主仓库和写入边界 |
+| Workbench | 围绕一个开发目标建立的工作台 |
+| Phase | 四个固定开发阶段之一 |
+| Phase Session | 某阶段独立的 Agent 对话历史 |
+| Rules | 注入当前阶段的规则，不是生成内容校验器 |
+| Phase Capability Profile | 系统为某阶段预先准备的 Rules、Skills、MCP 组合 |
+| Capability Override | 高级用户对阶段默认能力的可选覆盖 |
+| Run Snapshot | 单次 Agent 运行启动时冻结的能力和仓库范围 |
+| Phase Handoff | 用户维护并传给下一阶段的结构化上下文包 |
+| Document Viewer | 页面右侧的只读文件内容查看区 |
+| Observable Process | Agent 文本、工具调用、命令、文件变化和测试状态，不包含模型私有思维链 |
+
+## 7. 信息架构
+
+### 7.1 页面布局
+
+```text
+┌────────────────────────────────────────────────────────────────────────────┐
+│ 工作台标题 / 主仓库 / N 个仓库  [需求分析][技术方案][开发部署][Review重构] ⋯ │
+├────────────────────────────────────────────────┬─┬─────────────────────────┤
+│                                                │ │ 仓库 / 文件路径  刷新 收起│
+│                                                │ │                         │
+│                全尺寸阶段对话区                 │拖│       文档查看区         │
+│                                                │动│                         │
+│ 用户消息                                       │条│ Markdown / 代码 / 文本   │
+│ Agent 流式回复                                 │ │                         │
+│ 工具调用、命令、文件变化、测试进度               │ │                         │
+│                                                │ │                         │
+├────────────────────────────────────────────────┤ │                         │
+│ 上下文包  输入框                     [停止][发送]│ │                         │
+└────────────────────────────────────────────────┴─┴─────────────────────────┘
+
+高级用户点击右上角 ⋯ → 阶段能力：打开能力详情抽屉
 ┌──────────────────────────────┐
-│ Rules                        │
-│ Skills                       │
-│ MCP                          │
-│                    [保存配置] │
+│ 当前阶段能力：已就绪          │
+│ Rules 摘要                    │
+│ Skills / MCP                 │
+│ [恢复默认]       [高级覆盖]    │
 └──────────────────────────────┘
 ```
 
-### 4.2 页面区域职责
+### 7.2 页面区域
 
-| 区域 | 职责 | 是否常驻 |
+| 区域 | 用途 | 展示策略 |
 | --- | --- | --- |
-| 顶部上下文栏 | 工作空间、标题、阶段切换、当前运行状态、能力配置入口 | 是 |
-| 阶段对话区 | 消息、Agent 输出、工具过程、输入和停止 | 是 |
-| 文档查看区 | 只读查看 Agent 引用或用户选择的工作区文件 | 可收起 |
-| 能力配置抽屉 | 编辑当前阶段 Rules，选择 Skills 和 MCP | 默认关闭 |
-| 交接摘要 | 编辑当前阶段传给下游的摘要并人工标记完成 | 按需打开 |
+| 顶部上下文栏 | 工作台、主仓库、仓库数、阶段切换、运行状态 | 常驻 |
+| 阶段对话区 | 消息、执行过程、输入和停止 | 主区域 |
+| 文档查看区 | 只读查看工作区文件 | 可伸缩、可收起 |
+| 阶段能力详情 | 查看自动配置结果，必要时进行高级覆盖 | 隐藏在高级菜单 |
+| 上下文包入口 | 查看和编辑当前阶段交接内容 | 按需打开 |
 
-### 4.3 响应式布局
+### 7.3 响应式原则
 
-- 桌面宽度不小于 `1200px` 时使用左右 Split Pane；
-- 文档查看区默认宽度为可用内容区的 `35%`；
-- 文档查看区最小宽度 `320px`，最大宽度为内容区的 `60%`；
-- 对话区最小宽度 `560px`，不足时优先收起文档查看区；
-- 分隔条支持拖动，双击恢复默认宽度；
+- 桌面端使用左右分栏；
+- 文档区默认占可用宽度约 `35%`；
+- 用户可拖动改变宽度，双击恢复默认值；
 - 文档区支持收起、恢复和最大化；
-- 页面记住用户上次宽度与展开状态；
-- 窄屏下文档查看器改为全屏 Drawer，不与对话区并排。
+- 文档区收起时，对话自动占满宽度；
+- 页面记住上次宽度和展开状态；
+- 窄屏时文档区变为全屏抽屉，不与对话并排；
+- 阶段能力详情使用独立抽屉，默认路径不展示；关闭后恢复原文档和阅读位置。
 
-能力配置使用独立 Drawer。Drawer 打开时覆盖右侧区域，关闭后恢复原文档和滚动位置，避免配置表单
-长期挤占对话空间。
+## 8. Workbench 创建与多仓库选择
 
-## 5. 四阶段设计
-
-### 5.1 阶段定义
-
-| 阶段 | 目标 | 典型对话 | 典型 Workspace 能力 |
-| --- | --- | --- | --- |
-| 需求分析 | 澄清目标、范围、验收口径和影响面 | 需求澄清、代码事实核实、风险识别 | 只读规则、需求分析 Skill、代码检索 MCP |
-| 技术方案设计 | 形成业务流程、代码方案、测试与部署思路 | 方案比较、接口契约、任务拆分 | 设计规则、架构/服务导航 Skill、只读 MCP |
-| 开发部署测试 | 实现代码、运行测试、执行受控部署与自动化验证 | TDD、编译、测试、部署、失败修复 | 开发规则、TDD/测试/部署 Skill、授权 MCP |
-| 重构测试 | 改善结构、减少复杂度并完成回归 | 重构建议、Diff Review、回归测试 | 重构规则、重构/测试 Skill、代码与测试 MCP |
-
-表中的能力只是阶段默认建议，不是硬编码。用户可以保存阶段默认值，也可以针对当前 Workbench 覆盖。
-
-### 5.2 阶段状态
-
-MVP 只保留轻量状态：
+### 8.1 创建流程
 
 ```text
-NOT_STARTED → ACTIVE → MANUALLY_COMPLETED
-                    ↘ ACTIVE（用户重新打开）
+选择 Workspace Root
+→ 扫描候选仓库
+→ 用户勾选本次涉及的仓库
+→ 从已选仓库中指定主仓库
+→ 确认仓库状态与写入范围
+→ 输入工作台标题和原始目标
+→ 创建 Workbench
 ```
 
-- 第一次发送消息时，阶段从 `NOT_STARTED` 进入 `ACTIVE`；
-- 用户点击“完成当前阶段”后进入 `MANUALLY_COMPLETED`；
-- 用户可以任意切换阶段，也可以重新打开已完成阶段；
-- 系统不检查前置阶段是否完成，不阻止跳转；
-- 上游阶段重新打开后，不自动使下游失效，仅提示用户确认是否更新交接摘要。
+### 8.2 仓库候选信息
 
-### 5.3 阶段会话隔离
+候选列表至少展示：
 
-每个阶段绑定一个独立 ChatSession：
+- 仓库名称和相对路径；
+- 当前分支；
+- HEAD 摘要；
+- clean/dirty 状态；
+- 候选来源；
+- 无法使用时的原因或警告。
+
+### 8.3 选择规则
+
+- 用户必须明确选择至少一个仓库；
+- 主仓库必须属于已选仓库；
+- 清单推荐项可以默认勾选，但用户必须最终确认；
+- dirty 仓库允许选择，但需要提示其已有用户修改；
+- 未选择的 sibling 仓库不进入 Agent 写入范围；
+- Workspace Root 自身不是 Git 仓库时，不把父目录作为默认可写仓库；
+- MVP 创建后冻结 Repository Scope；需要改变仓库集合时创建新的 Workbench；
+- 单仓模式只是“已选仓库数量为 1”，不建立另一套产品流程。
+
+### 8.4 多仓库在页面中的表现
+
+- 顶部显示主仓库和仓库数量；
+- 点击仓库信息可以查看已选仓库清单；
+- 工具调用、文件变化、测试结果必须带仓库标签；
+- 文档路径按“仓库名 / 相对路径”展示；
+- 文档选择器只浏览已选仓库及明确允许的只读上下文；
+- Agent 运行前向用户展示本轮仓库写入范围。
+
+## 9. 四阶段产品设计
+
+### 9.1 阶段职责
+
+| 阶段 | 主目标 | 人的职责 | Agent 的职责 |
+| --- | --- | --- | --- |
+| 需求分析 | 澄清目标、范围、验收口径和影响面 | 确认真实意图，整理上下文包 | 检索代码、提出问题、分析影响 |
+| 技术方案设计 | 形成业务、代码、测试和部署方案 | 选择方案、补充约束、确认取舍 | 核实事实、比较方案、提出设计建议 |
+| 开发部署测试 | 实现功能并完成主链验证 | 决定写操作、测试和部署授权 | 修改代码、执行 TDD、测试和受控操作 |
+| 人工 Review、重构与测试 | 人工检查质量并按需收口 | Review 代码、提出重构意见、决定是否接受 | 解释 Diff、按人工意见重构并运行回归 |
+
+### 9.2 需求分析
+
+典型活动：
+
+- 输入原始需求、附件和背景；
+- 让 Agent 阅读已选仓库和 workspace 上下文；
+- 澄清范围、边界、验收口径和风险；
+- 记录尚未解决的问题；
+- 人工维护交给技术方案阶段的上下文包。
+
+系统不要求 Agent 输出固定需求模板，也不因缺少字段阻止用户进入下一阶段。
+
+### 9.3 技术方案设计
+
+典型活动：
+
+- 基于需求阶段上下文包继续对话；
+- 查看 Agent 引用的代码和文档；
+- 比较实现方案与影响范围；
+- 讨论接口、数据、测试、部署和回滚；
+- 人工记录已选方案、关键决定、未决问题和关键文件。
+
+用户可以随时回到需求阶段修改上下文，再手动决定是否同步到本阶段。
+
+### 9.4 开发、部署与自动化测试
+
+典型活动：
+
+- Agent 按已确认方案修改选中仓库；
+- 页面持续展示工具调用、命令、文件变化和测试进度；
+- 用户在右侧查看正在修改的文件；
+- Agent 执行红→绿→重构的开发循环；
+- 用户单独授权 commit、push 或部署等高影响动作；
+- 测试或部署失败时继续在本阶段修复。
+
+本阶段负责“功能实现和主链可用”，其中的日常重构属于 TDD 正常组成部分。
+
+### 9.5 人工 Review、重构与测试
+
+第四阶段不是自动质量 Gate，也不是重复一次开发流程。它由人主导：
+
+```text
+人查看 Diff、关键文件和测试结果
+→ 人提出 Review 意见或重构目标
+→ Agent 解释影响并给出候选方案
+→ 人确认要执行的重构
+→ Agent 按确认意见修改代码
+→ Agent 运行受影响测试
+→ 人再次 Review 并决定是否完成
+```
+
+产品约束：
+
+- 不自动宣布代码质量通过；
+- 不自动执行大范围重构；
+- Agent 的 Review 只能作为候选意见；
+- 人可以逐条接受、修改或忽略意见；
+- 重构改变代码后必须重新运行受影响测试；
+- 是否重新部署由人根据改动范围决定，系统只提示而不自动执行；
+- 如果人认为无需额外 Review，可以手动完成本阶段。
+
+阶段三与阶段四的边界：
+
+- 阶段三关注功能正确、主链跑通和交付准备；
+- 阶段四关注人工代码 Review、结构质量和最终回归；
+- 阶段四不会取代阶段三内部正常的 TDD 重构。
+
+### 9.6 阶段状态和导航
+
+MVP 只展示：
+
+```text
+未开始 → 进行中 → 人工完成
+                 ↘ 重新打开
+```
+
+- 第一次发送消息后阶段进入“进行中”；
+- 用户点击“完成当前阶段”后显示“人工完成”；
+- 用户可以任意切换和重新打开阶段；
+- 系统不自动检查阶段顺序；
+- 上游阶段变化后，下游只显示“上游上下文已更新”提示，不自动失效；
+- “人工完成”不表示正式需求、测试或交付 PASS。
+
+## 10. 阶段对话与运行过程
+
+### 10.1 独立会话
+
+每个阶段拥有独立会话：
 
 ```text
 Workbench
-├─ REQUIREMENT_ANALYSIS    → ChatSession A
-├─ SOLUTION_DESIGN         → ChatSession B
-├─ DEVELOPMENT_DELIVERY    → ChatSession C
-└─ REFACTORING_TEST        → ChatSession D
+├─ 需求分析会话
+├─ 技术方案会话
+├─ 开发部署测试会话
+└─ 人工 Review、重构与测试会话
 ```
 
-独立会话解决以下问题：
+独立会话用于：
 
-- 阶段 Rules、Skills、MCP 可以独立变化；
-- 开发阶段的大量命令输出不会污染需求分析上下文；
-- 用户可以单独清空或重新开始某阶段；
-- 每个阶段的历史和运行恢复边界清晰。
+- 隔离不同阶段的 Rules、Skills 和 MCP；
+- 避免开发命令输出污染需求和方案对话；
+- 单独恢复、清空或重新开始某阶段；
+- 让人工维护的上下文包成为明确的阶段交接边界。
 
-## 6. Rules、Skills 与 MCP
+### 10.2 对话体验
 
-### 6.1 Rules
+- 用户消息与 Agent 消息沿用普通对话页面风格；
+- 支持 Markdown、代码块、图片和附件；
+- 输入框固定在页面底部；
+- 运行中提供停止操作；
+- 刷新页面后恢复正在执行的 Run；
+- 断线后自动重连并补回未确认事件；
+- 用户向上阅读时不强制滚动到底部；
+- 有新输出时显示轻量提示。
 
-Rules 是当前阶段的 Prompt 约束文本。MVP 提供：
+### 10.3 可观察过程
 
-- 多行文本编辑；
-- 阶段默认模板；
-- 保存当前覆盖；
-- 恢复阶段默认；
-- 从其他阶段复制；
-- 显示字符数和最后更新时间。
+页面展示：
 
-Rules 不执行语法或内容质量校验，只做空值、长度上限和存储编码等技术校验。平台级安全规则不展示为
-可删除文本，仍由 Runtime 在用户 Rules 之外强制执行。
+- Agent 流式回复；
+- 工具调用开始、结束和耗时；
+- 脱敏后的命令与输出；
+- 新增、修改和删除的文件；
+- 测试、构建、部署和验证进度；
+- 成功、失败、取消和恢复状态。
 
-### 6.2 Skills
+工具输出默认折叠，并受长度限制。产品不声称展示模型私有思维链。
 
-Skills 从平台与 workspace Catalog 读取，页面使用可搜索多选列表展示：
+### 10.4 并发原则
 
-- Skill 名称、说明、版本和来源；
-- 当前是否可用；
-- 选择或取消选择；
-- 查看 Skill 摘要；
-- 恢复阶段默认选择。
+- 同一 Workbench 同一时刻只运行一个写任务；
+- 用户可以在 Agent 运行时切换页面阅读，但不能启动另一个写任务；
+- 浏览器关闭不自动取消后台任务；
+- 停止后持续显示直到任务进入明确终态；
+- 未知或丢失的运行不自动重放写操作。
 
-页面不允许输入任意 Skill 路径。工作区 Skill 是否可信和是否可加载，继续由 Catalog 与路径边界决定。
+## 11. 阶段能力自动配置
 
-### 6.3 MCP
+### 11.1 产品目标
 
-MCP 从管理员或本地可信 Catalog 读取，页面展示：
+Rules、Skills、MCP 是系统运行细节，不应成为开始对话前的必填表单。每个阶段提供一个开箱即用的
+Phase Capability Profile，用户进入阶段后直接发送消息即可。
 
-- Server ID、说明和能力摘要；
-- 连接可用状态；
-- 只读/写能力标识；
-- 是否需要凭据，但不展示凭据值；
-- 当前阶段是否允许选择。
-
-MVP 只允许选择已登记 MCP，不允许用户或 Agent 在页面提交 command、环境变量、Secret 或文件根来创建
-新 Server。后续如需本地自由配置，应进入独立的管理员设置页面。
-
-### 6.4 配置生效时机
-
-能力配置采用 Draft + Snapshot：
+默认体验：
 
 ```text
-用户编辑 Capability Draft
-→ 点击保存
-→ 下一次发送消息
-→ 服务端冻结 Capability Snapshot
-→ 本轮 Agent Run 始终使用该 Snapshot
+进入阶段
+→ 系统自动准备阶段能力
+→ 页面显示“能力已就绪”
+→ 用户直接对话
 ```
 
-Agent 正在运行时仍可编辑 Draft，但页面必须明确提示“修改将在下一轮生效”。运行中的 Snapshot 不可变，
-避免一次执行中途更换 Skill 或 MCP。
+### 11.2 自动配置来源
 
-## 7. 对话与 Agent 运行
+系统综合以下信息准备阶段能力：
 
-### 7.1 对话体验
+1. 平台为四个阶段维护的默认 Profile；
+2. workspace 提供的端内规范和可用能力；
+3. Repository Scope 中仓库的技术类型与仓内说明；
+4. 当前环境实际可用的 Skill 和 MCP；
+5. 平台强制安全规则。
 
-阶段对话区复用普通对话页面的视觉和操作模型：
+用户不需要知道配置合并过程，也不需要逐项确认。系统不得因为存在多个可选 Skill 就把选择问题直接
+抛给普通用户；默认 Profile 必须给出安全、可工作的确定结果。
 
-- 用户消息右侧显示，Agent 消息左侧显示；
-- Markdown、代码块、图片和附件按现有 Chat 方式渲染；
-- 输入框常驻底部，支持多行输入；
-- 运行中发送按钮切换为停止按钮；
-- 刷新页面后恢复正在运行的 Run；
-- SSE 中断时自动重连并从最后事件继续；
-- 用户主动向上滚动阅读时，不强制跳回底部；
-- 新事件到达时显示“有新输出”提示。
+### 11.3 四阶段默认能力意图
 
-### 7.2 可观察运行过程
+| 阶段 | Rules 意图 | Skills 意图 | MCP 意图 |
+| --- | --- | --- | --- |
+| 需求分析 | 只读核实、需求澄清、影响识别 | 需求分析、代码检索、服务导航 | 默认只读查询能力 |
+| 技术方案设计 | 事实优先、方案比较、边界与风险 | 架构设计、契约分析、测试设计 | 默认只读查询能力 |
+| 开发部署测试 | 遵循仓内规范、TDD、最小修改 | 目标端开发、测试和受控部署 | 按环境授权必要能力 |
+| 人工 Review、重构与测试 | 人工意见优先、不自动扩大重构 | Review 辅助、重构和回归测试 | 以代码与测试能力为主 |
 
-页面展示实际发生的运行事件，不展示模型私有思维链。建议统一以下事件类型：
+表中描述的是产品意图，具体 Rules 文本、Skill ID、MCP Server 和版本在后续 TD-05 技术设计中确定。
 
-| 事件 | 页面表现 |
+### 11.4 主界面呈现
+
+- 主页面不展示 Rules、Skills、MCP 选择器；
+- 正常状态只显示轻量的“阶段能力已就绪”；
+- 能力准备失败时显示清晰原因和“查看问题”，不要求用户盲选替代项；
+- 单次 Run 详情可以查看实际采用的能力摘要，用于追溯和排障；
+- 高级设置入口放在页面更多菜单，不使用醒目的常驻齿轮按钮。
+
+### 11.5 高级覆盖
+
+高级用户可以按需打开阶段能力详情：
+
+- 查看当前 Rules 摘要、Skills、MCP、来源和可用状态；
+- 对当前 Workbench 的某个阶段建立 Capability Override；
+- 恢复系统默认 Profile；
+- 查看覆盖将在何时生效。
+
+高级覆盖不是正常主流程。用户不进行任何覆盖时，四个阶段也必须完整可用。
+
+### 11.6 生效时机
+
+```text
+系统准备 Phase Capability Profile
+→ 用户发送消息
+→ 冻结本轮 Rules / Skills / MCP / Repository Scope
+→ 本轮执行期间不变化
+
+可选：高级用户保存 Capability Override
+→ 下一轮运行使用覆盖后的 Profile
+```
+
+运行中保存高级覆盖时，页面提示“将在下一轮生效”。平台强制安全规则不能被覆盖。
+
+### 11.7 异常处理
+
+| 情况 | 产品行为 |
 | --- | --- |
-| `TEXT_DELTA` | 追加 Agent 流式文本 |
-| `TOOL_STARTED` | 创建可折叠工具卡片，显示工具名称和脱敏参数摘要 |
-| `TOOL_OUTPUT` | 追加受输出上限约束的 stdout/stderr 或工具结果 |
-| `TOOL_FINISHED` | 显示成功、失败、耗时和退出码 |
-| `FILE_CHANGED` | 显示新增、修改、删除文件，并允许点击路径打开文档查看器 |
-| `TEST_PROGRESS` | 显示测试套件、进度和当前结果 |
-| `RUN_STATUS` | 显示 PREPARED、RUNNING、SUCCEEDED、FAILED、CANCELLED 等状态 |
-| `ERROR` | 显示可理解的失败原因和重试建议 |
+| 可选 Skill 或 MCP 不可用 | 使用 Profile 定义的安全降级，不打断对话 |
+| 必需能力不可用 | 阻止本阶段 Run，说明缺少什么以及如何恢复 |
+| Capability 版本更新 | 已运行任务不变化，下一轮使用新版本并保留可追溯信息 |
+| workspace 没有匹配能力 | 使用平台阶段默认值；无法安全运行时明确停止 |
+| 高级覆盖项失效 | 忽略失效覆盖并提示恢复默认，不静默换成未知能力 |
 
-工具输出默认折叠，用户可以展开查看。命令行参数、输出和文件路径必须先经过现有脱敏与工作目录边界处理。
+## 12. 结构化阶段上下文包
 
-### 7.3 运行控制
+### 12.1 设计目标
 
-- 同一阶段同一时刻只允许一个活动 Run；
-- 不同阶段默认也不并行运行，MVP 以 Workbench 级单运行约束降低工作区并发修改风险；
-- 停止操作只发送取消请求，页面持续等待进程进入终态；
-- 浏览器关闭不取消后台 Run；
-- 服务重启后的未知进程沿用现有恢复语义，标记为明确的丢失或失败状态，不自动重放写操作。
+四个独立会话不能只依赖一段自由文本摘要传递信息。每个阶段维护一个人工可编辑的上下文包：
 
-## 8. 阶段交接上下文
+```text
+Phase Handoff
+├─ 阶段摘要 Summary
+├─ 已确认决定 Decisions
+├─ 未解决问题 Open Questions
+├─ 关键文件 Pinned Files
+└─ 运行与测试引用 Referenced Runs
+```
 
-### 8.1 交接内容
+### 12.2 字段含义
 
-阶段之间不复制完整聊天记录。新阶段首次运行时组装：
+| 字段 | 用途 |
+| --- | --- |
+| Summary | 用简短文字描述本阶段结论 |
+| Decisions | 记录已确认方案、边界和被否决选项 |
+| Open Questions | 记录仍需后续处理的问题 |
+| Pinned Files | 固定下一阶段必须关注的仓库与文件 |
+| Referenced Runs | 引用关键测试、构建或 Agent Run，不复制大段输出 |
+
+### 12.3 编辑方式
+
+- Agent 可以根据当前对话生成候选内容；
+- 人逐项编辑、删除和补充；
+- 最终保存内容以人工版本为准；
+- 进入下一阶段前可以预览将要注入的上下文；
+- 系统不校验内容是否完整或正确；
+- 上游上下文更新后，下游显示差异提示，由人决定是否合并。
+
+### 12.4 注入原则
+
+新阶段首次运行默认获得：
 
 1. Workbench 原始目标；
-2. 上一阶段人工维护的 Handoff Summary；
-3. 用户显式加入上下文的文件引用；
+2. Repository Scope；
+3. 上一阶段人工保存的结构化上下文包；
 4. 当前阶段 Rules；
-5. 当前阶段 Skill 与 MCP Snapshot；
-6. 受控 workspace 上下文。
+5. 当前阶段自动准备的 Phase Capability Profile；
+6. workspace 受控上下文。
 
-### 8.2 人工调整
+不默认复制上一阶段完整聊天记录和大段工具输出。
 
-每个阶段提供“交接摘要”编辑入口，支持：
+## 13. 右侧文档查看器
 
-- 根据当前对话生成一份候选摘要；
-- 用户自由编辑候选摘要；
-- 保存摘要并手动完成阶段；
-- 进入下一阶段前预览最终注入内容。
+### 13.1 打开入口
 
-MVP 不校验摘要是否完整、是否满足固定格式，也不自动从 Agent 回复中提取“正式结论”。自动生成只是一种
-编辑辅助，最终内容以用户保存版本为准。
+- 点击 Agent 回复中的授权文件路径；
+- 点击工具调用或文件变化事件中的文件；
+- 点击测试、构建或部署结果引用的报告；
+- 使用文档区顶部的文件选择器；
+- 从当前阶段最近查看的文件中重新打开。
 
-## 9. 右侧文档查看器
+### 13.2 展示范围
 
-### 9.1 打开入口
-
-用户可以通过以下方式打开文档：
-
-- 点击 Agent 回复中的工作区文件路径；
-- 点击工具卡片或 `FILE_CHANGED` 事件中的文件；
-- 点击测试、构建或部署结果引用的报告文件；
-- 点击文档区顶部“选择文件”，使用受控目录浏览器选择；
-- 从当前 Workbench 的最近文档列表重新打开。
-
-所有路径由服务端在工作区允许根内解析。前端不能仅凭字符串判断路径合法性。
-
-### 9.2 MVP 展示能力
+MVP 支持：
 
 | 类型 | 展示方式 |
 | --- | --- |
-| Markdown | 预览/源码切换，预览内容经过 DOMPurify |
-| Java、Vue、JS、TS、Python、SQL | 只读代码视图、行号、语法高亮 |
-| JSON、YAML、XML | 只读代码视图，可选格式化展示 |
-| 普通文本、日志、测试报告 | 等宽文本，保留换行 |
-| 图片 | 复用现有受控图片接口 |
-| 其他二进制 | 不解析，显示元信息和下载入口 |
+| Markdown | 预览/源码切换 |
+| Java、Vue、JS、TS、Python、SQL | 只读代码、行号和高亮 |
+| JSON、YAML、XML | 只读结构化文本 |
+| 普通文本、日志、测试报告 | 等宽文本 |
+| 图片 | 受控图片预览 |
+| 其他二进制 | 元信息和下载入口 |
 
-MVP 同一时刻只显示一个活动文档，顶部保留最近文档下拉列表，不实现多 Tab 和并排 Diff。
+MVP 同时只显示一个活动文档，不实现多 Tab、并排 Diff 或在线编辑。
 
-### 9.3 文件变化处理
+### 13.3 伸缩与状态
 
-文档响应返回 `lastModified`、`size` 和内容摘要标识。当前打开文件被 Agent 修改时：
+- 拖动分隔条改变宽度；
+- 双击恢复默认宽度；
+- 支持收起、恢复和最大化；
+- 恢复后保持文档路径和滚动位置；
+- 布局状态保存在当前浏览器；
+- 当前文档和最近文档按 Workbench 与阶段隔离。
 
-1. `FILE_CHANGED` 事件把文档标记为“已有更新”；
-2. 页面不立即替换正文，避免滚动位置跳变；
-3. 用户点击“刷新”后读取新版本；
-4. Agent Run 终态时再次检查并提示；
-5. 文件删除时保留已加载内容并显示“源文件已删除”，不伪装为仍存在。
+### 13.4 文件变化
 
-### 9.4 伸缩与状态保存
+当前文档被 Agent 修改时：
 
-- 拖动 Splitter 实时改变宽度；
-- 收起只隐藏视图，不丢失当前文档；
-- 恢复后保持原路径和滚动位置；
-- 最大化文档区时隐藏对话正文，但保留顶部阶段栏；
-- 布局状态保存到浏览器本地存储；
-- 最近文档与当前文档按 `workbenchId + phase` 隔离；
-- 服务端不持久化纯视觉布局状态。
+1. 显示“文件已有更新”；
+2. 不立即替换正文，避免滚动跳变；
+3. 用户点击刷新后读取新版本；
+4. Agent Run 结束时再次提示；
+5. 文件删除后保留已加载内容，并明确显示源文件已删除。
 
-### 9.5 文件读取限制
+### 13.5 多仓库路径
 
-- 新增只读文本内容接口，不复用带下载语义的响应作为主读取入口；
-- 路径必须经过真实路径解析、允许根校验和符号链接逃逸校验；
-- 默认文本文件大小上限建议为 `2 MiB`，配置化且服务端强制；
-- 超限文件只返回元信息和下载入口，不把完整正文送入浏览器；
-- 使用 UTF-8 优先检测，无法安全解码时按二进制处理；
-- 响应不包含未授权绝对根、凭据或额外目录信息；
-- Markdown 渲染继续使用 `marked + DOMPurify`，禁止原始 HTML 绕过净化。
+页面优先显示“仓库名 / 相对路径”，绝对路径只在本机高级信息中按需展示。文件选择器和最近文件列表按
+仓库分组，避免多个仓库存在同名文件时混淆。
 
-## 10. 与 workspace 开发流程的关系
+## 14. workspace 流程与高影响操作
 
-### 10.1 MVP 接入边界
+### 14.1 MVP 边界
 
-MVP 复用 workspace 的开发能力，不复制 workspace 的具体工程流程：
+Workbench 复用 workspace 的 Rules、Skills、MCP 和端内开发能力，但不复制具体 Java、前端、测试或部署
+流程。具体工程动作仍由 `workspace/toolkits/<target>/` 负责。
 
-- 阶段默认 Rules 可以引用 workspace 的端入口与开发规范；
-- Skills 从 workspace/平台 Catalog 发现并选择；
-- MCP 通过受控 Catalog 挂载；
-- 开发阶段由选择的 Skill 执行 Java TDD、前端开发、测试、部署或验证；
-- 具体命令、环境 Provider 和工程规则仍由 `workspace/toolkits/<target>/` 负责；
-- agent-web 只负责选择、启动、展示和停止，不在 Controller 或前端硬编码端内命令。
+Workbench 的“人工完成”状态不写入 `flow.json`，也不形成正式交付结论。
 
-### 10.2 与正式 requirement-flow 的区别
+### 14.2 类型化高影响操作
 
-新工作台 MVP 是本地交互工作区，不等同于正式交付控制面：
+以下操作不能只从自然语言聊天中推导授权：
 
-| 本地工作台 MVP | 正式 requirement-flow |
+- commit；
+- push；
+- 部署；
+- 生产环境写入。
+
+当 Agent 建议执行这些动作时，页面显示明确的操作卡片，由用户查看目标仓库、分支、环境和动作后单独
+确认。进入“开发部署测试”阶段本身不自动授权部署。
+
+### 14.3 正式交付
+
+后续正式模式可以绑定 workspace `requirement-flow`：
+
+- 页面仍以对话为主；
+- 正式状态只读取 workspace 控制器投影；
+- Gate、证据和交付信息放入折叠区域；
+- Workbench 人工状态不映射成正式 PASS；
+- 不重新建设 Harness 式控制面。
+
+## 15. 产品安全和权限要求
+
+### 15.1 工作台所有权
+
+- Workbench 默认仅创建者可修改、运行、停止和删除；
+- 管理员可以查看和处理异常，但不能使用创建者身份静默执行高影响动作；
+- 只读分享不包含本机绝对路径、能力凭据和可执行操作；
+- 多标签并发修改配置时必须提示冲突，不能静默覆盖。
+
+### 15.2 文件边界
+
+- Workspace Root 必须位于服务端允许目录内；
+- Repository Scope 之外的 sibling 仓库不可写；
+- 未授权路径不能通过文件查看器读取；
+- 符号链接或路径跳转不能逃逸允许根；
+- 大文件、二进制和未知编码按安全方式降级；
+- Markdown 和 Agent 输出必须净化后展示。
+
+### 15.3 能力边界
+
+- Skill 和 MCP 只能从可信 Catalog 选择；
+- Secret 不进入页面、对话、日志或上下文包；
+- MCP 写能力必须有明显标识；
+- 用户 Rules 不能覆盖平台强制安全规则；
+- 单次 Run 展示实际采用的仓库范围和能力摘要。
+
+### 15.4 运行边界
+
+- 子进程使用最小环境变量；
+- 运行有超时、输出上限和停止能力；
+- 工具和命令输出必须脱敏；
+- 未知运行不自动重放写操作；
+- commit、push、部署和生产写分别授权。
+
+## 16. 关键产品状态与异常
+
+| 场景 | 产品行为 |
 | --- | --- |
-| 人工切换阶段 | 控制器按受控事实投影进度 |
-| 不校验生成内容 | Gate、receipt 和 delivery evidence 受控校验 |
-| 阶段会话保存在 agent-web | 交付状态保存在 `requirement-flow-runs/<id>` |
-| 适合探索、设计、本地开发 | 适合需要 push、部署、验证和正式收口的需求 |
+| 未选择仓库 | 不允许创建 Workbench，提示先选择 Repository Scope |
+| 仓库 dirty | 允许选择，明确标记已有修改 |
+| 仓库在创建后移动或消失 | 停止运行并提示创建新的 Workbench 或恢复目录 |
+| MCP 不可用 | 标记不可用，不静默换成其他 MCP |
+| Skill 或 MCP 版本变化 | 系统重新准备下一轮 Profile，并保留轻量变更提示 |
+| 运行中保存高级覆盖 | 保存成功，但提示下一轮生效 |
+| 同一 Workbench 已有写任务 | 不允许启动第二个写任务 |
+| SSE 断开 | 自动恢复，并显示重连状态 |
+| 文件被 Agent 修改 | 文档区显示 stale 提示，不强制刷新 |
+| 上游上下文包变化 | 下游显示更新提示，由人选择是否合并 |
+| 人工完成阶段 | 只更新本地显示，不声称正式 PASS |
 
-MVP 不写 `flow.json`，也不把人工完成状态映射为正式 PASS。后续可以增加“绑定正式交付 Run”能力，
-但正式状态必须继续以 workspace 控制器和机器证据为准。
+## 17. 核心用户流程
 
-### 10.3 高影响操作授权
-
-代码修改、commit、push、部署和生产写入是不同权限层级：
-
-- Agent 获得 workspace-write 后可以在允许仓库内修改代码；
-- commit 需要用户明确触发；
-- push 需要单独授权并使用 workspace 受控入口；
-- 部署需要用户选择环境并单独授权；
-- 生产写操作不在 MVP 自动化范围内。
-
-阶段名称包含“部署”不代表 Agent 自动获得部署权限。
-
-## 11. 技术架构
+### 17.1 创建并开始需求分析
 
 ```text
-Vue Dev Workbench
-├─ Phase Chat
-├─ Resizable Document Viewer
-└─ Capability Drawer
-             │ REST + resumable SSE
-             ▼
-agent-web Interface
-├─ DevWorkbenchController
-├─ DevWorkbenchRunController
-├─ DevCapabilityController
-└─ FsContentController
-             ▼
-Application
-├─ WorkbenchAppService
-├─ PhaseConversationService
-├─ CapabilitySnapshotService
-└─ DocumentContentQueryService
-             ▼
-Domain / Ports
-├─ DevWorkbench
-├─ WorkbenchPhase
-├─ PhaseCapabilityDraft
-├─ PhaseRunSnapshot
-├─ ChatSession / ChatRun port
-├─ Skill/MCP Catalog port
-└─ WorkspaceContent port
-             ▼
-Infrastructure
-├─ SQLite Workbench Repository
-├─ existing ChatRun + SSE
-├─ Codex/Claude Runtime Adapter
-├─ workspace Skill/MCP Catalog Adapter
-└─ allowlisted File Content Adapter
+选择 Workspace Root
+→ 扫描并选择仓库
+→ 指定主仓库
+→ 确认写入范围和 dirty 状态
+→ 创建 Workbench
+→ 使用默认 Rules/Skills/MCP 开始需求分析对话
 ```
 
-Application 只编排 Repository、Chat、Catalog、Runtime 和文件查询。阶段状态、能力版本和同一 Workbench
-单活动 Run 等业务规则由 Domain 守护。
-
-## 12. 领域模型与存储
-
-### 12.1 聚合模型
+### 17.2 从需求进入方案
 
 ```text
-DevWorkbench
-├─ workbenchId
-├─ title
-├─ originalGoal
-├─ workingDir
-├─ agentType
-├─ createdBy / createdAt / updatedAt
-└─ phases
-   └─ WorkbenchPhase
-      ├─ phase
-      ├─ status
-      ├─ chatSessionId
-      ├─ capabilityDraft
-      ├─ capabilityVersion
-      ├─ handoffSummary
-      └─ lastRunId
+查看需求分析对话
+→ 打开上下文包
+→ 编辑 Summary / Decisions / Open Questions / Pinned Files
+→ 人工完成需求阶段
+→ 进入技术方案阶段
+→ 预览注入上下文并发送第一条消息
 ```
 
-`DevWorkbench` 守护：
-
-- 四个阶段必须且只能各存在一个；
-- Phase 枚举固定；
-- 工作目录创建后不在同一个 Workbench 内静默变更；
-- 同一个 Workbench 同一时刻只有一个活动 Run；
-- 人工完成的阶段可以重新打开；
-- Capability Draft 每次保存递增版本；
-- Run Snapshot 必须绑定启动时的 Capability Version。
-
-### 12.2 SQLite 建议
-
-MVP 可新增两张主表，消息继续复用现有 Chat 表：
+### 17.3 开发时查看文件
 
 ```text
-dev_workbench
-├─ id
-├─ title
-├─ original_goal
-├─ working_dir
-├─ agent_type
-├─ active_run_id
-├─ created_by
-├─ created_at
-├─ updated_at
-└─ version
-
-dev_workbench_phase
-├─ workbench_id
-├─ phase
-├─ status
-├─ chat_session_id
-├─ rules_text
-├─ skill_ids_json
-├─ mcp_server_ids_json
-├─ capability_version
-├─ handoff_summary
-├─ last_run_id
-├─ updated_at
-└─ PRIMARY KEY(workbench_id, phase)
+Agent 输出 FILE_CHANGED
+→ 用户点击“service-a / src/.../X.java”
+→ 右侧文档区打开文件
+→ 用户继续阅读对话或拖宽文档区
+→ 文件再次变化时显示更新提示
+→ 用户主动刷新查看新版本
 ```
 
-单次运行采用的不可变 Snapshot 可以写入现有 Runtime Snapshot 存储；如果无法直接复用，再增加
-`dev_phase_run_snapshot`，只保存逻辑 ID、版本、Hash 和 Catalog 引用，不复制 Secret。
-
-## 13. API 草案
-
-### 13.1 Workbench
+### 17.4 人工 Review 和重构
 
 ```text
-POST   /api/dev-workbenches
-GET    /api/dev-workbenches
-GET    /api/dev-workbenches/{workbenchId}
-PATCH  /api/dev-workbenches/{workbenchId}
+进入第四阶段
+→ 人查看仓库 Diff、关键文件和测试结果
+→ 人记录 Review 意见
+→ Agent 解释意见影响和候选重构方式
+→ 人确认其中一项
+→ Agent 修改并执行受影响测试
+→ 人再次 Review
+→ 人工完成阶段
 ```
 
-创建请求至少包含 `title`、`originalGoal`、`workingDir` 和 `agentType`。服务端解析真实目录并校验允许根。
+## 18. MVP 范围
 
-### 13.2 Phase
+### 18.1 必须完成
 
-```text
-GET    /api/dev-workbenches/{workbenchId}/phases/{phase}
-PUT    /api/dev-workbenches/{workbenchId}/phases/{phase}/capabilities
-PUT    /api/dev-workbenches/{workbenchId}/phases/{phase}/handoff
-POST   /api/dev-workbenches/{workbenchId}/phases/{phase}/complete
-POST   /api/dev-workbenches/{workbenchId}/phases/{phase}/reopen
-```
-
-保存 Capability Draft 时携带 `expectedVersion`，并发覆盖返回 `409`，避免多个浏览器标签静默覆盖配置。
-
-### 13.3 Conversation Run
-
-```text
-POST   /api/dev-workbenches/{workbenchId}/phases/{phase}/runs
-GET    /api/dev-workbench-runs/{runId}/events
-POST   /api/dev-workbench-runs/{runId}/stop
-```
-
-启动请求包含用户消息和 `expectedCapabilityVersion`。服务端冻结 Snapshot、创建或复用该阶段 ChatSession，
-再提交后台 Run。事件流复用 ChatRun 的 Idempotency-Key、Last-Event-ID、回放和停止语义。
-
-### 13.4 Capability Catalog
-
-```text
-GET    /api/dev-workbench-capabilities?workingDir={path}&phase={phase}
-```
-
-返回当前用户、工作目录和阶段允许看到的 Skill/MCP 列表及阶段默认值，不返回 Secret 或原始 MCP command。
-
-### 13.5 文件内容
-
-```text
-GET    /api/fs/content?path={absoluteOrAllowedPath}
-```
-
-文本响应建议使用结构化 JSON：
-
-```json
-{
-  "path": "D:/workspace/service/README.md",
-  "name": "README.md",
-  "contentType": "text/markdown",
-  "size": 4096,
-  "lastModified": "2026-08-01T10:00:00Z",
-  "etag": "sha256-or-stable-metadata-hash",
-  "content": "# Service"
-}
-```
-
-二进制或超限文件不返回 `content`，只返回元信息、原因和既有下载地址。
-
-## 14. 前端组件设计
-
-```text
-frontend/js/workbench/
-├─ pages/DevWorkbench.vue
-├─ components/WorkbenchHeader.vue
-├─ components/PhaseTabs.vue
-├─ components/PhaseChatPanel.vue
-├─ components/ResizableSplitPane.vue
-├─ components/DocumentViewer.vue
-├─ components/DocumentToolbar.vue
-├─ components/CapabilityDrawer.vue
-├─ components/RulesEditor.vue
-├─ components/SkillSelector.vue
-├─ components/McpSelector.vue
-├─ components/HandoffEditor.vue
-├─ composables/useDevWorkbench.ts
-├─ composables/usePhaseRun.ts
-├─ composables/useCapabilityDraft.ts
-├─ composables/useDocumentViewer.ts
-└─ lib/workbench-state.ts
-```
-
-关键复用边界：
-
-- 消息渲染、输入、工具卡片复用现有 Chat 组件；
-- SSE 连接与恢复逻辑从 `useResumableRun` 提取通用能力，不复制第二套重连状态机；
-- Workbench 只增加阶段、能力 Snapshot 和文档查看上下文；
-- 不把现有 800 行以上 Harness 页面继续拆成新的工作台入口；
-- 新工作台前端不 import Harness 页面、Composable 或 Harness 专用 API；
-- Split Pane 的宽度计算、边界和持久化抽成纯函数，便于 Vitest 覆盖。
-
-## 15. 安全与运行边界
-
-### 15.1 文件安全
-
-- 工作目录和文件内容统一受 `agent.fs.roots` 约束；
-- 使用真实路径校验，拒绝 `..`、符号链接和 Junction 逃逸；
-- 文件接口只返回已授权路径内容；
-- Markdown 和 Agent 输出统一净化；
-- 大文件、未知编码和二进制内容 fail-closed。
-
-### 15.2 Runtime 安全
-
-- Rules、Skill 或 Agent 输出不能新增命令、环境变量、Secret、MCP Server 或文件根；
-- Runtime 命令由受控 Adapter 和 Catalog 组装；
-- 子进程继承最小环境变量集合；
-- 设置 idle timeout、绝对运行上限和输出上限；
-- 停止操作终止进程组；
-- 日志和 SSE 事件不输出 Token、密码或本机认证文件内容。
-
-### 15.3 能力安全
-
-- 用户只选择当前 Catalog 可见项；
-- Capability Snapshot 记录 ID、版本和 Hash，不记录 Secret；
-- MCP 写能力必须显式标识；
-- 后续若支持非管理员用户，应按用户与工作目录过滤 Capability Catalog；
-- 用户 Rules 不能覆盖平台强制安全规则。
-
-## 16. MVP 范围
-
-### 16.1 必须完成
-
-- Workbench 创建、列表、恢复；
+- Workbench 创建、列表和恢复；
+- Workspace Root 扫描和多仓库显式选择；
+- 主仓库与写入范围确认；
 - 四个固定阶段和人工切换；
-- 每阶段独立 ChatSession；
-- 每阶段 Rules、Skills、MCP 配置；
-- Capability Draft 保存和单次 Run Snapshot；
-- Agent 流式文本、工具调用和运行状态展示；
-- 停止、断线重连、刷新恢复；
-- 人工交接摘要和阶段完成/重新打开；
+- 每阶段独立会话；
+- 每阶段开箱即用的 Phase Capability Profile；
+- 可选的阶段能力详情和高级覆盖；
+- 单次运行能力和仓库范围冻结；
+- Agent 流式输出、工具过程和运行状态；
+- 停止、断线重连和刷新恢复；
+- 结构化、人工可编辑的上下文包；
+- 第四阶段人工 Review、重构确认和回归；
 - 右侧只读文档查看；
-- 文件路径点击打开；
-- 文档区拖动伸缩、收起、恢复、最大化和布局记忆；
-- 文件更新提示和手动刷新；
-- 路径、Catalog、进程与敏感信息安全边界。
+- 文档区伸缩、收起、恢复、最大化和布局记忆；
+- 文件变化提示和手动刷新；
+- 路径、仓库、能力、进程和敏感信息安全边界；
+- Workbench 与 Harness 专用领域模块解耦。
 
-### 16.2 延后实现
+### 18.2 延后实现
 
-- 生成内容校验与自动 Gate；
+- 生成内容校验和自动 Gate；
 - 正式 requirement-flow 绑定；
-- 文档编辑和保存；
-- 多文档 Tab、Diff 和搜索替换；
-- 自动生成 commit、自动 push、自动部署；
-- 多 Workbench 并发写同一仓库的冲突协调；
-- 桌面封装和系统托盘能力；
-- 把历史 Harness 的完整 Artifact、Gate、Approval 和审计模型迁入新 Workbench 数据模型。
+- 文档在线编辑；
+- 多文档 Tab、并排 Diff 和搜索替换；
+- 自动 Review 和自动大范围重构；
+- 自动 commit、push 或部署；
+- 桌面封装；
+- 历史 Harness 审计模型迁移。
 
-## 17. 测试方案
+## 19. 产品验收标准
 
-### 17.1 Domain
-
-- Workbench 固定包含四个唯一阶段；
-- Capability Version 单调递增；
-- Run Snapshot 绑定正确版本；
-- 同一 Workbench 拒绝并发活动 Run；
-- 阶段完成后可以人工重新打开；
-- 用户可以跨阶段切换，系统不执行内容 Gate。
-
-### 17.2 Application
-
-- 创建 Workbench 时先校验工作目录，再保存聚合；
-- 启动 Run 时冻结 Snapshot、创建/复用阶段会话并提交后台任务；
-- Capability Draft 在运行中修改只影响下一轮；
-- stop、恢复和事件发布只做编排，不在 Application 重组领域判断；
-- 文件内容查询通过 Workspace Content Port，不直接读取任意路径。
-
-### 17.3 Infrastructure
-
-- SQLite 保存和恢复四阶段配置、摘要与 ChatSession 引用；
-- 文件内容接口覆盖允许根、越界、符号链接、超限、二进制和编码异常；
-- Capability Catalog 只返回允许项；
-- Runtime Snapshot 不包含 Secret；
-- ChatRun 重连和停止复用现有测试。
-
-### 17.4 Frontend Vitest
-
-- Split Pane 宽度边界、默认值和本地持久化；
-- 文档收起/恢复/最大化状态；
-- 阶段切换保留各自会话和当前文档；
-- Capability Draft 脏状态与版本冲突提示；
-- 文件变更事件把当前文档标记为 stale，但不自动替换正文；
-- SSE 事件到消息和 Tool Card 的稳定映射。
-
-### 17.5 Playwright
-
-建立使用 Stub Runtime 和临时工作区的主链：
-
-```text
-创建 Workbench
-→ 进入需求分析并调整 Rules/Skills/MCP
-→ 发送消息并观察流式文本与工具事件
-→ 编辑交接摘要并人工完成阶段
-→ 切换技术方案，确认会话隔离
-→ 点击 Agent 输出文件路径打开右侧文档
-→ 拖动、收起、恢复和最大化文档区
-→ 模拟文件变化并确认刷新提示
-→ 刷新浏览器，恢复阶段、会话、文档和运行状态
-```
-
-E2E 不调用真实 Codex、外部 MCP、部署或网络服务。
-
-## 18. 验收标准
-
-- [ ] 用户进入任一阶段后，对话区是页面最大且最主要区域；
+- [ ] 用户创建 Workbench 时可以明确选择一个或多个仓库和主仓库；
+- [ ] 未选择的 sibling 仓库不会出现在本轮写入范围；
+- [ ] 任一阶段的对话区都是页面主要区域；
 - [ ] 文档区收起时，对话区自动占满可用宽度；
-- [ ] 文档区可拖动到边界，刷新页面后恢复宽度；
-- [ ] 点击 Agent 输出中的授权文件路径可以在右侧打开；
-- [ ] 当前文档被 Agent 修改时只提示更新，不打断阅读位置；
-- [ ] 四个阶段的消息、Rules、Skills、MCP 和最近文档互相隔离；
-- [ ] 能力配置在下一轮 Run 生效，运行中的 Snapshot 不变化；
+- [ ] 文档区可拖动，刷新页面后恢复布局；
+- [ ] 点击带仓库标签的文件路径可以在右侧打开；
+- [ ] 当前文档变化时只提示更新，不打断阅读；
+- [ ] 用户不打开能力设置也能在四个阶段直接开始对话；
+- [ ] 四阶段消息、Phase Capability Profile、上下文包和最近文档互相隔离；
+- [ ] 单次 Run 可以追溯实际使用的 Rules、Skills、MCP；
+- [ ] 高级覆盖从下一轮生效，运行中的 Profile 不变化；
+- [ ] 阶段交接包含 Summary、Decisions、Open Questions、Pinned Files 和 Referenced Runs；
 - [ ] 用户可以手动完成、重新打开和任意切换阶段；
-- [ ] 系统不因生成内容缺少格式或字段而阻止阶段切换；
-- [ ] Agent 流式文本、工具调用、命令输出和终态可恢复查看；
-- [ ] 页面不声称展示模型私有思维链；
-- [ ] 未授权路径、Skill、MCP 和命令均被服务端拒绝；
-- [ ] commit、push 和部署没有因进入某个阶段而自动获得授权。
+- [ ] 系统不因生成内容缺少格式或字段而阻止切换；
+- [ ] 第四阶段的 Review 意见由人确认后，Agent 才执行重构；
+- [ ] 重构后提示并执行用户要求的受影响测试；
+- [ ] Agent 流式文本、工具调用、文件变化和终态可以恢复查看；
+- [ ] commit、push 和部署没有因阶段切换或聊天文本而自动获得授权；
+- [ ] Workbench 不依赖 Harness 专用领域状态或 API；
+- [ ] Workbench 真实试点完成前不会删除仍需迁移的公共能力。
 
-## 19. 分步实施建议
+## 20. 产品路线图与 Harness 退役
 
-### Phase 1：轻量工作台骨架
+### Phase 0：公共能力解耦前置
 
-- 新建 DevWorkbench Domain、Repository 和基础 API；
-- 新建四阶段页面与阶段切换；
-- 复用 ChatPanel 完成独立阶段会话；
-- 迁移窗口内保留现有 Harness，但不再向其领域状态机增加新产品能力。
+在开发 Workbench 之前完成产品所需公共能力的解耦边界：
 
-### Phase 2：能力配置
+- 固定现有 Runtime、Skill Catalog、MCP Catalog 的可复用行为；
+- 明确哪些能力属于通用基础设施，哪些只属于 Harness；
+- 确保新 Workbench 不需要依赖 Harness Stage、Artifact、Gate 或 Approval；
+- 建立“Workbench 禁止依赖 Harness 专用模块”的工程约束。
 
-- 接入 Rules、Skill、MCP Catalog；
-- 实现 Capability Draft、版本和 Run Snapshot；
-- 完成配置抽屉与下一轮生效提示。
+具体包结构、接口和迁移步骤进入独立技术设计，不在本文确定。
 
-### Phase 3：文档查看器
+### Phase 1：Workbench 与 Repository Scope
 
-- 增加受控文件内容查询；
-- 完成 Split Pane、Markdown/代码/文本展示；
-- 接入文件路径点击、最近文档、stale 提示和布局记忆。
+- 工作台创建、列表和恢复；
+- 多仓库扫描、选择和主仓库确认；
+- 四阶段页面骨架；
+- 工作台和阶段的人工状态。
 
-### Phase 4：workspace 能力纵向切片
+### Phase 2：阶段对话与能力自动配置
 
-- 为四阶段提供默认 Rules/Skills/MCP；
-- 使用 Stub 先验证完整运行事件；
-- 选择一个风险可控的本地真实需求完成四阶段试点；
-- 根据试点决定是否进入正式 requirement-flow 绑定设计。
+- 四阶段独立会话；
+- 四阶段默认 Profile 和基于 workspace/仓库的自动准备；
+- 隐藏在高级菜单中的能力详情和可选覆盖；
+- Run Snapshot；
+- Agent 流式过程、停止和恢复。
+
+### Phase 3：上下文包与文档查看
+
+- 结构化上下文包；
+- 上游变化和人工合并提示；
+- 可伸缩只读文档区；
+- 带仓库标签的文件打开和 stale 提示。
+
+### Phase 4：真实试点
+
+- 选择一个风险可控的真实本地需求；
+- 完整跑通四阶段；
+- 验证多仓库边界、人工 Review、重构和回归；
+- 收集对话空间、配置复杂度和文档查看体验反馈；
+- 达到产品验收标准后，开始 Harness 正式退役。
 
 ### Phase 5：Harness 退役
 
-- 停止创建新的 Harness Run，并从主导航移除 Harness 入口；
-- 为需要保留的历史 Run 提供一次性只读导出；
-- 确认 Workbench 不依赖任何 Harness 专用包、表、配置或 API；
-- 删除 Harness 前端、后端、配置、数据库建表和专用测试；
-- 执行全量回归并确认普通 Chat、Workbench 和 workspace 能力不受影响。
-
-## 20. Harness 模块退役与移除计划
-
-### 20.1 退役原则
-
-Harness 不是新工作台的长期兼容层。退役遵循以下原则：
-
-1. **先替代能力，再删除模块**：Workbench 主链未通过验收前不删除仍被复用的 Runtime 或 Catalog；
-2. **先解除依赖，再删除代码**：Workbench 不允许通过 Adapter 名义继续依赖 Harness Domain 类型；
-3. **先停止新增，再处理历史**：先禁止创建新 Run，再给历史数据留出只读导出窗口；
-4. **数据删除必须显式**：不在普通应用升级中静默删除 Harness 表和 Artifact；
-5. **正式交付回归 workspace**：需要 Gate、证据和 finalize 时接入 `requirement-flow`，不重建第二代 Harness。
-
-### 20.2 需要迁移的公共能力
-
-当前 Harness 包内同时包含交付领域逻辑和可复用技术能力。删除前应按职责拆分：
-
-| 当前能力 | 目标边界 | 处理方式 |
-| --- | --- | --- |
-| Codex/Claude Runtime 启停 | 通用 Agent Runtime 端口与 Adapter | 提取并由 Chat、Workbench 共同复用 |
-| Runtime 事件与取消 | 通用后台 Run/SSE 能力 | 优先并入现有 ChatRun，不复制状态机 |
-| Skill Catalog | 中性 Capability Catalog | 去除 HarnessStage、Attempt 等专用类型 |
-| MCP Catalog 与授权 | 中性 MCP Capability Catalog | 保留 Catalog/allowlist，去除 Harness Snapshot 依赖 |
-| Prompt/Rules 组装 | Workbench Phase Prompt 组装 | 使用 Phase、Rules 和 Handoff，不沿用 Artifact Contract |
-| Artifact Store | 不迁入 Workbench MVP | 历史数据仅导出，正式交付产物归 workspace 管理 |
-| Gate、Approval、DeploymentExecution | 不迁移 | 随 Harness 删除；部署由 workspace 受控能力负责 |
-
-公共能力提取后的包名必须表达通用职责，例如 `app.runtime`、`domain.capability`、`infra.runtime`，而不是
-让 Workbench import `harness.*`。具体包名在实现设计阶段结合现有 ChatRun 结构确认，避免提前建立重复
-Runtime 抽象。
-
-### 20.3 分阶段退役
-
-#### R0：依赖盘点与冻结
-
-- 使用代码检索和架构测试列出所有 `harness` 包、Bean、配置、API、导航、表和资源目录；
-- 标记 Harness 为 Deprecated，仅允许安全修复，不再增加产品功能；
-- 建立禁止 `workbench` 依赖 `harness` 的架构测试；
-- 确认现有 Harness Run 数量、Artifact 大小和是否存在必须保留的历史记录。
-
-#### R1：公共能力抽离
-
-- 先以测试固定 Runtime、Skill、MCP 的现有行为；
-- 把可复用能力迁移到中性端口和 Adapter；
-- Chat、Workbench 改依赖中性接口；
-- Harness 在过渡期通过中性接口继续工作，证明抽离没有改变行为；
-- 中性模块不得接收 `HarnessRun`、`HarnessStage`、`StageAttempt` 或 Artifact Contract。
-
-#### R2：停止新建与只读窗口
-
-- 关闭 Harness 新建 Run、启动 Stage、Runtime、Approval 和 Deployment 等写入口；
-- 从主导航移除 Harness，只保留管理员可见的历史只读入口；
-- 页面展示明确的退役提示和最后可用版本；
-- 提供按 Run 导出元数据、对话、Artifact 清单和正文的工具；
-- 不把历史 Harness Run 自动转换为 Workbench，避免伪造新模型中的阶段语义。
-
-#### R3：前后端代码删除
-
-删除范围至少包括：
-
-- `frontend/admin/harness.html`；
-- `frontend/js/admin/pages/Harness.vue`、Harness Composable、API 和工具文件；
-- Harness 导航、样式和前端测试；
-- `/api/harness/**` Controller 与 DTO；
-- `app/harness`、`domain/harness`、`infra/harness` 中未被提取的专用代码；
-- Harness Spring 配置、Feature Flag、启动恢复任务和指标；
-- Prompt Pack、Artifact Contract、部署模板等 Harness 专用运行资源；
-- Harness 专用单测、集成测试、E2E Fixture 和脚本。
-
-删除必须按依赖方向小步进行，不能通过保留空壳 Bean、兼容 Controller 或复制旧类型绕过编译错误。
-
-#### R4：数据与配置清理
-
-- 先备份 SQLite 和 `data/harness/`；
-- 确认历史导出完成或用户明确不保留；
-- 在独立、显式执行的维护动作中删除 `harness_*` 表、索引和 Artifact 文件；
-- 从 `schema.sql` 删除 Harness 建表语句；
-- 删除 `agent.harness.*`、`AGENT_HARNESS_*` 和相关配置文档；
-- 清理不再使用的依赖、资源、日志类别和监控指标；
-- 数据清理失败时停止并保留备份，不影响 Workbench 正常启动。
-
-### 20.4 回滚策略
-
-- R0/R1 阶段通过 Feature Flag 保持旧 Harness 可用，可回退到提取前版本；
-- R2 只关闭写入口，不删除数据，发现 Workbench 阻断时可短期恢复只读前的版本；
-- R3 前保留可构建的版本标签或提交点以及 SQLite/Artifact 备份；
-- R4 是不可逆数据动作，只能在备份可验证且用户显式确认后执行；
-- 不为回滚长期保留两套 Runtime、Catalog 或重复状态机。
-
-### 20.5 Harness 移除验收标准
-
-- [ ] Workbench 主链已完成真实本地需求试点并通过 MVP 验收；
-- [ ] Workbench 和 Chat 不依赖 `harness.*` 包或 Harness 数据表；
-- [ ] 应用主导航不再显示 Harness；
-- [ ] `/api/harness/**` 不再注册；
-- [ ] 源码中不存在 Harness Controller、App、Domain、Infra 和专用配置；
-- [ ] `application.yml`、环境变量清单和启动脚本不再包含 `agent.harness.*`；
-- [ ] `schema.sql` 不再创建 Harness 表；
-- [ ] 历史数据已导出，或用户已明确批准删除；
-- [ ] Chat、Workbench、文件查看、Skill/MCP 选择和 Runtime 回归通过；
-- [ ] frontend build、backend test、Vitest 和相关 Playwright 主链通过；
-- [ ] 正式交付能力明确由 workspace `requirement-flow` 承担，而不是残留 Harness 空壳。
-
-## 21. 后续演进
-
-### 21.1 正式交付模式
-
-后续可以在 Workbench 上增加可选的正式交付绑定：
-
-- 绑定已有或新建的 `requirement-flow` Run；
-- 页面仍以对话为主；
-- Gate、证据和交付状态放入折叠面板；
-- 正式状态只读取 workspace 控制器投影；
-- 不把 Workbench 的 `MANUALLY_COMPLETED` 当作交付 PASS。
-
-### 21.2 文档编辑
-
-只有真实使用证明只读查看不足时，再设计编辑器。届时必须同时处理：
-
-- 文件脏状态；
-- 用户与 Agent 同时修改冲突；
-- 保存前版本比对；
-- 编码和换行；
-- 撤销、恢复和失败重试；
-- 文件写权限与审计。
-
-### 21.3 本地客户端
-
-B/S MVP 稳定后，本地客户端只负责：
-
-- 启停本机 agent-web 服务；
-- 打开系统目录选择器；
-- 承载 WebView 和窗口状态；
-- 接入系统通知和可选托盘。
-
-WorkBench、ChatRun、Capability Snapshot、workspace 接入和文件安全继续留在本地后端，避免形成 Web 与
-客户端两套业务实现。
-
-## 22. 最终用户心智模型
+Harness 退役遵循：
 
 ```text
-选择本地工作空间
-→ 在四个阶段中与 Agent 全尺寸对话
-→ 随时调整当前阶段 Rules / Skills / MCP
-→ 在右侧查看 Agent 正在读取或修改的文档
-→ 人工整理阶段摘要并决定何时进入下一阶段
-→ 需要正式交付时，再进入受控的 push / 部署 / 验证流程
+停止新增 Harness 功能
+→ Workbench 完成替代试点
+→ 禁止创建新 Harness Run
+→ 提供历史只读与按需导出窗口
+→ 删除 Harness 前端和写 API
+→ 删除 Harness 专用领域与基础设施
+→ 用户确认后清理历史表和 Artifact
 ```
 
-MVP 的核心不是“把 Harness 隐藏起来”，而是用以对话、能力选择和文件阅读为中心的独立本地开发体验
-完成替代，并在替代验收后删除 Harness。受控交付能力后续直接接入 workspace，而不是继续维护 Harness
-兼容层。
+产品要求：
+
+- Workbench 和 Chat 不依赖 `harness.*` 专用能力；
+- 历史 Harness Run 不自动转换成 Workbench；
+- 数据删除前必须备份并获得显式确认；
+- 正式交付能力由 workspace `requirement-flow` 承担；
+- 不保留第二套 Runtime、Catalog 或空壳 Harness 状态机；
+- Harness 删除后，普通 Chat、Workbench、文件查看和 workspace 能力仍正常工作。
+
+## 21. 后续技术设计拆分
+
+产品方案确认后至少拆分以下技术设计，不再把全部实现细节塞回本文：
+
+| 技术设计 | 需要解决的问题 |
+| --- | --- |
+| TD-01 公共 Runtime 与 Capability 解耦 | Chat/Harness 现状、通用端口、依赖迁移、架构测试 |
+| TD-02 Workbench Domain 与持久化 | 聚合、不变量、状态唯一来源、SQLite 与并发版本 |
+| TD-03 阶段 ChatRun 与 SSE | 独立会话、事件模型、停止、恢复、输出保留 |
+| TD-04 多仓库工作区 | 扫描、Repository Scope、主仓库、写隔离和快照 |
+| TD-05 Rules/Skills/MCP | Catalog、Phase Profile、自动装配、Override/Snapshot、信任与权限 |
+| TD-06 文档查看器 | 文件内容 API、格式、大小、stale、路径和前端 Split Pane |
+| TD-07 阶段上下文包 | 数据模型、Agent 候选生成、人工编辑和下游注入 |
+| TD-08 高影响操作与 workspace 接入 | commit、push、部署授权和 requirement-flow 绑定 |
+| TD-09 Harness 退役 | 代码清单、数据导出、配置清理、回滚和删除验收 |
+| TD-10 测试与发布 | Domain、Interface、Runtime 合同、Vitest、Playwright 和灰度 |
+
+每份技术设计必须以本文的用户行为、范围和验收标准为输入；如果技术约束要求改变产品行为，应先回到
+本文评审，而不是在实现中静默改变。
+
+## 22. 后续产品演进
+
+### 22.1 正式交付模式
+
+Workbench 可以绑定 workspace `requirement-flow`，但正式状态、证据和 PASS 继续由 workspace 控制器管理。
+
+### 22.2 文档编辑
+
+只有真实使用证明只读不足时再增加编辑能力。届时需要单独设计用户与 Agent 并发修改、保存冲突、版本
+比对、撤销和文件权限。
+
+### 22.3 本地客户端
+
+B/S 版本稳定后，本地客户端只负责服务启停、系统目录选择、WebView、通知和窗口状态；Workbench、
+ChatRun、Capability、workspace 接入和文件安全继续留在本地后端。
+
+## 23. 最终用户心智模型
+
+```text
+选择本地工作空间和明确的仓库范围
+→ 在四个阶段中与 Agent 全尺寸对话
+→ 系统自动准备当前阶段 Rules / Skills / MCP
+→ 在右侧查看带仓库归属的代码和文档
+→ 人工维护阶段上下文并决定何时继续
+→ 功能完成后由人 Review，Agent 按确认意见重构和回归
+→ 需要正式交付时，再进入受控的 commit / push / 部署 / 验证流程
+```
+
+产品目标不是隐藏 Harness，而是用更适合本地开发的 Workbench 完成替代，并在替代验收后移除 Harness。
