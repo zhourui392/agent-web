@@ -857,6 +857,8 @@ Harness 退役遵循：
 
 产品方案确认后至少拆分以下技术设计，不再把全部实现细节塞回本文：
 
+技术设计已开始，统一入口见：[Workbench 技术设计总览](workbench/README.md)。
+
 | 技术设计 | 需要解决的问题 |
 | --- | --- |
 | TD-01 公共 Runtime 与 Capability 解耦 | Chat/Harness 现状、通用端口、依赖迁移、架构测试 |
