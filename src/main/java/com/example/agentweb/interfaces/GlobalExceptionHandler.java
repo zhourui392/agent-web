@@ -9,6 +9,7 @@ import com.example.agentweb.app.harness.HarnessRuntimeExecutionNotFoundException
 import com.example.agentweb.app.harness.HarnessDeploymentExecutionNotFoundException;
 import com.example.agentweb.app.harness.HarnessArtifactNotFoundException;
 import com.example.agentweb.app.harness.HarnessSensitiveArtifactException;
+import com.example.agentweb.app.harness.InvalidHarnessWorkspaceException;
 import com.example.agentweb.domain.auth.UsernameAlreadyExistsException;
 import com.example.agentweb.domain.agentrun.AgentPolicyViolationException;
 import com.example.agentweb.domain.agentrun.AgentRuntimeUnavailableException;
@@ -170,6 +171,15 @@ public class GlobalExceptionHandler {
         body.put("code", "INVALID_HARNESS_IDEMPOTENCY_KEY");
         body.put("message", ex.getMessage());
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(body);
+    }
+
+    @ExceptionHandler(InvalidHarnessWorkspaceException.class)
+    public ResponseEntity<Map<String, Object>> handleInvalidHarnessWorkspace(
+            InvalidHarnessWorkspaceException ex) {
+        Map<String, Object> body = new HashMap<String, Object>(2);
+        body.put("code", "HARNESS_WORKSPACE_INVALID");
+        body.put("message", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(body);
     }
 
     @ExceptionHandler(IllegalHarnessTransitionException.class)

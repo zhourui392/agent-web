@@ -1,5 +1,6 @@
 package com.example.agentweb.infra.harness;
 
+import com.example.agentweb.app.harness.InvalidHarnessWorkspaceException;
 import com.example.agentweb.domain.harness.WorkspaceBaseline;
 import com.example.agentweb.domain.harness.WorkspaceChangeEvidence;
 import org.junit.jupiter.api.Tag;
@@ -79,12 +80,16 @@ class ProcessWorkspaceBaselineGatewayTest {
     }
 
     @Test
-    void capture_should_fail_closed_outside_git_repository() {
+    void capture_should_report_invalid_workspace_outside_git_repository() {
         ProcessWorkspaceBaselineGateway gateway = new ProcessWorkspaceBaselineGateway(
                 Clock.fixed(NOW, ZoneOffset.UTC));
 
-        assertThrows(WorkspaceBaselineCaptureException.class,
+        InvalidHarnessWorkspaceException exception = assertThrows(
+                InvalidHarnessWorkspaceException.class,
                 () -> gateway.capture(tempDir.toString()));
+
+        assertEquals("Harness working directory must be inside a Git repository",
+                exception.getMessage());
     }
 
     private String git(Path directory, String... arguments) throws Exception {

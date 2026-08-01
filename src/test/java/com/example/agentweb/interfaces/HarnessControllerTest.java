@@ -14,6 +14,7 @@ import com.example.agentweb.app.harness.HarnessExecutionService;
 import com.example.agentweb.app.harness.HarnessRunQueryService;
 import com.example.agentweb.app.harness.HarnessRunSummaryView;
 import com.example.agentweb.app.harness.HarnessRunView;
+import com.example.agentweb.app.harness.InvalidHarnessWorkspaceException;
 import com.example.agentweb.domain.harness.ArtifactClassification;
 import com.example.agentweb.domain.harness.HarnessRunNotFoundException;
 import com.example.agentweb.domain.harness.IllegalHarnessTransitionException;
@@ -145,6 +146,22 @@ class HarnessControllerTest {
                                 + "\"agentType\":\"CODEX\",\"environment\":\"local\"}"))
                 .andExpect(status().isBadRequest());
         verify(appService, never()).create(any());
+    }
+
+    @Test
+    void create_should_expose_invalid_git_workspace_as_unprocessable_request() throws Exception {
+        when(appService.create(any())).thenThrow(new InvalidHarnessWorkspaceException());
+
+        mvc.perform(post("/api/harness/runs")
+                        .header("Idempotency-Key", "create-key")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"M4\",\"workingDir\":\"/workspace\","
+                                + "\"agentType\":\"CODEX\",\"environment\":\"local\","
+                                + "\"originalRequirement\":\"Implement M4\"}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("HARNESS_WORKSPACE_INVALID"))
+                .andExpect(jsonPath("$.message").value(
+                        "Harness working directory must be inside a Git repository"));
     }
 
     @Test

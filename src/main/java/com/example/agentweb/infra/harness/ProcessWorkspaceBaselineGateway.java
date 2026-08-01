@@ -1,5 +1,6 @@
 package com.example.agentweb.infra.harness;
 
+import com.example.agentweb.app.harness.InvalidHarnessWorkspaceException;
 import com.example.agentweb.app.harness.port.WorkspaceBaselineGateway;
 import com.example.agentweb.domain.harness.ChangedFileEvidence;
 import com.example.agentweb.domain.harness.HarnessHashing;
@@ -45,8 +46,12 @@ public class ProcessWorkspaceBaselineGateway implements WorkspaceBaselineGateway
     public WorkspaceBaseline capture(String workingDir) {
         try {
             Path working = Paths.get(workingDir).toRealPath();
-            Path root = Paths.get(requiredText(execute(working,
-                    "git", "rev-parse", "--show-toplevel"), "repository root")).toRealPath();
+            CommandResult repositoryRoot = executeAllowFailure(working,
+                    "git", "rev-parse", "--show-toplevel");
+            if (repositoryRoot.exitCode != 0) {
+                throw new InvalidHarnessWorkspaceException();
+            }
+            Path root = Paths.get(requiredText(repositoryRoot, "repository root")).toRealPath();
             if (!working.startsWith(root)) {
                 throw new WorkspaceBaselineCaptureException(
                         "working directory is outside detected Git repository");
