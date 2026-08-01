@@ -1,10 +1,12 @@
 # Harness 多仓库交付工作区改进设计
 
-> 状态：Proposed，待评审，尚未实现
+> 状态：Accepted（评审有条件通过，文档修订已落地），尚未实现
 > 设计日期：2026-07-31
+> 评审修订：2026-08-01
 > 作者：alex
 > 影响范围：Harness Run 创建、Git 基线、Runtime Capability、Implementation Evidence、Deployment、SQLite、管理页面
-> 相关文档：[目标架构](01-target-harness-architecture.md)、[M4 实现与验收记录](m4/README.md)
+> 路线图定位：**M4 真实试点前置**（Phase 3 完成后才执行 M4 真实需求验收）；详见 [建设阶段与里程碑 §17.6](03-milestones.md)
+> 相关文档：[目标架构](01-target-harness-architecture.md)、[M4 实现与验收记录](m4/README.md)、[建设阶段与里程碑](03-milestones.md)
 
 ## 1. 摘要与设计结论
 
@@ -205,11 +207,16 @@ Application 不允许：
 3. `topologyHash` 只包含工作区根、主仓库和仓库相对路径集合。
 4. `stateHash` 包含 `topologyHash` 以及每个仓库的 branch、HEAD、clean、diff Hash。
 5. `clean=true` 当且仅当所有仓库都 clean 且没有工作区级异常证据。
+   **工作区级异常证据**指采集过程中产生的结构化记录，至少包括：单仓库命令失败、输出截断、路径越界、
+   二次核验不一致。这些证据不进入 diffHash，但会阻止 `clean=true` 并在 Snapshot 元数据中可见。
 6. Changed File 的 path 只要求在所属仓库内唯一；跨仓库身份由 `repositoryKey + path` 共同确定。
 7. Snapshot 的 `captureStartedAt <= capturedAt`。
-8. 多仓库顺序采集结束后必须二次核验每个仓库的 branch 和 HEAD；采集窗口内发生变化时重试一次，
-   仍不稳定则 fail-closed。
+8. 多仓库采集结束后必须二次核验每个仓库的 **branch、HEAD 和 diffHash**（重算，不是复用首次结果）；
+   采集窗口内任一字段发生变化时重试一次，仍不稳定则 fail-closed。二次核验使采集成本约翻倍，
+   超时预算按 §8.3 公式缩放。
 9. Snapshot 内容不可修改；新的观察必须创建新的 `snapshotId`。
+10. 单仓库 changed file 数量不得超过 `max-changed-files-per-repo`（默认 10000）；超出 fail-closed，
+    不降级为 count-only，避免 Evidence 半截。
 
 ### 6.3 阶段与审批不变量
 
@@ -238,6 +245,9 @@ for repository in repositories.sortedBy(repositoryKey):
     frame("repositoryKey", repository.repositoryKey)
     frame("relativePath", repository.relativePath)
 ```
+
+**有意语义**：`topologyHash` 包含绝对 `workspaceRoot`。Hash 绑定交付现场路径，目录迁移或跨机器后
+历史 Hash 不可跨环境对比。这是有意选择——工作区身份包含物理位置，不追求可移植 Hash。
 
 ### 7.2 Repository State Hash
 
@@ -300,9 +310,16 @@ harness:
     - agent-langchain4j
 ```
 
-清单只提供默认选择，不绕过服务端路径白名单、真实路径和 Git 校验。
+清单只提供默认选择，不绕过服务端路径白名单、真实路径和 Git 校验。清单中列出但实际不存在、不可读或
+没有可解析 HEAD 的仓库，在 Create 时按选择校验 fail-closed（`HARNESS_REPOSITORY_NOT_FOUND` 或
+`HARNESS_REPOSITORY_HEAD_MISSING`），不静默跳过。
 
-### 8.3 安全扫描边界
+`.agent-web.yml` 的 `harness.*` 是新顶级键空间。解析路径：复用 `app/agentrun` 的
+`WorkspaceContextResolver.Manifest` 模型——现有解析器对未知键静默忽略，向后兼容；harness 侧只读
+`harness.primary_repository` / `harness.repositories`，不把 ChatRun 的 knowledge/guardrails 语义
+混入 Harness 选择。
+
+### 8.3 安全扫描与采集边界
 
 建议配置默认值：
 
@@ -310,9 +327,11 @@ harness:
 | --- | ---: | --- |
 | `agent.harness.workspace.discovery-max-depth` | `2` | 候选发现最大相对深度 |
 | `agent.harness.workspace.max-repositories` | `50` | 一个 Run 最多仓库数 |
-| `agent.harness.workspace.capture-timeout-seconds` | `60` | 整体采集上限 |
+| `agent.harness.workspace.capture-concurrency` | `4` | 有界并发采集路数；Hash 与顺序无关，并发安全 |
+| `agent.harness.workspace.capture-timeout-seconds` | 见公式 | 整体采集上限；默认 `max(60, 15 × ceil(repoCount / concurrency))`，覆盖首次采集 + 二次核验（含 diffHash 重算） |
 | `agent.harness.workspace.git-command-timeout-seconds` | `10` | 单仓库单命令上限 |
 | `agent.harness.workspace.max-output-bytes` | `8388608` | 单命令输出上限 |
+| `agent.harness.workspace.max-changed-files-per-repo` | `10000` | 单仓库 changed file 上限；超出 fail-closed |
 
 扫描必须满足：
 
@@ -322,6 +341,9 @@ harness:
 - 最终仍用固定参数的 `git -C <candidate> rev-parse --show-toplevel` 验证；
 - 根据真实仓库根去重，不根据目录名猜测；
 - 不执行 shell，不接受客户端提供 Git 命令或排除表达式。
+
+采集采用有界并发（默认 4 路）：各仓库独立 ProcessBuilder，结果按 `repositoryKey` 排序后组装 Snapshot。
+并发度与仓库数共同决定超时公式；二次核验（§6.2.8）使成本约翻倍，公式已覆盖。
 
 ### 8.4 单仓库兼容规则
 
@@ -353,7 +375,7 @@ codex exec
 - `--add-dir` 只加入其余已选仓库，按 repositoryKey 排序。
 - 不把交付父目录和未选仓库加入可写目录。
 - 参数必须作为 `ProcessBuilder` token 传递，禁止拼 shell 字符串。
-- Prompt 明确给出逻辑工作区根、主仓库和全部仓库相对路径映射。
+- Prompt 明确给出逻辑工作区根、主仓库和全部仓库相对路径映射（见 §9.4）。
 
 当前目标机 `codex exec --help` 已声明 `--add-dir` 为“Additional directories that should be writable
 alongside the primary workspace”。实现前仍需把该参数加入现有 Codex 版本兼容矩阵，并用真实 CLI
@@ -377,12 +399,36 @@ Deployment 的本地命令由独立受控 Gateway 执行，不复用 Agent 的 w
 - `WorkspaceBoundaryKind.MULTI_REPOSITORY_ROOT`；
 - 主仓库 key；
 - 选中仓库的 `repositoryKey / relativePath / rootHash`；
-- 每仓库 Repo Skill inventory；
+- 每仓库 Repo Skill inventory（扫描边界从单 boundary 扩展为**每个选中仓库独立扫描**，再与批准策略求交）；
 - `repositoryWriteScopeEnforced`；
 - Repository Selection Hash。
 
 `RuntimeEnforcementProfile.supportsMcpToolIsolation()` 不能代表 Git 写边界已经生效。应新增独立语义查询，
 例如 `supportsRepositoryWriteIsolation()`，Implementation 启动前必须为 true。
+
+### 9.4 附加仓库项目说明与 Prompt 注入
+
+**关键事实**：Codex 只对 `-C` 主仓库原生加载 `AGENTS.md` / `CLAUDE.md` / `.codex` 项目配置；
+`--add-dir` **仅是写权限扩展**，不触发附加仓库的项目说明加载。
+
+决策：
+
+1. **由平台 Prompt 装配注入**各附加仓库的项目说明摘要与仓库路径映射，不依赖 Codex 原生加载。
+2. 这是新能力：现状 `PromptPartType` 无 workspace/repository 类型，`HarnessPromptAssemblyRequest`
+   也无工作区字段。实现需新增：
+   - `PromptPartType` 枚举值（例如 `WORKSPACE_REPOSITORY_MAP`）；
+   - `HarnessPromptAssembler` 对应部件；
+   - `HarnessPromptAssemblyRequest` 携带 `WorkspaceSnapshotReference` 或仓库映射 DTO。
+3. Repo Skill 扫描边界从单 `workspaceBoundary` 扩展为每个选中仓库独立扫描，结果进入
+   `WorkspaceRuntimeInventory` 的每仓库 inventory，仍受批准策略控制。
+4. 注入内容只含相对路径映射、主仓库标识和受控长度的项目说明摘要；不注入 Secret、完整 diff 或
+   untracked 文件正文。
+
+### 9.5 命令组装扩展点
+
+现状命令组装单点在 `CodexHarnessRuntimeGateway.command()`：`codex ... -C <workingDir>`，无
+`--add-dir`。多仓库实现在该单点扩展 `-C primary` + 有序 `--add-dir`，进程 cwd 可继续用主仓库。
+不在 Application 层按仓库数量写条件链。
 
 ## 10. 领域行为与事件流
 
@@ -440,7 +486,10 @@ ApproveDeployment(approvedArtifactHash, approvedWorkspaceStateHash)
 
 ## 11. Artifact 合同演进
 
-现有 `CHANGED_FILES` 只有文件列表，需要升级为多仓库结构。建议新增
+现有 `CHANGED_FILES` 正文由 `ImplementationEvidenceFactory` 生成，**含单仓库 baseline/current 头部字段**
+（`repositoryRoot/branch/baselineHead/currentHead/...`）和四个文件数组（`baselineFiles/currentFiles/
+introducedFiles/files`），元素为 `path/status/stateFingerprint/sensitive`。正文**没有 `schemaVersion`
+字段**，也不存在 `harness-changed-files@1` 标识；文件无仓库维度。需要升级为多仓库结构。建议新增
 `harness-changed-files@2`：
 
 ```json
@@ -474,10 +523,12 @@ ApproveDeployment(approvedArtifactHash, approvedWorkspaceStateHash)
 规则：
 
 - 文件身份使用结构化的 `repositoryKey + path`，不使用易解析错误的 `repo::path` 拼接字符串。
+- `stateFingerprint` **沿用现有** `ChangedFileEvidence` 的 SHA-256 语义（`DomainText.requireSha256`），
+  不是 mtime+size。
 - `TEST_EVIDENCE` 的每条命令新增 `repositoryKey` 或明确的工作目录引用。
 - `TRACEABILITY` 可以关联仓库级实现引用。
 - `PREFLIGHT`、`BUILD_EVIDENCE`、`DEPLOYMENT_RECORD` 和 `FINAL_REPORT` 引用 Workspace State Hash。
-- 旧 Artifact 继续按 v1 解析；新 Run 只生成 v2，不在 Application 中按仓库数量选择 schema。
+- 旧 Artifact 继续按现有无版本正文解析（兼容适配器）；新 Run 只生成 v2，不在 Application 中按仓库数量选择 schema。
 
 ## 12. Deployment Template v2
 
@@ -506,6 +557,10 @@ steps:
 Domain 中用 `DeploymentWorkingDirectory` 值对象解析 repository key，Infrastructure 只接收已经解析且
 位于 Workspace Snapshot 内的真实目录。
 
+**Preflight 守卫**：Template v2 步骤引用的 `repository` 必须属于当前 Run 已冻结的 Repository Selection；
+引用未选中仓库或未知 key 时，Deployment Preflight 在第一个命令前 fail-closed
+（`HARNESS_REPOSITORY_SELECTION_INVALID` 或更细分的 deployment 错误码），不静默跳过该步骤。
+
 ## 13. API 设计
 
 ### 13.1 Inspect Workspace
@@ -518,6 +573,10 @@ Content-Type: application/json
   "workingDir": "/home/ubuntu/workspace"
 }
 ```
+
+鉴权：路径挂在 `/api/harness` 前缀下，自动继承 `AdminAuthFilter` 的 ADMIN 会话保护
+（`agent.admin.protected-prefixes` 已含 `/api/harness`）。实现时补一条 Interface 切片测试确认
+未登录/非 ADMIN 返回 401/403。
 
 响应：
 
@@ -574,8 +633,10 @@ Content-Type: application/json
 }
 ```
 
-幂等匹配必须增加规范化后的 Repository Selection 和主仓库。首次创建成功后，同一幂等键重试应返回
-已有 Run，不因仓库当前 Git 状态发生变化而变成冲突；只有创建输入中的仓库选择不同才是幂等冲突。
+幂等匹配必须增加规范化后的 Repository Selection 和主仓库：`repositories` 先按 `repositoryKey`
+字典序排序再比较，用户勾选顺序不同但集合相同视为同一输入。首次创建成功后，同一幂等键重试应返回
+已有 Run，不因仓库当前 Git 状态发生变化而变成冲突；只有创建输入中的仓库选择不同（规范化后）才是
+幂等冲突。
 
 ### 13.3 Run Detail v2
 
@@ -636,9 +697,11 @@ CREATE TABLE harness_workspace_snapshot (
     repository_count  INTEGER NOT NULL,
     clean             INTEGER NOT NULL,
     capture_started_at INTEGER NOT NULL,
-    captured_at       INTEGER NOT NULL,
-    UNIQUE(run_id, purpose, stage, attempt_number, snapshot_id)
+    captured_at       INTEGER NOT NULL
 );
+
+CREATE INDEX idx_harness_workspace_snapshot_run_purpose
+    ON harness_workspace_snapshot(run_id, purpose, stage, attempt_number, captured_at DESC);
 
 CREATE TABLE harness_repository_baseline (
     snapshot_id       TEXT NOT NULL,
@@ -667,6 +730,17 @@ CREATE TABLE harness_repository_changed_file (
         REFERENCES harness_repository_baseline(snapshot_id, repository_key) ON DELETE CASCADE
 );
 ```
+
+说明：
+
+1. **不设** `UNIQUE(run_id, purpose, stage, attempt_number, snapshot_id)`——`snapshot_id` 已是 PK，
+   该约束永不生效；且 `stage`/`attempt_number` 可空时 SQLite NULL 不参与唯一比较。同
+   purpose+attempt 的多次采集以 `captured_at DESC` 取最新，由查询约定而非 UNIQUE 约束表达。
+2. **`ON DELETE CASCADE` 依赖 `PRAGMA foreign_keys=ON`**，该 pragma 是**连接级**设置。现状
+   `SqliteInitializer` 仅在 `@PostConstruct` 初始化连接上开启。实现时必须在数据源层对连接池
+   **每条连接**启用（例如 HikariCP `connectionInitSql` 或等价机制），否则 CASCADE 静默失效。
+3. `harness_repository_changed_file` 行数受 `max-changed-files-per-repo`（§8.3）约束；采集阶段
+   超出即 fail-closed，避免巨型 dirty 仓库拖垮 insert/restore。
 
 现有表采用加列迁移：
 
@@ -774,8 +848,11 @@ harness_deployment_execution
 | 清单/扫描发现 | 尚无 | `RepositoryDiscoveryPolicy` + Infra Scanner |
 | Git 采集实现 | `ProcessWorkspaceBaselineGateway` | `WorkspaceSnapshotGateway` Adapter |
 | 工作区 Hash | 单仓库 `WorkspaceBaseline` | `WorkspaceSnapshot` 领域方法 |
-| Runtime 主/附加目录 | Codex command 组装 | `RuntimeWorkspaceLayout` 策略 |
+| Runtime 主/附加目录 | Codex command 组装（单点 `CodexHarnessRuntimeGateway.command()`） | `RuntimeWorkspaceLayout` 策略 |
 | 不同 Codex 版本的多目录支持 | Runtime Adapter 条件 | Compatibility Matrix + Preflight Profile |
+| 附加仓库项目说明 | 无（Codex 只加载 `-C` 目录） | 平台 Prompt 部件 `WORKSPACE_REPOSITORY_MAP`（§9.4） |
+| 每仓库 Repo Skill | 单 `workspaceBoundary` 扫描 | 每选中仓库独立扫描 + 授权求交 |
+| `.agent-web.yml` harness 清单 | 无 `harness.*` 先例 | 复用 Manifest 模型，只读 `harness.*` 键（§8.2） |
 | 部署步骤目录 | 固定 `workingDir` | `DeploymentWorkingDirectory` 值对象 |
 | v1/v2 持久化 | Repository 读取代码 | Snapshot Codec/Migration Adapter |
 | v1/v2 Artifact | Gate 内 JSON 判断 | Artifact Parser/Schema Registry |
@@ -795,7 +872,20 @@ harness_deployment_execution
 | `WorkspaceChangeEvidence` | 保留名称，内部持有 `RepositoryChangeEvidence` | 避免平铺路径冲突 |
 | `DeploymentExecutionSpec.workingDir` | `DeploymentWorkingDirectory` | 防止任意路径和隐式单目录 |
 
+**改名波及面**：`WorkspaceBaseline` 至少被 `HarnessRun`、`DeploymentExecution`、
+`WorkspaceChangeEvidence`、`HarnessRunView`、`ProcessWorkspaceBaselineGateway`、
+`ImplementationEvidenceFactory`、`DeploymentArtifactFactory`、`SqliteHarnessRunRepository`、
+`SqliteHarnessRunQueryService` 引用。**改名与语义升级分两提交**：先引入新类型与适配器（旧类
+deprecated 委托），再删除旧类；禁止单 commit 同时改名和改不变量。
+
 当前新增的 `InvalidHarnessWorkspaceException` 是临时错误映射，不应进入最终多仓库模型。
+
+**额外改造清单（评审补充，现状代码中不存在）**：
+
+1. 新 `PromptPartType` + `HarnessPromptAssembler` 部件 + `HarnessPromptAssemblyRequest` 字段（§9.4）。
+2. `.agent-web.yml` 的 `harness.*` 解析（§8.2）。
+3. 连接池每连接 `PRAGMA foreign_keys=ON`（§14）。
+4. 有界并发采集与超时公式（§8.3）。
 
 ## 20. TDD 与验证方案
 
@@ -883,6 +973,8 @@ Repository-targeted Deployment → Final Report，并断言未选 `service-c` �
 - 增加 Inspect API、Create v2 DTO 和仓库选择 UI。
 - Run Detail 展示工作区与仓库基线。
 - 替换临时的父目录无效错误语义。
+- **M4 真实试点门槛**：Phase 3 完成后即可用多仓库工作区创建 Run 并执行只读阶段；
+  真实需求验收仍须等 Phase 4 写隔离合同关闭后才能跑 Implementation。
 
 ### Phase 4：Runtime 与 Evidence
 
@@ -937,6 +1029,13 @@ agent:
 - 不删除新表、不反向改写为伪单仓库。
 - 旧 Run 始终可通过 legacy adapter 继续读取。
 
+**运维强制约束**（开关开启后）：
+
+1. 应用回滚前查询：`SELECT COUNT(*) FROM harness_workspace_snapshot WHERE schema_version >= 2 AND status IN ('RUNNING','WAITING_INPUT','CANCEL_REQUESTED')`（或等价 QueryService）。
+2. 若计数 > 0：禁止直接回滚到无多仓库 Snapshot 读取能力的版本；必须先等运行中 Run 终态，或保留兼容读取版本。
+3. 若仅有终态多仓库 Run：可回滚应用代码，但管理台详情页对旧 Snapshot 会降级为"不支持的 Schema"提示，不得尝试伪单仓库回填。
+4. 关闭 `multi-repository-enabled` 只阻断新建，不终止已创建 Run；回滚窗口以"无运行中多仓库 Run"为准，不以开关状态为准。
+
 ## 23. 领域建模审计评分
 
 ### 23.1 当前实现
@@ -961,18 +1060,28 @@ agent:
 
 ## 24. 评审决策与推荐默认值
 
+> 2026-08-01 评审结论：**有条件通过** → 文档修订后状态升为 **Accepted**（尚未实现）。
+> 路线图决策（C1）：多仓库为 **M4 真实试点前置**。理由：真实试点需求典型为多微服务 sibling 布局；
+> 父目录工作区已触发 `HARNESS_WORKSPACE_INVALID` 422。Phase 3 完成后即可做只读阶段试点；
+> 开放 Implementation 写阶段还需 Phase 4 写隔离合同。Bundle 持久接收箱（§17.1）仍属 M5 早期，
+> 与本方案 Phase 0–2 可并行。
+
 核心方案已给出明确默认值，评审时只需确认以下产品边界：
 
-| 决策项 | 推荐默认 |
-| --- | --- |
-| Run 纳入全部候选还是子集 | 用户显式确认子集，manifest 提供默认选择 |
-| 主仓库 | 必选一个，由 manifest 建议，UI 可调整 |
-| 无 manifest 的发现深度 | 最大 2 层，只返回候选，不自动创建 |
-| Submodule | 首版不展开，按父仓库 commit pointer 处理 |
-| 嵌套独立仓库 | 首版禁止同时选择互相包含的仓库 |
-| Runtime 写隔离 | `-C primary` + 对其他选中仓库逐个 `--add-dir` |
-| Deployment 工作目录 | Template v2 首版只允许 `REPOSITORY` |
-| 旧 Run | 回填为单元素 Workspace Snapshot，保留一个兼容周期 |
+| 决策项 | 推荐默认 | 评审确认 |
+| --- | --- | --- |
+| 路线图定位 | M4 真实试点前置（Phase 3 后执行 Exit 验收） | **已确认** 2026-08-01 |
+| Run 纳入全部候选还是子集 | 用户显式确认子集，manifest 提供默认选择 | 推荐默认 |
+| 主仓库 | 必选一个，由 manifest 建议，UI 可调整 | 推荐默认 |
+| 无 manifest 的发现深度 | 最大 2 层，只返回候选，不自动创建 | 推荐默认 |
+| Submodule | 首版不展开，按父仓库 commit pointer 处理 | 推荐默认 |
+| 嵌套独立仓库 | 首版禁止同时选择互相包含的仓库 | 推荐默认 |
+| Runtime 写隔离 | `-C primary` + 对其他选中仓库逐个 `--add-dir` | 推荐默认（Phase 0 验证） |
+| 附加仓库项目说明 | 平台 Prompt 注入摘要（Codex 不原生加载 add-dir 目录） | **已确认** 2026-08-01 |
+| 采集超时与并发 | 有界并发 4 路；`max(60, 15 × ceil(n/4))` 秒 | **已确认** 2026-08-01 |
+| 二次核验 | branch + HEAD + **diffHash 重算** | **已确认** 2026-08-01 |
+| Deployment 工作目录 | Template v2 首版只允许 `REPOSITORY` | 推荐默认 |
+| 旧 Run | 回填为单元素 Workspace Snapshot，保留一个兼容周期 | 推荐默认 |
 
 ## 25. 验收标准
 

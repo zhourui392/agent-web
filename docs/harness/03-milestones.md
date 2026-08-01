@@ -572,3 +572,18 @@ M4 固定四阶段、`WAITING_INPUT`、Artifact 追踪、Git/TDD 证据、确定
 ### 17.5 技术栈 Profile 解耦（M6）
 
 `stage-contracts.json` 的 `defaultSkills`/`commands` 硬编码 `java-ddd-design`/`java-tdd`/`agent-web-local-deployment`，把流程绑死 Java+本服务。建议把技能/命令抽到"技术栈 Profile"，StageContract 只定阶段语义（输入/输出/门禁类别），具体技能由 Profile 注入。M6 引入第二 Runtime 和多部署目标时，技术栈可换性会成为刚需。
+
+### 17.6 多仓库交付工作区（M4 真实试点前置）
+
+> 状态：设计 Accepted（2026-08-01 评审），尚未实现  
+> 设计文档：[05-multi-repository-workspace-design.md](05-multi-repository-workspace-design.md)
+
+当前 `workingDir` 被当作单 Git 仓库根，父目录多微服务 sibling 布局会触发 `HARNESS_WORKSPACE_INVALID` 422。真实试点需求典型即多仓库场景，因此本项定位为 **M4 真实试点前置**，不是 M5 插队功能：
+
+| 门槛 | 要求 |
+| --- | --- |
+| 只读阶段试点（ANALYSIS / DESIGN） | 完成 Phase 0–3（发现/选择/Snapshot/Prompt 注入） |
+| Implementation 写阶段 + 真实 Exit | 再完成 Phase 4 写隔离合同（`-C primary` + `--add-dir` 真实验证） |
+| Deployment 多目标目录 | Phase 5 Template v2 |
+
+与 §17.1 Bundle 持久接收箱的关系：接收箱仍属 **M5 早期**（数据完整性），多仓库 Phase 0–2 可与 M4 其他收尾并行，不互相阻塞。

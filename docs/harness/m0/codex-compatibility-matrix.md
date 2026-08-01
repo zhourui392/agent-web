@@ -33,7 +33,8 @@
 | 临时会话 | `--ephemeral` | PASS | 每个 Attempt 默认启用 |
 | 忽略用户配置 | `--ignore-user-config` | PASS | 仍需处理项目配置 |
 | 忽略 Exec Policy | `--ignore-rules` | PASS | Harness 使用自己的命令策略 |
-| 工作目录 | `-C`/`--cd` | PASS | 使用白名单真实路径 |
+| 工作目录 | `-C`/`--cd` | PASS | 使用白名单真实路径；只对 `-C` 目录原生加载 `AGENTS.md`/`CLAUDE.md`/`.codex` |
+| 附加写根 | `--add-dir <path>` | **待验证**（多仓库 Phase 0） | Implementation 对非主仓库写权限扩展；**不**加载附加目录项目说明。验证项见 §6 |
 | Sandbox | `--sandbox read-only/workspace-write` | PASS | 按 Stage 设置 |
 | Approval | `--ask-for-approval` | PASS，但必须在 `exec` 前 | Adapter 固定参数顺序 |
 | 自定义 Model Provider | `model_providers.*` | PASS，本地 Responses Provider | 默认测试不依赖外网 |
@@ -119,3 +120,37 @@ bash scripts/harness-m0/self-test.sh all
 - 临时目录清理。
 
 未通过时，Harness Runtime 必须拒绝该版本或保持在已验证版本。
+
+## 6. 多仓库 `--add-dir` 写隔离合同（Phase 0）
+
+> 来源：[05 多仓库交付工作区设计](../05-multi-repository-workspace-design.md) §9 / Phase 0
+> 状态：合同已冻结；本机 0.145.0 实测结果待补
+
+### 6.1 必须验证的行为
+
+| # | 场景 | 期望 |
+| --- | --- | --- |
+| A1 | `codex exec --sandbox workspace-write -C primary --add-dir secondary` 写入 secondary 已有文件 | 成功 |
+| A2 | 同上，在 secondary 创建新文件 | 成功 |
+| A3 | 未传 `--add-dir` 时写入 secondary | 被 sandbox 拒绝或 Attempt 可观测失败 |
+| A4 | 写入既非 `-C` 也非 `--add-dir` 的第三方目录 | 被拒绝 |
+| A5 | 附加目录下存在 `AGENTS.md`/`CLAUDE.md` | Codex **不**自动加载；平台 Prompt 负责注入摘要 |
+| A6 | 多个 `--add-dir` 顺序稳定（按 repositoryKey 字典序） | 命令可复现 |
+
+### 6.2 验证命令骨架
+
+```bash
+# 在隔离临时工作区：primary/ 与 secondary/ 两个真实 Git 仓库
+codex --ask-for-approval never exec --ignore-rules --ephemeral --json \
+  --sandbox workspace-write \
+  -C "$PRIMARY" \
+  --add-dir "$SECONDARY" \
+  "Write the single line multi-repo-ok into $SECONDARY/probe.txt and stop."
+```
+
+未通过 A1–A4 前，**禁止**对真实 Implementation 开放 `multi-repository-enabled`。
+A5 失败不阻塞写隔离，但必须在 Prompt 装配中补偿（`WORKSPACE_REPOSITORY_MAP`）。
+
+### 6.3 升级门禁增补
+
+升级 Codex 后除 §5 外，重跑本节 A1–A6，并更新本表“待验证”→ PASS/FAIL。

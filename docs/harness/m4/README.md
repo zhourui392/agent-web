@@ -264,7 +264,7 @@ AGENT_HARNESS_ENABLED=false
 
 ## 8. 下一步和 M4 关闭条件
 
-1. 以正式 Runtime 默认 `local-login` 打开 Harness，在受控本机选择一个真实但风险可控的需求。
+1. **真实试点等待多仓库落地**：按 [05 多仓库设计](../05-multi-repository-workspace-design.md) 与 [§17.6](../03-milestones.md) 完成 Phase 0–3 后，以正式 Runtime 默认 `local-login` 打开 Harness，在受控本机选择一个真实但风险可控的多仓库需求。若试点含 Implementation 写阶段，还需 Phase 4 写隔离合同关闭。
 2. 冻结原始 Requirement，执行完整四阶段和独立 local 部署 Approval。
 3. 核对业务 AC、追踪矩阵、最终报告、Artifact/Runtime/Deployment Hash 和恢复记录。
 4. 进入生产多用户试点前，切换 `isolated-key` 并复核受控凭据注入、临时 Home 和 Output Schema 路径。
