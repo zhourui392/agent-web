@@ -1,5 +1,8 @@
 package com.example.agentweb.domain.harness;
 
+import com.example.agentweb.domain.capability.CapabilityAccess;
+import com.example.agentweb.domain.capability.CapabilityKind;
+import com.example.agentweb.domain.capability.CapabilityRequest;
 import lombok.Getter;
 
 import java.util.Collections;

@@ -31,6 +31,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -46,6 +47,7 @@ class ChatRunLifecycleServiceTest {
     private SessionRepository sessionRepository;
     private ChatRunEventStore eventStore;
     private DiagnosisCheckpointRepository checkpointRepository;
+    private ChatRunTerminalFinalizer terminalFinalizer;
     private ChatRunLifecycleService service;
 
     @BeforeEach
@@ -54,11 +56,13 @@ class ChatRunLifecycleServiceTest {
         sessionRepository = mock(SessionRepository.class);
         eventStore = mock(ChatRunEventStore.class);
         checkpointRepository = mock(DiagnosisCheckpointRepository.class);
+        terminalFinalizer = mock(ChatRunTerminalFinalizer.class);
         ChatRunEventHub eventHub = mock(ChatRunEventHub.class);
         ChatRunEventAppender appender = new ChatRunEventAppender(
                 runRepository, eventStore, eventHub, new AfterCommitExecutor());
         service = new ChatRunLifecycleService(runRepository, sessionRepository,
-                checkpointRepository, appender, Clock.fixed(NOW, ZoneOffset.UTC));
+                checkpointRepository, appender, terminalFinalizer,
+                Clock.fixed(NOW, ZoneOffset.UTC));
         when(eventStore.appendAssigned(any(), any(), anyList(), any()))
                 .thenReturn(Collections.<ChatRunEvent>emptyList());
     }
@@ -85,13 +89,13 @@ class ChatRunLifecycleServiceTest {
         service.complete(ChatRunId.of("run-1"), "normalized output", 0,
                 "{\"query\":\"q\"}");
 
-        org.mockito.InOrder order = inOrder(sessionRepository, runRepository, eventStore);
+        org.mockito.InOrder order = inOrder(sessionRepository, terminalFinalizer);
         order.verify(sessionRepository).addMessageReturningId(eq("session-1"), any());
         order.verify(sessionRepository).saveRecall(21L, "{\"query\":\"q\"}");
-        order.verify(runRepository).update(any(ChatRun.class));
-        order.verify(eventStore).appendAssigned(eq(ChatRunId.of("run-1")), any(), anyList(), eq(NOW));
+        order.verify(terminalFinalizer).finalizeFirstTerminal(run, NOW);
         assertEquals(ChatRunStatus.SUCCEEDED, run.getStatus());
         assertEquals(Long.valueOf(21L), run.getAssistantMessageId());
+        verify(eventStore, never()).appendAssigned(any(), any(), anyList(), any());
     }
 
     @Test
@@ -109,11 +113,10 @@ class ChatRunLifecycleServiceTest {
         ArgumentCaptor<DiagnosisCheckpoint> checkpoint =
                 ArgumentCaptor.forClass(DiagnosisCheckpoint.class);
         org.mockito.InOrder order = inOrder(sessionRepository, checkpointRepository,
-                runRepository, eventStore);
+                terminalFinalizer);
         order.verify(sessionRepository).addMessageReturningId(eq("session-1"), any());
         order.verify(checkpointRepository).save(checkpoint.capture());
-        order.verify(runRepository).update(run);
-        order.verify(eventStore).appendAssigned(eq(ChatRunId.of("run-1")), any(), anyList(), eq(NOW));
+        order.verify(terminalFinalizer).finalizeFirstTerminal(run, NOW);
         assertEquals("run-1", checkpoint.getValue().getRunId());
         assertEquals("session-1", checkpoint.getValue().getSessionId());
         assertEquals(11L, checkpoint.getValue().getUserMessageId());
@@ -140,6 +143,7 @@ class ChatRunLifecycleServiceTest {
         assertEquals("AGENT_REJECTED", run.getFailureCode());
         assertEquals("Agent 拒绝执行当前请求，请检查配置或稍后重试", run.getErrorMessage());
         verify(checkpointRepository, never()).save(any());
+        verify(terminalFinalizer).finalizeFirstTerminal(run, NOW);
     }
 
     @Test
@@ -154,6 +158,7 @@ class ChatRunLifecycleServiceTest {
         assertEquals(ChatRunStatus.FAILED, run.getStatus());
         assertEquals("AGENT_EXECUTION_ERROR", run.getFailureCode());
         verify(checkpointRepository, never()).save(any());
+        verify(terminalFinalizer).finalizeFirstTerminal(run, NOW);
     }
 
     @Test
@@ -166,7 +171,7 @@ class ChatRunLifecycleServiceTest {
 
         assertEquals(ChatRunStatus.CANCELLED, run.getStatus());
         verify(sessionRepository, never()).addMessageReturningId(any(), any());
-        verify(runRepository).update(run);
+        verify(terminalFinalizer).finalizeFirstTerminal(run, NOW);
     }
 
     @Test
@@ -181,6 +186,7 @@ class ChatRunLifecycleServiceTest {
         assertEquals("IDLE_TIMEOUT", run.getFailureCode());
         assertEquals("Agent 长时间无输出，任务已停止", run.getErrorMessage());
         verify(sessionRepository, never()).addMessageReturningId(any(), any());
+        verify(terminalFinalizer).finalizeFirstTerminal(run, NOW);
     }
 
     @Test
@@ -194,6 +200,37 @@ class ChatRunLifecycleServiceTest {
         assertEquals(ChatRunStatus.FAILED, run.getStatus());
         assertEquals("OUTPUT_LIMIT", run.getFailureCode());
         assertEquals("输出超过上限，任务已停止", run.getErrorMessage());
+        verify(terminalFinalizer).finalizeFirstTerminal(run, NOW);
+    }
+
+    @Test
+    void explicitFailShouldFinalizeOnlyTheFirstTerminalTransition() {
+        ChatRun run = runningRun();
+        when(runRepository.findById(ChatRunId.of("run-1")))
+                .thenReturn(Optional.of(run));
+
+        service.fail(ChatRunId.of("run-1"),
+                "EXECUTION_FAILED", "execution failed", 17);
+        service.fail(ChatRunId.of("run-1"),
+                "EXECUTION_FAILED", "execution failed", 17);
+
+        assertEquals(ChatRunStatus.FAILED, run.getStatus());
+        verify(terminalFinalizer, times(1)).finalizeFirstTerminal(run, NOW);
+        verify(eventStore, never()).appendAssigned(any(), any(), anyList(), any());
+    }
+
+    @Test
+    void interruptShouldFinalizeOnlyTheFirstTerminalTransition() {
+        ChatRun run = runningRun();
+        when(runRepository.findById(ChatRunId.of("run-1")))
+                .thenReturn(Optional.of(run));
+
+        service.interrupt(ChatRunId.of("run-1"), "server restarted");
+        service.interrupt(ChatRunId.of("run-1"), "server restarted");
+
+        assertEquals(ChatRunStatus.INTERRUPTED, run.getStatus());
+        verify(terminalFinalizer, times(1)).finalizeFirstTerminal(run, NOW);
+        verify(eventStore, never()).appendAssigned(any(), any(), anyList(), any());
     }
 
     @Test

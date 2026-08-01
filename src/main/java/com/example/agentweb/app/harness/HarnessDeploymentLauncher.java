@@ -21,17 +21,21 @@ public class HarnessDeploymentLauncher implements HarnessDeploymentService {
     private final HarnessDeploymentPreparer preparer;
     private final WorkspaceBaselineGateway baselineGateway;
     private final DeploymentGateway deploymentGateway;
+    private final HarnessRetirementPolicy retirementPolicy;
 
     public HarnessDeploymentLauncher(HarnessDeploymentPreparer preparer,
                                      WorkspaceBaselineGateway baselineGateway,
-                                     DeploymentGateway deploymentGateway) {
+                                     DeploymentGateway deploymentGateway,
+                                     HarnessRetirementPolicy retirementPolicy) {
         this.preparer = preparer;
         this.baselineGateway = baselineGateway;
         this.deploymentGateway = deploymentGateway;
+        this.retirementPolicy = retirementPolicy;
     }
 
     @Override
     public HarnessDeploymentResult start(StartHarnessDeploymentCommand command) {
+        retirementPolicy.requireMutationAvailable();
         PreparedHarnessDeployment prepared = preparer.prepare(command);
         DeploymentExecutionSpec spec = prepared.getSpec();
         if (!prepared.isDuplicated()) {
@@ -51,6 +55,7 @@ public class HarnessDeploymentLauncher implements HarnessDeploymentService {
     @Override
     public HarnessDeploymentResult reconcileAsFailed(String runId, String executionId,
                                                      String reason) {
+        retirementPolicy.requireMutationAvailable();
         return preparer.reconcileAsFailed(runId, executionId, reason);
     }
 

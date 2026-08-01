@@ -40,6 +40,7 @@ public class SqliteChatRunQueryService implements ChatRunQueryService {
         String sql = "SELECT r.id, r.session_id, r.status, r.last_event_seq, r.started_at, r.created_at, "
                 + "s.agent_type, s.working_dir FROM chat_run r JOIN chat_session s ON s.id=r.session_id "
                 + "WHERE r.status IN ('PENDING','RUNNING','CANCEL_REQUESTED')"
+                + " AND r.run_origin='CHAT' AND s.session_kind='CHAT'"
                 + (filter ? " AND (s.user_id IS NULL OR s.user_id=?)" : "")
                 + " ORDER BY r.created_at DESC";
         if (filter) {
@@ -70,7 +71,8 @@ public class SqliteChatRunQueryService implements ChatRunQueryService {
                 + "s.agent_type, s.working_dir, s.resume_id, s.env, s.user_id, m.content AS message "
                 + "FROM chat_run r JOIN chat_session s ON s.id=r.session_id "
                 + "JOIN chat_message m ON m.id=r.user_message_id AND m.session_id=r.session_id "
-                + "WHERE r.id=?" + (filter ? " AND (s.user_id IS NULL OR s.user_id=?)" : "");
+                + "WHERE r.id=? AND r.run_origin='CHAT' AND s.session_kind='CHAT'"
+                + (filter ? " AND (s.user_id IS NULL OR s.user_id=?)" : "");
         List<ChatRunExecutionContext> found = filter
                 ? jdbc.query(sql, this::mapExecutionContext, runId, currentUserProvider.currentUserId())
                 : jdbc.query(sql, this::mapExecutionContext, runId);

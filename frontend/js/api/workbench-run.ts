@@ -1,0 +1,860 @@
+/**
+ * TD-03 Workbench Run owner-scoped transport client。
+ *
+ * 错误边界只保留安全状态、代码和固定消息，不暴露服务端响应正文或底层异常。
+ *
+ * @author alex
+ * @since 2026-08-01
+ */
+import type { WorkbenchRunMode, WorkbenchRunStatus } from '../lib/workbench-run-state.js';
+import { isWorkbenchPhase, type WorkbenchPhase, type WorkbenchPhaseStatus } from '../lib/workbench-state.js';
+
+const IDENTIFIER_MAX_LENGTH = 128;
+const HASH_MAX_LENGTH = 256;
+const SAFE_SUMMARY_MAX_LENGTH = 2_000;
+const EVENT_TYPE_MAX_LENGTH = 80;
+const EVENT_PAYLOAD_MAX_LENGTH = 131_072;
+const HISTORY_LIST_MAX_LIMIT = 100;
+const EVENT_PAGE_MAX_LIMIT = 500;
+
+const RUN_STATUSES = new Set<WorkbenchRunStatus>([
+  'PENDING',
+  'RUNNING',
+  'CANCEL_REQUESTED',
+  'SUCCEEDED',
+  'FAILED',
+  'CANCELLED',
+  'INTERRUPTED',
+]);
+
+const RUN_MODES = new Set<WorkbenchRunMode>(['DISCUSS_READ_ONLY', 'MODIFY_WORKSPACE']);
+
+const PHASE_STATUSES = new Set<WorkbenchPhaseStatus>(['NOT_STARTED', 'IN_PROGRESS', 'HUMAN_COMPLETED']);
+
+const ERROR_DETAILS: Readonly<Record<number, { code: string; message: string }>> = {
+  401: {
+    code: 'AUTHENTICATION_REQUIRED',
+    message: 'Authentication is required',
+  },
+  403: {
+    code: 'ACCESS_DENIED',
+    message: 'Access is denied',
+  },
+  404: {
+    code: 'WORKBENCH_RUN_NOT_FOUND',
+    message: 'Workbench Run was not found',
+  },
+  409: {
+    code: 'WORKBENCH_RUN_CONFLICT',
+    message: 'Workbench Run request conflicts with current state',
+  },
+  410: {
+    code: 'WORKBENCH_RUN_CURSOR_EXPIRED',
+    message: 'Workbench Run event cursor has expired',
+  },
+  422: {
+    code: 'WORKBENCH_RUN_INVALID',
+    message: 'Workbench Run request is invalid',
+  },
+  503: {
+    code: 'WORKBENCH_RUN_UNAVAILABLE',
+    message: 'Workbench Run service is unavailable',
+  },
+};
+
+const SAFE_SERVER_ERROR_CODES = new Set([
+  'AUTHENTICATION_REQUIRED',
+  'UNAUTHORIZED',
+  'ACCESS_DENIED',
+  'FORBIDDEN',
+  'WORKBENCH_NOT_FOUND',
+  'WORKBENCH_RUN_NOT_FOUND',
+  'RUN_NOT_FOUND',
+  'WORKBENCH_VERSION_CONFLICT',
+  'IDEMPOTENCY_CONFLICT',
+  'WORKBENCH_RUN_CONFLICT',
+  'ACTIVE_RUN_CONFLICT',
+  'ACTIVE_WRITE_RUN_CONFLICT',
+  'WORKBENCH_RUN_CURSOR_EXPIRED',
+  'CURSOR_EXPIRED',
+  'WORKBENCH_RUN_INVALID',
+  'VALIDATION_ERROR',
+  'INVALID_REQUEST',
+  'WORKBENCH_RUN_UNAVAILABLE',
+  'RUNTIME_UNAVAILABLE',
+  'SERVICE_UNAVAILABLE',
+]);
+
+export type WorkbenchRunFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+
+export interface WorkbenchRunAttachment {
+  readonly [name: string]: unknown;
+}
+
+export interface SubmitWorkbenchRunRequest {
+  message: string;
+  runMode: WorkbenchRunMode;
+  handoffSourceVersion?: number;
+  reviewConfirmationId?: string | null;
+  attachments?: ReadonlyArray<WorkbenchRunAttachment>;
+}
+
+export interface SubmitWorkbenchRunCommand {
+  workbenchId: string;
+  phase: WorkbenchPhase;
+  expectedVersion: number;
+  idempotencyKey: string;
+  request: SubmitWorkbenchRunRequest;
+}
+
+export interface WorkbenchRunSubmission {
+  runId: string;
+  sessionId: string;
+  status: WorkbenchRunStatus;
+  phaseStatus: WorkbenchPhaseStatus;
+  workbenchVersion: number;
+  capabilitySnapshotHash: string;
+  repositoryScopeHash: string;
+  replayed: boolean;
+}
+
+export interface WorkbenchPhaseConversation {
+  sessionId: string;
+  generation: number;
+  workbenchVersion: number;
+  created: boolean;
+}
+
+export interface WorkbenchRunDetail {
+  runId: string;
+  workbenchId: string;
+  phase: WorkbenchPhase;
+  sessionId: string;
+  status: WorkbenchRunStatus;
+  runMode: WorkbenchRunMode;
+  lastEventSeq: number;
+  earliestRetainedSeq?: number;
+  createdAt?: number;
+  startedAt?: number | null;
+  finishedAt?: number | null;
+  failureCode?: string | null;
+}
+
+export interface WorkbenchRunHistoryItem {
+  runId: string;
+  workbenchId: string;
+  phase: WorkbenchPhase;
+  sessionId: string;
+  status: WorkbenchRunStatus;
+  runMode: WorkbenchRunMode;
+  lastEventSeq: number;
+  earliestRetainedSeq?: number;
+  createdAt: number;
+  startedAt: number | null;
+  finishedAt: number | null;
+  failureCode: string | null;
+}
+
+export interface WorkbenchRunHistoryCursor {
+  createdAt: number;
+  runId: string;
+}
+
+export interface WorkbenchRunHistoryQuery {
+  phase?: WorkbenchPhase;
+  cursorCreatedAt?: number;
+  cursorRunId?: string;
+  limit?: number;
+}
+
+export interface WorkbenchRunHistoryPage {
+  items: WorkbenchRunHistoryItem[];
+  nextCursor: WorkbenchRunHistoryCursor | null;
+}
+
+export interface WorkbenchRunHistoricalEvent {
+  sequence: number;
+  eventType: string;
+  payload: string;
+}
+
+export interface WorkbenchRunEventPageQuery {
+  after: number;
+  limit: number;
+}
+
+export interface WorkbenchRunEventPage {
+  runId: string;
+  after: number;
+  through: number;
+  lastEventSeq: number;
+  earliestRetainedSeq: number;
+  hasMore: boolean;
+  events: WorkbenchRunHistoricalEvent[];
+}
+
+export interface WorkbenchRunCapabilityRule {
+  id: string;
+  version: string;
+  source: string;
+  contentHash: string;
+  mandatory: boolean;
+  safeSummary: string;
+}
+
+export interface WorkbenchRunCapabilitySkill {
+  id: string;
+  version: string;
+  source: string;
+  packageHash: string;
+  trustTier: string;
+}
+
+export interface WorkbenchRunCapabilityMcpServer {
+  id: string;
+  version: string;
+  definitionHash: string;
+  access: string;
+  transport: string;
+}
+
+export interface WorkbenchRunRejectedCapability {
+  id: string;
+  reasonCode: string;
+}
+
+export interface WorkbenchRunCapability {
+  runId: string;
+  workbenchId: string;
+  phase: WorkbenchPhase;
+  runMode: WorkbenchRunMode;
+  createdAt: number;
+  overrideVersion: number;
+  policyVersion: string;
+  profileId: string;
+  profileVersion: string;
+  profileHash: string;
+  bindingHash: string;
+  runtimeCompatibility: string;
+  rules: WorkbenchRunCapabilityRule[];
+  skills: WorkbenchRunCapabilitySkill[];
+  mcpServers: WorkbenchRunCapabilityMcpServer[];
+  rejected: WorkbenchRunRejectedCapability[];
+}
+
+export interface WorkbenchRunStopResponse {
+  runId: string;
+  status: WorkbenchRunStatus;
+}
+
+export class WorkbenchRunApiError extends Error {
+  readonly status: number;
+  readonly code: string;
+
+  constructor(status: number, code: string, message: string) {
+    super(message);
+    this.name = 'WorkbenchRunApiError';
+    this.status = status;
+    this.code = code;
+    this.stack = undefined;
+  }
+}
+
+export interface WorkbenchRunApiClient {
+  ensureConversation(
+    workbenchId: string,
+    phase: WorkbenchPhase,
+    expectedVersion: number,
+  ): Promise<WorkbenchPhaseConversation>;
+  submitRun(command: SubmitWorkbenchRunCommand): Promise<WorkbenchRunSubmission>;
+  getRun(workbenchId: string, runId: string): Promise<WorkbenchRunDetail>;
+  stopRun(workbenchId: string, runId: string): Promise<WorkbenchRunStopResponse>;
+  listRuns(
+    workbenchId: string,
+    filters?: WorkbenchRunHistoryQuery,
+  ): Promise<WorkbenchRunHistoryPage>;
+  getRunEvents(
+    workbenchId: string,
+    runId: string,
+    filters: WorkbenchRunEventPageQuery,
+  ): Promise<WorkbenchRunEventPage>;
+  getRunCapability(
+    workbenchId: string,
+    runId: string,
+  ): Promise<WorkbenchRunCapability>;
+  eventsUrl(workbenchId: string, runId: string): string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function boundedString(value: unknown, maximum: number): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  if (!normalized || normalized.length > maximum || /[\u0000-\u001F\u007F]/.test(normalized)) {
+    return null;
+  }
+  return normalized;
+}
+
+function nonNegativeInteger(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+function positiveInteger(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+function nullableNonNegativeInteger(value: unknown): number | null | undefined {
+  if (value === null) return null;
+  const projected = nonNegativeInteger(value);
+  return projected == null ? undefined : projected;
+}
+
+function nullableBoundedString(value: unknown, maximum: number): string | null | undefined {
+  if (value === null) return null;
+  const projected = boundedString(value, maximum);
+  return projected == null ? undefined : projected;
+}
+
+function knownValue<T extends string>(value: unknown, values: Set<T>): T | null {
+  return typeof value === 'string' && values.has(value as T) ? (value as T) : null;
+}
+
+function submissionProjection(body: unknown): WorkbenchRunSubmission | null {
+  if (!isRecord(body)) return null;
+  const runId = boundedString(body.runId, IDENTIFIER_MAX_LENGTH);
+  const sessionId = boundedString(body.sessionId, IDENTIFIER_MAX_LENGTH);
+  const status = knownValue(body.status, RUN_STATUSES);
+  const phaseStatus = knownValue(body.phaseStatus, PHASE_STATUSES);
+  const workbenchVersion = nonNegativeInteger(body.workbenchVersion);
+  const capabilitySnapshotHash = boundedString(body.capabilitySnapshotHash, HASH_MAX_LENGTH);
+  const repositoryScopeHash = boundedString(body.repositoryScopeHash, HASH_MAX_LENGTH);
+  if (
+    !runId ||
+    !sessionId ||
+    !status ||
+    !phaseStatus ||
+    workbenchVersion == null ||
+    !capabilitySnapshotHash ||
+    !repositoryScopeHash ||
+    typeof body.replayed !== 'boolean'
+  ) {
+    return null;
+  }
+  return {
+    runId,
+    sessionId,
+    status,
+    phaseStatus,
+    workbenchVersion,
+    capabilitySnapshotHash,
+    repositoryScopeHash,
+    replayed: body.replayed,
+  };
+}
+
+function conversationProjection(body: unknown): WorkbenchPhaseConversation | null {
+  if (!isRecord(body)) return null;
+  const sessionId = boundedString(body.sessionId, IDENTIFIER_MAX_LENGTH);
+  const generation = nonNegativeInteger(body.generation);
+  const workbenchVersion = nonNegativeInteger(body.workbenchVersion);
+  if (!sessionId || generation == null || workbenchVersion == null
+    || typeof body.created !== 'boolean') {
+    return null;
+  }
+  return {
+    sessionId,
+    generation,
+    workbenchVersion,
+    created: body.created,
+  };
+}
+
+function detailProjection(body: unknown): WorkbenchRunDetail | null {
+  if (!isRecord(body)) return null;
+  const runId = boundedString(body.runId, IDENTIFIER_MAX_LENGTH);
+  const workbenchId = boundedString(body.workbenchId, IDENTIFIER_MAX_LENGTH);
+  const sessionId = boundedString(body.sessionId, IDENTIFIER_MAX_LENGTH);
+  const status = knownValue(body.status, RUN_STATUSES);
+  const runMode = knownValue(body.runMode, RUN_MODES);
+  const lastEventSeq = nonNegativeInteger(body.lastEventSeq);
+  if (
+    !runId ||
+    !workbenchId ||
+    !isWorkbenchPhase(body.phase) ||
+    !sessionId ||
+    !status ||
+    !runMode ||
+    lastEventSeq == null
+  ) {
+    return null;
+  }
+  const projected: WorkbenchRunDetail = {
+    runId,
+    workbenchId,
+    phase: body.phase,
+    sessionId,
+    status,
+    runMode,
+    lastEventSeq,
+  };
+  if ('earliestRetainedSeq' in body) {
+    const earliestRetainedSeq = nonNegativeInteger(body.earliestRetainedSeq);
+    if (earliestRetainedSeq == null || earliestRetainedSeq > lastEventSeq + 1) return null;
+    projected.earliestRetainedSeq = earliestRetainedSeq;
+  }
+  if ('createdAt' in body) {
+    const createdAt = nonNegativeInteger(body.createdAt);
+    const startedAt = nullableNonNegativeInteger(body.startedAt);
+    const finishedAt = nullableNonNegativeInteger(body.finishedAt);
+    const failureCode = nullableBoundedString(body.failureCode, IDENTIFIER_MAX_LENGTH);
+    if (createdAt == null || startedAt === undefined || finishedAt === undefined || failureCode === undefined) {
+      return null;
+    }
+    projected.createdAt = createdAt;
+    projected.startedAt = startedAt;
+    projected.finishedAt = finishedAt;
+    projected.failureCode = failureCode;
+  }
+  return projected;
+}
+
+function historyItemProjection(body: unknown): WorkbenchRunHistoryItem | null {
+  const detail = detailProjection(body);
+  if (!detail || detail.createdAt == null
+    || detail.startedAt === undefined || detail.finishedAt === undefined
+    || detail.failureCode === undefined) {
+    return null;
+  }
+  return {
+    runId: detail.runId,
+    workbenchId: detail.workbenchId,
+    phase: detail.phase,
+    sessionId: detail.sessionId,
+    status: detail.status,
+    runMode: detail.runMode,
+    lastEventSeq: detail.lastEventSeq,
+    ...(detail.earliestRetainedSeq == null
+      ? {} : { earliestRetainedSeq: detail.earliestRetainedSeq }),
+    createdAt: detail.createdAt,
+    startedAt: detail.startedAt,
+    finishedAt: detail.finishedAt,
+    failureCode: detail.failureCode,
+  };
+}
+
+function historyPageProjection(body: unknown): WorkbenchRunHistoryPage | null {
+  if (!isRecord(body) || !Array.isArray(body.items) || body.items.length > 100) return null;
+  const items: WorkbenchRunHistoryItem[] = [];
+  for (const candidate of body.items) {
+    const item = historyItemProjection(candidate);
+    if (!item) return null;
+    items.push(item);
+  }
+  let nextCursor: WorkbenchRunHistoryCursor | null = null;
+  if (body.nextCursor !== null) {
+    if (!isRecord(body.nextCursor)) return null;
+    const createdAt = nonNegativeInteger(body.nextCursor.createdAt);
+    const runId = boundedString(body.nextCursor.runId, IDENTIFIER_MAX_LENGTH);
+    if (createdAt == null || !runId) return null;
+    nextCursor = { createdAt, runId };
+  }
+  return { items, nextCursor };
+}
+
+function historicalEventProjection(body: unknown): WorkbenchRunHistoricalEvent | null {
+  if (!isRecord(body)) return null;
+  const sequence = positiveInteger(body.sequence);
+  const eventType = boundedString(body.eventType, EVENT_TYPE_MAX_LENGTH);
+  const payload = typeof body.payload === 'string' && body.payload.length > 0
+    && body.payload.length <= EVENT_PAYLOAD_MAX_LENGTH ? body.payload : null;
+  return sequence && eventType && payload ? { sequence, eventType, payload } : null;
+}
+
+function eventPageProjection(body: unknown): WorkbenchRunEventPage | null {
+  if (!isRecord(body) || !Array.isArray(body.events) || body.events.length > EVENT_PAGE_MAX_LIMIT) return null;
+  const runId = boundedString(body.runId, IDENTIFIER_MAX_LENGTH);
+  const after = nonNegativeInteger(body.after);
+  const through = nonNegativeInteger(body.through);
+  const lastEventSeq = nonNegativeInteger(body.lastEventSeq);
+  const earliestRetainedSeq = nonNegativeInteger(body.earliestRetainedSeq);
+  if (!runId || after == null || through == null || lastEventSeq == null
+    || earliestRetainedSeq == null || typeof body.hasMore !== 'boolean'
+    || through < after || through > lastEventSeq || earliestRetainedSeq > lastEventSeq + 1) {
+    return null;
+  }
+  const events: WorkbenchRunHistoricalEvent[] = [];
+  let previous = after;
+  for (const candidate of body.events) {
+    const event = historicalEventProjection(candidate);
+    if (!event || event.sequence <= previous || event.sequence > through) return null;
+    events.push(event);
+    previous = event.sequence;
+  }
+  if (events.length > 0 && previous !== through) return null;
+  if (events.length === 0 && through !== after) return null;
+  return { runId, after, through, lastEventSeq, earliestRetainedSeq, hasMore: body.hasMore, events };
+}
+
+function projectArray<T>(
+  value: unknown,
+  projection: (candidate: unknown) => T | null,
+): T[] | null {
+  if (!Array.isArray(value) || value.length > 1_000) return null;
+  const result: T[] = [];
+  for (const candidate of value) {
+    const projected = projection(candidate);
+    if (!projected) return null;
+    result.push(projected);
+  }
+  return result;
+}
+
+function capabilityRuleProjection(body: unknown): WorkbenchRunCapabilityRule | null {
+  if (!isRecord(body)) return null;
+  const id = boundedString(body.id, IDENTIFIER_MAX_LENGTH);
+  const version = boundedString(body.version, IDENTIFIER_MAX_LENGTH);
+  const source = boundedString(body.source, IDENTIFIER_MAX_LENGTH);
+  const contentHash = boundedString(body.contentHash, HASH_MAX_LENGTH);
+  const safeSummary = boundedString(body.safeSummary, SAFE_SUMMARY_MAX_LENGTH);
+  return id && version && source && contentHash && typeof body.mandatory === 'boolean' && safeSummary
+    ? { id, version, source, contentHash, mandatory: body.mandatory, safeSummary }
+    : null;
+}
+
+function capabilitySkillProjection(body: unknown): WorkbenchRunCapabilitySkill | null {
+  if (!isRecord(body)) return null;
+  const id = boundedString(body.id, IDENTIFIER_MAX_LENGTH);
+  const version = boundedString(body.version, IDENTIFIER_MAX_LENGTH);
+  const source = boundedString(body.source, IDENTIFIER_MAX_LENGTH);
+  const packageHash = boundedString(body.packageHash, HASH_MAX_LENGTH);
+  const trustTier = boundedString(body.trustTier, IDENTIFIER_MAX_LENGTH);
+  return id && version && source && packageHash && trustTier
+    ? { id, version, source, packageHash, trustTier }
+    : null;
+}
+
+function capabilityMcpProjection(body: unknown): WorkbenchRunCapabilityMcpServer | null {
+  if (!isRecord(body)) return null;
+  const id = boundedString(body.id, IDENTIFIER_MAX_LENGTH);
+  const version = boundedString(body.version, IDENTIFIER_MAX_LENGTH);
+  const definitionHash = boundedString(body.definitionHash, HASH_MAX_LENGTH);
+  const access = boundedString(body.access, IDENTIFIER_MAX_LENGTH);
+  const transport = boundedString(body.transport, IDENTIFIER_MAX_LENGTH);
+  return id && version && definitionHash && access && transport
+    ? { id, version, definitionHash, access, transport }
+    : null;
+}
+
+function rejectedCapabilityProjection(body: unknown): WorkbenchRunRejectedCapability | null {
+  if (!isRecord(body)) return null;
+  const id = boundedString(body.id, IDENTIFIER_MAX_LENGTH);
+  const reasonCode = boundedString(body.reasonCode, IDENTIFIER_MAX_LENGTH);
+  return id && reasonCode ? { id, reasonCode } : null;
+}
+
+function capabilityProjection(body: unknown): WorkbenchRunCapability | null {
+  if (!isRecord(body)) return null;
+  const runId = boundedString(body.runId, IDENTIFIER_MAX_LENGTH);
+  const workbenchId = boundedString(body.workbenchId, IDENTIFIER_MAX_LENGTH);
+  const runMode = knownValue(body.runMode, RUN_MODES);
+  const createdAt = nonNegativeInteger(body.createdAt);
+  const overrideVersion = nonNegativeInteger(body.overrideVersion);
+  const policyVersion = boundedString(body.policyVersion, IDENTIFIER_MAX_LENGTH);
+  const profileId = boundedString(body.profileId, IDENTIFIER_MAX_LENGTH);
+  const profileVersion = boundedString(body.profileVersion, IDENTIFIER_MAX_LENGTH);
+  const profileHash = boundedString(body.profileHash, HASH_MAX_LENGTH);
+  const bindingHash = boundedString(body.bindingHash, HASH_MAX_LENGTH);
+  const runtimeCompatibility = boundedString(body.runtimeCompatibility, IDENTIFIER_MAX_LENGTH);
+  const rules = projectArray(body.rules, capabilityRuleProjection);
+  const skills = projectArray(body.skills, capabilitySkillProjection);
+  const mcpServers = projectArray(body.mcpServers, capabilityMcpProjection);
+  const rejected = projectArray(body.rejected, rejectedCapabilityProjection);
+  if (!runId || !workbenchId || !isWorkbenchPhase(body.phase) || !runMode || createdAt == null
+    || overrideVersion == null || !policyVersion || !profileId || !profileVersion || !profileHash
+    || !bindingHash || !runtimeCompatibility || !rules || !skills || !mcpServers || !rejected) {
+    return null;
+  }
+  return {
+    runId, workbenchId, phase: body.phase, runMode, createdAt, overrideVersion,
+    policyVersion, profileId, profileVersion, profileHash, bindingHash,
+    runtimeCompatibility, rules, skills, mcpServers, rejected,
+  };
+}
+
+function stopProjection(body: unknown): WorkbenchRunStopResponse | null {
+  if (!isRecord(body)) return null;
+  const runId = boundedString(body.runId, IDENTIFIER_MAX_LENGTH);
+  const status = knownValue(body.status, RUN_STATUSES);
+  return runId && status ? { runId, status } : null;
+}
+
+function responseCode(body: unknown, fallback: string): string {
+  if (!isRecord(body) || typeof body.code !== 'string') return fallback;
+  return SAFE_SERVER_ERROR_CODES.has(body.code) ? body.code : fallback;
+}
+
+function httpError(status: number, body: unknown): WorkbenchRunApiError {
+  const detail = ERROR_DETAILS[status] || {
+    code: 'WORKBENCH_RUN_REQUEST_FAILED',
+    message: 'Workbench Run request failed',
+  };
+  return new WorkbenchRunApiError(status, responseCode(body, detail.code), detail.message);
+}
+
+function unexpectedResponse(status: number): WorkbenchRunApiError {
+  return new WorkbenchRunApiError(
+    status,
+    'WORKBENCH_RUN_UNEXPECTED_RESPONSE',
+    'Workbench Run service returned an unexpected response',
+  );
+}
+
+async function parseResponseBody(response: Response): Promise<unknown> {
+  let text: string;
+  try {
+    text = await response.text();
+  } catch {
+    throw unexpectedResponse(response.status);
+  }
+  if (!text) return null;
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function encodedPathSegment(value: string, name: string): string {
+  const normalized = boundedString(value, IDENTIFIER_MAX_LENGTH);
+  if (!normalized || normalized === '.' || normalized === '..') {
+    throw new Error(`${name} path segment is invalid`);
+  }
+  return encodeURIComponent(normalized);
+}
+
+function scopedRunUrl(workbenchId: string, runId: string): string {
+  return (
+    '/api/workbenches/' + encodedPathSegment(workbenchId, 'workbenchId') + '/runs/' + encodedPathSegment(runId, 'runId')
+  );
+}
+
+function submitPayload(request: SubmitWorkbenchRunRequest): Record<string, unknown> {
+  const payload: Record<string, unknown> = {
+    message: request.message,
+    runMode: request.runMode,
+  };
+  if (request.handoffSourceVersion !== undefined) {
+    payload.handoffSourceVersion = request.handoffSourceVersion;
+  }
+  if (request.reviewConfirmationId !== undefined) {
+    payload.reviewConfirmationId = request.reviewConfirmationId;
+  }
+  if (request.attachments !== undefined) {
+    payload.attachments = request.attachments;
+  }
+  return payload;
+}
+
+function requireReviewConfirmation(phase: WorkbenchPhase, request: SubmitWorkbenchRunRequest): void {
+  const rawConfirmationId = request.reviewConfirmationId;
+  const confirmationId = rawConfirmationId == null ? null : boundedString(rawConfirmationId, IDENTIFIER_MAX_LENGTH);
+  if (rawConfirmationId != null && !confirmationId) {
+    throw new Error('review confirmation id is invalid');
+  }
+  const reviewModify = phase === 'REVIEW_REFACTOR' && request.runMode === 'MODIFY_WORKSPACE';
+  if (reviewModify && !confirmationId) {
+    throw new Error('review confirmation is required for a Review modify run');
+  }
+  if (!reviewModify && confirmationId) {
+    throw new Error('review confirmation is only valid for a Review modify run');
+  }
+}
+
+function requireExpectedVersion(value: number): void {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new Error('If-Match workbench version is required');
+  }
+}
+
+function requireIdempotencyKey(value: string): string {
+  if (typeof value !== 'string' || !value.trim() || value.trim().length > 128) {
+    throw new Error('Idempotency-Key is required');
+  }
+  return value.trim();
+}
+
+function requireLimit(value: number | undefined, maximum: number, name: string): number | undefined {
+  if (value === undefined) return undefined;
+  if (!Number.isSafeInteger(value) || value < 1 || value > maximum) {
+    throw new Error(`${name} limit is invalid`);
+  }
+  return value;
+}
+
+function historyQuery(filters: WorkbenchRunHistoryQuery): string {
+  const params = new URLSearchParams();
+  if (filters.phase !== undefined) {
+    if (!isWorkbenchPhase(filters.phase)) throw new Error('phase is invalid');
+    params.set('phase', filters.phase);
+  }
+  const hasCreatedAt = filters.cursorCreatedAt !== undefined;
+  const hasRunId = filters.cursorRunId !== undefined;
+  if (hasCreatedAt !== hasRunId) throw new Error('history cursor fields must be provided together');
+  if (hasCreatedAt) {
+    const createdAt = nonNegativeInteger(filters.cursorCreatedAt);
+    const runId = boundedString(filters.cursorRunId, IDENTIFIER_MAX_LENGTH);
+    if (createdAt == null || !runId) throw new Error('history cursor is invalid');
+    params.set('cursorCreatedAt', String(createdAt));
+    params.set('cursorRunId', runId);
+  }
+  const limit = requireLimit(filters.limit, HISTORY_LIST_MAX_LIMIT, 'history');
+  if (limit !== undefined) params.set('limit', String(limit));
+  const query = params.toString();
+  return query ? `?${query}` : '';
+}
+
+function eventPageQuery(filters: WorkbenchRunEventPageQuery): string {
+  const after = nonNegativeInteger(filters.after);
+  if (after == null) throw new Error('event page after cursor is invalid');
+  const limit = requireLimit(filters.limit, EVENT_PAGE_MAX_LIMIT, 'event page');
+  if (limit === undefined) throw new Error('event page limit is required');
+  return `?after=${after}&limit=${limit}`;
+}
+
+export function createWorkbenchRunApiClient(
+  fetchFn: WorkbenchRunFetch = globalThis.fetch.bind(globalThis),
+): WorkbenchRunApiClient {
+  async function request<T>(
+    url: string,
+    init: RequestInit,
+    expectedStatus: number,
+    projection: (body: unknown) => T | null,
+  ): Promise<T> {
+    let response: Response;
+    try {
+      response = await fetchFn(url, init);
+    } catch {
+      throw new WorkbenchRunApiError(0, 'WORKBENCH_RUN_NETWORK_ERROR', 'Workbench Run service could not be reached');
+    }
+
+    const body = await parseResponseBody(response);
+    if (!response.ok) throw httpError(response.status, body);
+    if (response.status !== expectedStatus) {
+      throw unexpectedResponse(response.status);
+    }
+    const projected = projection(body);
+    if (!projected) throw unexpectedResponse(response.status);
+    return projected;
+  }
+
+  return {
+    async ensureConversation(
+      workbenchId,
+      phase,
+      expectedVersion,
+    ): Promise<WorkbenchPhaseConversation> {
+      requireExpectedVersion(expectedVersion);
+      const url = '/api/workbenches/'
+        + encodedPathSegment(workbenchId, 'workbenchId')
+        + '/phases/'
+        + encodedPathSegment(phase, 'phase')
+        + '/conversation';
+      return request<WorkbenchPhaseConversation>(
+        url,
+        {
+          method: 'POST',
+          headers: { 'If-Match': String(expectedVersion) },
+        },
+        200,
+        conversationProjection,
+      );
+    },
+
+    async submitRun(command): Promise<WorkbenchRunSubmission> {
+      requireExpectedVersion(command.expectedVersion);
+      const idempotencyKey = requireIdempotencyKey(command.idempotencyKey);
+      requireReviewConfirmation(command.phase, command.request);
+      const url =
+        '/api/workbenches/' +
+        encodedPathSegment(command.workbenchId, 'workbenchId') +
+        '/phases/' +
+        encodedPathSegment(command.phase, 'phase') +
+        '/runs';
+      return request<WorkbenchRunSubmission>(
+        url,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'If-Match': String(command.expectedVersion),
+            'Idempotency-Key': idempotencyKey,
+          },
+          body: JSON.stringify(submitPayload(command.request)),
+        },
+        202,
+        submissionProjection,
+      );
+    },
+
+    async getRun(workbenchId, runId): Promise<WorkbenchRunDetail> {
+      return request<WorkbenchRunDetail>(
+        scopedRunUrl(workbenchId, runId),
+        {
+          method: 'GET',
+        },
+        200,
+        detailProjection,
+      );
+    },
+
+    async stopRun(workbenchId, runId): Promise<WorkbenchRunStopResponse> {
+      return request<WorkbenchRunStopResponse>(
+        scopedRunUrl(workbenchId, runId) + '/stop',
+        {
+          method: 'POST',
+        },
+        202,
+        stopProjection,
+      );
+    },
+
+    async listRuns(
+      workbenchId,
+      filters: WorkbenchRunHistoryQuery = {},
+    ): Promise<WorkbenchRunHistoryPage> {
+      const url = '/api/workbenches/' + encodedPathSegment(workbenchId, 'workbenchId')
+        + '/runs' + historyQuery(filters);
+      return request<WorkbenchRunHistoryPage>(
+        url,
+        { method: 'GET' },
+        200,
+        historyPageProjection,
+      );
+    },
+
+    async getRunEvents(workbenchId, runId, filters): Promise<WorkbenchRunEventPage> {
+      return request<WorkbenchRunEventPage>(
+        scopedRunUrl(workbenchId, runId) + '/events-page' + eventPageQuery(filters),
+        { method: 'GET' },
+        200,
+        eventPageProjection,
+      );
+    },
+
+    async getRunCapability(workbenchId, runId): Promise<WorkbenchRunCapability> {
+      return request<WorkbenchRunCapability>(
+        scopedRunUrl(workbenchId, runId) + '/capability',
+        { method: 'GET' },
+        200,
+        capabilityProjection,
+      );
+    },
+
+    eventsUrl(workbenchId, runId): string {
+      return scopedRunUrl(workbenchId, runId) + '/events';
+    },
+  };
+}

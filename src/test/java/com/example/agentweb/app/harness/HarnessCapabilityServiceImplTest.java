@@ -17,22 +17,22 @@ import com.example.agentweb.domain.harness.HarnessRun;
 import com.example.agentweb.domain.harness.HarnessRunRepository;
 import com.example.agentweb.domain.harness.HarnessStage;
 import com.example.agentweb.domain.harness.McpAuthorizationPolicy;
-import com.example.agentweb.domain.harness.McpCapability;
-import com.example.agentweb.domain.harness.McpCapabilityType;
-import com.example.agentweb.domain.harness.McpServerCatalog;
-import com.example.agentweb.domain.harness.McpServerDefinition;
+import com.example.agentweb.domain.capability.McpCapability;
+import com.example.agentweb.domain.capability.McpCapabilityType;
+import com.example.agentweb.domain.capability.McpServerCatalog;
+import com.example.agentweb.domain.capability.McpServerDefinition;
 import com.example.agentweb.domain.harness.PromptPack;
 import com.example.agentweb.domain.harness.PromptPackCatalog;
 import com.example.agentweb.domain.harness.PromptPackManifest;
 import com.example.agentweb.domain.harness.PromptPackResource;
 import com.example.agentweb.domain.harness.PromptResourceRole;
-import com.example.agentweb.domain.harness.SkillCatalog;
-import com.example.agentweb.domain.harness.SkillDependency;
-import com.example.agentweb.domain.harness.SkillManifest;
-import com.example.agentweb.domain.harness.SkillPackage;
+import com.example.agentweb.domain.capability.SkillCatalog;
+import com.example.agentweb.domain.capability.SkillDependency;
+import com.example.agentweb.domain.capability.SkillManifest;
+import com.example.agentweb.domain.capability.SkillPackage;
 import com.example.agentweb.domain.harness.SkillSelectionPolicy;
 import com.example.agentweb.domain.harness.SkillSelection;
-import com.example.agentweb.domain.harness.SkillTrustSource;
+import com.example.agentweb.domain.capability.SkillTrustSource;
 import com.example.agentweb.domain.harness.StageCapabilityPolicy;
 import com.example.agentweb.domain.harness.StageContract;
 import com.example.agentweb.domain.harness.RuntimeEnforcementProfile;
@@ -58,10 +58,12 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -104,7 +106,8 @@ class HarnessCapabilityServiceImplTest {
                 promptPackCatalog, skillCatalog, mcpServerCatalog, new SkillSelectionPolicy(),
                 new WorkspaceSkillTrustPolicy(), new McpAuthorizationPolicy(),
                 new HarnessPromptAssembler(), artifactStore, new HarnessArtifactPromptFormatter(),
-                runtimePreflightGateway, settings, Clock.fixed(NOW, ZoneOffset.UTC));
+                runtimePreflightGateway, settings, Clock.fixed(NOW, ZoneOffset.UTC),
+                new HarnessRetirementPolicy(true, true, true));
         run = HarnessRun.create("run-1", "title", "/workspace", "CODEX", "test",
                 "harness@1.0.0", "admin", "create-1", StageContract.mvpDefaults(),
                 Instant.parse("2026-07-23T10:00:00Z"));
@@ -113,6 +116,32 @@ class HarnessCapabilityServiceImplTest {
         originalRequirementDescriptor = run.registerOriginalRequirement("original", originalRequirement, "admin",
                         Instant.parse("2026-07-23T10:00:30Z"));
         run.startStage(HarnessStage.ANALYSIS, "start-1", Instant.parse("2026-07-23T10:01:00Z"));
+    }
+
+    @Test
+    void readOnlyWindowShouldRejectResolutionBeforeLoadingRunOrCatalogs() {
+        HarnessCapabilitySettings settings = new HarnessCapabilitySettings(
+                "harness-capability-policy@2.0.0", "platform safety",
+                "test guardrail", Collections.singleton("reader"));
+        service = new HarnessCapabilityServiceImpl(
+                runRepository, snapshotRepository,
+                promptPackCatalog, skillCatalog, mcpServerCatalog,
+                new SkillSelectionPolicy(), new WorkspaceSkillTrustPolicy(),
+                new McpAuthorizationPolicy(), new HarnessPromptAssembler(),
+                artifactStore, new HarnessArtifactPromptFormatter(),
+                runtimePreflightGateway, settings,
+                Clock.fixed(NOW, ZoneOffset.UTC),
+                new HarnessRetirementPolicy(true, false, true));
+
+        HarnessRetirementUnavailableException failure = assertThrows(
+                HarnessRetirementUnavailableException.class,
+                () -> service.resolve(command()));
+
+        assertEquals("HARNESS_MUTATION_DISABLED", failure.getCode());
+        verifyNoInteractions(
+                runRepository, snapshotRepository, promptPackCatalog,
+                skillCatalog, mcpServerCatalog, runtimePreflightGateway,
+                artifactStore);
     }
 
     @Test
@@ -221,10 +250,10 @@ class HarnessCapabilityServiceImplTest {
 
     private SkillPackage skillPackage() {
         SkillManifest manifest = new SkillManifest("domain-modeling-audit", "1.0.0", "domain audit",
-                Collections.singleton(HarnessStage.ANALYSIS), Collections.singleton("ddd"),
+                Collections.singleton(HarnessStage.ANALYSIS.name()), Collections.singleton("ddd"),
                 Collections.<String>emptySet(), "SKILL.md", Collections.<String>emptySet(),
                 Collections.<SkillDependency>emptyList(), Collections.<String>emptySet(),
-                Collections.singleton(AgentRuntime.CODEX), SkillTrustSource.PLATFORM,
+                Collections.singleton(AgentRuntime.CODEX.name()), SkillTrustSource.PLATFORM,
                 Collections.emptyList());
         return new SkillPackage(manifest, hash('b'), "# Domain modeling audit",
                 Collections.singletonMap("SKILL.md", hash('c')));
@@ -232,10 +261,11 @@ class HarnessCapabilityServiceImplTest {
 
     private McpServerDefinition mcpServer() {
         return new McpServerDefinition("reader", "1.0.0", "reader",
-                Collections.singleton(HarnessStage.ANALYSIS), Collections.singleton(AgentRuntime.CODEX),
+                Collections.singleton(HarnessStage.ANALYSIS.name()),
+                Collections.singleton(AgentRuntime.CODEX.name()),
                 Arrays.asList("fake-mcp", "--stdio"), Collections.singletonList(
                 new McpCapability("search", McpCapabilityType.TOOL,
-                        com.example.agentweb.domain.harness.CapabilityAccess.READ)),
+                        com.example.agentweb.domain.capability.CapabilityAccess.READ)),
                 Collections.emptyList(), 10, 30,
                 com.example.agentweb.domain.harness.HarnessHashing.sha256("reader"));
     }

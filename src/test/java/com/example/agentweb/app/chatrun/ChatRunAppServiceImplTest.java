@@ -4,6 +4,7 @@ import com.example.agentweb.app.agentrun.port.AgentGateway;
 import com.example.agentweb.app.agentrun.AgentCatalogService;
 import com.example.agentweb.app.common.AfterCommitExecutor;
 import com.example.agentweb.domain.chat.ChatSession;
+import com.example.agentweb.domain.chat.ChatSessionNotFoundException;
 import com.example.agentweb.domain.chat.SessionRepository;
 import com.example.agentweb.domain.chatrun.ActiveChatRunExistsException;
 import com.example.agentweb.domain.chatrun.ChatRun;
@@ -12,6 +13,8 @@ import com.example.agentweb.domain.chatrun.ChatRunId;
 import com.example.agentweb.domain.chatrun.ChatRunNotFoundException;
 import com.example.agentweb.domain.chatrun.ChatRunRepository;
 import com.example.agentweb.domain.chatrun.ChatRunStatus;
+import com.example.agentweb.domain.chatrun.ExecutionContextReference;
+import com.example.agentweb.domain.chatrun.RunOrigin;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.agentrun.AgentRuntimeUnavailableException;
 import org.junit.jupiter.api.BeforeEach;
@@ -23,6 +26,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -36,6 +40,7 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -56,6 +61,7 @@ class ChatRunAppServiceImplTest {
     private ChatRunActivityGuard activityGuard;
     private AgentGateway gateway;
     private AgentCatalogService agentCatalogService;
+    private ChatRunTerminalFinalizer terminalFinalizer;
     private ChatRunAppServiceImpl service;
 
     @BeforeEach
@@ -71,6 +77,7 @@ class ChatRunAppServiceImplTest {
         activityGuard = mock(ChatRunActivityGuard.class);
         gateway = mock(AgentGateway.class);
         agentCatalogService = mock(AgentCatalogService.class);
+        terminalFinalizer = mock(ChatRunTerminalFinalizer.class);
         ChatRunEventAppender appender = new ChatRunEventAppender(
                 runRepository, eventStore, eventHub, new AfterCommitExecutor());
         ChatRunIdGenerator idGenerator = mock(ChatRunIdGenerator.class);
@@ -78,7 +85,7 @@ class ChatRunAppServiceImplTest {
         service = new ChatRunAppServiceImpl(sessionRepository, runRepository, eventStore, appender,
                 launcher, queryService, gateway, idGenerator,
                 Clock.fixed(NOW, ZoneOffset.UTC), settings, activityGuard, action -> action.get(),
-                agentCatalogService);
+                agentCatalogService, terminalFinalizer);
     }
 
     @Test
@@ -122,6 +129,46 @@ class ChatRunAppServiceImplTest {
         verify(sessionRepository, never()).addMessageReturningId(any(), any());
         verify(runRepository, never()).add(any());
         verify(launcher, never()).launch(any());
+    }
+
+    @Test
+    void submitShouldHideWorkbenchRunReturnedByOrdinaryChatIdempotencyLookup() {
+        when(sessionRepository.findById("session-1")).thenReturn(session("session-1"));
+        ChatRun workbenchRun = ChatRun.submit(
+                ChatRunId.of("workbench-run"), "session-1", 10L, "key-1", false,
+                RunOrigin.WORKBENCH,
+                ExecutionContextReference.of(
+                        "workbench-1:IMPLEMENT_TEST", "workbench-run"),
+                NOW);
+        when(runRepository.findBySessionAndIdempotencyKey("session-1", "key-1"))
+                .thenReturn(Optional.of(workbenchRun));
+
+        ChatRunNotFoundException error = assertThrows(
+                ChatRunNotFoundException.class, () -> service.submit(
+                        new SubmitChatRunCommand(
+                                "session-1", "question", null, true, "key-1")));
+
+        assertFalse(error.getMessage().contains("WORKBENCH"));
+        verify(sessionRepository, never()).addMessageReturningId(any(), any());
+        verify(runRepository, never()).add(any());
+        verifyNoInteractions(agentCatalogService, queryService, activityGuard,
+                eventStore, launcher, gateway);
+    }
+
+    @Test
+    void submitShouldHideWorkbenchSessionBeforeIdempotencyLookupOrAnySideEffect() {
+        when(sessionRepository.findById("phase-session-1"))
+                .thenReturn(workbenchSession("phase-session-1"));
+
+        assertThrows(ChatSessionNotFoundException.class, () -> service.submit(
+                new SubmitChatRunCommand(
+                        "phase-session-1", "question", null, true, "same-key")));
+
+        verify(runRepository, never()).findBySessionAndIdempotencyKey(any(), any());
+        verify(runRepository, never()).add(any(ChatRun.class));
+        verify(sessionRepository, never()).addMessageReturningId(any(), any());
+        verifyNoInteractions(agentCatalogService, queryService, activityGuard,
+                eventStore, launcher, gateway);
     }
 
     @Test
@@ -180,6 +227,20 @@ class ChatRunAppServiceImplTest {
     }
 
     @Test
+    void findShouldHideOwnerVisibleWorkbenchRunBeforeReadingEvents() {
+        ChatRun run = workbenchRun(ChatRunId.of("workbench-run"));
+        when(runRepository.findById(run.getId())).thenReturn(Optional.of(run));
+        when(sessionRepository.findById("phase-session-1"))
+                .thenReturn(workbenchSession("phase-session-1"));
+
+        ChatRunNotFoundException error = assertThrows(
+                ChatRunNotFoundException.class, () -> service.find("workbench-run"));
+
+        assertFalse(error.getMessage().contains("WORKBENCH"));
+        verifyNoInteractions(eventStore);
+    }
+
+    @Test
     void stop_running_run_should_persist_cancel_request_then_stop_process_after_commit() {
         ChatRun run = ChatRun.submit(ChatRunId.of("run-1"), "session-1", 10L, "key", NOW.minusSeconds(2));
         run.start(NOW.minusSeconds(1));
@@ -194,7 +255,68 @@ class ChatRunAppServiceImplTest {
         ArgumentCaptor<ChatRun> saved = ArgumentCaptor.forClass(ChatRun.class);
         verify(runRepository).update(saved.capture());
         assertEquals(ChatRunStatus.CANCEL_REQUESTED, saved.getValue().getStatus());
+        ArgumentCaptor<List<ChatRunEventDraft>> drafts = listCaptor();
+        verify(eventStore).appendAssigned(
+                eq(ChatRunId.of("run-1")), any(), drafts.capture(), eq(NOW));
+        assertEquals(1, drafts.getValue().size());
+        assertEquals("run_status", drafts.getValue().get(0).getEventType());
         verify(gateway).stopStream("run-1");
+        verify(terminalFinalizer, never()).finalizeFirstTerminal(any(), any());
+    }
+
+    @Test
+    void stopPendingRunShouldCancelAndUseTerminalFinalizerWithoutLegacyGateway() {
+        ChatRun run = ChatRun.submit(
+                ChatRunId.of("run-pending"), "session-1", 10L,
+                "key-pending", NOW.minusSeconds(1));
+        when(runRepository.findById(ChatRunId.of("run-pending")))
+                .thenReturn(Optional.of(run));
+        when(sessionRepository.findById("session-1"))
+                .thenReturn(session("session-1"));
+
+        ChatRunView result = service.stop("run-pending");
+
+        assertEquals(ChatRunStatus.CANCELLED, result.getStatus());
+        verify(terminalFinalizer).finalizeFirstTerminal(run, NOW);
+        verify(runRepository, never()).update(any(ChatRun.class));
+        verify(eventStore, never()).appendAssigned(any(), any(), anyList(), any());
+        verifyNoInteractions(gateway);
+    }
+
+    @Test
+    void stopTerminalRunShouldBeNoOpWithoutFinalizerEventOrGateway() {
+        ChatRun run = ChatRun.submit(
+                ChatRunId.of("run-terminal"), "session-1", 10L,
+                "key-terminal", NOW.minusSeconds(2));
+        run.fail("EXECUTION_FAILED", "already failed", 17, NOW.minusSeconds(1));
+        when(runRepository.findById(ChatRunId.of("run-terminal")))
+                .thenReturn(Optional.of(run));
+        when(sessionRepository.findById("session-1"))
+                .thenReturn(session("session-1"));
+
+        ChatRunView result = service.stop("run-terminal");
+
+        assertEquals(ChatRunStatus.FAILED, result.getStatus());
+        verify(terminalFinalizer, never()).finalizeFirstTerminal(any(), any());
+        verify(runRepository, never()).update(any(ChatRun.class));
+        verify(eventStore, never()).appendAssigned(any(), any(), anyList(), any());
+        verifyNoInteractions(gateway);
+    }
+
+    @Test
+    void stopShouldHideWorkbenchRunBeforeMutationEventOrProcessStop() {
+        ChatRun run = workbenchRun(ChatRunId.of("workbench-run"));
+        run.start(NOW.minusSeconds(1));
+        when(runRepository.findById(run.getId())).thenReturn(Optional.of(run));
+        when(sessionRepository.findById("phase-session-1"))
+                .thenReturn(workbenchSession("phase-session-1"));
+
+        assertThrows(ChatRunNotFoundException.class,
+                () -> service.stop("workbench-run"));
+
+        assertEquals(ChatRunStatus.RUNNING, run.getStatus());
+        verify(runRepository, never()).update(any(ChatRun.class));
+        verifyNoInteractions(eventStore, gateway);
     }
 
     private ChatSession session(String id) {
@@ -206,5 +328,27 @@ class ChatRunAppServiceImplTest {
                 Collections.emptyList());
         session.setEnv(env);
         return session;
+    }
+
+    private ChatSession workbenchSession(String id) {
+        ChatSession session = ChatSession.createWorkbenchPhase(
+                id, AgentType.CODEX, "/workspace",
+                "workbench-1:IMPLEMENT_TEST", "owner-1", "Alex", NOW);
+        session.setEnv("local");
+        return session;
+    }
+
+    private ChatRun workbenchRun(ChatRunId id) {
+        return ChatRun.submit(
+                id, "phase-session-1", 10L, "workbench-key", false,
+                RunOrigin.WORKBENCH,
+                ExecutionContextReference.of(
+                        "workbench-1:IMPLEMENT_TEST", id.getValue()),
+                NOW.minusSeconds(2));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static ArgumentCaptor<List<ChatRunEventDraft>> listCaptor() {
+        return ArgumentCaptor.forClass((Class) List.class);
     }
 }

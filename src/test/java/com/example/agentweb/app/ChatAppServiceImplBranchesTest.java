@@ -3,6 +3,7 @@ package com.example.agentweb.app;
 import com.example.agentweb.app.agentrun.port.AgentGateway;
 import com.example.agentweb.domain.chat.ChatMessage;
 import com.example.agentweb.domain.chat.ChatSession;
+import com.example.agentweb.domain.chat.ChatSessionNotFoundException;
 import com.example.agentweb.domain.chat.SessionCache;
 import com.example.agentweb.domain.chat.SessionRepository;
 import com.example.agentweb.domain.chatrun.ActiveChatRunExistsException;
@@ -38,6 +39,7 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -56,6 +58,7 @@ class ChatAppServiceImplBranchesTest {
     private UploadFileStorage uploadFileStore;
     private WorkspacePathPolicy workspacePathPolicy;
     private ChatRunActivityGuard chatRunActivityGuard;
+    private AgentGateway gateway;
     private ChatAppServiceImpl service;
 
     @TempDir
@@ -71,9 +74,10 @@ class ChatAppServiceImplBranchesTest {
         uploadFileStore = mock(UploadFileStorage.class);
         workspacePathPolicy = mock(WorkspacePathPolicy.class);
         chatRunActivityGuard = mock(ChatRunActivityGuard.class);
+        gateway = mock(AgentGateway.class);
         when(workspacePathPolicy.requireExistingDirectory(anyString()))
                 .thenAnswer(invocation -> invocation.getArgument(0));
-        service = new ChatAppServiceImpl(sessionCache, sessionRepository, mock(AgentGateway.class),
+        service = new ChatAppServiceImpl(sessionCache, sessionRepository, gateway,
                 commandExpander, chatAgentDefaults, uploadPicStore, uploadFileStore,
                 Optional.empty(),
                 new com.example.agentweb.domain.auth.CurrentUserProvider(() -> Optional.empty()));
@@ -85,7 +89,8 @@ class ChatAppServiceImplBranchesTest {
     void listCommands_sessionNotFound_throws() {
         when(sessionRepository.findById("nope")).thenReturn(null);
 
-        assertThrows(IllegalArgumentException.class, () -> service.listCommands("nope"));
+        assertThrows(ChatSessionNotFoundException.class,
+                () -> service.listCommands("nope"));
     }
 
     @Test
@@ -99,6 +104,17 @@ class ChatAppServiceImplBranchesTest {
 
         assertEquals(1, result.size());
         assertSame(command, result.get(0));
+    }
+
+    @Test
+    void listCommandsShouldHideWorkbenchSessionBeforeScanningWorkspace() {
+        when(sessionCache.find("phase-session"))
+                .thenReturn(workbenchSession("phase-session"));
+
+        assertThrows(ChatSessionNotFoundException.class,
+                () -> service.listCommands("phase-session"));
+
+        verifyNoInteractions(commandExpander);
     }
 
     @Test
@@ -129,8 +145,21 @@ class ChatAppServiceImplBranchesTest {
     void sendMessage_sessionNotFound_throws() {
         SendMessageCommand command = new SendMessageCommand("hi");
 
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(ChatSessionNotFoundException.class,
                 () -> service.sendMessage("nope", command));
+    }
+
+    @Test
+    void sendMessageShouldHideWorkbenchSessionBeforeMessageOrGatewaySideEffects() {
+        when(sessionCache.find("phase-session"))
+                .thenReturn(workbenchSession("phase-session"));
+
+        assertThrows(ChatSessionNotFoundException.class,
+                () -> service.sendMessage(
+                        "phase-session", new SendMessageCommand("question")));
+
+        verify(sessionRepository, never()).addMessage(anyString(), any(ChatMessage.class));
+        verifyNoInteractions(gateway);
     }
 
     @Test
@@ -193,7 +222,7 @@ class ChatAppServiceImplBranchesTest {
 
     @Test
     void truncateFrom_sessionNotFound_throws() {
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(ChatSessionNotFoundException.class,
                 () -> service.truncateFrom("nope", 1L));
         verify(chatRunActivityGuard, never()).requireInactive(anyString());
     }
@@ -211,6 +240,19 @@ class ChatAppServiceImplBranchesTest {
         order.verify(sessionRepository).findById("s1");
         order.verify(chatRunActivityGuard).requireInactive("s1");
         verify(sessionRepository, never()).truncateFrom(anyString(), anyLong());
+    }
+
+    @Test
+    void truncateShouldHideWorkbenchSessionBeforeRunCheckOrPersistence() {
+        when(sessionRepository.findById("phase-session"))
+                .thenReturn(workbenchSession("phase-session"));
+
+        assertThrows(ChatSessionNotFoundException.class,
+                () -> service.truncateFrom("phase-session", 1L));
+
+        verifyNoInteractions(chatRunActivityGuard);
+        verify(sessionRepository, never()).truncateFrom(anyString(), anyLong());
+        verify(sessionCache, never()).remove(anyString());
     }
 
     @Test
@@ -275,6 +317,12 @@ class ChatAppServiceImplBranchesTest {
     private ChatSession session(String id, String workingDir) {
         return new ChatSession(id, AgentType.CLAUDE, workingDir, Instant.now(),
                 Collections.emptyList());
+    }
+
+    private ChatSession workbenchSession(String id) {
+        return ChatSession.createWorkbenchPhase(
+                id, AgentType.CODEX, "/tmp/wd",
+                "workbench-1:IMPLEMENT_TEST", "owner-1", "Alex", Instant.now());
     }
 
     private ChatSession sessionWithMessages(String id, String workingDir, ChatMessage... messages) {

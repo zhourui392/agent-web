@@ -43,6 +43,7 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -69,13 +70,15 @@ class HarnessAppServiceImplTest {
 
     private HarnessAppServiceImpl service;
     private MutableClock clock;
+    private CurrentUserProvider currentUserProvider;
+    private HarnessIdGenerator idGenerator;
 
     @BeforeEach
     void setUp() {
         clock = new MutableClock(NOW);
         UserContext userContext = () -> Optional.of(new LoginUser("admin", "Admin", null));
-        CurrentUserProvider currentUserProvider = new CurrentUserProvider(userContext);
-        HarnessIdGenerator idGenerator = new HarnessIdGenerator() {
+        currentUserProvider = new CurrentUserProvider(userContext);
+        idGenerator = new HarnessIdGenerator() {
             private int value;
 
             @Override
@@ -84,11 +87,45 @@ class HarnessAppServiceImplTest {
                 return "generated-" + value;
             }
         };
-        service = new HarnessAppServiceImpl(repository, artifactStore,
+        service = service(new HarnessRetirementPolicy(true, true, true));
+    }
+
+    private HarnessAppServiceImpl service(
+            HarnessRetirementPolicy retirementPolicy) {
+        return new HarnessAppServiceImpl(repository, artifactStore,
                 (contentType, content) -> content, workspacePathPolicy,
                 workspaceBaselineGateway,
                 currentUserProvider, idGenerator, new HarnessDeterministicGatePolicy(),
-                clock, eventPublisher);
+                clock, eventPublisher, retirementPolicy);
+    }
+
+    @Test
+    void stoppedCreationShouldRejectBeforeWorkspaceOrRepositoryAccess() {
+        service = service(new HarnessRetirementPolicy(false, true, true));
+
+        HarnessRetirementUnavailableException failure = assertThrows(
+                HarnessRetirementUnavailableException.class,
+                () -> service.create(new CreateHarnessRunCommand(
+                        "M1", "/requested", "CODEX", "local",
+                        "harness@1.0.0", "create-key", "Implement M4")));
+
+        assertEquals("HARNESS_CREATION_DISABLED", failure.getCode());
+        verifyNoInteractions(repository, workspacePathPolicy,
+                workspaceBaselineGateway, artifactStore, eventPublisher);
+    }
+
+    @Test
+    void readOnlyWindowShouldRejectMutationBeforeLoadingRun() {
+        service = service(new HarnessRetirementPolicy(true, false, true));
+
+        HarnessRetirementUnavailableException failure = assertThrows(
+                HarnessRetirementUnavailableException.class,
+                () -> service.startStage(
+                        "run-1", HarnessStage.ANALYSIS, "start-key"));
+
+        assertEquals("HARNESS_MUTATION_DISABLED", failure.getCode());
+        verifyNoInteractions(repository, workspaceBaselineGateway,
+                artifactStore, eventPublisher);
     }
 
     @Test

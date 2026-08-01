@@ -20,17 +20,21 @@ public class HarnessConversationServiceImpl implements HarnessConversationServic
     private final HarnessConversationPreparer preparer;
     private final HarnessCapabilityService capabilityService;
     private final HarnessExecutionService executionService;
+    private final HarnessRetirementPolicy retirementPolicy;
 
     public HarnessConversationServiceImpl(HarnessConversationPreparer preparer,
                                           HarnessCapabilityService capabilityService,
-                                          HarnessExecutionService executionService) {
+                                          HarnessExecutionService executionService,
+                                          HarnessRetirementPolicy retirementPolicy) {
         this.preparer = preparer;
         this.capabilityService = capabilityService;
         this.executionService = executionService;
+        this.retirementPolicy = retirementPolicy;
     }
 
     @Override
     public HarnessConversationTurnResult send(StartHarnessConversationCommand command) {
+        retirementPolicy.requireMutationAvailable();
         PreparedHarnessConversation prepared = preparer.prepare(command);
         capabilityService.resolve(new ResolveHarnessCapabilityCommand(
                 prepared.getRunId(), prepared.getStage(), Collections.<String>emptySet(),

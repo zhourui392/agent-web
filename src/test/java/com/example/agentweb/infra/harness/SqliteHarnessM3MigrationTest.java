@@ -97,7 +97,7 @@ class SqliteHarnessM3MigrationTest {
 
     private CapabilitySnapshot legacySnapshot() {
         PromptPack pack = new FileSystemPromptPackCatalog(
-                Paths.get("src/main/resources/harness/prompt-packs"))
+                Paths.get("src/main/resources/capability/rules"))
                 .resolve(HarnessStage.ANALYSIS);
         String prompt = "legacy M2 prompt";
         HarnessPromptAssembly assembly = new HarnessPromptAssembly(Collections.singletonList(

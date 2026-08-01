@@ -1,0 +1,412 @@
+package com.example.agentweb.infra.runtime;
+
+import com.example.agentweb.app.runtime.port.AgentExecutionPlan;
+import com.example.agentweb.app.runtime.port.CredentialReference;
+import com.example.agentweb.app.runtime.port.RuntimeEvent;
+import com.example.agentweb.app.runtime.port.RuntimeEventSink;
+import com.example.agentweb.app.runtime.port.RuntimeEventType;
+import com.example.agentweb.app.runtime.port.RuntimeHandle;
+import com.example.agentweb.app.runtime.port.RuntimeState;
+import com.example.agentweb.app.runtime.port.RuntimeTerminationReason;
+import com.example.agentweb.app.runtime.port.SandboxMode;
+import com.example.agentweb.domain.capability.CapabilityAccess;
+import com.example.agentweb.domain.capability.McpCapability;
+import com.example.agentweb.domain.capability.McpCapabilityType;
+import com.example.agentweb.domain.capability.McpSecretReference;
+import com.example.agentweb.domain.capability.McpServerDefinition;
+import com.example.agentweb.domain.capability.ResolvedCapabilityBinding;
+import com.example.agentweb.domain.capability.ResolvedMcpServerBinding;
+import com.example.agentweb.domain.shared.CanonicalHashing;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+/**
+ * 公共 Agent 进程内核的启动、输出、终止、限额、进程树和清理合同。
+ *
+ * @author alex
+ * @since 2026-08-01
+ */
+class AgentProcessKernelTest {
+
+    private static final String SECRET = "kernel-provider-secret";
+
+    @TempDir
+    Path tempDir;
+
+    private final List<AgentProcessKernel> kernels = new ArrayList<AgentProcessKernel>();
+    private final List<ExecutorService> executors = new ArrayList<ExecutorService>();
+
+    @AfterEach
+    void tearDown() {
+        for (AgentProcessKernel kernel : kernels) {
+            kernel.close();
+        }
+        for (ExecutorService executor : executors) {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void asynchronouslyRunsCodexJsonlWithMinimalEnvironmentRedactionAndCleanup()
+            throws Exception {
+        Path primary = Files.createDirectory(tempDir.resolve("primary"));
+        Path script = script("success.sh", "#!/bin/sh\n"
+                + "cat >/dev/null\n"
+                + "printf '%s\\n' \"{\\\"type\\\":\\\"item.completed\\\","
+                + "\\\"item\\\":{\\\"type\\\":\\\"agent_message\\\","
+                + "\\\"text\\\":\\\"allowed=${TEST_ALLOWED-};"
+                + "dropped=${TEST_DROPPED-};credential=${OPENAI_API_KEY-}\\\"}}\"\n"
+                + "printf '%s\\n' '{\"type\":\"turn.completed\"}'\n");
+        Map<String, String> environment = new HashMap<String, String>();
+        environment.put("RUNTIME_KEY", SECRET);
+        environment.put("TEST_ALLOWED", "visible-safe-value");
+        environment.put("TEST_DROPPED", "must-not-be-inherited");
+        RuntimeProcessRegistry registry = new RuntimeProcessRegistry();
+        AgentProcessKernel kernel = kernel(script, "runtime-success", environment, registry);
+        AgentExecutionPlan plan = RuntimePlanFixtures.readOnly("exec-success", primary,
+                Collections.singletonList(primary), Collections.singleton("TEST_ALLOWED"),
+                CredentialReference.environment("RUNTIME_KEY"));
+        Events events = new Events();
+
+        RuntimeHandle handle = kernel.start(plan, events);
+
+        events.awaitTerminal();
+        assertEquals("exec-success", handle.getExecutionId());
+        assertEquals(RuntimeState.TERMINATED, kernel.observe(handle).getState());
+        assertEquals(RuntimeTerminationReason.COMPLETED,
+                kernel.observe(handle).termination().orElseThrow(AssertionError::new).getReason());
+        assertTrue(events.types().contains(RuntimeEventType.STARTED));
+        assertTrue(events.types().contains(RuntimeEventType.OUTPUT));
+        assertEquals(RuntimeEventType.TERMINATED, events.terminal().getType());
+        assertTrue(events.events.stream().flatMap(event ->
+                        event.getSemanticEvents().stream())
+                .anyMatch(event -> String.valueOf(
+                        event.getData().get("content"))
+                        .contains("visible-safe-value")));
+        assertTrue(events.events.stream().noneMatch(event ->
+                event.getSafePayload().contains(SECRET)
+                        || event.getSafePayload().contains("must-not-be-inherited")));
+        assertTrue(events.events.stream().flatMap(event ->
+                        event.getSemanticEvents().stream())
+                .anyMatch(event -> String.valueOf(
+                        event.getData().get("content"))
+                        .contains("[REDACTED]")));
+        assertStrictlyIncreasingSequences(events.events);
+        assertRuntimeRootEmpty(tempDir.resolve("runtime-success"));
+    }
+
+    @Test
+    void enforcesOutputLimitAndHardTimeoutAsTechnicalTerminalFacts() throws Exception {
+        Path primary = Files.createDirectory(tempDir.resolve("primary-limits"));
+        Path noisy = script("noisy.sh", "#!/bin/sh\ncat >/dev/null\n"
+                + "printf '%s\\n' '{\"type\":\"item.completed\","
+                + "\"payload\":\"12345678901234567890\"}'\n");
+        RuntimeProcessRegistry limitedRegistry = new RuntimeProcessRegistry();
+        AgentProcessKernel limitedKernel = kernel(noisy, "runtime-limit",
+                Collections.<String, String>emptyMap(), limitedRegistry);
+        AgentExecutionPlan limitedPlan = RuntimePlanFixtures.plan("exec-limit", primary,
+                Collections.singletonList(primary), Collections.<Path>emptyList(),
+                SandboxMode.READ_ONLY, Duration.ofSeconds(5L), 16L,
+                Collections.<String>emptySet(), CredentialReference.systemConfiguration());
+        Events limitedEvents = new Events();
+
+        RuntimeHandle limitedHandle = limitedKernel.start(limitedPlan, limitedEvents);
+        limitedEvents.awaitTerminal();
+
+        assertEquals(RuntimeTerminationReason.OUTPUT_LIMIT,
+                limitedKernel.observe(limitedHandle).termination()
+                        .orElseThrow(AssertionError::new).getReason());
+        assertRuntimeRootEmpty(tempDir.resolve("runtime-limit"));
+
+        Path idle = script("idle.sh", "#!/bin/sh\nsleep 20\n");
+        RuntimeProcessRegistry timeoutRegistry = new RuntimeProcessRegistry();
+        AgentProcessKernel timeoutKernel = kernel(idle, "runtime-timeout",
+                Collections.<String, String>emptyMap(), timeoutRegistry);
+        AgentExecutionPlan timeoutPlan = RuntimePlanFixtures.plan("exec-timeout", primary,
+                Collections.singletonList(primary), Collections.<Path>emptyList(),
+                SandboxMode.READ_ONLY, Duration.ofMillis(150L), 1024L,
+                Collections.<String>emptySet(), CredentialReference.systemConfiguration());
+        Events timeoutEvents = new Events();
+
+        RuntimeHandle timeoutHandle = timeoutKernel.start(timeoutPlan, timeoutEvents);
+        timeoutEvents.awaitTerminal();
+
+        assertEquals(RuntimeTerminationReason.TIMEOUT,
+                timeoutKernel.observe(timeoutHandle).termination()
+                        .orElseThrow(AssertionError::new).getReason());
+        assertRuntimeRootEmpty(tempDir.resolve("runtime-timeout"));
+    }
+
+    @Test
+    void requestStopIsIdempotentAndTerminatesDescendantProcessTree() throws Exception {
+        Path primary = Files.createDirectory(tempDir.resolve("primary-stop"));
+        Path childPid = tempDir.resolve("child.pid");
+        Path script = script("tree.sh", "#!/bin/sh\n"
+                + "sleep 20 &\n"
+                + "printf '%s' \"$!\" > '" + childPid + "'\n"
+                + "wait\n");
+        RuntimeProcessRegistry registry = new RuntimeProcessRegistry();
+        AgentProcessKernel kernel = kernel(script, "runtime-stop",
+                Collections.<String, String>emptyMap(), registry);
+        AgentExecutionPlan plan = RuntimePlanFixtures.readOnly("exec-stop", primary,
+                Collections.singletonList(primary), Collections.<String>emptySet(),
+                CredentialReference.systemConfiguration());
+        Events events = new Events();
+        RuntimeHandle handle = kernel.start(plan, events);
+        awaitFile(childPid);
+        String pid = new String(Files.readAllBytes(childPid), StandardCharsets.UTF_8);
+
+        kernel.requestStop(handle);
+        kernel.requestStop(handle);
+
+        events.awaitTerminal();
+        assertEquals(RuntimeTerminationReason.REQUESTED_STOP,
+                kernel.observe(handle).termination().orElseThrow(AssertionError::new).getReason());
+        assertEventuallyNotAlive(pid);
+        assertRuntimeRootEmpty(tempDir.resolve("runtime-stop"));
+    }
+
+    @Test
+    void launchesWithExactMcpOverridesAndRedactsResolvedMcpSecret() throws Exception {
+        Path primary = Files.createDirectory(tempDir.resolve("primary-mcp"));
+        Path script = script("mcp.sh", "#!/bin/sh\n"
+                + "case \"$*\" in *mcp_servers.repository-query.command*) ;; "
+                + "*) exit 41 ;; esac\n"
+                + "cat >/dev/null\n"
+                + "printf '%s\\n' \"{\\\"type\\\":\\\"item.completed\\\","
+                + "\\\"item\\\":{\\\"type\\\":\\\"agent_message\\\","
+                + "\\\"text\\\":\\\"mcpSecret=${MCP_QUERY_KEY-}\\\"}}\"\n"
+                + "printf '%s\\n' '{\"type\":\"turn.completed\"}'\n");
+        McpServerDefinition definition = mcpDefinition();
+        ResolvedCapabilityBinding binding = ResolvedCapabilityBinding.resolve(
+                "policy@1", "profile", "1.0.0",
+                CanonicalHashing.sha256("profile"),
+                Collections.emptyList(), Collections.emptyList(),
+                Collections.singletonList(new ResolvedMcpServerBinding(
+                        definition.getId(), definition.getVersion(),
+                        definition.getConfigurationHash(), CapabilityAccess.READ,
+                        "STDIO")), Collections.emptyList(), "CODEX");
+        AgentExecutionPlan plan = withBinding(
+                RuntimePlanFixtures.readOnly("exec-mcp", primary,
+                        Collections.singletonList(primary),
+                        Collections.<String>emptySet(),
+                        CredentialReference.systemConfiguration()), binding);
+        RuntimeCapabilityMaterializer capabilityMaterializer =
+                new RuntimeCapabilityMaterializer(
+                        Collections::emptyList,
+                        () -> Collections.singletonList(definition),
+                        reference -> {
+                            assertEquals("MCP_QUERY_REFERENCE", reference);
+                            return SECRET.toCharArray();
+                        });
+        RuntimeProcessRegistry registry = new RuntimeProcessRegistry();
+        AgentProcessKernel kernel = kernel(script, "runtime-mcp",
+                Collections.<String, String>emptyMap(), registry,
+                capabilityMaterializer);
+        Events events = new Events();
+
+        RuntimeHandle handle = kernel.start(plan, events);
+
+        events.awaitTerminal();
+        assertEquals(RuntimeTerminationReason.COMPLETED,
+                kernel.observe(handle).termination()
+                        .orElseThrow(AssertionError::new).getReason());
+        assertTrue(events.events.stream().flatMap(event ->
+                        event.getSemanticEvents().stream())
+                .anyMatch(event -> String.valueOf(
+                        event.getData().get("content"))
+                        .contains("[REDACTED]")));
+        assertTrue(events.events.stream().noneMatch(event ->
+                event.getSafePayload().contains(SECRET)));
+        assertRuntimeRootEmpty(tempDir.resolve("runtime-mcp"));
+    }
+
+    @Test
+    void blockedHighImpactIntentStopsProcessBeforeFollowingSideEffectAndEmitsSafeEvent()
+            throws Exception {
+        Path primary = Files.createDirectory(tempDir.resolve("primary-blocked"));
+        Path forbiddenEffect = tempDir.resolve("forbidden-effect");
+        Path script = script("blocked.sh", "#!/bin/sh\n"
+                + "cat >/dev/null\n"
+                + "printf '%s\\n' '{\"type\":\"item.started\",\"item\":{"
+                + "\"id\":\"command-1\",\"type\":\"command_execution\","
+                + "\"command\":\"git push origin master\","
+                + "\"status\":\"in_progress\"}}'\n"
+                + "sleep 2\n"
+                + "touch '" + forbiddenEffect + "'\n");
+        RuntimeProcessRegistry registry = new RuntimeProcessRegistry();
+        AgentProcessKernel kernel = kernel(script, "runtime-blocked",
+                Collections.<String, String>emptyMap(), registry);
+        AgentExecutionPlan plan = RuntimePlanFixtures.plan(
+                "exec-blocked", primary, Collections.singletonList(primary),
+                Collections.singletonList(primary), SandboxMode.WORKSPACE_WRITE,
+                Duration.ofSeconds(5L), 1024L * 1024L,
+                Collections.<String>emptySet(),
+                CredentialReference.systemConfiguration());
+        Events events = new Events();
+
+        RuntimeHandle handle = kernel.start(plan, events);
+
+        events.awaitTerminal();
+        assertEquals(RuntimeTerminationReason.SECURITY_POLICY,
+                kernel.observe(handle).termination()
+                        .orElseThrow(AssertionError::new).getReason());
+        assertFalse(Files.exists(forbiddenEffect));
+        assertTrue(events.events.stream().flatMap(event ->
+                        event.getSemanticEvents().stream())
+                .anyMatch(event -> "operation_blocked".equals(
+                        event.getEventType())));
+        assertTrue(events.events.stream().noneMatch(event ->
+                event.getSafePayload().contains("git push")));
+    }
+
+    private AgentProcessKernel kernel(Path command, String runtimeDirectory,
+                                      Map<String, String> environment,
+                                      RuntimeProcessRegistry registry) {
+        return kernel(command, runtimeDirectory, environment, registry,
+                new RuntimeCapabilityMaterializer(
+                        Collections::emptyList, Collections::emptyList,
+                        reference -> new char[0]));
+    }
+
+    private AgentProcessKernel kernel(Path command, String runtimeDirectory,
+                                      Map<String, String> environment,
+                                      RuntimeProcessRegistry registry,
+                                      RuntimeCapabilityMaterializer capabilityMaterializer) {
+        ExecutorService executor = Executors.newCachedThreadPool(runnable -> {
+            Thread thread = new Thread(runnable, "runtime-kernel-test");
+            thread.setDaemon(true);
+            return thread;
+        });
+        executors.add(executor);
+        AgentProcessKernel kernel = new AgentProcessKernel(
+                new RuntimeCommandFactory(command.toString()),
+                new RuntimeWorkspaceMaterializer(tempDir.resolve(runtimeDirectory)),
+                capabilityMaterializer,
+                new RuntimeEventDecoder(new RuntimeOutputRedactor()),
+                new RuntimeCredentialResolver(() -> null, environment::get),
+                registry, new RuntimeCleanup(), executor);
+        kernels.add(kernel);
+        return kernel;
+    }
+
+    private AgentExecutionPlan withBinding(
+            AgentExecutionPlan plan, ResolvedCapabilityBinding binding) {
+        return new AgentExecutionPlan(
+                plan.getExecutionIdentity(), plan.getRuntimeSelection(),
+                plan.getPromptPayload(), plan.getWorkspaceLayout(), binding,
+                plan.getRuntimeLimits());
+    }
+
+    private McpServerDefinition mcpDefinition() {
+        Set<String> useCases = Collections.singleton("IMPLEMENT_TEST");
+        Set<String> runtimes = Collections.singleton("CODEX");
+        return new McpServerDefinition(
+                "repository-query", "1.0.0", "repository query",
+                useCases, runtimes, Arrays.asList("repository-mcp", "--stdio"),
+                Collections.singletonList(new McpCapability(
+                        "read_repository", McpCapabilityType.TOOL,
+                        CapabilityAccess.READ)),
+                Collections.singletonList(new McpSecretReference(
+                        "MCP_QUERY_KEY", "MCP_QUERY_REFERENCE")),
+                10, 30, CanonicalHashing.sha256("mcp-definition"));
+    }
+
+    private Path script(String name, String content) throws Exception {
+        Path script = tempDir.resolve(name);
+        Files.write(script, content.getBytes(StandardCharsets.UTF_8));
+        assertTrue(script.toFile().setExecutable(true));
+        return script;
+    }
+
+    private void awaitFile(Path file) throws Exception {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5L);
+        while (Files.notExists(file) && System.nanoTime() < deadline) {
+            Thread.sleep(20L);
+        }
+        assertTrue(Files.exists(file));
+    }
+
+    private void assertEventuallyNotAlive(String pid) throws Exception {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5L);
+        while (isAlive(pid) && System.nanoTime() < deadline) {
+            Thread.sleep(20L);
+        }
+        assertFalse(isAlive(pid), "descendant process is still alive: " + pid);
+    }
+
+    private boolean isAlive(String pid) throws Exception {
+        Process probe = new ProcessBuilder("kill", "-0", pid).start();
+        return probe.waitFor() == 0;
+    }
+
+    private void assertRuntimeRootEmpty(Path root) throws Exception {
+        if (Files.notExists(root)) {
+            return;
+        }
+        try (java.util.stream.Stream<Path> children = Files.list(root)) {
+            assertEquals(0L, children.count());
+        }
+    }
+
+    private void assertStrictlyIncreasingSequences(List<RuntimeEvent> events) {
+        long previous = 0L;
+        for (RuntimeEvent event : events) {
+            assertTrue(event.getSequence() > previous,
+                    "runtime event sequence must be strictly increasing");
+            previous = event.getSequence();
+        }
+    }
+
+    private static final class Events implements RuntimeEventSink {
+
+        private final List<RuntimeEvent> events = new CopyOnWriteArrayList<RuntimeEvent>();
+        private final CountDownLatch terminal = new CountDownLatch(1);
+
+        @Override
+        public void onEvent(RuntimeEvent event) {
+            events.add(event);
+            if (event.getType() == RuntimeEventType.TERMINATED) {
+                terminal.countDown();
+            }
+        }
+
+        private void awaitTerminal() throws InterruptedException {
+            assertTrue(terminal.await(8L, TimeUnit.SECONDS));
+        }
+
+        private RuntimeEvent terminal() {
+            return events.get(events.size() - 1);
+        }
+
+        private List<RuntimeEventType> types() {
+            List<RuntimeEventType> types = new ArrayList<RuntimeEventType>();
+            for (RuntimeEvent event : events) {
+                types.add(event.getType());
+            }
+            return types;
+        }
+    }
+}

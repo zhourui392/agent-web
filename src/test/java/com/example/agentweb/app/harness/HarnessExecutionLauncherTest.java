@@ -18,11 +18,13 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -45,7 +47,47 @@ class HarnessExecutionLauncherTest {
 
     @BeforeEach
     void setUp() {
-        launcher = new HarnessExecutionLauncher(preparer, runtimeEventService, runtimeGateway);
+        launcher = launcher(new HarnessRetirementPolicy(true, true, true));
+    }
+
+    private HarnessExecutionLauncher launcher(
+            HarnessRetirementPolicy retirementPolicy) {
+        return new HarnessExecutionLauncher(
+                preparer, runtimeEventService, runtimeGateway,
+                retirementPolicy);
+    }
+
+    @Test
+    void stoppedCreationShouldStillAllowExistingRunCancellation() {
+        launcher = launcher(new HarnessRetirementPolicy(false, true, true));
+        PreparedHarnessCancellation prepared = new PreparedHarnessCancellation(
+                HarnessMutationResult.of(
+                        "run-1", "CANCELLING", 3L, false),
+                CancellationDirective.cancelRuntime("exec-1"));
+        when(preparer.prepareCancellation("run-1", "stop"))
+                .thenReturn(prepared);
+
+        HarnessMutationResult result = launcher.cancel("run-1", "stop");
+
+        assertEquals("CANCELLING", result.getStatus());
+        verify(runtimeGateway).cancel("exec-1");
+    }
+
+    @Test
+    void readOnlyWindowShouldRejectStartAndCancelBeforePreparation() {
+        launcher = launcher(new HarnessRetirementPolicy(true, false, true));
+
+        HarnessRetirementUnavailableException startFailure = assertThrows(
+                HarnessRetirementUnavailableException.class,
+                () -> launcher.start(new StartHarnessExecutionCommand(
+                        "run-1", HarnessStage.ANALYSIS, "launch-1")));
+        HarnessRetirementUnavailableException cancelFailure = assertThrows(
+                HarnessRetirementUnavailableException.class,
+                () -> launcher.cancel("run-1", "stop"));
+
+        assertEquals("HARNESS_MUTATION_DISABLED", startFailure.getCode());
+        assertEquals("HARNESS_MUTATION_DISABLED", cancelFailure.getCode());
+        verifyNoInteractions(preparer, runtimeEventService, runtimeGateway);
     }
 
     @Test

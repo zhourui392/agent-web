@@ -7,14 +7,14 @@ import com.example.agentweb.app.harness.port.RuntimePreflightReport;
 import com.example.agentweb.config.harness.HarnessRuntimeProperties;
 import com.example.agentweb.config.harness.HarnessRuntimeProperties.AuthMode;
 import com.example.agentweb.config.harness.HarnessSecurityProperties;
+import com.example.agentweb.domain.capability.CapabilityAccess;
+import com.example.agentweb.domain.capability.McpCapability;
+import com.example.agentweb.domain.capability.McpCapabilityType;
+import com.example.agentweb.domain.capability.McpSecretReference;
+import com.example.agentweb.domain.capability.McpServerDefinition;
 import com.example.agentweb.domain.harness.AgentRuntime;
-import com.example.agentweb.domain.harness.CapabilityAccess;
 import com.example.agentweb.domain.harness.HarnessHashing;
 import com.example.agentweb.domain.harness.HarnessStage;
-import com.example.agentweb.domain.harness.McpCapability;
-import com.example.agentweb.domain.harness.McpCapabilityType;
-import com.example.agentweb.domain.harness.McpSecretReference;
-import com.example.agentweb.domain.harness.McpServerDefinition;
 import com.example.agentweb.domain.harness.RuntimeEnforcementProfile;
 import com.example.agentweb.domain.harness.RuntimeExecutionSignalType;
 import com.example.agentweb.domain.harness.SelectedMcpServer;
@@ -648,7 +648,8 @@ class CodexHarnessRuntimeGatewayTest {
 
     private SelectedMcpServer reader() {
         McpServerDefinition definition = new McpServerDefinition("reader", "1.0.0", "reader",
-                Collections.singleton(HarnessStage.ANALYSIS), Collections.singleton(AgentRuntime.CODEX),
+                Collections.singleton(HarnessStage.ANALYSIS.name()),
+                Collections.singleton(AgentRuntime.CODEX.name()),
                 Arrays.asList("fake-mcp", "--stdio"), Arrays.asList(
                 new McpCapability("search", McpCapabilityType.TOOL, CapabilityAccess.READ),
                 new McpCapability("update", McpCapabilityType.TOOL, CapabilityAccess.WRITE)),

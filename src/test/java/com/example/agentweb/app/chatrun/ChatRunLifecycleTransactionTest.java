@@ -82,6 +82,7 @@ class ChatRunLifecycleTransactionTest {
                 new AfterCommitExecutor());
         ChatRunLifecycleService service = new ChatRunLifecycleService(runRepository,
                 sessionRepository, failingCheckpointRepository, eventAppender,
+                mock(ChatRunTerminalFinalizer.class),
                 Clock.fixed(NOW, ZoneOffset.UTC));
         AgentExecutionResult result = new AgentExecutionResult(
                 AgentStreamResult.completed(0),
@@ -129,7 +130,8 @@ class ChatRunLifecycleTransactionTest {
     private void createSchema() {
         jdbc.execute("CREATE TABLE chat_session (id TEXT PRIMARY KEY, agent_type TEXT NOT NULL, "
                 + "working_dir TEXT NOT NULL, created_at TEXT NOT NULL, resume_id TEXT, "
-                + "last_message_at INTEGER)");
+                + "last_message_at INTEGER, session_kind TEXT NOT NULL DEFAULT 'CHAT', "
+                + "context_id TEXT, retired_at TEXT)");
         jdbc.execute("CREATE TABLE chat_message (id INTEGER PRIMARY KEY AUTOINCREMENT, "
                 + "session_id TEXT NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL, "
                 + "timestamp TEXT NOT NULL)");
@@ -138,6 +140,8 @@ class ChatRunLifecycleTransactionTest {
         jdbc.execute("CREATE TABLE chat_run (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, "
                 + "user_message_id INTEGER NOT NULL, assistant_message_id INTEGER, "
                 + "idempotency_key TEXT NOT NULL, recall_enabled INTEGER NOT NULL, "
+                + "run_origin TEXT NOT NULL DEFAULT 'CHAT', origin_reference TEXT, "
+                + "execution_context_id TEXT, "
                 + "status TEXT NOT NULL, last_event_seq INTEGER NOT NULL, exit_code INTEGER, "
                 + "failure_code TEXT, error_message TEXT, created_at INTEGER NOT NULL, "
                 + "started_at INTEGER, cancel_requested_at INTEGER, finished_at INTEGER, "

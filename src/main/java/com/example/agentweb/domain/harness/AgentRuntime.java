@@ -1,5 +1,7 @@
 package com.example.agentweb.domain.harness;
 
+import com.example.agentweb.domain.capability.CapabilityResolutionException;
+
 /**
  * Harness 首版支持的 Agent Runtime。
  *

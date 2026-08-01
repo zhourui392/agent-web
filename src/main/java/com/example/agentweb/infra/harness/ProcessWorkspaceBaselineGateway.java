@@ -2,10 +2,10 @@ package com.example.agentweb.infra.harness;
 
 import com.example.agentweb.app.harness.InvalidHarnessWorkspaceException;
 import com.example.agentweb.app.harness.port.WorkspaceBaselineGateway;
-import com.example.agentweb.domain.harness.ChangedFileEvidence;
 import com.example.agentweb.domain.harness.HarnessHashing;
 import com.example.agentweb.domain.harness.WorkspaceBaseline;
 import com.example.agentweb.domain.harness.WorkspaceChangeEvidence;
+import com.example.agentweb.domain.workspace.ChangedFileEvidence;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 

@@ -274,8 +274,8 @@ agent:
 
 ## 14. 观测指标
 
-- `workbench_created_total{result}`；
-- `workbench_active_total`；
+- `workbench_creation_total{result}`；
+- `workbench_active`；
 - `workbench_run_total{phase,mode,status}`；
 - `workbench_run_duration_seconds{phase,mode}`；
 - `workbench_write_conflict_total`；
@@ -288,6 +288,12 @@ agent:
 - `workbench_handoff_conflict_total`；
 - `workbench_operation_total{type,status}`；
 - `workbench_recovery_reconciliation_total{result}`。
+
+其中创建计数使用 `creation` 而不是 `created`，因为 OpenMetrics/Prometheus
+将 `_created` 作为保留后缀；活跃数量是可增可减的 Gauge，因此使用
+`workbench_active`，不能使用只适用于 Counter 的 `_total` 后缀。发布测试必须
+以实际 `PrometheusMeterRegistry.scrape()` 文本校验名称，不能只检查 Micrometer
+内存 Meter 名称。
 
 日志只输出 Workbench/Run ID、Phase、Repository Key、状态、耗时、Hash 前缀和错误 Code。
 

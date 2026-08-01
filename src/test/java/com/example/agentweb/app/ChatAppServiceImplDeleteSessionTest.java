@@ -3,6 +3,7 @@ package com.example.agentweb.app;
 import com.example.agentweb.app.agentrun.port.AgentGateway;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.chat.ChatSession;
+import com.example.agentweb.domain.chat.ChatSessionNotFoundException;
 import com.example.agentweb.domain.chat.SessionCache;
 import com.example.agentweb.domain.chat.SessionDeletionForbiddenException;
 import com.example.agentweb.domain.chat.SessionRepository;
@@ -123,6 +124,24 @@ public class ChatAppServiceImplDeleteSessionTest {
         org.mockito.InOrder order = inOrder(sessionRepository, chatRunActivityGuard);
         order.verify(sessionRepository).findById("sess-active");
         order.verify(chatRunActivityGuard).requireInactive("sess-active");
+        verify(uploadPicStore, never()).deleteSessionImages(anyString(), anyString());
+        verify(uploadFileStore, never()).deleteSessionFiles(anyString(), anyString());
+        verify(sessionCache, never()).remove(anyString());
+        verify(sessionRepository, never()).deleteById(anyString());
+    }
+
+    @Test
+    public void deleteSession_workbenchPhaseShouldLookMissingAndTouchNoData() {
+        ChatSession session = ChatSession.createWorkbenchPhase(
+                "phase-session", AgentType.CODEX, "/tmp/wd",
+                "workbench-1:IMPLEMENT_TEST", "owner-1", "Alex",
+                java.time.Instant.parse("2026-08-01T10:00:00Z"));
+        when(sessionRepository.findById("phase-session")).thenReturn(session);
+
+        assertThrows(ChatSessionNotFoundException.class,
+                () -> service.deleteSession("phase-session"));
+
+        verify(chatRunActivityGuard, never()).requireInactive(anyString());
         verify(uploadPicStore, never()).deleteSessionImages(anyString(), anyString());
         verify(uploadFileStore, never()).deleteSessionFiles(anyString(), anyString());
         verify(sessionCache, never()).remove(anyString());

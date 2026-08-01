@@ -3,11 +3,13 @@ package com.example.agentweb.interfaces;
 import com.example.agentweb.app.harness.CapabilitySnapshotQueryService;
 import com.example.agentweb.app.harness.CapabilitySnapshotView;
 import com.example.agentweb.app.harness.HarnessCapabilityService;
+import com.example.agentweb.app.harness.HarnessRetirementPolicy;
+import com.example.agentweb.app.harness.HarnessRetirementUnavailableException;
 import com.example.agentweb.app.harness.ResolveHarnessCapabilityCommand;
-import com.example.agentweb.domain.harness.CapabilityResolutionException;
-import com.example.agentweb.domain.harness.CapabilityAccess;
-import com.example.agentweb.domain.harness.McpCapability;
-import com.example.agentweb.domain.harness.McpCapabilityType;
+import com.example.agentweb.domain.capability.CapabilityResolutionException;
+import com.example.agentweb.domain.capability.CapabilityAccess;
+import com.example.agentweb.domain.capability.McpCapability;
+import com.example.agentweb.domain.capability.McpCapabilityType;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -26,7 +28,9 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -57,6 +61,35 @@ class HarnessCapabilityControllerTest {
 
     @MockBean
     private CapabilitySnapshotQueryService queryService;
+
+    @MockBean
+    private HarnessRetirementPolicy retirementPolicy;
+
+    @Test
+    void readOnlyWindowShouldRejectCapabilityWriteButKeepSnapshotRead()
+            throws Exception {
+        doThrow(HarnessRetirementUnavailableException.mutation())
+                .when(retirementPolicy).requireMutationAvailable();
+        CapabilitySnapshotView snapshot = view();
+        when(queryService.find(
+                "run-1",
+                com.example.agentweb.domain.harness.HarnessStage.ANALYSIS,
+                1)).thenReturn(Optional.of(snapshot));
+
+        mvc.perform(post(
+                        "/api/harness/runs/run-1/stages/ANALYSIS/capability-snapshot")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"currentInput\":\"input\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code")
+                        .value("HARNESS_MUTATION_DISABLED"));
+        mvc.perform(get(
+                        "/api/harness/runs/run-1/stages/ANALYSIS/attempts/1/capability-snapshot"))
+                .andExpect(status().isOk());
+
+        verify(capabilityService, never()).resolve(any());
+        verify(retirementPolicy).requireMutationAvailable();
+    }
 
     @Test
     void resolveShouldConvertSelectionAndGrantRequestThenReturnSnapshotPreview() throws Exception {

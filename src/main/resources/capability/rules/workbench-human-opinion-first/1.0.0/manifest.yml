@@ -1,0 +1,10 @@
+schemaVersion: "1"
+id: workbench/human-opinion-first
+version: 1.0.0
+source: PLATFORM
+mandatory: true
+summary: 评审与重构阶段先提交人工可审核意见
+applicableUseCases:
+  - REVIEW_REFACTOR
+resources:
+  rule: rule.md

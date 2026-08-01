@@ -1,0 +1,10 @@
+schemaVersion: "1"
+id: workbench/read-only-solution-design
+version: 1.0.0
+source: PLATFORM
+mandatory: true
+summary: 方案设计阶段只读输出分层设计与验证方案
+applicableUseCases:
+  - SOLUTION_DESIGN
+resources:
+  rule: rule.md

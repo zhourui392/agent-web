@@ -1,17 +1,17 @@
 package com.example.agentweb.infra.harness;
 
 import com.example.agentweb.domain.harness.AgentRuntime;
-import com.example.agentweb.domain.harness.CapabilityAccess;
+import com.example.agentweb.domain.capability.CapabilityAccess;
 import com.example.agentweb.domain.harness.CapabilityDecision;
-import com.example.agentweb.domain.harness.CapabilityKind;
-import com.example.agentweb.domain.harness.CapabilityRequest;
+import com.example.agentweb.domain.capability.CapabilityKind;
+import com.example.agentweb.domain.capability.CapabilityRequest;
 import com.example.agentweb.domain.harness.CapabilitySnapshot;
 import com.example.agentweb.domain.harness.HarnessPromptPart;
 import com.example.agentweb.domain.harness.HarnessStage;
-import com.example.agentweb.domain.harness.McpCapability;
-import com.example.agentweb.domain.harness.McpCapabilityType;
+import com.example.agentweb.domain.capability.McpCapability;
+import com.example.agentweb.domain.capability.McpCapabilityType;
 import com.example.agentweb.domain.harness.McpRejectionReason;
-import com.example.agentweb.domain.harness.McpSecretReference;
+import com.example.agentweb.domain.capability.McpSecretReference;
 import com.example.agentweb.domain.harness.PromptPartType;
 import com.example.agentweb.domain.harness.RejectedMcpServer;
 import com.example.agentweb.domain.harness.RejectedSkill;

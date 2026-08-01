@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -28,6 +29,8 @@ class ChatRunTest {
         assertEquals("session-1", run.getSessionId());
         assertEquals(11L, run.getUserMessageId());
         assertEquals("request-1", run.getIdempotencyKey());
+        assertEquals(RunOrigin.CHAT, run.getRunOrigin());
+        assertFalse(run.getExecutionContextReference().isPresent());
         assertEquals(ChatRunStatus.PENDING, run.getStatus());
         assertEquals(0L, run.getLastEventSeq());
         assertEquals(CREATED_AT, run.getCreatedAt());
@@ -46,6 +49,73 @@ class ChatRunTest {
                 () -> ChatRun.submit(ChatRunId.of("run-1"), "s1", 1L, repeat('x', 129), CREATED_AT));
         assertThrows(IllegalArgumentException.class,
                 () -> ChatRun.submit(ChatRunId.of("run-1"), "s1", 1L, "key", null));
+    }
+
+    @Test
+    void workbench_submit_should_require_and_freeze_execution_context() {
+        ExecutionContextReference context = ExecutionContextReference.of(
+                "workbench-1:IMPLEMENT_TEST", "run-workbench-1");
+
+        ChatRun run = ChatRun.submit(
+                ChatRunId.of("run-workbench-1"), "phase-session-1", 12L,
+                "request-workbench-1", false, RunOrigin.WORKBENCH,
+                context, CREATED_AT);
+
+        assertEquals(RunOrigin.WORKBENCH, run.getRunOrigin());
+        assertEquals(context, run.getExecutionContextReference());
+        assertEquals("workbench-1:IMPLEMENT_TEST",
+                run.getExecutionContextReference().getOriginReference());
+        assertEquals("run-workbench-1",
+                run.getExecutionContextReference().getExecutionContextId());
+        assertThrows(IllegalArgumentException.class, () -> ChatRun.submit(
+                ChatRunId.of("run-workbench-2"), "phase-session-1", 13L,
+                "request-workbench-2", false, RunOrigin.WORKBENCH,
+                ExecutionContextReference.none(), CREATED_AT));
+        assertThrows(IllegalArgumentException.class, () -> ChatRun.submit(
+                ChatRunId.of("run-chat-with-context"), "session-1", 14L,
+                "request-chat-context", true, RunOrigin.CHAT,
+                context, CREATED_AT));
+        assertThrows(IllegalArgumentException.class, () -> ChatRun.submit(
+                ChatRunId.of("run-workbench-mismatch"), "phase-session-1", 15L,
+                "request-workbench-mismatch", false, RunOrigin.WORKBENCH,
+                ExecutionContextReference.of(
+                        "workbench-1:IMPLEMENT_TEST", "different-context"),
+                CREATED_AT));
+    }
+
+    @Test
+    void ordinaryAndWorkbenchSurfaceGuardsShouldHideWrongOriginOrContext() {
+        ChatRun chat = newRun();
+        ChatRun workbench = ChatRun.submit(
+                ChatRunId.of("run-workbench-1"), "phase-session-1", 12L,
+                "request-workbench-1", false, RunOrigin.WORKBENCH,
+                ExecutionContextReference.of(
+                        "workbench-1:IMPLEMENT_TEST", "run-workbench-1"),
+                CREATED_AT);
+
+        assertDoesNotThrow(chat::requireOrdinaryChat);
+        ChatRunNotFoundException ordinaryError = assertThrows(
+                ChatRunNotFoundException.class, workbench::requireOrdinaryChat);
+        assertFalse(ordinaryError.getMessage().contains("WORKBENCH"));
+
+        assertDoesNotThrow(() -> workbench.requireWorkbenchExecutionContext(
+                "workbench-1:IMPLEMENT_TEST"));
+        assertThrows(ChatRunNotFoundException.class,
+                () -> workbench.requireWorkbenchExecutionContext(
+                        "workbench-1:SOLUTION_DESIGN"));
+        assertThrows(ChatRunNotFoundException.class,
+                () -> chat.requireWorkbenchExecutionContext(
+                        "workbench-1:IMPLEMENT_TEST"));
+    }
+
+    @Test
+    void execution_context_should_reject_partial_or_unsafe_identity() {
+        assertThrows(IllegalArgumentException.class,
+                () -> ExecutionContextReference.of(" ", "run-1"));
+        assertThrows(IllegalArgumentException.class,
+                () -> ExecutionContextReference.of("workbench-1:IMPLEMENT_TEST", " "));
+        assertThrows(IllegalArgumentException.class,
+                () -> ExecutionContextReference.restore("workbench-1", null));
     }
 
     @Test

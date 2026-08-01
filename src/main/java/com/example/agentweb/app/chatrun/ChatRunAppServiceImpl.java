@@ -12,6 +12,7 @@ import com.example.agentweb.domain.chatrun.ChatRunCancellationDecision;
 import com.example.agentweb.domain.chatrun.ChatRunId;
 import com.example.agentweb.domain.chatrun.ChatRunNotFoundException;
 import com.example.agentweb.domain.chatrun.ChatRunRepository;
+import com.example.agentweb.domain.chatrun.RunSessionOriginPolicy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -43,6 +44,7 @@ public class ChatRunAppServiceImpl implements ChatRunAppService {
     private final ChatRunActivityGuard activityGuard;
     private final ChatRunSubmissionExecutor submissionExecutor;
     private final AgentCatalogService agentCatalogService;
+    private final ChatRunTerminalFinalizer terminalFinalizer;
 
     public ChatRunAppServiceImpl(SessionRepository sessionRepository,
                                  ChatRunRepository runRepository,
@@ -56,7 +58,8 @@ public class ChatRunAppServiceImpl implements ChatRunAppService {
                                  ChatRunStreamSettings settings,
                                  ChatRunActivityGuard activityGuard,
                                  ChatRunSubmissionExecutor submissionExecutor,
-                                 AgentCatalogService agentCatalogService) {
+                                 AgentCatalogService agentCatalogService,
+                                 ChatRunTerminalFinalizer terminalFinalizer) {
         this.sessionRepository = sessionRepository;
         this.runRepository = runRepository;
         this.eventStore = eventStore;
@@ -70,6 +73,7 @@ public class ChatRunAppServiceImpl implements ChatRunAppService {
         this.activityGuard = activityGuard;
         this.submissionExecutor = submissionExecutor;
         this.agentCatalogService = agentCatalogService;
+        this.terminalFinalizer = terminalFinalizer;
     }
 
     @Override
@@ -79,10 +83,14 @@ public class ChatRunAppServiceImpl implements ChatRunAppService {
 
     private ChatRunSubmission submitInTransaction(SubmitChatRunCommand command) {
         ChatSession session = requireSession(command.getSessionId());
+        session.requireOrdinaryChat();
         Optional<ChatRun> duplicate = runRepository.findBySessionAndIdempotencyKey(
                 command.getSessionId(), command.getIdempotencyKey());
         if (duplicate.isPresent()) {
-            return ChatRunSubmission.from(duplicate.get(), true);
+            ChatRun duplicateRun = duplicate.get();
+            duplicateRun.requireOrdinaryChat();
+            RunSessionOriginPolicy.requireCompatible(session, duplicateRun);
+            return ChatRunSubmission.from(duplicateRun, true);
         }
         agentCatalogService.requireChatAvailable(session.getAgentType(), session.getEnv());
         int capacity = Math.max(1, settings.getMaxActiveRuns());
@@ -125,10 +133,11 @@ public class ChatRunAppServiceImpl implements ChatRunAppService {
         final ChatRun run = requireAuthorizedRun(ChatRunId.of(runId));
         Instant now = clock.instant();
         ChatRunCancellationDecision decision = run.requestCancellation(now);
-        if (decision.isChanged()) {
-            String eventType = decision.isTerminalTransition() ? "terminal" : "run_status";
+        if (decision.isTerminalTransition()) {
+            terminalFinalizer.finalizeFirstTerminal(run, now);
+        } else if (decision.isChanged()) {
             eventAppender.appendToExistingRun(run, Collections.singletonList(
-                    new ChatRunEventDraft(eventType, statusPayload(run))), now);
+                    new ChatRunEventDraft("run_status", statusPayload(run))), now);
             if (decision.isProcessStopRequired()) {
                 eventAppender.afterCommit(new Runnable() {
                     @Override
@@ -144,9 +153,12 @@ public class ChatRunAppServiceImpl implements ChatRunAppService {
     private ChatRun requireAuthorizedRun(ChatRunId runId) {
         ChatRun run = runRepository.findById(runId)
                 .orElseThrow(() -> new ChatRunNotFoundException(runId.getValue()));
-        if (sessionRepository.findById(run.getSessionId()) == null) {
+        ChatSession session = sessionRepository.findById(run.getSessionId());
+        if (session == null) {
             throw new ChatRunNotFoundException(runId.getValue());
         }
+        run.requireOrdinaryChat();
+        RunSessionOriginPolicy.requireCompatible(session, run);
         return run;
     }
 

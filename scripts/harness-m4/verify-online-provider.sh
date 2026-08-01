@@ -88,8 +88,8 @@ for index in "${!STAGES[@]}"; do
   slug=${SLUGS[$index]}
   skill=${SKILLS[$index]}
   expected=${EVIDENCE[$index]}
-  pack="$PROJECT_DIR/src/main/resources/harness/prompt-packs/$slug/1.0.0"
-  skill_entry="$PROJECT_DIR/src/main/resources/harness/skills/$skill/1.0.0/SKILL.md"
+  pack="$PROJECT_DIR/src/main/resources/capability/rules/$slug/1.0.0"
+  skill_entry="$PROJECT_DIR/src/main/resources/capability/skills/$skill/1.0.0/SKILL.md"
   prompt="$TEMP_ROOT/$slug.prompt.md"
   schema="$TEMP_ROOT/$slug.schema.json"
   result="$TEMP_ROOT/$slug.result.json"

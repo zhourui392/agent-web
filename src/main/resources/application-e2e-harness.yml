@@ -6,11 +6,11 @@ agent:
   harness:
     enabled: true
     artifact-root: data/harness-e2e/artifacts
-    prompt-pack-root: src/main/resources/harness/prompt-packs
-    platform-skill-root: src/main/resources/harness/skills
+    prompt-pack-root: src/main/resources/capability/rules
+    platform-skill-root: src/main/resources/capability/skills
     approved-user-skill-root: ""
     workspace-skill-root: ""
-    mcp-server-root: src/main/resources/harness/mcp-servers
+    mcp-server-root: src/main/resources/capability/mcp-servers
     deployment-template-root: tests/e2e/fixtures/harness/deployment-templates
     runtime:
       codex-command: "${user.dir}/tests/e2e/fixtures/harness/harness-codex-stub.cmd"

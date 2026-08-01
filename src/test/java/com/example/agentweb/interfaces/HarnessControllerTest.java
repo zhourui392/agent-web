@@ -14,6 +14,8 @@ import com.example.agentweb.app.harness.HarnessExecutionService;
 import com.example.agentweb.app.harness.HarnessRunQueryService;
 import com.example.agentweb.app.harness.HarnessRunSummaryView;
 import com.example.agentweb.app.harness.HarnessRunView;
+import com.example.agentweb.app.harness.HarnessRetirementPolicy;
+import com.example.agentweb.app.harness.HarnessRetirementUnavailableException;
 import com.example.agentweb.app.harness.InvalidHarnessWorkspaceException;
 import com.example.agentweb.domain.harness.ArtifactClassification;
 import com.example.agentweb.domain.harness.HarnessRunNotFoundException;
@@ -30,6 +32,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import java.util.Collections;
 import java.util.Optional;
@@ -37,9 +40,11 @@ import java.util.Optional;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -82,6 +87,147 @@ class HarnessControllerTest {
 
     @MockBean
     private HarnessArtifactQueryService artifactQueryService;
+
+    @MockBean
+    private HarnessRetirementPolicy retirementPolicy;
+
+    @Test
+    void stoppedCreationShouldRejectCreateButKeepExistingRunCancellation() throws Exception {
+        doThrow(HarnessRetirementUnavailableException.creation())
+                .when(retirementPolicy).requireCreationAvailable();
+        when(executionService.cancel("run-1", "stop")).thenReturn(
+                HarnessMutationResult.of(
+                        "run-1", "CANCELLING", 2L, false));
+
+        mvc.perform(post("/api/harness/runs")
+                        .header("Idempotency-Key", "create-key")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"M1\",\"workingDir\":\"/workspace\","
+                                + "\"agentType\":\"CODEX\",\"environment\":\"local\","
+                                + "\"originalRequirement\":\"Implement M4\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code")
+                        .value("HARNESS_CREATION_DISABLED"));
+        mvc.perform(post("/api/harness/runs/run-1/cancel")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"reason\":\"stop\"}"))
+                .andExpect(status().isAccepted());
+
+        verify(appService, never()).create(any());
+        verify(retirementPolicy).requireMutationAvailable();
+        verify(executionService).cancel("run-1", "stop");
+    }
+
+    @Test
+    void readOnlyWindowShouldRejectEveryWriteApiBeforeApplicationDelegation()
+            throws Exception {
+        doThrow(HarnessRetirementUnavailableException.mutation())
+                .when(retirementPolicy).requireMutationAvailable();
+        doThrow(HarnessRetirementUnavailableException.mutation())
+                .when(retirementPolicy).requireCreationAvailable();
+
+        expectMutationDisabled(post("/api/harness/runs")
+                .header("Idempotency-Key", "create-key")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"title\":\"M1\",\"workingDir\":\"/workspace\","
+                        + "\"agentType\":\"CODEX\",\"environment\":\"local\","
+                        + "\"originalRequirement\":\"Implement M4\"}"));
+        expectMutationDisabled(post(
+                "/api/harness/runs/run-1/stages/ANALYSIS/start")
+                .header("Idempotency-Key", "start-key"));
+        expectMutationDisabled(post(
+                "/api/harness/runs/run-1/stages/ANALYSIS/artifacts")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"artifactType\":\"REQUIREMENT\",\"content\":\"body\","
+                        + "\"contentType\":\"text/markdown\","
+                        + "\"classification\":\"INTERNAL\"}"));
+        expectMutationDisabled(post(
+                "/api/harness/runs/run-1/stages/ANALYSIS/gates")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"rule\":\"artifact-schema-valid\"}"));
+        expectMutationDisabled(post(
+                "/api/harness/runs/run-1/stages/ANALYSIS/questions")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"questionId\":\"question-1\","
+                        + "\"question\":\"Which tenant?\",\"blocking\":true}"));
+        expectMutationDisabled(post(
+                "/api/harness/runs/run-1/questions/question-1/answer")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"answer\":\"tenant-a\"}"));
+        expectMutationDisabled(post(
+                "/api/harness/runs/run-1/stages/ANALYSIS/request-approval"));
+        expectMutationDisabled(post(
+                "/api/harness/runs/run-1/stages/ANALYSIS/approve")
+                .header("Idempotency-Key", "approve-key")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"artifactBaselineHash\":\"" + repeat('a', 64)
+                        + "\",\"reason\":\"ok\"}"));
+        expectMutationDisabled(post(
+                "/api/harness/runs/run-1/stages/ANALYSIS/reject")
+                .header("Idempotency-Key", "reject-key")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"artifactBaselineHash\":\"" + repeat('a', 64)
+                        + "\",\"reason\":\"revise\"}"));
+        expectMutationDisabled(post(
+                "/api/harness/runs/run-1/stages/DEPLOYMENT/deployment-approval")
+                .header("Idempotency-Key", "deploy-approval-key")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"inputBaselineHash\":\"" + repeat('b', 64)
+                        + "\",\"reason\":\"deploy local\"}"));
+        expectMutationDisabled(post(
+                "/api/harness/runs/run-1/stages/DEPLOYMENT/deployments")
+                .header("Idempotency-Key", "deploy-key")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"templateId\":\"local-default\","
+                        + "\"approvedInputBaselineHash\":\""
+                        + repeat('a', 64) + "\"}"));
+        expectMutationDisabled(post(
+                "/api/harness/runs/run-1/deployments/deploy-1/reconcile")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"reason\":\"verified failed\"}"));
+        expectMutationDisabled(post(
+                "/api/harness/runs/run-1/stages/ANALYSIS/retry")
+                .header("Idempotency-Key", "retry-key"));
+        expectMutationDisabled(post("/api/harness/runs/run-1/cancel")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"reason\":\"stop\"}"));
+
+        verifyNoInteractions(
+                appService, executionService, deploymentService);
+    }
+
+    @Test
+    void readOnlyWindowShouldKeepHistoricalReadApisAvailable() throws Exception {
+        doThrow(HarnessRetirementUnavailableException.mutation())
+                .when(retirementPolicy).requireMutationAvailable();
+        when(queryService.findById("run-1"))
+                .thenReturn(Optional.of(emptyView()));
+        when(queryService.list()).thenReturn(Collections.singletonList(
+                new HarnessRunSummaryView(
+                        "run-1", "M4", "SUCCEEDED", "/workspace",
+                        "local", "admin", 123L)));
+        when(queryService.runExists("run-1")).thenReturn(true);
+        when(queryService.listEvents("run-1")).thenReturn(
+                Collections.<HarnessRunView.EventView>emptyList());
+        HarnessArtifactContentView artifact = new HarnessArtifactContentView(
+                "requirements", 1, "REQUIREMENT", "text/plain",
+                repeat('a', 64), ArtifactClassification.INTERNAL,
+                "body".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        when(artifactQueryService.findLatest("run-1", "requirements"))
+                .thenReturn(Optional.of(artifact));
+
+        mvc.perform(get("/api/harness/runs")).andExpect(status().isOk());
+        mvc.perform(get("/api/harness/runs/run-1"))
+                .andExpect(status().isOk());
+        mvc.perform(get("/api/harness/runs/run-1/events"))
+                .andExpect(status().isOk());
+        mvc.perform(get(
+                "/api/harness/runs/run-1/artifacts/requirements"))
+                .andExpect(status().isOk());
+
+        verify(retirementPolicy, never()).requireMutationAvailable();
+        verify(retirementPolicy, never()).requireCreationAvailable();
+    }
 
     @Test
     void create_and_get_should_expose_management_contract() throws Exception {
@@ -430,5 +576,13 @@ class HarnessControllerTest {
 
     private String repeat(char value, int count) {
         return String.join("", Collections.nCopies(count, String.valueOf(value)));
+    }
+
+    private void expectMutationDisabled(
+            MockHttpServletRequestBuilder request) throws Exception {
+        mvc.perform(request)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code")
+                        .value("HARNESS_MUTATION_DISABLED"));
     }
 }

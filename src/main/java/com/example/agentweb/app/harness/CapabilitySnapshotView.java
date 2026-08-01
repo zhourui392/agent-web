@@ -5,7 +5,7 @@ import com.example.agentweb.domain.harness.CapabilityDecision;
 import com.example.agentweb.domain.harness.CapabilitySnapshot;
 import com.example.agentweb.domain.harness.HarnessPromptPart;
 import com.example.agentweb.domain.harness.HarnessStage;
-import com.example.agentweb.domain.harness.McpCapability;
+import com.example.agentweb.domain.capability.McpCapability;
 import com.example.agentweb.domain.harness.RejectedMcpServer;
 import com.example.agentweb.domain.harness.RuntimeEnforcementProfile;
 import com.example.agentweb.domain.harness.RejectedSkill;

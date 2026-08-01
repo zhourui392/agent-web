@@ -1,5 +1,7 @@
 package com.example.agentweb.domain.harness;
 
+import com.example.agentweb.domain.capability.CapabilityRequest;
+
 import org.junit.jupiter.api.Test;
 
 import java.util.Collections;

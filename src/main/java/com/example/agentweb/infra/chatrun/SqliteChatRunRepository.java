@@ -6,6 +6,8 @@ import com.example.agentweb.domain.chatrun.ChatRunId;
 import com.example.agentweb.domain.chatrun.ChatRunRepository;
 import com.example.agentweb.domain.chatrun.ChatRunStatus;
 import com.example.agentweb.domain.chatrun.DuplicateChatRunSubmissionException;
+import com.example.agentweb.domain.chatrun.ExecutionContextReference;
+import com.example.agentweb.domain.chatrun.RunOrigin;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
@@ -27,7 +29,8 @@ import java.util.Optional;
 public class SqliteChatRunRepository implements ChatRunRepository {
 
     private static final String COLUMNS = "id, session_id, user_message_id, assistant_message_id, "
-            + "idempotency_key, recall_enabled, status, last_event_seq, exit_code, failure_code, error_message, "
+            + "idempotency_key, recall_enabled, run_origin, origin_reference, "
+            + "execution_context_id, status, last_event_seq, exit_code, failure_code, error_message, "
             + "created_at, started_at, cancel_requested_at, finished_at, updated_at, version";
 
     private final JdbcTemplate jdbc;
@@ -42,9 +45,13 @@ public class SqliteChatRunRepository implements ChatRunRepository {
     public void add(ChatRun run) {
         try {
             lockRetry.execute(() -> jdbc.update(
-                    "INSERT INTO chat_run (" + COLUMNS + ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    "INSERT INTO chat_run (" + COLUMNS
+                            + ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     run.getId().getValue(), run.getSessionId(), run.getUserMessageId(),
                     run.getAssistantMessageId(), run.getIdempotencyKey(), run.isRecallEnabled() ? 1 : 0,
+                    run.getRunOrigin().name(),
+                    run.getExecutionContextReference().getOriginReference(),
+                    run.getExecutionContextReference().getExecutionContextId(),
                     run.getStatus().name(),
                     run.getLastEventSeq(), run.getExitCode(), run.getFailureCode(), run.getErrorMessage(),
                     toMillis(run.getCreatedAt()), toMillis(run.getStartedAt()),
@@ -104,6 +111,10 @@ public class SqliteChatRunRepository implements ChatRunRepository {
                 nullableLong(rs, "assistant_message_id"),
                 rs.getString("idempotency_key"),
                 rs.getInt("recall_enabled") != 0,
+                RunOrigin.valueOf(rs.getString("run_origin")),
+                ExecutionContextReference.restore(
+                        rs.getString("origin_reference"),
+                        rs.getString("execution_context_id")),
                 ChatRunStatus.valueOf(rs.getString("status")),
                 rs.getLong("last_event_seq"),
                 nullableInteger(rs, "exit_code"),

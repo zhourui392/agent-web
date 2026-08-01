@@ -1,5 +1,9 @@
 package com.example.agentweb.domain.harness;
 
+import com.example.agentweb.domain.capability.CapabilityResolutionException;
+import com.example.agentweb.domain.capability.SkillManifest;
+import com.example.agentweb.domain.capability.SkillPackage;
+
 import java.util.List;
 
 /**

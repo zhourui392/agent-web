@@ -49,6 +49,7 @@ public class HarnessAppServiceImpl implements HarnessAppService {
     private final HarnessDeterministicGatePolicy gatePolicy;
     private final Clock clock;
     private final HarnessRunEventPublisher eventPublisher;
+    private final HarnessRetirementPolicy retirementPolicy;
 
     public HarnessAppServiceImpl(HarnessRunRepository repository, ArtifactStore artifactStore,
                                  ArtifactContentSanitizer contentSanitizer,
@@ -57,7 +58,8 @@ public class HarnessAppServiceImpl implements HarnessAppService {
                                  CurrentUserProvider currentUserProvider,
                                  HarnessIdGenerator idGenerator,
                                  HarnessDeterministicGatePolicy gatePolicy, Clock clock,
-                                 HarnessRunEventPublisher eventPublisher) {
+                                 HarnessRunEventPublisher eventPublisher,
+                                 HarnessRetirementPolicy retirementPolicy) {
         this.repository = repository;
         this.artifactStore = artifactStore;
         this.contentSanitizer = contentSanitizer;
@@ -68,11 +70,13 @@ public class HarnessAppServiceImpl implements HarnessAppService {
         this.gatePolicy = gatePolicy;
         this.clock = clock;
         this.eventPublisher = eventPublisher;
+        this.retirementPolicy = retirementPolicy;
     }
 
     @Override
     @Transactional
     public HarnessMutationResult create(CreateHarnessRunCommand command) {
+        retirementPolicy.requireCreationAvailable();
         String realWorkingDir = workspacePathPolicy.requireExistingDirectory(command.getWorkingDir());
         String actor = currentUserProvider.currentUserId();
         Optional<HarnessRun> existing = repository.findByCreatorAndIdempotencyKey(
@@ -102,6 +106,7 @@ public class HarnessAppServiceImpl implements HarnessAppService {
     @Transactional
     public HarnessMutationResult startStage(String runId, HarnessStage stage,
                                             String idempotencyKey) {
+        retirementPolicy.requireMutationAvailable();
         HarnessRun run = requireRun(runId);
         WorkspaceBaseline baseline = workspaceBaselineGateway.capture(run.getWorkingDir());
         if (run.startStage(stage, idempotencyKey,
@@ -119,6 +124,7 @@ public class HarnessAppServiceImpl implements HarnessAppService {
     @Override
     @Transactional
     public HarnessMutationResult registerArtifact(RegisterHarnessArtifactCommand command) {
+        retirementPolicy.requireMutationAvailable();
         HarnessRun run = requireRun(command.getRunId());
         ArtifactContent content = contentSanitizer.sanitize(command.getContentType(),
                 ArtifactContent.from(command.getContent()));
@@ -137,6 +143,7 @@ public class HarnessAppServiceImpl implements HarnessAppService {
     public HarnessMutationResult recordGate(String runId, HarnessStage stage, String rule,
                                             boolean passed, List<String> evidenceReferences,
                                             String reason) {
+        retirementPolicy.requireMutationAvailable();
         HarnessRun run = requireRun(runId);
         if (run.recordGate(stage, idGenerator.nextId(), rule, passed,
                 evidenceReferences, reason, currentUserProvider.currentUserId(), clock.instant())) {
@@ -148,6 +155,7 @@ public class HarnessAppServiceImpl implements HarnessAppService {
     @Override
     @Transactional
     public HarnessMutationResult evaluateGate(String runId, HarnessStage stage, String rule) {
+        retirementPolicy.requireMutationAvailable();
         HarnessRun run = requireRun(runId);
         List<GateArtifact> artifacts = new ArrayList<GateArtifact>();
         for (ArtifactDescriptor descriptor : run.gateArtifactDescriptors(stage)) {
@@ -166,6 +174,7 @@ public class HarnessAppServiceImpl implements HarnessAppService {
     @Transactional
     public HarnessMutationResult requestInput(String runId, HarnessStage stage, String questionId,
                                               String question, boolean blocking) {
+        retirementPolicy.requireMutationAvailable();
         HarnessRun run = requireRun(runId);
         if (run.requestInput(stage, questionId, question, blocking,
                 currentUserProvider.currentUserId(), clock.instant())) {
@@ -177,6 +186,7 @@ public class HarnessAppServiceImpl implements HarnessAppService {
     @Override
     @Transactional
     public HarnessMutationResult answerQuestion(String runId, String questionId, String answer) {
+        retirementPolicy.requireMutationAvailable();
         HarnessRun run = requireRun(runId);
         if (run.answerQuestion(questionId, answer,
                 currentUserProvider.currentUserId(), clock.instant())) {
@@ -188,6 +198,7 @@ public class HarnessAppServiceImpl implements HarnessAppService {
     @Override
     @Transactional
     public HarnessMutationResult requestApproval(String runId, HarnessStage stage) {
+        retirementPolicy.requireMutationAvailable();
         HarnessRun run = requireRun(runId);
         run.submitForApproval(stage, currentUserProvider.currentUserId(), clock.instant());
         repository.update(run); eventPublisher.publish(run);
@@ -199,6 +210,7 @@ public class HarnessAppServiceImpl implements HarnessAppService {
     public HarnessMutationResult approve(String runId, HarnessStage stage,
                                          String artifactBaselineHash, String reason,
                                          String idempotencyKey) {
+        retirementPolicy.requireMutationAvailable();
         HarnessRun run = requireRun(runId);
         if (run.approve(stage, HarnessCommandId.approval(runId, stage, "APPROVED", idempotencyKey),
                 artifactBaselineHash,
@@ -213,6 +225,7 @@ public class HarnessAppServiceImpl implements HarnessAppService {
     public HarnessMutationResult reject(String runId, HarnessStage stage,
                                         String artifactBaselineHash, String reason,
                                         String idempotencyKey) {
+        retirementPolicy.requireMutationAvailable();
         HarnessRun run = requireRun(runId);
         if (run.reject(stage, HarnessCommandId.approval(runId, stage, "REJECTED", idempotencyKey),
                 artifactBaselineHash,
@@ -226,6 +239,7 @@ public class HarnessAppServiceImpl implements HarnessAppService {
     @Transactional
     public HarnessMutationResult retryStage(String runId, HarnessStage stage,
                                             String idempotencyKey) {
+        retirementPolicy.requireMutationAvailable();
         HarnessRun run = requireRun(runId);
         WorkspaceBaseline baseline = workspaceBaselineGateway.capture(run.getWorkingDir());
         if (run.retryStage(stage, idempotencyKey,
@@ -244,6 +258,7 @@ public class HarnessAppServiceImpl implements HarnessAppService {
     @Transactional
     public HarnessMutationResult approveDeployment(String runId, String inputBaselineHash,
                                                    String reason, String idempotencyKey) {
+        retirementPolicy.requireMutationAvailable();
         HarnessRun run = requireRun(runId);
         if (run.approveDeployment(HarnessCommandId.approval(runId, HarnessStage.DEPLOYMENT,
                         "LOCAL_DEPLOY", idempotencyKey), inputBaselineHash,

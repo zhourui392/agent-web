@@ -4,6 +4,7 @@ import com.example.agentweb.app.harness.HarnessConversationMessageView;
 import com.example.agentweb.app.harness.HarnessConversationQueryService;
 import com.example.agentweb.app.harness.HarnessConversationService;
 import com.example.agentweb.app.harness.HarnessConversationTurnResult;
+import com.example.agentweb.app.harness.HarnessRetirementPolicy;
 import com.example.agentweb.app.harness.StartHarnessConversationCommand;
 import com.example.agentweb.interfaces.dto.HarnessConversationRequest;
 import jakarta.validation.Valid;
@@ -34,11 +35,14 @@ public class HarnessConversationController {
 
     private final HarnessConversationService conversationService;
     private final HarnessConversationQueryService queryService;
+    private final HarnessRetirementPolicy retirementPolicy;
 
     public HarnessConversationController(HarnessConversationService conversationService,
-                                         HarnessConversationQueryService queryService) {
+                                         HarnessConversationQueryService queryService,
+                                         HarnessRetirementPolicy retirementPolicy) {
         this.conversationService = conversationService;
         this.queryService = queryService;
+        this.retirementPolicy = retirementPolicy;
     }
 
     @PostMapping("/{runId}/stages/{stage}/conversation")
@@ -47,6 +51,7 @@ public class HarnessConversationController {
             @PathVariable("stage") String stage,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody HarnessConversationRequest request) {
+        retirementPolicy.requireMutationAvailable();
         StartHarnessConversationCommand command = new StartHarnessConversationCommand(
                 runId, HarnessControllerSupport.stage(stage), HarnessControllerSupport.requireIdempotencyKey(idempotencyKey), request.getMessage());
         return ResponseEntity.accepted().body(conversationService.send(command));

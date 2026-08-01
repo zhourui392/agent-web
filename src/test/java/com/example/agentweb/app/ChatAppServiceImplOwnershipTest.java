@@ -100,4 +100,36 @@ class ChatAppServiceImplOwnershipTest {
 
         assertSame(s, service.getSession("s1"));
     }
+
+    @Test
+    @DisplayName("缓存命中 Workbench Session → 普通 Chat 视为不存在")
+    void cacheHit_workbenchSession_returnsNull() {
+        ChatSession session = workbenchSession("phase-active");
+        when(sessionCache.find("phase-active")).thenReturn(session);
+        when(currentUserProvider.shouldFilter()).thenReturn(true);
+        when(currentUserProvider.currentUserId()).thenReturn("userA");
+
+        assertNull(service.getSession("phase-active"));
+        verify(sessionRepository, never()).findById(any());
+    }
+
+    @Test
+    @DisplayName("Repository 回源退役 Workbench Session → 不进入普通 Chat 缓存")
+    void cacheMiss_retiredWorkbenchSession_returnsNullWithoutCaching() {
+        ChatSession session = workbenchSession("phase-retired");
+        session.retire(session.getCreatedAt().plusSeconds(1));
+        when(sessionRepository.findById("phase-retired")).thenReturn(session);
+        when(currentUserProvider.shouldFilter()).thenReturn(true);
+        when(currentUserProvider.currentUserId()).thenReturn("userA");
+
+        assertNull(service.getSession("phase-retired"));
+        verify(sessionCache, never()).save(any());
+    }
+
+    private ChatSession workbenchSession(String id) {
+        return ChatSession.createWorkbenchPhase(
+                id, AgentType.CODEX, "/tmp/wd",
+                "workbench-1:IMPLEMENT_TEST", "userA", "User A",
+                Instant.parse("2026-08-01T10:00:00Z"));
+    }
 }

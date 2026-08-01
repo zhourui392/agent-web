@@ -1,5 +1,6 @@
 package com.example.agentweb.infra;
 
+import com.example.agentweb.domain.shared.CanonicalHashing;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -7,6 +8,7 @@ import org.springframework.util.StreamUtils;
 
 import jakarta.annotation.PostConstruct;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 /**
  * @author zhourui(V33215020)
@@ -38,6 +40,9 @@ public class SqliteInitializer {
                 jdbc.execute(trimmed);
             }
         }
+        migratePhaseHandoffRevisions();
+        migrateWorkbenchRunSubmissionProof();
+        migrateReviewOpinionContent();
         // Migration: add resume_id column for existing databases
         try {
             jdbc.execute("ALTER TABLE chat_session ADD COLUMN resume_id TEXT");
@@ -102,6 +107,8 @@ public class SqliteInitializer {
         } catch (Exception ignored) {
             // column already exists
         }
+        migrateChatSessionKind();
+        migrateChatRunOrigin();
         // Migration: drop user suggestion table (建议反馈功能已移除，清理存量表)
         try {
             jdbc.execute("DROP TABLE IF EXISTS user_suggestion");
@@ -164,6 +171,151 @@ public class SqliteInitializer {
         migrateHarnessM3();
         migrateHarnessM4();
         createToolInvocationStatisticsIndexes();
+    }
+
+    private void migrateChatSessionKind() {
+        for (String column : new String[]{
+                "session_kind TEXT NOT NULL DEFAULT 'CHAT'",
+                "context_id TEXT",
+                "retired_at TEXT"}) {
+            try {
+                jdbc.execute("ALTER TABLE chat_session ADD COLUMN " + column);
+            } catch (Exception ignored) {
+                // column already exists
+            }
+        }
+        jdbc.update("UPDATE chat_session SET session_kind = 'CHAT' WHERE session_kind IS NULL");
+    }
+
+    private void migrateChatRunOrigin() {
+        for (String column : new String[]{
+                "run_origin TEXT NOT NULL DEFAULT 'CHAT'",
+                "origin_reference TEXT",
+                "execution_context_id TEXT"}) {
+            try {
+                jdbc.execute("ALTER TABLE chat_run ADD COLUMN " + column);
+            } catch (Exception ignored) {
+                // column already exists
+            }
+        }
+        jdbc.execute("CREATE INDEX IF NOT EXISTS idx_chat_run_origin_reference "
+                + "ON chat_run(run_origin, origin_reference, created_at DESC)");
+    }
+
+    private void migratePhaseHandoffRevisions() {
+        Integer mismatched = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM workbench_phase_handoff latest "
+                        + "JOIN workbench_phase_handoff_revision revision "
+                        + "ON revision.workbench_id=latest.workbench_id "
+                        + "AND revision.phase=latest.phase "
+                        + "AND revision.version=latest.version "
+                        + "WHERE revision.summary<>latest.summary "
+                        + "OR revision.decisions_json<>latest.decisions_json "
+                        + "OR revision.open_questions_json<>latest.open_questions_json "
+                        + "OR revision.pinned_files_json<>latest.pinned_files_json "
+                        + "OR revision.referenced_runs_json<>latest.referenced_runs_json "
+                        + "OR revision.content_hash<>latest.content_hash "
+                        + "OR revision.updated_by_id<>latest.updated_by_id "
+                        + "OR revision.updated_by_name<>latest.updated_by_name "
+                        + "OR revision.updated_at<>latest.updated_at",
+                Integer.class);
+        if (mismatched != null && mismatched.intValue() > 0) {
+            throw new IllegalStateException(
+                    "phase handoff revision migration found conflicting exact revisions");
+        }
+        jdbc.update("INSERT INTO workbench_phase_handoff_revision ("
+                        + "workbench_id, phase, summary, decisions_json, "
+                        + "open_questions_json, pinned_files_json, referenced_runs_json, "
+                        + "content_hash, updated_by_id, updated_by_name, updated_at, version) "
+                        + "SELECT latest.workbench_id, latest.phase, latest.summary, "
+                        + "latest.decisions_json, latest.open_questions_json, "
+                        + "latest.pinned_files_json, latest.referenced_runs_json, "
+                        + "latest.content_hash, latest.updated_by_id, "
+                        + "latest.updated_by_name, latest.updated_at, latest.version "
+                        + "FROM workbench_phase_handoff latest "
+                        + "WHERE NOT EXISTS (SELECT 1 "
+                        + "FROM workbench_phase_handoff_revision revision "
+                        + "WHERE revision.workbench_id=latest.workbench_id "
+                        + "AND revision.phase=latest.phase "
+                        + "AND revision.version=latest.version)");
+        jdbc.execute("CREATE TRIGGER IF NOT EXISTS "
+                + "trg_workbench_handoff_revision_no_update "
+                + "BEFORE UPDATE ON workbench_phase_handoff_revision "
+                + "BEGIN SELECT RAISE(ABORT, "
+                + "'phase handoff revisions are append-only'); END");
+        jdbc.execute("CREATE TRIGGER IF NOT EXISTS "
+                + "trg_workbench_handoff_revision_no_delete "
+                + "BEFORE DELETE ON workbench_phase_handoff_revision "
+                + "BEGIN SELECT RAISE(ABORT, "
+                + "'phase handoff revisions are append-only'); END");
+    }
+
+    private void migrateWorkbenchRunSubmissionProof() {
+        addColumnIfMissing("workbench_run_snapshot",
+                "submission_idempotency_key TEXT NOT NULL DEFAULT ''");
+        addColumnIfMissing("workbench_run_snapshot",
+                "submission_request_hash TEXT NOT NULL DEFAULT ''");
+        List<LegacyWorkbenchRunSubmission> legacy = jdbc.query(
+                "SELECT run_id, workbench_id, phase FROM workbench_run_snapshot "
+                        + "WHERE submission_idempotency_key='' "
+                        + "OR submission_request_hash=''",
+                (resultSet, rowNumber) -> new LegacyWorkbenchRunSubmission(
+                        resultSet.getString("run_id"),
+                        resultSet.getString("workbench_id"),
+                        resultSet.getString("phase")));
+        for (LegacyWorkbenchRunSubmission row : legacy) {
+            int updated = jdbc.update("UPDATE workbench_run_snapshot SET "
+                            + "submission_idempotency_key=?, submission_request_hash=? "
+                            + "WHERE run_id=? AND (submission_idempotency_key='' "
+                            + "OR submission_request_hash='')",
+                    legacySubmissionKey(row.runId),
+                    legacySubmissionHash(row), row.runId);
+            if (updated != 1) {
+                throw new IllegalStateException(
+                        "legacy workbench run submission proof could not be backfilled");
+            }
+        }
+        Integer invalid = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM workbench_run_snapshot WHERE "
+                        + "length(trim(submission_idempotency_key)) NOT BETWEEN 1 AND 128 "
+                        + "OR length(submission_request_hash)<>64 "
+                        + "OR submission_request_hash GLOB '*[^0-9a-f]*'",
+                Integer.class);
+        if (invalid != null && invalid.intValue() > 0) {
+            throw new IllegalStateException(
+                    "workbench run submission proof migration found corrupt facts");
+        }
+        jdbc.execute("CREATE UNIQUE INDEX IF NOT EXISTS "
+                + "uk_workbench_run_snapshot_phase_submission "
+                + "ON workbench_run_snapshot("
+                + "workbench_id, phase, submission_idempotency_key)");
+        jdbc.execute("CREATE TRIGGER IF NOT EXISTS "
+                + "trg_workbench_run_submission_proof_insert "
+                + "BEFORE INSERT ON workbench_run_snapshot "
+                + "WHEN length(trim(NEW.submission_idempotency_key)) NOT BETWEEN 1 AND 128 "
+                + "OR length(NEW.submission_request_hash)<>64 "
+                + "OR NEW.submission_request_hash GLOB '*[^0-9a-f]*' "
+                + "BEGIN SELECT RAISE(ABORT, "
+                + "'invalid workbench run submission proof'); END");
+    }
+
+    private void migrateReviewOpinionContent() {
+        addColumnIfMissing("workbench_review_opinion",
+                "opinion_content TEXT");
+    }
+
+    private String legacySubmissionKey(String runId) {
+        return "legacy:" + CanonicalHashing.sha256(runId);
+    }
+
+    private String legacySubmissionHash(LegacyWorkbenchRunSubmission row) {
+        StringBuilder canonical = new StringBuilder();
+        CanonicalHashing.appendFramed(
+                canonical, "schema", "workbench-run-legacy-unreplayable@1");
+        CanonicalHashing.appendFramed(canonical, "runId", row.runId);
+        CanonicalHashing.appendFramed(canonical, "workbenchId", row.workbenchId);
+        CanonicalHashing.appendFramed(canonical, "phase", row.phase);
+        return CanonicalHashing.sha256(canonical.toString());
     }
 
     private void createToolInvocationStatisticsIndexes() {
@@ -355,6 +507,20 @@ public class SqliteInitializer {
             jdbc.execute("ALTER TABLE " + table + " ADD COLUMN " + definition);
         } catch (Exception ignored) {
             // SQLite 没有 ADD COLUMN IF NOT EXISTS；重复初始化时已存在即视为成功。
+        }
+    }
+
+    private static final class LegacyWorkbenchRunSubmission {
+
+        private final String runId;
+        private final String workbenchId;
+        private final String phase;
+
+        private LegacyWorkbenchRunSubmission(
+                String runId, String workbenchId, String phase) {
+            this.runId = runId;
+            this.workbenchId = workbenchId;
+            this.phase = phase;
         }
     }
 }

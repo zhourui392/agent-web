@@ -1,5 +1,6 @@
 package com.example.agentweb.domain.harness;
 
+import com.example.agentweb.domain.workspace.ChangedFileEvidence;
 import lombok.Getter;
 
 import java.util.ArrayList;

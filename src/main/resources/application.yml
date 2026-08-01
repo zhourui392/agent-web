@@ -235,16 +235,69 @@ agent:
       - /api/refinery
       - /api/harness
 
-  # 研发交付 Harness，默认开启。关闭时不注册管理 API、Repository、Catalog、Store 或执行入口。
+  # Workbench/Harness 共享的可信能力 Catalog。
+  capability:
+    rule-root: ${AGENT_CAPABILITY_RULE_ROOT:src/main/resources/capability/rules}
+    platform-skill-root: ${AGENT_CAPABILITY_SKILL_ROOT:src/main/resources/capability/skills}
+    approved-user-skill-root: ${AGENT_CAPABILITY_USER_SKILL_ROOT:}
+    workspace-skill-root: ${AGENT_CAPABILITY_WORKSPACE_SKILL_ROOT:}
+    mcp-server-root: ${AGENT_CAPABILITY_MCP_ROOT:src/main/resources/capability/mcp-servers}
+
+  # Chat/Workbench 公共进程 Runtime。默认关闭；开启时必须显式提供独立凭据引用。
+  runtime:
+    # Workbench 与普通 Chat 独立迁移；开启 Workbench 不得改变 Claude/recall/resume Chat 路径。
+    workbench-enabled: ${AGENT_COMMON_RUNTIME_WORKBENCH_ENABLED:${AGENT_COMMON_RUNTIME_ENABLED:false}}
+    chat-enabled: ${AGENT_COMMON_RUNTIME_CHAT_ENABLED:false}
+    codex-command: ${CODEX_CMD:codex}
+    temp-root: ${AGENT_COMMON_RUNTIME_TEMP_ROOT:data/runtime}
+    credential-environment-reference: ${AGENT_COMMON_RUNTIME_CREDENTIAL_REFERENCE:}
+    supported-codex-versions:
+      - "0.145.0"
+    compatibility-matrix-version: m0-2026-07-22
+    version-probe-timeout-seconds: 5
+    version-probe-max-bytes: 4096
+    chat-timeout-seconds: ${AGENT_COMMON_RUNTIME_CHAT_TIMEOUT_SECONDS:7200}
+    chat-max-output-bytes: ${AGENT_COMMON_RUNTIME_CHAT_MAX_OUTPUT_BYTES:8388608}
+    recovery-max-output-bytes: ${AGENT_COMMON_RUNTIME_RECOVERY_MAX_OUTPUT_BYTES:10485760}
+
+  workbench:
+    enabled: ${AGENT_WORKBENCH_ENABLED:false}
+    create-enabled: ${AGENT_WORKBENCH_CREATE_ENABLED:false}
+    write-run-enabled: ${AGENT_WORKBENCH_WRITE_RUN_ENABLED:false}
+    high-impact:
+      commit-enabled: ${AGENT_WORKBENCH_HIGH_IMPACT_COMMIT_ENABLED:false}
+      push-enabled: ${AGENT_WORKBENCH_HIGH_IMPACT_PUSH_ENABLED:false}
+      local-deploy-enabled: ${AGENT_WORKBENCH_HIGH_IMPACT_LOCAL_DEPLOY_ENABLED:false}
+      production-write-enabled: ${AGENT_WORKBENCH_HIGH_IMPACT_PRODUCTION_WRITE_ENABLED:false}
+    run:
+      timeout-seconds: ${AGENT_WORKBENCH_RUN_TIMEOUT_SECONDS:1800}
+      max-output-bytes: ${AGENT_WORKBENCH_RUN_MAX_OUTPUT_BYTES:8388608}
+      allowed-skill-trust-sources: ${AGENT_WORKBENCH_ALLOWED_SKILL_TRUST_SOURCES:PLATFORM}
+    capability:
+      profile-root: ${AGENT_WORKBENCH_PROFILE_ROOT:src/main/resources/workbench/profiles}
+      policy-version: ${AGENT_WORKBENCH_CAPABILITY_POLICY_VERSION:workbench-policy@1}
+      max-additional-rule-chars: ${AGENT_WORKBENCH_MAX_ADDITIONAL_RULE_CHARS:4000}
+      hot-reload-enabled: ${AGENT_WORKBENCH_CAPABILITY_HOT_RELOAD_ENABLED:true}
+    document:
+      max-directory-entries: ${AGENT_WORKBENCH_DOCUMENT_MAX_DIRECTORY_ENTRIES:1000}
+      max-text-bytes: ${AGENT_WORKBENCH_DOCUMENT_MAX_TEXT_BYTES:2097152}
+      max-log-preview-bytes: ${AGENT_WORKBENCH_DOCUMENT_MAX_LOG_PREVIEW_BYTES:2097152}
+      max-image-bytes: ${AGENT_WORKBENCH_DOCUMENT_MAX_IMAGE_BYTES:10485760}
+      max-download-bytes: ${AGENT_WORKBENCH_DOCUMENT_MAX_DOWNLOAD_BYTES:52428800}
+
+  # 研发交付 Harness，默认开启。关闭时不注册管理 API、Repository、Store 或执行入口；公共 Catalog 仍可用。
   harness:
     enabled: ${AGENT_HARNESS_ENABLED:true}
+    creation-enabled: ${AGENT_HARNESS_CREATION_ENABLED:true}
+    mutation-enabled: ${AGENT_HARNESS_MUTATION_ENABLED:true}
+    export-enabled: ${AGENT_HARNESS_EXPORT_ENABLED:true}
     artifact-root: ${AGENT_HARNESS_ARTIFACT_ROOT:data/harness/artifacts}
     # Catalog 在每次 Attempt 固化前热读取；打包部署应覆盖为管理员维护的外置只读目录。
-    prompt-pack-root: ${AGENT_HARNESS_PROMPT_PACK_ROOT:src/main/resources/harness/prompt-packs}
-    platform-skill-root: ${AGENT_HARNESS_PLATFORM_SKILL_ROOT:src/main/resources/harness/skills}
+    prompt-pack-root: ${AGENT_HARNESS_PROMPT_PACK_ROOT:src/main/resources/capability/rules}
+    platform-skill-root: ${AGENT_HARNESS_PLATFORM_SKILL_ROOT:src/main/resources/capability/skills}
     approved-user-skill-root: ${AGENT_HARNESS_APPROVED_USER_SKILL_ROOT:}
     workspace-skill-root: ${AGENT_HARNESS_WORKSPACE_SKILL_ROOT:}
-    mcp-server-root: ${AGENT_HARNESS_MCP_SERVER_ROOT:src/main/resources/harness/mcp-servers}
+    mcp-server-root: ${AGENT_HARNESS_MCP_SERVER_ROOT:src/main/resources/capability/mcp-servers}
     deployment-template-root: ${AGENT_HARNESS_DEPLOYMENT_TEMPLATE_ROOT:src/main/resources/harness/deployment-templates}
     deployment:
       command-timeout-seconds: ${AGENT_HARNESS_DEPLOYMENT_TIMEOUT_SECONDS:600}

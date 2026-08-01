@@ -1,5 +1,10 @@
 package com.example.agentweb.domain.harness;
 
+import com.example.agentweb.domain.capability.CapabilityRequest;
+import com.example.agentweb.domain.capability.SkillDependency;
+import com.example.agentweb.domain.capability.SkillManifest;
+import com.example.agentweb.domain.capability.SkillPackage;
+import com.example.agentweb.domain.capability.SkillTrustSource;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -123,10 +128,10 @@ class HarnessPromptAssemblerTest {
 
     private SkillSelection selection() {
         SkillManifest manifest = new SkillManifest("analysis-core", "1.0.0", "analysis",
-                Collections.singleton(HarnessStage.ANALYSIS), Collections.singleton("java"),
+                Collections.singleton(HarnessStage.ANALYSIS.name()), Collections.singleton("java"),
                 Collections.<String>emptySet(), "SKILL.md", Collections.<String>emptySet(),
                 Collections.<SkillDependency>emptyList(), Collections.<String>emptySet(),
-                Collections.singleton(AgentRuntime.CODEX), SkillTrustSource.PLATFORM,
+                Collections.singleton(AgentRuntime.CODEX.name()), SkillTrustSource.PLATFORM,
                 Collections.singletonList(CapabilityRequest.command("mvn-test")));
         Map<String, String> resourceHashes = new LinkedHashMap<String, String>();
         resourceHashes.put("SKILL.md", hash('b'));

@@ -33,7 +33,7 @@ M2 不启动 Agent、不执行 Skill 脚本、不挂载 MCP，也不把“Skill 
 内置资源位于：
 
 ```text
-src/main/resources/harness/prompt-packs/
+src/main/resources/capability/rules/
 ├── analysis/1.0.0/
 ├── design/1.0.0/
 ├── implementation/1.0.0/
@@ -141,8 +141,8 @@ GET  /api/harness/runs/{runId}/stages/{stage}/attempts/{attemptNumber}/capabilit
 ```yaml
 agent:
   harness:
-    prompt-pack-root: src/main/resources/harness/prompt-packs
-    platform-skill-root: src/main/resources/harness/skills
+    prompt-pack-root: src/main/resources/capability/rules
+    platform-skill-root: src/main/resources/capability/skills
     approved-user-skill-root: ""
     workspace-skill-root: ""
 ```

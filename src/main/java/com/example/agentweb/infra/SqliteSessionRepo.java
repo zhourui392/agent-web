@@ -1,12 +1,13 @@
 package com.example.agentweb.infra;
 
-import com.example.agentweb.domain.shared.AgentType;
+import com.example.agentweb.domain.auth.CurrentUserProvider;
 import com.example.agentweb.domain.chat.ChatMessage;
 import com.example.agentweb.domain.chat.ChatSession;
 import com.example.agentweb.domain.chat.Feedback;
 import com.example.agentweb.domain.chat.FeedbackRating;
+import com.example.agentweb.domain.chat.SessionKind;
 import com.example.agentweb.domain.chat.SessionRepository;
-import com.example.agentweb.domain.auth.CurrentUserProvider;
+import com.example.agentweb.domain.shared.AgentType;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
@@ -32,7 +33,20 @@ public class SqliteSessionRepo implements SessionRepository {
     /** 整行查询 chat_session 的列清单, 与 {@link #mapSession} 一一对应。 */
     private static final String SESSION_COLUMNS =
             "id, agent_type, working_dir, created_at, resume_id, title, env, "
-                    + "feedback_rating, feedback_comment, feedback_at, client_ip, user_id, user_name";
+                    + "feedback_rating, feedback_comment, feedback_at, client_ip, user_id, user_name, "
+                    + "session_kind, context_id, retired_at";
+
+    private static final String INSERT_SESSION =
+            "INSERT INTO chat_session (id, agent_type, working_dir, created_at, "
+                    + "resume_id, title, env, last_message_at, client_ip, user_id, user_name, "
+                    + "session_kind, context_id, retired_at) "
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
+    private static final String INSERT_SESSION_IF_ABSENT =
+            "INSERT OR IGNORE INTO chat_session (id, agent_type, working_dir, created_at, "
+                    + "resume_id, title, env, last_message_at, client_ip, user_id, user_name, "
+                    + "session_kind, context_id, retired_at) "
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
     private final JdbcTemplate jdbc;
     private final CurrentUserProvider currentUserProvider;
@@ -55,9 +69,23 @@ public class SqliteSessionRepo implements SessionRepository {
     }
 
     @Override
+    public void addSession(ChatSession session) {
+        int rows = insertSession(INSERT_SESSION, session);
+        log.debug("session-added sessionId={} affectedRows={}", session.getId(), rows);
+    }
+
+    @Override
     public void saveSession(ChatSession session) {
-        int rows = jdbc.update(
-                "INSERT OR IGNORE INTO chat_session (id, agent_type, working_dir, created_at, resume_id, title, env, last_message_at, client_ip, user_id, user_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        int rows = insertSession(INSERT_SESSION_IF_ABSENT, session);
+        if (rows == 0 && session.getRetiredAt() != null) {
+            persistRetirement(session);
+        }
+        log.debug("session-save sessionId={} affectedRows={}", session.getId(), rows);
+    }
+
+    private int insertSession(String sql, ChatSession session) {
+        return jdbc.update(
+                sql,
                 session.getId(),
                 session.getAgentType().name(),
                 session.getWorkingDir(),
@@ -68,9 +96,35 @@ public class SqliteSessionRepo implements SessionRepository {
                 session.getCreatedAt().toEpochMilli(),
                 session.getClientIp(),
                 session.getUserId(),
-                session.getUserName()
+                session.getUserName(),
+                session.getSessionKind().name(),
+                session.getContextId(),
+                instantText(session.getRetiredAt())
         );
-        log.debug("session-save sessionId={} affectedRows={}", session.getId(), rows);
+    }
+
+    private void persistRetirement(ChatSession session) {
+        String retiredAt = instantText(session.getRetiredAt());
+        int rows = jdbc.update(
+                "UPDATE chat_session SET retired_at = COALESCE(retired_at, ?) "
+                        + "WHERE id = ? AND session_kind = 'WORKBENCH_PHASE' "
+                        + "AND agent_type = ? AND working_dir = ? AND created_at = ? "
+                        + "AND context_id = ? AND user_id = ? AND user_name = ? "
+                        + "AND (retired_at IS NULL OR retired_at = ?)",
+                retiredAt,
+                session.getId(),
+                session.getAgentType().name(),
+                session.getWorkingDir(),
+                session.getCreatedAt().toString(),
+                session.getContextId(),
+                session.getUserId(),
+                session.getUserName(),
+                retiredAt
+        );
+        if (rows == 0) {
+            throw new IllegalStateException("Workbench phase session retirement conflict");
+        }
+        log.debug("session-retirement-persisted sessionId={}", session.getId());
     }
 
     @Override
@@ -258,7 +312,10 @@ public class SqliteSessionRepo implements SessionRepository {
                 AgentType.valueOf(rs.getString("agent_type")),
                 rs.getString("working_dir"),
                 Instant.parse(rs.getString("created_at")),
-                loadMessages(rs.getString("id"))
+                loadMessages(rs.getString("id")),
+                SessionKind.valueOf(rs.getString("session_kind")),
+                rs.getString("context_id"),
+                parseInstant(rs.getString("retired_at"))
         );
         s.setResumeId(rs.getString("resume_id"));
         s.setTitle(rs.getString("title"));
@@ -268,6 +325,14 @@ public class SqliteSessionRepo implements SessionRepository {
         s.setUserName(rs.getString("user_name"));
         s.setFeedback(readFeedback(rs));
         return s;
+    }
+
+    private static String instantText(Instant value) {
+        return value == null ? null : value.toString();
+    }
+
+    private static Instant parseInstant(String value) {
+        return value == null ? null : Instant.parse(value);
     }
 
     /** feedback_at 为空表示从未评价过, 直接返回 null; 否则装配 Feedback 值对象。 */

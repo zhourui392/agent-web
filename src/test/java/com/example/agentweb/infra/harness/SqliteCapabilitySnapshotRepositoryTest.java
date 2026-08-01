@@ -17,11 +17,12 @@ import com.example.agentweb.domain.harness.HarnessPromptAssembly;
 import com.example.agentweb.domain.harness.HarnessPromptAssemblyRequest;
 import com.example.agentweb.domain.harness.HarnessRun;
 import com.example.agentweb.domain.harness.HarnessStage;
-import com.example.agentweb.domain.harness.McpCapability;
-import com.example.agentweb.domain.harness.McpCapabilityType;
+import com.example.agentweb.domain.capability.McpCapability;
+import com.example.agentweb.domain.capability.McpCapabilityType;
 import com.example.agentweb.domain.harness.McpSelection;
-import com.example.agentweb.domain.harness.McpSecretReference;
-import com.example.agentweb.domain.harness.McpServerDefinition;
+import com.example.agentweb.domain.capability.McpSecretReference;
+import com.example.agentweb.domain.capability.McpServerDefinition;
+import com.example.agentweb.infra.capability.FileSystemSkillCatalog;
 import com.example.agentweb.domain.harness.PromptPack;
 import com.example.agentweb.domain.harness.RuntimeEnforcementProfile;
 import com.example.agentweb.domain.harness.RuntimeExecution;
@@ -85,10 +86,10 @@ class SqliteCapabilitySnapshotRepositoryTest {
         repository = new SqliteCapabilitySnapshotRepository(jdbc);
         harnessRunRepository = new SqliteHarnessRunRepository(jdbc);
         promptCatalog = new FileSystemPromptPackCatalog(
-                java.nio.file.Paths.get("src/main/resources/harness/prompt-packs"));
+                java.nio.file.Paths.get("src/main/resources/capability/rules"));
         skillCatalog = new FileSystemSkillCatalog(
-                java.nio.file.Paths.get("src/main/resources/harness/skills"),
-                com.example.agentweb.domain.harness.SkillTrustSource.PLATFORM);
+                java.nio.file.Paths.get("src/main/resources/capability/skills"),
+                com.example.agentweb.domain.capability.SkillTrustSource.PLATFORM);
 
         HarnessRun run = HarnessRun.create("run-1", "M2", tempDir.toString(), "CODEX", "test",
                 "harness@1.0.0", "admin", "create-1", StageContract.mvpDefaults(),
@@ -366,12 +367,13 @@ class SqliteCapabilitySnapshotRepositoryTest {
                 new HarnessPromptAssemblyRequest("platform safety", "test guardrail", "stage contract",
                         pack, skillSelection, "approved upstream", "current input"));
         McpServerDefinition definition = new McpServerDefinition("reader", "1.0.0", "reader",
-                Collections.singleton(HarnessStage.ANALYSIS), Collections.singleton(AgentRuntime.CODEX),
+                Collections.singleton(HarnessStage.ANALYSIS.name()),
+                Collections.singleton(AgentRuntime.CODEX.name()),
                 Arrays.asList("fake-mcp", "--stdio"), Arrays.asList(
                 new McpCapability("search", McpCapabilityType.TOOL,
-                        com.example.agentweb.domain.harness.CapabilityAccess.READ),
+                        com.example.agentweb.domain.capability.CapabilityAccess.READ),
                 new McpCapability("update", McpCapabilityType.TOOL,
-                        com.example.agentweb.domain.harness.CapabilityAccess.WRITE)),
+                        com.example.agentweb.domain.capability.CapabilityAccess.WRITE)),
                 Collections.singletonList(new McpSecretReference("READER_API_KEY", "READER_TOKEN")),
                 startupTimeout, toolTimeout,
                 com.example.agentweb.domain.harness.HarnessHashing.sha256("reader"));

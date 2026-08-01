@@ -1,5 +1,10 @@
 package com.example.agentweb.domain.harness;
 
+import com.example.agentweb.domain.capability.CapabilityRequest;
+import com.example.agentweb.domain.capability.McpCapability;
+import com.example.agentweb.domain.capability.McpSecretReference;
+import com.example.agentweb.domain.capability.SkillPackage;
+import com.example.agentweb.domain.capability.SkillTrustSource;
 import lombok.Getter;
 
 import java.time.Instant;

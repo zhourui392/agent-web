@@ -248,7 +248,9 @@ class HarnessExecutionCommitBoundaryTest {
         HarnessExecutionLauncher launcher(HarnessExecutionPreparer preparer,
                                           HarnessRuntimeEventRecorder eventService,
                                           CommitProbeGateway gateway) {
-            return new HarnessExecutionLauncher(preparer, eventService, gateway);
+            return new HarnessExecutionLauncher(
+                    preparer, eventService, gateway,
+                    new HarnessRetirementPolicy(true, true, true));
         }
 
         private static Path tempRoot() {

@@ -1,5 +1,12 @@
 package com.example.agentweb.domain.harness;
 
+import com.example.agentweb.domain.capability.CapabilityRequest;
+import com.example.agentweb.domain.capability.CapabilityResolutionException;
+import com.example.agentweb.domain.capability.SkillDependency;
+import com.example.agentweb.domain.capability.SkillManifest;
+import com.example.agentweb.domain.capability.SkillPackage;
+import com.example.agentweb.domain.capability.SkillTrustSource;
+
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
@@ -81,10 +88,10 @@ class WorkspaceSkillTrustPolicyTest {
 
     private SkillPackage skillPackage(String id, String version, String entryHash) {
         SkillManifest manifest = new SkillManifest(id, version, id + " skill",
-                EnumSet.of(HarnessStage.ANALYSIS), Collections.<String>emptySet(),
+                Collections.singleton(HarnessStage.ANALYSIS.name()), Collections.<String>emptySet(),
                 Collections.<String>emptySet(), "SKILL.md", Collections.<String>emptySet(),
                 Collections.<SkillDependency>emptyList(), Collections.<String>emptySet(),
-                EnumSet.of(AgentRuntime.CODEX), SkillTrustSource.PLATFORM,
+                Collections.singleton(AgentRuntime.CODEX.name()), SkillTrustSource.PLATFORM,
                 Collections.<CapabilityRequest>emptyList());
         Map<String, String> hashes = new LinkedHashMap<String, String>();
         hashes.put("SKILL.md", entryHash);

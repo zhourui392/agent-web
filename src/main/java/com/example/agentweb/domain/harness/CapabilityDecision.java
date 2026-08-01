@@ -1,5 +1,6 @@
 package com.example.agentweb.domain.harness;
 
+import com.example.agentweb.domain.capability.CapabilityRequest;
 import lombok.Getter;
 
 /**

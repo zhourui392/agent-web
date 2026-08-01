@@ -60,7 +60,8 @@ public class SqliteChatSessionQueryService implements ChatSessionQueryService {
     @Override
     public List<ChatSessionSummary> findSummaryPaged(int offset, int limit) {
         boolean filter = currentUserProvider.shouldFilter();
-        String where = filter ? " WHERE (s.user_id IS NULL OR s.user_id = ?)" : "";
+        String where = " WHERE s.session_kind = 'CHAT'"
+                + (filter ? " AND (s.user_id IS NULL OR s.user_id = ?)" : "");
         String sql = "SELECT s.id, s.agent_type, s.working_dir, s.created_at, s.resume_id, s.env, s.user_id, "
                 + "  (SELECT COUNT(*) FROM chat_message m WHERE m.session_id = s.id) AS message_count, "
                 + "  COALESCE(s.title, (SELECT m.content FROM chat_message m WHERE m.session_id = s.id "
@@ -84,7 +85,7 @@ public class SqliteChatSessionQueryService implements ChatSessionQueryService {
     public SharedSessionView findSharedView(String shareToken) {
         List<SharedSessionView> heads = jdbc.query(
                 "SELECT id, agent_type, created_at, title "
-                        + "FROM chat_session WHERE share_token = ?",
+                        + "FROM chat_session WHERE share_token = ? AND session_kind = 'CHAT'",
                 (rs, rowNum) -> new SharedSessionView(
                         rs.getString("title"),
                         rs.getString("agent_type"),
@@ -99,7 +100,8 @@ public class SqliteChatSessionQueryService implements ChatSessionQueryService {
         List<String> contents = jdbc.query(
                 "SELECT m.content FROM chat_message m "
                         + "JOIN chat_session s ON s.id = m.session_id "
-                        + "WHERE s.share_token = ? AND m.role = 'user'",
+                        + "WHERE s.share_token = ? AND s.session_kind = 'CHAT' "
+                        + "AND m.role = 'user'",
                 (rs, rowNum) -> rs.getString("content"),
                 shareToken);
         for (String content : contents) {
@@ -123,7 +125,7 @@ public class SqliteChatSessionQueryService implements ChatSessionQueryService {
     /** 会话存在性 + 用户隔离可见性检查，口径与写侧 findById 一致。 */
     private boolean sessionVisible(String sessionId) {
         boolean filter = currentUserProvider.shouldFilter();
-        String sql = "SELECT COUNT(*) FROM chat_session WHERE id = ?"
+        String sql = "SELECT COUNT(*) FROM chat_session WHERE id = ? AND session_kind = 'CHAT'"
                 + (filter ? " AND (user_id IS NULL OR user_id = ?)" : "");
         Object[] args = filter
                 ? new Object[]{sessionId, currentUserProvider.currentUserId()}

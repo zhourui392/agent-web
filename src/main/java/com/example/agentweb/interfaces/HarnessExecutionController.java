@@ -2,6 +2,7 @@ package com.example.agentweb.interfaces;
 
 import com.example.agentweb.app.harness.HarnessExecutionResult;
 import com.example.agentweb.app.harness.HarnessExecutionService;
+import com.example.agentweb.app.harness.HarnessRetirementPolicy;
 import com.example.agentweb.app.harness.HarnessRuntimeExecutionNotFoundException;
 import com.example.agentweb.app.harness.RuntimeExecutionQueryService;
 import com.example.agentweb.app.harness.RuntimeExecutionView;
@@ -32,11 +33,14 @@ public class HarnessExecutionController {
 
     private final HarnessExecutionService executionService;
     private final RuntimeExecutionQueryService queryService;
+    private final HarnessRetirementPolicy retirementPolicy;
 
     public HarnessExecutionController(HarnessExecutionService executionService,
-                                      RuntimeExecutionQueryService queryService) {
+                                      RuntimeExecutionQueryService queryService,
+                                      HarnessRetirementPolicy retirementPolicy) {
         this.executionService = executionService;
         this.queryService = queryService;
+        this.retirementPolicy = retirementPolicy;
     }
 
     @PostMapping("/{runId}/stages/{stage}/executions")
@@ -44,6 +48,7 @@ public class HarnessExecutionController {
             @PathVariable("runId") String runId,
             @PathVariable("stage") String stage,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+        retirementPolicy.requireMutationAvailable();
         HarnessStage harnessStage = HarnessControllerSupport.stage(stage);
         HarnessExecutionResult result = executionService.start(new StartHarnessExecutionCommand(
                 runId, harnessStage, HarnessControllerSupport.requireIdempotencyKey(idempotencyKey)));

@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -63,7 +64,8 @@ public class SqliteChatSessionQueryServiceTest {
                 + "id TEXT PRIMARY KEY, agent_type TEXT NOT NULL, working_dir TEXT NOT NULL, "
                 + "created_at TEXT NOT NULL, resume_id TEXT, share_token TEXT, env TEXT, title TEXT, "
                 + "feedback_rating TEXT, feedback_comment TEXT, feedback_at TEXT, "
-                + "last_message_at INTEGER, client_ip TEXT, user_id TEXT, user_name TEXT)");
+                + "last_message_at INTEGER, client_ip TEXT, user_id TEXT, user_name TEXT, "
+                + "session_kind TEXT NOT NULL DEFAULT 'CHAT', context_id TEXT, retired_at TEXT)");
         jdbc.execute("CREATE TABLE chat_message ("
                 + "id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, "
                 + "role TEXT NOT NULL, content TEXT NOT NULL, timestamp TEXT NOT NULL)");
@@ -110,6 +112,19 @@ public class SqliteChatSessionQueryServiceTest {
     }
 
     @Test
+    public void findSummaryPagedShouldExcludeActiveAndRetiredWorkbenchSessions() {
+        repo.saveSession(newSession(
+                "chat-visible", Instant.parse("2026-08-01T09:00:00Z")));
+        persistWorkbenchSession("phase-active", false);
+        persistWorkbenchSession("phase-retired", true);
+
+        List<ChatSessionSummary> summaries = query.findSummaryPaged(0, 10);
+
+        assertEquals(1, summaries.size());
+        assertEquals("chat-visible", summaries.get(0).getSessionId());
+    }
+
+    @Test
     public void findMessageViews_should_join_recall_payload_per_message() {
         repo.saveSession(newSession("sess-1", Instant.parse("2026-05-25T10:00:00Z")));
         long userMsg = repo.addMessageReturningId("sess-1",
@@ -148,6 +163,19 @@ public class SqliteChatSessionQueryServiceTest {
     }
 
     @Test
+    public void findMessageViewsShouldHideActiveAndRetiredWorkbenchSessions() {
+        persistWorkbenchSession("phase-active", false);
+        persistWorkbenchSession("phase-retired", true);
+        repo.addMessage("phase-active", new ChatMessage(
+                "user", "active secret", Instant.parse("2026-08-01T10:01:00Z")));
+        repo.addMessage("phase-retired", new ChatMessage(
+                "user", "retired secret", Instant.parse("2026-08-01T10:02:00Z")));
+
+        assertNull(query.findMessageViews("phase-active"));
+        assertNull(query.findMessageViews("phase-retired"));
+    }
+
+    @Test
     public void findSharedView_should_return_meta_and_messages_by_token() {
         ChatSession session = newSession("sess-1", Instant.parse("2026-05-26T08:00:00Z"));
         session.setTitle("debug session");
@@ -173,6 +201,19 @@ public class SqliteChatSessionQueryServiceTest {
     }
 
     @Test
+    public void findSharedViewShouldIgnoreWorkbenchTokensEvenWhenPersisted() {
+        persistWorkbenchSession("phase-active", false);
+        persistWorkbenchSession("phase-retired", true);
+        jdbc.update("UPDATE chat_session SET share_token=? WHERE id=?",
+                "tok-phase-active", "phase-active");
+        jdbc.update("UPDATE chat_session SET share_token=? WHERE id=?",
+                "tok-phase-retired", "phase-retired");
+
+        assertNull(query.findSharedView("tok-phase-active"));
+        assertNull(query.findSharedView("tok-phase-retired"));
+    }
+
+    @Test
     public void isSharedImageReferenced_should_require_validTokenAndExactMessageReference() {
         ChatSession session = newSession("sess-1", Instant.parse("2026-05-26T08:00:00Z"));
         repo.saveSession(session);
@@ -185,6 +226,36 @@ public class SqliteChatSessionQueryServiceTest {
                 query.isSharedImageReferenced("tok-img", "/tmp/wd/secret.png"));
         org.junit.jupiter.api.Assertions.assertFalse(
                 query.isSharedImageReferenced("wrong-token", "/tmp/wd/upload_pic/s/a.png"));
+    }
+
+    @Test
+    public void isSharedImageReferencedShouldIgnoreWorkbenchTokens() {
+        persistWorkbenchSession("phase-active", false);
+        persistWorkbenchSession("phase-retired", true);
+        jdbc.update("UPDATE chat_session SET share_token=? WHERE id=?",
+                "tok-phase-active", "phase-active");
+        jdbc.update("UPDATE chat_session SET share_token=? WHERE id=?",
+                "tok-phase-retired", "phase-retired");
+        String imagePath = "/tmp/wd/upload_pic/private/a.png";
+        repo.addMessage("phase-active", new ChatMessage(
+                "user", imagePath, Instant.parse("2026-08-01T10:01:00Z")));
+        repo.addMessage("phase-retired", new ChatMessage(
+                "user", imagePath, Instant.parse("2026-08-01T10:02:00Z")));
+
+        assertFalse(query.isSharedImageReferenced("tok-phase-active", imagePath));
+        assertFalse(query.isSharedImageReferenced("tok-phase-retired", imagePath));
+    }
+
+    private void persistWorkbenchSession(String id, boolean retired) {
+        Instant createdAt = Instant.parse("2026-08-01T10:00:00Z");
+        ChatSession session = ChatSession.createWorkbenchPhase(
+                id, AgentType.CODEX, "/tmp/wd",
+                "workbench-1:IMPLEMENT_TEST", "owner-1", "Alex", createdAt);
+        repo.addSession(session);
+        if (retired) {
+            session.retire(createdAt.plusSeconds(1));
+            repo.saveSession(session);
+        }
     }
 
     private static String repeat(char c, int times) {

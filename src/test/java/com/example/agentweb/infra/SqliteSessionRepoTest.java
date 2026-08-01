@@ -4,9 +4,11 @@ import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.chat.ChatSession;
 import com.example.agentweb.domain.chat.Feedback;
 import com.example.agentweb.domain.chat.FeedbackRating;
+import com.example.agentweb.domain.chat.SessionKind;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.sqlite.SQLiteDataSource;
 
@@ -19,6 +21,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -56,7 +59,10 @@ public class SqliteSessionRepoTest {
                         + "last_message_at INTEGER,"
                         + "client_ip TEXT,"
                         + "user_id TEXT,"
-                        + "user_name TEXT)"
+                        + "user_name TEXT,"
+                        + "session_kind TEXT NOT NULL DEFAULT 'CHAT',"
+                        + "context_id TEXT,"
+                        + "retired_at TEXT)"
         );
         jdbc.execute(
                 "CREATE TABLE chat_message ("
@@ -136,6 +142,68 @@ public class SqliteSessionRepoTest {
     }
 
     @Test
+    public void saveSession_then_findById_should_roundTripWorkbenchPhaseFacts() {
+        Instant createdAt = Instant.parse("2026-08-01T10:00:00Z");
+        Instant retiredAt = createdAt.plusSeconds(60);
+        ChatSession session = ChatSession.createWorkbenchPhase(
+                "phase-session-1", AgentType.CODEX, "/workspace/product",
+                "workbench-1:IMPLEMENT_TEST", "owner-1", "Alex", createdAt);
+        session.retire(retiredAt);
+
+        repo.saveSession(session);
+
+        ChatSession loaded = repo.findById("phase-session-1");
+        assertEquals(SessionKind.WORKBENCH_PHASE, loaded.getSessionKind());
+        assertEquals("workbench-1:IMPLEMENT_TEST", loaded.getContextId());
+        assertEquals(retiredAt, loaded.getRetiredAt());
+        assertEquals("owner-1", loaded.getUserId());
+        assertEquals("Alex", loaded.getUserName());
+    }
+
+    @Test
+    public void saveSession_shouldPersistRetirementAfterActiveSessionWasAlreadyInserted() {
+        Instant createdAt = Instant.parse("2026-08-01T10:00:00Z");
+        Instant retiredAt = createdAt.plusSeconds(60);
+        ChatSession active = ChatSession.createWorkbenchPhase(
+                "phase-session-1", AgentType.CODEX, "/workspace/product",
+                "workbench-1:IMPLEMENT_TEST", "owner-1", "Alex", createdAt);
+        repo.saveSession(active);
+
+        ChatSession persisted = repo.findById("phase-session-1");
+        persisted.retire(retiredAt);
+        repo.saveSession(persisted);
+
+        ChatSession reloaded = repo.findById("phase-session-1");
+        assertEquals(retiredAt, reloaded.getRetiredAt());
+    }
+
+    @Test
+    public void saveSession_shouldNotUpdateImmutableFactsOrRetirementForMismatchedDuplicateId() {
+        Instant createdAt = Instant.parse("2026-08-01T10:00:00Z");
+        ChatSession original = ChatSession.createWorkbenchPhase(
+                "phase-session-1", AgentType.CODEX, "/workspace/product",
+                "workbench-1:IMPLEMENT_TEST", "owner-1", "Alex", createdAt);
+        repo.saveSession(original);
+
+        ChatSession collision = ChatSession.createWorkbenchPhase(
+                "phase-session-1", AgentType.CLAUDE, "/workspace/other",
+                "workbench-2:SOLUTION_DESIGN", "owner-2", "Bob", createdAt.plusSeconds(1));
+        collision.retire(createdAt.plusSeconds(2));
+
+        assertThrows(IllegalStateException.class, () -> repo.saveSession(collision));
+
+        ChatSession reloaded = repo.findById("phase-session-1");
+        assertEquals(AgentType.CODEX, reloaded.getAgentType());
+        assertEquals("/workspace/product", reloaded.getWorkingDir());
+        assertEquals(createdAt, reloaded.getCreatedAt());
+        assertEquals(SessionKind.WORKBENCH_PHASE, reloaded.getSessionKind());
+        assertEquals("workbench-1:IMPLEMENT_TEST", reloaded.getContextId());
+        assertEquals("owner-1", reloaded.getUserId());
+        assertEquals("Alex", reloaded.getUserName());
+        assertNull(reloaded.getRetiredAt());
+    }
+
+    @Test
     public void saveSession_duplicate_primary_key_should_be_swallowed_by_insert_or_ignore_without_throwing_or_overwriting() {
         ChatSession first = newSession("sess-1", "/tmp/work", AgentType.CLAUDE);
         first.setTitle("original");
@@ -147,6 +215,19 @@ public class SqliteSessionRepoTest {
 
         ChatSession loaded = repo.findById("sess-1");
         assertEquals("original", loaded.getTitle());
+        assertEquals("/tmp/work", loaded.getWorkingDir());
+        assertEquals(AgentType.CLAUDE, loaded.getAgentType());
+    }
+
+    @Test
+    public void addSession_duplicatePrimaryKeyShouldFailWithoutOverwritingExistingSession() {
+        ChatSession first = newSession("sess-strict", "/tmp/work", AgentType.CLAUDE);
+        ChatSession collision = newSession("sess-strict", "/other/dir", AgentType.CODEX);
+        repo.addSession(first);
+
+        assertThrows(DataAccessException.class, () -> repo.addSession(collision));
+
+        ChatSession loaded = repo.findById("sess-strict");
         assertEquals("/tmp/work", loaded.getWorkingDir());
         assertEquals(AgentType.CLAUDE, loaded.getAgentType());
     }

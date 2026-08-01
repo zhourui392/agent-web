@@ -67,7 +67,8 @@ public class SqliteSessionRepoIsolationTest {
                 + "id TEXT PRIMARY KEY, agent_type TEXT NOT NULL, working_dir TEXT NOT NULL, "
                 + "created_at TEXT NOT NULL, resume_id TEXT, share_token TEXT, env TEXT, title TEXT, "
                 + "feedback_rating TEXT, feedback_comment TEXT, feedback_at TEXT, "
-                + "last_message_at INTEGER, client_ip TEXT, user_id TEXT, user_name TEXT)");
+                + "last_message_at INTEGER, client_ip TEXT, user_id TEXT, user_name TEXT, "
+                + "session_kind TEXT NOT NULL DEFAULT 'CHAT', context_id TEXT, retired_at TEXT)");
         jdbc.execute("CREATE TABLE chat_message ("
                 + "id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, "
                 + "role TEXT NOT NULL, content TEXT NOT NULL, timestamp TEXT NOT NULL)");

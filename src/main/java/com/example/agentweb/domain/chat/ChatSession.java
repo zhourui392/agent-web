@@ -1,16 +1,18 @@
 package com.example.agentweb.domain.chat;
 
 import com.example.agentweb.domain.shared.AgentType;
+import com.example.agentweb.domain.shared.DomainText;
 
-import lombok.Getter;
-import lombok.Setter;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import lombok.Getter;
+import lombok.Setter;
 
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -26,6 +28,12 @@ public class ChatSession {
     private final String workingDir;
     @Getter
     private final Instant createdAt;
+    @Getter
+    private final SessionKind sessionKind;
+    @Getter
+    private final String contextId;
+    @Getter
+    private Instant retiredAt;
     private final List<ChatMessage> messages;
     @Getter @Setter
     private String resumeId;
@@ -57,17 +65,137 @@ public class ChatSession {
         return s;
     }
 
+    public ChatSession(String id, AgentType agentType, String workingDir,
+                       Instant createdAt, List<ChatMessage> messages) {
+        this(id, agentType, workingDir, createdAt, messages, SessionKind.CHAT, null, null);
+    }
+
     @JsonCreator
     public ChatSession(@JsonProperty("id") String id,
                 @JsonProperty("agentType") AgentType agentType,
                 @JsonProperty("workingDir") String workingDir,
                 @JsonProperty("createdAt") Instant createdAt,
-                @JsonProperty("messages") List<ChatMessage> messages) {
+                @JsonProperty("messages") List<ChatMessage> messages,
+                @JsonProperty("sessionKind") SessionKind sessionKind,
+                @JsonProperty("contextId") String contextId,
+                @JsonProperty("retiredAt") Instant retiredAt) {
         this.id = id;
         this.agentType = agentType;
         this.workingDir = workingDir;
-        this.createdAt = createdAt;
+        this.createdAt = DomainText.requireTime(createdAt, "session created at");
+        this.sessionKind = sessionKind == null ? SessionKind.CHAT : sessionKind;
+        this.contextId = requireConsistentContext(this.sessionKind, contextId);
+        this.retiredAt = requireConsistentRetirement(this.sessionKind, this.createdAt, retiredAt);
         this.messages = messages != null ? new ArrayList<ChatMessage>(messages) : new ArrayList<ChatMessage>();
+    }
+
+    /**
+     * 由可信服务端事实创建 Workbench Phase 会话；调用方负责生成稳定 ID 并解析真实主仓库目录。
+     */
+    public static ChatSession createWorkbenchPhase(String id, AgentType agentType,
+                                                    String workingDir, String contextId,
+                                                    String ownerId, String ownerName,
+                                                    Instant now) {
+        String stableId = DomainText.require(id, "session id", 128);
+        if (agentType == null) {
+            throw new IllegalArgumentException("agent type must not be null");
+        }
+        String resolvedWorkingDir = DomainText.require(workingDir, "working directory", 4096);
+        String phaseContextId = DomainText.require(contextId, "session context id", 512);
+        String resolvedOwnerId = DomainText.require(ownerId, "session owner id", 128);
+        String resolvedOwnerName = DomainText.require(ownerName, "session owner name", 256);
+        Instant createdAt = DomainText.requireTime(now, "session created at");
+        ChatSession session = new ChatSession(
+                stableId, agentType, resolvedWorkingDir, createdAt, null,
+                SessionKind.WORKBENCH_PHASE, phaseContextId, null);
+        session.setUserId(resolvedOwnerId);
+        session.setUserName(resolvedOwnerName);
+        return session;
+    }
+
+    /**
+     * 退役 Workbench Phase 会话并保留只读历史；重复退役不改写首次时间。
+     *
+     * @return 本次是否首次退役
+     */
+    public boolean retire(Instant now) {
+        if (sessionKind != SessionKind.WORKBENCH_PHASE) {
+            throw new IllegalStateException("Only workbench phase sessions can be retired");
+        }
+        Instant retirementTime = DomainText.requireTime(now, "session retired at");
+        if (retirementTime.isBefore(createdAt)) {
+            throw new IllegalArgumentException("session retired at must not be before created at");
+        }
+        if (retiredAt != null) {
+            return false;
+        }
+        retiredAt = retirementTime;
+        return true;
+    }
+
+    /**
+     * 要求当前聚合属于普通 Chat 边界；其他来源统一伪装为会话不存在。
+     */
+    public void requireOrdinaryChat() {
+        if (sessionKind != SessionKind.CHAT) {
+            throw new ChatSessionNotFoundException(id);
+        }
+    }
+
+    /**
+     * 一次核验已绑定 Phase Conversation 的全部稳定事实，避免 Application 用 getter 重组信任规则。
+     */
+    public void requireActiveWorkbenchPhase(
+            String expectedSessionId, AgentType expectedAgentType,
+            String expectedWorkingDir, String expectedEnvironment,
+            String expectedContextId, String expectedOwnerId,
+            String expectedOwnerName, Instant expectedCreatedAt) {
+        String stableSessionId = DomainText.require(expectedSessionId, "expected session id", 128);
+        if (expectedAgentType == null) {
+            throw new IllegalArgumentException("expected agent type must not be null");
+        }
+        String stableWorkingDir = DomainText.require(
+                expectedWorkingDir, "expected working directory", 4096);
+        String stableContextId = DomainText.require(
+                expectedContextId, "expected session context id", 512);
+        String stableOwnerId = DomainText.require(expectedOwnerId, "expected owner id", 128);
+        String stableOwnerName = DomainText.require(expectedOwnerName, "expected owner name", 256);
+        Instant stableCreatedAt = DomainText.requireTime(
+                expectedCreatedAt, "expected session created at");
+        if (sessionKind != SessionKind.WORKBENCH_PHASE
+                || retiredAt != null
+                || !Objects.equals(id, stableSessionId)
+                || agentType != expectedAgentType
+                || !Objects.equals(workingDir, stableWorkingDir)
+                || !Objects.equals(env, expectedEnvironment)
+                || !Objects.equals(contextId, stableContextId)
+                || !Objects.equals(userId, stableOwnerId)
+                || !Objects.equals(userName, stableOwnerName)
+                || !createdAt.equals(stableCreatedAt)) {
+            throw new IllegalStateException("Workbench phase session facts do not match");
+        }
+    }
+
+    private static String requireConsistentContext(SessionKind sessionKind, String contextId) {
+        if (sessionKind == SessionKind.CHAT) {
+            if (contextId != null) {
+                throw new IllegalArgumentException("Chat session context id must be null");
+            }
+            return null;
+        }
+        return DomainText.require(contextId, "workbench phase session context id", 512);
+    }
+
+    private static Instant requireConsistentRetirement(SessionKind sessionKind,
+                                                       Instant createdAt,
+                                                       Instant retiredAt) {
+        if (sessionKind == SessionKind.CHAT && retiredAt != null) {
+            throw new IllegalArgumentException("Chat session retired at must be null");
+        }
+        if (retiredAt != null && retiredAt.isBefore(createdAt)) {
+            throw new IllegalArgumentException("session retired at must not be before created at");
+        }
+        return retiredAt;
     }
 
     public void addMessage(String role, String content) {

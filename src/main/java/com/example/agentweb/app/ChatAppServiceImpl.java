@@ -8,6 +8,7 @@ import com.example.agentweb.domain.auth.CurrentUserProvider;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.chat.ChatMessage;
 import com.example.agentweb.domain.chat.ChatSession;
+import com.example.agentweb.domain.chat.ChatSessionNotFoundException;
 import com.example.agentweb.domain.chat.ChatSessionTruncation;
 import com.example.agentweb.domain.chat.Feedback;
 import com.example.agentweb.domain.chat.FeedbackRating;
@@ -173,7 +174,7 @@ public class ChatAppServiceImpl implements ChatAppService {
         ChatSession s = getSession(sessionId);
         if (s == null) {
             log.warn("chat-send-rejected reason=session-not-found sessionId={}", sessionId);
-            throw new IllegalArgumentException("Session not found: " + sessionId);
+            throw new ChatSessionNotFoundException(sessionId);
         }
         log.info("chat-send-once sessionId={} agentType={} messageLen={}",
                 sessionId, s.getAgentType(), LogSafe.safeLen(command.message()));
@@ -205,12 +206,18 @@ public class ChatAppServiceImpl implements ChatAppService {
                 log.warn("chat-session-cache-denied sessionId={}", sessionId);
                 return null;
             }
+            if (!isOrdinaryChat(s)) {
+                return null;
+            }
             log.debug("chat-session-cache-hit sessionId={}", sessionId);
             return s;
         }
         // Fallback to persistent storage (已在 SessionRepository 读侧按 user_id 过滤)
         s = sessionRepository.findById(sessionId);
         if (s != null) {
+            if (!isOrdinaryChat(s)) {
+                return null;
+            }
             log.debug("chat-session-cache-miss-loaded sessionId={} messageCount={}",
                     sessionId, s.getMessages() == null ? 0 : s.getMessages().size());
             sessionCache.save(s);
@@ -218,6 +225,15 @@ public class ChatAppServiceImpl implements ChatAppService {
             log.debug("chat-session-not-found sessionId={}", sessionId);
         }
         return s;
+    }
+
+    private boolean isOrdinaryChat(ChatSession session) {
+        try {
+            session.requireOrdinaryChat();
+            return true;
+        } catch (ChatSessionNotFoundException ex) {
+            return false;
+        }
     }
 
     /**
@@ -236,7 +252,7 @@ public class ChatAppServiceImpl implements ChatAppService {
     public List<SlashCommand> listCommands(String sessionId) {
         ChatSession s = getSession(sessionId);
         if (s == null) {
-            throw new IllegalArgumentException("Session not found: " + sessionId);
+            throw new ChatSessionNotFoundException(sessionId);
         }
         return commandExpander.listCommands(s.getWorkingDir());
     }
@@ -245,8 +261,9 @@ public class ChatAppServiceImpl implements ChatAppService {
     public TruncateResult truncateFrom(String sessionId, long fromId) {
         ChatSession s = sessionRepository.findById(sessionId);
         if (s == null) {
-            throw new IllegalArgumentException("Session not found: " + sessionId);
+            throw new ChatSessionNotFoundException(sessionId);
         }
+        s.requireOrdinaryChat();
         chatRunActivityGuard.requireInactive(sessionId);
         ChatSessionTruncation plan = s.planTruncationFrom(fromId);
         int deleted = sessionRepository.truncateFrom(sessionId, fromId);
@@ -263,8 +280,9 @@ public class ChatAppServiceImpl implements ChatAppService {
         ChatSession s = sessionRepository.findById(sessionId);
         if (s == null) {
             log.warn("chat-feedback-rejected reason=session-not-found sessionId={}", sessionId);
-            throw new IllegalArgumentException("Session not found: " + sessionId);
+            throw new ChatSessionNotFoundException(sessionId);
         }
+        s.requireOrdinaryChat();
         Feedback feedback = new Feedback(parseRating(rating), normalizeComment(comment), java.time.Instant.now());
         sessionRepository.saveFeedback(sessionId, feedback);
         log.info("chat-feedback-saved sessionId={} rating={} hasComment={}",
@@ -276,8 +294,9 @@ public class ChatAppServiceImpl implements ChatAppService {
     public Feedback getFeedback(String sessionId) {
         ChatSession s = sessionRepository.findById(sessionId);
         if (s == null) {
-            throw new IllegalArgumentException("Session not found: " + sessionId);
+            throw new ChatSessionNotFoundException(sessionId);
         }
+        s.requireOrdinaryChat();
         return s.getFeedback();
     }
 
@@ -285,8 +304,9 @@ public class ChatAppServiceImpl implements ChatAppService {
     public String shareSession(String sessionId) {
         ChatSession session = sessionRepository.findById(sessionId);
         if (session == null) {
-            throw new IllegalArgumentException("Session not found: " + sessionId);
+            throw new ChatSessionNotFoundException(sessionId);
         }
+        session.requireOrdinaryChat();
         String token = sessionRepository.setShareToken(sessionId, ShareToken.generate());
         log.info("chat-session-shared sessionId={}", sessionId);
         return token;
@@ -318,6 +338,7 @@ public class ChatAppServiceImpl implements ChatAppService {
         // session 已不存在(脏数据/重复调用)时仍执行 2/3,保证幂等。
         ChatSession s = sessionRepository.findById(sessionId);
         if (s != null) {
+            s.requireOrdinaryChat();
             // 删除权限收紧: 仅创建者(或无归属老数据)可删, 删他人会话直接抛 403, 不动任何数据。
             // 与可见性隔离开关无关——可见性可全开, 删除按创建者归属把关。
             s.requireDeletableBy(currentUserProvider.currentUserId());

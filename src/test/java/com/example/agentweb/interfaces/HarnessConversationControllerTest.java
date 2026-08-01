@@ -5,6 +5,8 @@ import com.example.agentweb.app.harness.HarnessConversationQueryService;
 import com.example.agentweb.app.harness.HarnessConversationService;
 import com.example.agentweb.app.harness.HarnessConversationTurnResult;
 import com.example.agentweb.app.harness.HarnessExecutionResult;
+import com.example.agentweb.app.harness.HarnessRetirementPolicy;
+import com.example.agentweb.app.harness.HarnessRetirementUnavailableException;
 import com.example.agentweb.domain.harness.HarnessStage;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -20,6 +22,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.Collections;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -47,6 +51,30 @@ class HarnessConversationControllerTest {
 
     @MockBean
     private HarnessConversationQueryService queryService;
+
+    @MockBean
+    private HarnessRetirementPolicy retirementPolicy;
+
+    @Test
+    void readOnlyWindowShouldRejectConversationWriteButKeepHistoryRead()
+            throws Exception {
+        doThrow(HarnessRetirementUnavailableException.mutation())
+                .when(retirementPolicy).requireMutationAvailable();
+        when(queryService.list("run-1")).thenReturn(Collections.emptyList());
+
+        mvc.perform(post("/api/harness/runs/run-1/stages/ANALYSIS/conversation")
+                        .header("Idempotency-Key", "message-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"梳理需求\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code")
+                        .value("HARNESS_MUTATION_DISABLED"));
+        mvc.perform(get("/api/harness/runs/run-1/conversation"))
+                .andExpect(status().isOk());
+
+        verify(conversationService, never()).send(any());
+        verify(retirementPolicy).requireMutationAvailable();
+    }
 
     @Test
     void send_should_accept_message_and_return_runtime_identity() throws Exception {

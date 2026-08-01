@@ -1,5 +1,12 @@
 package com.example.agentweb.domain.harness;
 
+import com.example.agentweb.domain.capability.CapabilityAccess;
+import com.example.agentweb.domain.capability.CapabilityResolutionException;
+import com.example.agentweb.domain.capability.McpCapability;
+import com.example.agentweb.domain.capability.McpCapabilityType;
+import com.example.agentweb.domain.capability.McpSecretReference;
+import com.example.agentweb.domain.capability.McpServerDefinition;
+
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
@@ -155,7 +162,7 @@ class McpAuthorizationPolicyTest {
     private McpServerDefinition server(String id, HarnessStage stage,
                                        McpCapability... capabilities) {
         return new McpServerDefinition(id, "1.0.0", id + " server",
-                Collections.singleton(stage), Collections.singleton(AgentRuntime.CODEX),
+                Collections.singleton(stage.name()), Collections.singleton(AgentRuntime.CODEX.name()),
                 Arrays.asList("fake-mcp", "--stdio"),
                 Arrays.asList(capabilities), Collections.<McpSecretReference>emptyList(),
                 10, 30, HarnessHashing.sha256(id));

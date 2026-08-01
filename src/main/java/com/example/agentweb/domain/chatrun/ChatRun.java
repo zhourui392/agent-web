@@ -20,6 +20,8 @@ public final class ChatRun {
     private final long userMessageId;
     private final String idempotencyKey;
     private final boolean recallEnabled;
+    private final RunOrigin runOrigin;
+    private final ExecutionContextReference executionContextReference;
     private final Instant createdAt;
     private ChatRunStatus status;
     private Long assistantMessageId;
@@ -34,7 +36,8 @@ public final class ChatRun {
     private long version;
 
     private ChatRun(ChatRunId id, String sessionId, long userMessageId, String idempotencyKey,
-                    boolean recallEnabled,
+                    boolean recallEnabled, RunOrigin runOrigin,
+                    ExecutionContextReference executionContextReference,
                     ChatRunStatus status, Long assistantMessageId, long lastEventSeq,
                     Integer exitCode, String failureCode, String errorMessage,
                     Instant createdAt, Instant startedAt, Instant cancelRequestedAt,
@@ -47,6 +50,12 @@ public final class ChatRun {
         this.userMessageId = userMessageId;
         this.idempotencyKey = normalizeIdempotencyKey(idempotencyKey);
         this.recallEnabled = recallEnabled;
+        if (runOrigin == null) {
+            throw new IllegalArgumentException("chat run origin must not be null");
+        }
+        runOrigin.requireCompatible(this.id, executionContextReference);
+        this.runOrigin = runOrigin;
+        this.executionContextReference = executionContextReference;
         this.status = requireStatus(status);
         this.assistantMessageId = assistantMessageId;
         if (lastEventSeq < 0L) {
@@ -78,7 +87,16 @@ public final class ChatRun {
 
     public static ChatRun submit(ChatRunId id, String sessionId, long userMessageId,
                                  String idempotencyKey, boolean recallEnabled, Instant now) {
+        return submit(id, sessionId, userMessageId, idempotencyKey, recallEnabled,
+                RunOrigin.CHAT, ExecutionContextReference.none(), now);
+    }
+
+    public static ChatRun submit(
+            ChatRunId id, String sessionId, long userMessageId,
+            String idempotencyKey, boolean recallEnabled, RunOrigin runOrigin,
+            ExecutionContextReference executionContextReference, Instant now) {
         return new ChatRun(id, sessionId, userMessageId, idempotencyKey, recallEnabled,
+                runOrigin, executionContextReference,
                 ChatRunStatus.PENDING, null, 0L, null, null, null,
                 now, null, null, null, now, 0L);
     }
@@ -90,9 +108,61 @@ public final class ChatRun {
                                   String failureCode, String errorMessage, Instant createdAt,
                                   Instant startedAt, Instant cancelRequestedAt, Instant finishedAt,
                                   Instant updatedAt, long version) {
-        return new ChatRun(id, sessionId, userMessageId, idempotencyKey, recallEnabled, status,
+        return restore(id, sessionId, userMessageId, assistantMessageId,
+                idempotencyKey, recallEnabled, RunOrigin.CHAT,
+                ExecutionContextReference.none(), status, lastEventSeq, exitCode,
+                failureCode, errorMessage, createdAt, startedAt, cancelRequestedAt,
+                finishedAt, updatedAt, version);
+    }
+
+    public static ChatRun restore(
+            ChatRunId id, String sessionId, long userMessageId,
+            Long assistantMessageId, String idempotencyKey, boolean recallEnabled,
+            RunOrigin runOrigin,
+            ExecutionContextReference executionContextReference,
+            ChatRunStatus status, long lastEventSeq, Integer exitCode,
+            String failureCode, String errorMessage, Instant createdAt,
+            Instant startedAt, Instant cancelRequestedAt, Instant finishedAt,
+            Instant updatedAt, long version) {
+        return new ChatRun(id, sessionId, userMessageId, idempotencyKey, recallEnabled,
+                runOrigin, executionContextReference, status,
                 assistantMessageId, lastEventSeq, exitCode, failureCode, errorMessage,
                 createdAt, startedAt, cancelRequestedAt, finishedAt, updatedAt, version);
+    }
+
+    /**
+     * 要求当前聚合属于普通 Chat 边界；其他来源统一伪装为 Run 不存在。
+     */
+    public void requireOrdinaryChat() {
+        if (runOrigin != RunOrigin.CHAT) {
+            throw new ChatRunNotFoundException(id.getValue());
+        }
+    }
+
+    /**
+     * 要求读侧执行投影仍与普通 Chat 聚合的持久化身份事实完全一致。
+     */
+    public void requireExactOrdinaryExecutionContext(
+            String contextRunId, String contextSessionId,
+            long contextUserMessageId, boolean contextRecallEnabled) {
+        requireOrdinaryChat();
+        if (!id.getValue().equals(contextRunId)
+                || !sessionId.equals(contextSessionId)
+                || userMessageId != contextUserMessageId
+                || recallEnabled != contextRecallEnabled) {
+            throw new IllegalStateException(
+                    "Chat execution context does not match persisted run facts");
+        }
+    }
+
+    /**
+     * 要求当前聚合属于指定 Workbench 执行来源。
+     */
+    public void requireWorkbenchExecutionContext(String expectedOriginReference) {
+        if (runOrigin != RunOrigin.WORKBENCH
+                || !executionContextReference.matchesOriginReference(expectedOriginReference)) {
+            throw new ChatRunNotFoundException(id.getValue());
+        }
     }
 
     public boolean start(Instant now) {
@@ -235,6 +305,38 @@ public final class ChatRun {
         return status.isActive();
     }
 
+    /**
+     * 根据重启后可证明的 Runtime 存活事实决定恢复动作。
+     */
+    public ChatRunRecoveryDecision decideRecovery(
+            ChatRunRecoveryLiveness liveness) {
+        requireRecoveryLiveness(liveness);
+        if (status.isTerminal()) {
+            return ChatRunRecoveryDecision.IGNORE_TERMINAL;
+        }
+        if (status == ChatRunStatus.PENDING) {
+            return liveness == ChatRunRecoveryLiveness.ALIVE
+                    ? ChatRunRecoveryDecision.STOP_AND_INTERRUPT
+                    : ChatRunRecoveryDecision.INTERRUPT;
+        }
+        if (liveness == ChatRunRecoveryLiveness.ALIVE) {
+            return ChatRunRecoveryDecision.RETAIN_ACTIVE;
+        }
+        if (liveness == ChatRunRecoveryLiveness.TERMINATED) {
+            return ChatRunRecoveryDecision.FINALIZE_TERMINATION;
+        }
+        return ChatRunRecoveryDecision.INTERRUPT;
+    }
+
+    /**
+     * 要求聚合已经进入终态，供统一终态编排在任何副作用前校验。
+     */
+    public void requireTerminal() {
+        if (!status.isTerminal()) {
+            throw new IllegalStateException("chat run must be terminal");
+        }
+    }
+
     public void synchronizeVersion(long persistedVersion) {
         if (persistedVersion < version) {
             throw new IllegalArgumentException("persisted version must not move backwards");
@@ -265,6 +367,14 @@ public final class ChatRun {
     private void requireTransition(ChatRunStatus expected, ChatRunStatus target) {
         if (status != expected) {
             throw new IllegalChatRunTransitionException(status, target);
+        }
+    }
+
+    private static void requireRecoveryLiveness(
+            ChatRunRecoveryLiveness liveness) {
+        if (liveness == null) {
+            throw new IllegalArgumentException(
+                    "chat run recovery liveness must not be null");
         }
     }
 

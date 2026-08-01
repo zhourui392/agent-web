@@ -80,6 +80,18 @@ public final class AgentOffer {
         }
     }
 
+    public void requireAvailableForSurface(
+            AgentSurface surface, String environment) {
+        requireSurface(surface);
+        requireRuntime();
+        if (!runtime.supportsEnvironment(environment)) {
+            throw new AgentRuntimeUnavailableException(
+                    "AGENT_ENV_UNAVAILABLE",
+                    "Agent " + type + " is unavailable for environment: "
+                            + environment);
+        }
+    }
+
     private void requireChatPolicy() {
         if (!userSelectable || !exposedSurfaces.contains(AgentSurface.CHAT)) {
             throw new AgentPolicyViolationException("AGENT_NOT_USER_SELECTABLE",

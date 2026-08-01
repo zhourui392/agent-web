@@ -5,7 +5,7 @@ set -euo pipefail
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 PROJECT_DIR=$(cd "$SCRIPT_DIR/../.." && pwd)
 FAKE_PROVIDER="$PROJECT_DIR/scripts/harness-m0/fake-responses-server.mjs"
-MCP_SERVER="$PROJECT_DIR/src/main/resources/harness/mcp-servers/local-readonly-fixture/1.0.0/server.mjs"
+MCP_SERVER="$PROJECT_DIR/src/main/resources/capability/mcp-servers/local-readonly-fixture/1.0.0/server.mjs"
 TEMP_ROOT=""
 PROVIDER_PID=""
 

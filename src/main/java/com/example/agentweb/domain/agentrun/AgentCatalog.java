@@ -67,6 +67,12 @@ public final class AgentCatalog {
         return type;
     }
 
+    public AgentType requireAvailableForSurface(
+            AgentType type, AgentSurface surface, String environment) {
+        offer(type).requireAvailableForSurface(surface, environment);
+        return type;
+    }
+
     private AgentType requireDefault(AgentType defaultType) {
         requireDefaultEligible(defaultType);
         return defaultType;

@@ -14,24 +14,26 @@
  * @author zhourui(V33215020)
  */
 import {
-  ElAlert, ElAside, ElAutocomplete, ElBadge, ElButton, ElCard, ElCol, ElCollapse,
-  ElCollapseItem, ElCollapseTransition, ElContainer, ElDatePicker, ElDescriptions,
+  ElAlert, ElAside, ElAutocomplete, ElBadge, ElButton, ElCard, ElCheckbox,
+  ElCheckboxGroup, ElCol, ElCollapse, ElCollapseItem, ElCollapseTransition,
+  ElContainer, ElDatePicker, ElDescriptions,
   ElDescriptionsItem, ElDialog, ElDivider, ElDrawer, ElDropdown, ElDropdownItem,
   ElDropdownMenu, ElEmpty, ElForm, ElFormItem, ElHeader, ElIcon, ElImage, ElInput,
   ElInputNumber, ElMain, ElMenu, ElMenuItem, ElOption, ElPagination, ElPopover,
-  ElRadioButton, ElRadioGroup, ElRow, ElScrollbar, ElSelect, ElSwitch, ElTabPane,
+  ElRadioButton, ElRadioGroup, ElResult, ElRow, ElScrollbar, ElSelect, ElSwitch, ElTabPane,
   ElTable, ElTableColumn, ElTabs, ElTag, ElTimeline, ElTimelineItem, ElTooltip,
   ElUpload, ElLoading,
 } from 'element-plus';
 import * as ElementPlusIconsVue from '@element-plus/icons-vue';
 
 const COMPONENTS = [
-  ElAlert, ElAside, ElAutocomplete, ElBadge, ElButton, ElCard, ElCol, ElCollapse,
-  ElCollapseItem, ElCollapseTransition, ElContainer, ElDatePicker, ElDescriptions,
+  ElAlert, ElAside, ElAutocomplete, ElBadge, ElButton, ElCard, ElCheckbox,
+  ElCheckboxGroup, ElCol, ElCollapse, ElCollapseItem, ElCollapseTransition,
+  ElContainer, ElDatePicker, ElDescriptions,
   ElDescriptionsItem, ElDialog, ElDivider, ElDrawer, ElDropdown, ElDropdownItem,
   ElDropdownMenu, ElEmpty, ElForm, ElFormItem, ElHeader, ElIcon, ElImage, ElInput,
   ElInputNumber, ElMain, ElMenu, ElMenuItem, ElOption, ElPagination, ElPopover,
-  ElRadioButton, ElRadioGroup, ElRow, ElScrollbar, ElSelect, ElSwitch, ElTabPane,
+  ElRadioButton, ElRadioGroup, ElResult, ElRow, ElScrollbar, ElSelect, ElSwitch, ElTabPane,
   ElTable, ElTableColumn, ElTabs, ElTag, ElTimeline, ElTimelineItem, ElTooltip,
   ElUpload,
 ];

@@ -1,5 +1,9 @@
 package com.example.agentweb.domain.harness;
 
+import com.example.agentweb.domain.capability.CapabilityRequest;
+import com.example.agentweb.domain.capability.SkillManifest;
+import com.example.agentweb.domain.capability.SkillPackage;
+
 import java.util.ArrayList;
 import java.util.List;
 

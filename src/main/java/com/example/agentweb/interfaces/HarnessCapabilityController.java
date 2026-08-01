@@ -4,6 +4,7 @@ import com.example.agentweb.app.harness.CapabilitySnapshotQueryService;
 import com.example.agentweb.app.harness.CapabilitySnapshotView;
 import com.example.agentweb.app.harness.HarnessCapabilityService;
 import com.example.agentweb.app.harness.HarnessCapabilitySnapshotNotFoundException;
+import com.example.agentweb.app.harness.HarnessRetirementPolicy;
 import com.example.agentweb.app.harness.ResolveHarnessCapabilityCommand;
 import com.example.agentweb.domain.harness.CapabilityGrant;
 import com.example.agentweb.domain.harness.HarnessStage;
@@ -39,11 +40,14 @@ public class HarnessCapabilityController {
 
     private final HarnessCapabilityService capabilityService;
     private final CapabilitySnapshotQueryService queryService;
+    private final HarnessRetirementPolicy retirementPolicy;
 
     public HarnessCapabilityController(HarnessCapabilityService capabilityService,
-                                       CapabilitySnapshotQueryService queryService) {
+                                       CapabilitySnapshotQueryService queryService,
+                                       HarnessRetirementPolicy retirementPolicy) {
         this.capabilityService = capabilityService;
         this.queryService = queryService;
+        this.retirementPolicy = retirementPolicy;
     }
 
     @PostMapping("/{runId}/stages/{stage}/capability-snapshot")
@@ -51,6 +55,7 @@ public class HarnessCapabilityController {
             @PathVariable("runId") String runId,
             @PathVariable("stage") String stage,
             @Valid @RequestBody HarnessCapabilityResolveRequest request) {
+        retirementPolicy.requireMutationAvailable();
         CapabilityGrant grant = new CapabilityGrant(set(request.getReadableFileRoots()),
                 set(request.getWritableFileRoots()), set(request.getExecutableCommands()));
         ResolveHarnessCapabilityCommand command = new ResolveHarnessCapabilityCommand(

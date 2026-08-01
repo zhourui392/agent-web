@@ -18,10 +18,10 @@ import org.springframework.stereotype.Component;
 public class HarnessCatalogProperties {
 
     private String artifactRoot = "data/harness/artifacts";
-    private String promptPackRoot = "src/main/resources/harness/prompt-packs";
-    private String platformSkillRoot = "src/main/resources/harness/skills";
+    private String promptPackRoot = "src/main/resources/capability/rules";
+    private String platformSkillRoot = "src/main/resources/capability/skills";
     private String approvedUserSkillRoot;
     private String workspaceSkillRoot;
-    private String mcpServerRoot = "src/main/resources/harness/mcp-servers";
+    private String mcpServerRoot = "src/main/resources/capability/mcp-servers";
     private String deploymentTemplateRoot = "src/main/resources/harness/deployment-templates";
 }

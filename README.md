@@ -248,11 +248,14 @@ AGENT_BOOTSTRAP_ADMIN_PASSWORD=<仅首次公网启动使用的新管理员密码
 | `AGENT_RUN_RECALL_TOP_K` | `8` | AgentRun 召回 top-K |
 | `AGENT_HARNESS_ENABLED` | `false` | Harness 管理 API、Repository、Catalog、Artifact Store 总开关；默认关闭 |
 | `AGENT_HARNESS_ARTIFACT_ROOT` | `data/harness/artifacts` | Harness Artifact 正文受控根目录 |
-| `AGENT_HARNESS_PROMPT_PACK_ROOT` | `src/main/resources/harness/prompt-packs` | 四阶段 Prompt Pack 热读取根；打包部署应覆盖为管理员维护的外置目录 |
-| `AGENT_HARNESS_PLATFORM_SKILL_ROOT` | `src/main/resources/harness/skills` | 平台可信 Skill 热读取根 |
+| `AGENT_CAPABILITY_RULE_ROOT` | `src/main/resources/capability/rules` | Workbench 与 Harness 共用的可信 Rule Catalog 根；不受 Harness 开关或旧 Harness 根变量影响 |
+| `AGENT_CAPABILITY_SKILL_ROOT` | `src/main/resources/capability/skills` | Workbench 与 Harness 共用的平台可信 Skill Catalog 根；不回退读取旧 Harness 变量 |
+| `AGENT_CAPABILITY_MCP_ROOT` | `src/main/resources/capability/mcp-servers` | Workbench 与 Harness 共用的管理员可信 MCP Catalog 根；不回退读取旧 Harness 变量 |
+| `AGENT_HARNESS_PROMPT_PACK_ROOT` | `src/main/resources/capability/rules` | Harness 四阶段 Prompt Pack 兼容读取根；只影响 Harness，打包部署应覆盖为管理员维护的外置目录 |
+| `AGENT_HARNESS_PLATFORM_SKILL_ROOT` | `src/main/resources/capability/skills` | Harness 的平台 Skill Catalog 兼容覆盖；只影响 Harness consumer |
 | `AGENT_HARNESS_APPROVED_USER_SKILL_ROOT` | _(无)_ | 管理员批准的用户 Skill 根；目录来源固定为 `APPROVED_USER`，Manifest 不可伪造来源 |
 | `AGENT_HARNESS_WORKSPACE_SKILL_ROOT` | _(无)_ | Workspace Skill 根；每个 Skill 仍需在 Snapshot 请求中做 Run 级显式批准 |
-| `AGENT_HARNESS_MCP_SERVER_ROOT` | `src/main/resources/harness/mcp-servers` | 管理员可信 MCP Server Catalog 根；只允许 Snapshot 选中的 Server 进入隔离配置 |
+| `AGENT_HARNESS_MCP_SERVER_ROOT` | `src/main/resources/capability/mcp-servers` | Harness 的 MCP Catalog 兼容覆盖；只影响 Harness consumer，且只允许 Snapshot 选中的 Server 进入隔离配置 |
 | `AGENT_HARNESS_DEPLOYMENT_TEMPLATE_ROOT` | `src/main/resources/harness/deployment-templates` | 管理员审核的 local 部署模板 Catalog；仓库默认不内置可执行模板 |
 | `AGENT_HARNESS_CODEX_COMMAND` | `CODEX_CMD`，未配置时为 `codex` | Harness 专用 Codex Runtime 命令；与普通聊天命令配置分离 |
 | `AGENT_HARNESS_RUNTIME_AUTH_MODE` | `local-login` | 正式 Runtime 认证模式；`local-login` 使用服务账户的本机 Codex 登录态，`isolated-key` 使用临时 Home 与显式凭据引用 |

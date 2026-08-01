@@ -1,0 +1,107 @@
+groups:
+  - name: agent-web-workbench
+    rules:
+      - alert: WorkbenchRunFailureRatioHigh
+        expr: |
+          (
+            sum(rate(workbench_run_total{status=~"FAILED|INTERRUPTED"}[10m]))
+            /
+            clamp_min(sum(rate(workbench_run_total[10m])), 0.001)
+          ) > 0.20
+          and
+          sum(increase(workbench_run_total[10m])) >= 5
+        for: 10m
+        labels:
+          severity: warning
+          service: agent-web
+          component: workbench
+        annotations:
+          summary: Workbench run failure ratio is high
+          description: More than 20% of Workbench terminal runs were FAILED or INTERRUPTED over 10 minutes, with at least 5 terminal runs observed.
+
+      - alert: WorkbenchWriteConflictBurst
+        expr: increase(workbench_write_conflict_total[10m]) >= 3
+        for: 5m
+        labels:
+          severity: warning
+          service: agent-web
+          component: workbench
+        annotations:
+          summary: Workbench write conflicts are recurring
+          description: At least 3 Workbench write conflicts were observed in a rolling 10-minute window for 5 minutes.
+
+      - alert: WorkbenchSseReconnectFailureRatioHigh
+        expr: |
+          (
+            sum(rate(workbench_sse_reconnect_total{result!="SUCCESS"}[10m]))
+            /
+            clamp_min(sum(rate(workbench_sse_reconnect_total[10m])), 0.001)
+          ) > 0.20
+          and
+          sum(increase(workbench_sse_reconnect_total[10m])) >= 5
+        for: 10m
+        labels:
+          severity: warning
+          service: agent-web
+          component: workbench
+        annotations:
+          summary: Workbench SSE reconnect failure ratio is high
+          description: More than 20% of Workbench SSE reconnect attempts returned a non-SUCCESS result over 10 minutes, with at least 5 attempts observed.
+
+      - alert: WorkbenchEventLagHigh
+        expr: |
+          (
+            sum(rate(workbench_event_lag_seconds_sum[5m]))
+            /
+            clamp_min(sum(rate(workbench_event_lag_seconds_count[5m])), 0.001)
+          ) > 5
+          and
+          sum(increase(workbench_event_lag_seconds_count[5m])) >= 5
+        for: 10m
+        labels:
+          severity: warning
+          service: agent-web
+          component: workbench
+        annotations:
+          summary: Workbench event delivery lag is high
+          description: Mean Workbench event lag exceeded 5 seconds for 10 minutes, with at least 5 lag samples in each rolling 5-minute window.
+
+      - alert: WorkbenchCapabilityResolutionFailureRatioHigh
+        expr: |
+          (
+            sum(rate(workbench_capability_resolution_total{result!="SUCCESS"}[10m]))
+            /
+            clamp_min(sum(rate(workbench_capability_resolution_total[10m])), 0.001)
+          ) > 0.20
+          and
+          sum(increase(workbench_capability_resolution_total[10m])) >= 5
+        for: 10m
+        labels:
+          severity: warning
+          service: agent-web
+          component: workbench
+        annotations:
+          summary: Workbench capability resolution failure ratio is high
+          description: More than 20% of Workbench capability resolutions returned a non-SUCCESS result over 10 minutes, with at least 5 resolutions observed.
+
+      - alert: WorkbenchRecoveryReconciliationFailed
+        expr: increase(workbench_recovery_reconciliation_total{result=~".*(FAILED|ERROR|UNKNOWN).*"}[10m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          service: agent-web
+          component: workbench
+        annotations:
+          summary: Workbench recovery reconciliation failed
+          description: At least one Workbench recovery reconciliation emitted a FAILED, ERROR, or UNKNOWN result in the last 10 minutes. Do not replay a write run automatically.
+
+      - alert: WorkbenchWorkspaceScopeViolation
+        expr: increase(workbench_workspace_scope_violation_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          service: agent-web
+          component: workbench
+        annotations:
+          summary: Workbench repository scope was violated
+          description: At least one Workbench workspace scope violation was observed in the last 5 minutes. Preserve evidence and keep high-impact execution closed while investigating.

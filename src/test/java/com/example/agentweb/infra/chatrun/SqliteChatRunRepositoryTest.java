@@ -5,6 +5,8 @@ import com.example.agentweb.domain.chatrun.ChatRun;
 import com.example.agentweb.domain.chatrun.ChatRunId;
 import com.example.agentweb.domain.chatrun.ChatRunStatus;
 import com.example.agentweb.domain.chatrun.DuplicateChatRunSubmissionException;
+import com.example.agentweb.domain.chatrun.ExecutionContextReference;
+import com.example.agentweb.domain.chatrun.RunOrigin;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -62,11 +64,34 @@ class SqliteChatRunRepositoryTest {
         assertEquals("session-1", loaded.getSessionId());
         assertEquals(11L, loaded.getUserMessageId());
         assertEquals("key-1", loaded.getIdempotencyKey());
+        assertEquals(RunOrigin.CHAT, loaded.getRunOrigin());
+        assertFalse(loaded.getExecutionContextReference().isPresent());
         assertEquals(ChatRunStatus.PENDING, loaded.getStatus());
         assertEquals(2L, loaded.getLastEventSeq());
         assertEquals(0L, loaded.getVersion());
         assertTrue(repository.findBySessionAndIdempotencyKey("session-1", "key-1").isPresent());
         assertTrue(repository.findActiveBySessionId("session-1").isPresent());
+    }
+
+    @Test
+    void workbench_origin_and_execution_context_should_round_trip_losslessly() {
+        ChatRun run = ChatRun.submit(
+                ChatRunId.of("run-workbench-1"), "phase-session-1", 21L,
+                "key-workbench-1", false, RunOrigin.WORKBENCH,
+                ExecutionContextReference.of(
+                        "workbench-1:IMPLEMENT_TEST", "run-workbench-1"),
+                CREATED_AT);
+
+        repository.add(run);
+
+        ChatRun loaded = repository.findById(run.getId())
+                .orElseThrow(AssertionError::new);
+        assertEquals(RunOrigin.WORKBENCH, loaded.getRunOrigin());
+        assertEquals("workbench-1:IMPLEMENT_TEST",
+                loaded.getExecutionContextReference().getOriginReference());
+        assertEquals("run-workbench-1",
+                loaded.getExecutionContextReference().getExecutionContextId());
+        assertFalse(loaded.isRecallEnabled());
     }
 
     @Test
@@ -181,11 +206,16 @@ class SqliteChatRunRepositoryTest {
                 + "id TEXT PRIMARY KEY, session_id TEXT NOT NULL, user_message_id INTEGER NOT NULL, "
                 + "assistant_message_id INTEGER, idempotency_key TEXT NOT NULL, "
                 + "recall_enabled INTEGER NOT NULL DEFAULT 1, status TEXT NOT NULL, "
+                + "run_origin TEXT NOT NULL DEFAULT 'CHAT', origin_reference TEXT, "
+                + "execution_context_id TEXT, "
                 + "last_event_seq INTEGER NOT NULL DEFAULT 0, exit_code INTEGER, failure_code TEXT, "
                 + "error_message TEXT, created_at INTEGER NOT NULL, started_at INTEGER, "
                 + "cancel_requested_at INTEGER, finished_at INTEGER, updated_at INTEGER NOT NULL, "
                 + "version INTEGER NOT NULL DEFAULT 0, UNIQUE(session_id, idempotency_key), "
                 + "UNIQUE(assistant_message_id), CHECK(last_event_seq >= 0), "
+                + "CHECK((run_origin='CHAT' AND origin_reference IS NULL "
+                + "AND execution_context_id IS NULL) OR (run_origin='WORKBENCH' "
+                + "AND origin_reference IS NOT NULL AND execution_context_id IS NOT NULL)), "
                 + "CHECK(status IN ('PENDING','RUNNING','CANCEL_REQUESTED','SUCCEEDED','FAILED','CANCELLED','INTERRUPTED'))) ");
         jdbc.execute("CREATE UNIQUE INDEX uk_chat_run_active_session ON chat_run(session_id) "
                 + "WHERE status IN ('PENDING','RUNNING','CANCEL_REQUESTED')");

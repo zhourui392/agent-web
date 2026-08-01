@@ -1,6 +1,6 @@
 package com.example.agentweb.app.harness;
 
-import com.example.agentweb.domain.harness.McpCapability;
+import com.example.agentweb.domain.capability.McpCapability;
 import com.example.agentweb.domain.harness.SelectedMcpServer;
 import lombok.Getter;
 

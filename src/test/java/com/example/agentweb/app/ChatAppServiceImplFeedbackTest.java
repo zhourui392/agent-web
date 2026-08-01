@@ -3,6 +3,7 @@ package com.example.agentweb.app;
 import com.example.agentweb.app.agentrun.port.AgentGateway;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.chat.ChatSession;
+import com.example.agentweb.domain.chat.ChatSessionNotFoundException;
 import com.example.agentweb.domain.chat.Feedback;
 import com.example.agentweb.domain.chat.FeedbackRating;
 import com.example.agentweb.domain.chat.SessionCache;
@@ -60,7 +61,7 @@ public class ChatAppServiceImplFeedbackTest {
     public void saveFeedback_session_not_found_throws_and_does_not_persist() {
         when(sessionRepository.findById("missing")).thenReturn(null);
 
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(ChatSessionNotFoundException.class,
                 () -> service.saveFeedback("missing", "CORRECT", null));
         verify(sessionRepository, never()).saveFeedback(anyString(), any());
     }
@@ -123,7 +124,8 @@ public class ChatAppServiceImplFeedbackTest {
     public void getFeedback_session_not_found_throws() {
         when(sessionRepository.findById("missing")).thenReturn(null);
 
-        assertThrows(IllegalArgumentException.class, () -> service.getFeedback("missing"));
+        assertThrows(ChatSessionNotFoundException.class,
+                () -> service.getFeedback("missing"));
     }
 
     @Test
@@ -141,5 +143,28 @@ public class ChatAppServiceImplFeedbackTest {
         when(sessionRepository.findById("s1")).thenReturn(session("s1"));
 
         assertNull(service.getFeedback("s1"));
+    }
+
+    @Test
+    public void feedbackShouldHideActiveAndRetiredWorkbenchSessionsWithoutPersistence() {
+        ChatSession active = workbenchSession("phase-active");
+        ChatSession retired = workbenchSession("phase-retired");
+        retired.retire(retired.getCreatedAt().plusSeconds(1));
+        when(sessionRepository.findById("phase-active")).thenReturn(active);
+        when(sessionRepository.findById("phase-retired")).thenReturn(retired);
+
+        assertThrows(ChatSessionNotFoundException.class,
+                () -> service.saveFeedback("phase-active", "CORRECT", "must stay private"));
+        assertThrows(ChatSessionNotFoundException.class,
+                () -> service.getFeedback("phase-retired"));
+
+        verify(sessionRepository, never()).saveFeedback(anyString(), any());
+    }
+
+    private ChatSession workbenchSession(String id) {
+        return ChatSession.createWorkbenchPhase(
+                id, AgentType.CODEX, "/tmp/wd",
+                "workbench-1:IMPLEMENT_TEST", "owner-1", "Alex",
+                Instant.parse("2026-08-01T10:00:00Z"));
     }
 }

@@ -14,32 +14,18 @@ final class DomainText {
     }
 
     static String require(String value, String name) {
-        if (value == null || value.trim().isEmpty()) {
-            throw new IllegalArgumentException(name + " must not be blank");
-        }
-        return value.trim();
+        return com.example.agentweb.domain.shared.DomainText.require(value, name);
     }
 
     static String require(String value, String name, int maxLength) {
-        String normalized = require(value, name);
-        if (normalized.length() > maxLength) {
-            throw new IllegalArgumentException(name + " must contain at most " + maxLength + " characters");
-        }
-        return normalized;
+        return com.example.agentweb.domain.shared.DomainText.require(value, name, maxLength);
     }
 
     static String requireSha256(String value, String name) {
-        String normalized = require(value, name);
-        if (!normalized.matches("[a-f0-9]{64}")) {
-            throw new IllegalArgumentException(name + " must be a lowercase SHA-256");
-        }
-        return normalized;
+        return com.example.agentweb.domain.shared.DomainText.requireSha256(value, name);
     }
 
     static Instant requireTime(Instant value, String name) {
-        if (value == null) {
-            throw new IllegalArgumentException(name + " must not be null");
-        }
-        return value;
+        return com.example.agentweb.domain.shared.DomainText.requireTime(value, name);
     }
 }

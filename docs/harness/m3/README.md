@@ -270,7 +270,7 @@ GET  /api/harness/runs/{runId}/stages/{stage}/attempts/{attemptNumber}/execution
 | --- | --- | --- |
 | `AGENT_HARNESS_ENABLED` | `false` | Harness 总开关 |
 | `AGENT_HARNESS_ARTIFACT_ROOT` | `data/harness/artifacts` | Artifact/Evidence 受控根 |
-| `AGENT_HARNESS_MCP_SERVER_ROOT` | `src/main/resources/harness/mcp-servers` | 管理员可信 MCP Catalog 根 |
+| `AGENT_HARNESS_MCP_SERVER_ROOT` | `src/main/resources/capability/mcp-servers` | Harness MCP Catalog 兼容覆盖根 |
 | `AGENT_HARNESS_CODEX_COMMAND` | `CODEX_CMD` / `codex` | Harness 专用 Codex 命令 |
 | `AGENT_HARNESS_RUNTIME_AUTH_MODE` | `local-login` | M4 正式 Runtime 认证模式；可选本机登录态或隔离 Key |
 | `AGENT_HARNESS_CODEX_CREDENTIAL_REFERENCE` | 空 | 仅 `isolated-key` 使用的 Provider 凭据环境变量逻辑名 |

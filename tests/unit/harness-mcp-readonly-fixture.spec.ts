@@ -3,7 +3,7 @@ import { fileURLToPath } from 'url';
 import { afterEach, describe, expect, it } from 'vitest';
 
 const serverPath = fileURLToPath(new URL(
-  '../../src/main/resources/harness/mcp-servers/local-readonly-fixture/1.0.0/server.mjs',
+  '../../src/main/resources/capability/mcp-servers/local-readonly-fixture/1.0.0/server.mjs',
   import.meta.url,
 ));
 

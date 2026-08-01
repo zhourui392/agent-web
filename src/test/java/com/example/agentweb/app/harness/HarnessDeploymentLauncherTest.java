@@ -20,9 +20,12 @@ import java.util.Collections;
 import java.util.EnumMap;
 import java.util.Map;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -55,7 +58,7 @@ class HarnessDeploymentLauncherTest {
         when(preparer.result("deploy-1", false)).thenReturn(
                 new HarnessDeploymentResult("deploy-1", "run-1", "SUCCEEDED", false));
 
-        new HarnessDeploymentLauncher(preparer, baselineGateway, gateway).start(command);
+        launcher(new HarnessRetirementPolicy(true, true, true)).start(command);
 
         InOrder order = inOrder(preparer, baselineGateway, gateway);
         order.verify(preparer).prepare(command);
@@ -74,10 +77,34 @@ class HarnessDeploymentLauncherTest {
         when(preparer.result("deploy-1", true)).thenReturn(
                 new HarnessDeploymentResult("deploy-1", "run-1", "PREPARED", true));
 
-        new HarnessDeploymentLauncher(preparer, baselineGateway, gateway).start(command);
+        launcher(new HarnessRetirementPolicy(true, true, true)).start(command);
 
         verify(gateway, never()).execute(spec);
         verify(baselineGateway, never()).capture("/workspace");
+    }
+
+    @Test
+    void readOnlyWindowShouldRejectDeploymentWritesBeforePreparation() {
+        HarnessDeploymentLauncher launcher = launcher(
+                new HarnessRetirementPolicy(true, false, true));
+
+        HarnessRetirementUnavailableException startFailure = assertThrows(
+                HarnessRetirementUnavailableException.class,
+                () -> launcher.start(command()));
+        HarnessRetirementUnavailableException reconcileFailure = assertThrows(
+                HarnessRetirementUnavailableException.class,
+                () -> launcher.reconcileAsFailed(
+                        "run-1", "deploy-1", "verified failed"));
+
+        assertEquals("HARNESS_MUTATION_DISABLED", startFailure.getCode());
+        assertEquals("HARNESS_MUTATION_DISABLED", reconcileFailure.getCode());
+        verifyNoInteractions(preparer, baselineGateway, gateway);
+    }
+
+    private HarnessDeploymentLauncher launcher(
+            HarnessRetirementPolicy retirementPolicy) {
+        return new HarnessDeploymentLauncher(
+                preparer, baselineGateway, gateway, retirementPolicy);
     }
 
     private StartHarnessDeploymentCommand command() {

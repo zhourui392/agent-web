@@ -47,7 +47,8 @@ class SqliteChatRunQueryServiceTest {
         dataSource.setUrl("jdbc:sqlite:" + tempDir.resolve("query.db").toAbsolutePath());
         jdbc = new JdbcTemplate(dataSource);
         jdbc.execute("CREATE TABLE chat_session (id TEXT PRIMARY KEY, agent_type TEXT NOT NULL, "
-                + "working_dir TEXT NOT NULL, resume_id TEXT, env TEXT, user_id TEXT)");
+                + "working_dir TEXT NOT NULL, resume_id TEXT, env TEXT, user_id TEXT, "
+                + "session_kind TEXT NOT NULL DEFAULT 'CHAT')");
         jdbc.execute("CREATE TABLE chat_message (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, "
                 + "role TEXT NOT NULL, content TEXT NOT NULL, timestamp TEXT NOT NULL)");
         SqliteChatRunRepositoryTest.createSchema(jdbc);
@@ -77,6 +78,30 @@ class SqliteChatRunQueryServiceTest {
     }
 
     @Test
+    void activeChatQueryShouldFilterRunOriginAndSessionKindIndependently() {
+        insertSession("s-chat", "user-1", "CHAT");
+        insertSession("s-origin-workbench", "user-1", "CHAT");
+        insertSession("s-kind-workbench", "user-1", "WORKBENCH_PHASE");
+        insertSession("s-both-workbench", "user-1", "WORKBENCH_PHASE");
+        insertMessage("s-chat", "user", "chat");
+        insertMessage("s-origin-workbench", "user", "corrupt origin");
+        insertMessage("s-kind-workbench", "user", "corrupt kind");
+        insertMessage("s-both-workbench", "user", "workbench");
+        insertRun("r-chat", "s-chat", 1L, "RUNNING", 1L, 0, "CHAT");
+        insertRun("r-origin-workbench", "s-origin-workbench", 2L,
+                "RUNNING", 1L, 0, "WORKBENCH");
+        insertRun("r-kind-workbench", "s-kind-workbench", 3L,
+                "RUNNING", 1L, 0, "CHAT");
+        insertRun("r-both-workbench", "s-both-workbench", 4L,
+                "RUNNING", 1L, 0, "WORKBENCH");
+
+        List<ActiveChatRunView> active = queryService.findActiveForCurrentUser();
+
+        assertEquals(1, active.size());
+        assertEquals("r-chat", active.get(0).getRunId());
+    }
+
+    @Test
     void execution_context_should_include_submitted_message_and_prior_history() {
         insertSession("s1", "user-1");
         insertMessage("s1", "user", "old question");
@@ -96,29 +121,56 @@ class SqliteChatRunQueryServiceTest {
     }
 
     @Test
+    void chatExecutionContextShouldFilterRunOriginAndSessionKindIndependently() {
+        insertSession("s-chat", "user-1", "CHAT");
+        insertSession("s-origin-workbench", "user-1", "CHAT");
+        insertSession("s-kind-workbench", "user-1", "WORKBENCH_PHASE");
+        insertSession("s-both-workbench", "user-1", "WORKBENCH_PHASE");
+        insertMessage("s-chat", "user", "chat");
+        insertMessage("s-origin-workbench", "user", "corrupt origin");
+        insertMessage("s-kind-workbench", "user", "corrupt kind");
+        insertMessage("s-both-workbench", "user", "workbench");
+        insertRun("r-chat", "s-chat", 1L, "PENDING", 0L, 0, "CHAT");
+        insertRun("r-origin-workbench", "s-origin-workbench", 2L,
+                "PENDING", 0L, 0, "WORKBENCH");
+        insertRun("r-kind-workbench", "s-kind-workbench", 3L,
+                "PENDING", 0L, 0, "CHAT");
+        insertRun("r-both-workbench", "s-both-workbench", 4L,
+                "PENDING", 0L, 0, "WORKBENCH");
+
+        assertTrue(queryService.findExecutionContext("r-chat").isPresent());
+        assertFalse(queryService.findExecutionContext("r-origin-workbench").isPresent());
+        assertFalse(queryService.findExecutionContext("r-kind-workbench").isPresent());
+        assertFalse(queryService.findExecutionContext("r-both-workbench").isPresent());
+    }
+
+    @Test
     void active_count_should_include_all_users_and_only_active_statuses() {
         insertSession("s1", "user-1");
-        insertSession("s2", "user-2");
+        insertSession("s2", "user-2", "WORKBENCH_PHASE");
+        insertSession("s3", "user-1");
         insertMessage("s1", "user", "q1");
         insertMessage("s2", "user", "q2");
+        insertMessage("s3", "user", "q3");
         insertRun("r1", "s1", 1L, "RUNNING", 1L, 1);
-        insertRun("r2", "s2", 2L, "PENDING", 1L, 1);
+        insertRun("r2", "s2", 2L, "PENDING", 1L, 1, "WORKBENCH");
+        insertRun("r3", "s3", 3L, "PENDING", 1L, 1);
         jdbc.update("UPDATE chat_run SET status='SUCCEEDED', assistant_message_id=99, "
-                + "finished_at=1784714401000 WHERE id='r2'");
+                + "finished_at=1784714401000 WHERE id='r3'");
 
-        assertEquals(1L, queryService.countActiveRuns());
+        assertEquals(2L, queryService.countActiveRuns());
     }
 
     @Test
     void active_run_ids_should_return_all_orphans_without_user_filter() {
         insertSession("s1", "user-1");
-        insertSession("s2", "user-2");
+        insertSession("s2", "user-2", "WORKBENCH_PHASE");
         insertSession("s3", "user-1");
         insertMessage("s1", "user", "q1");
         insertMessage("s2", "user", "q2");
         insertMessage("s3", "user", "q3");
         insertRun("run-pending", "s1", 1L, "PENDING", 0L, 1);
-        insertRun("run-running", "s2", 2L, "RUNNING", 0L, 1);
+        insertRun("run-running", "s2", 2L, "RUNNING", 0L, 1, "WORKBENCH");
         insertRun("run-finished", "s3", 3L, "PENDING", 0L, 1);
         jdbc.update("UPDATE chat_run SET status='SUCCEEDED', assistant_message_id=99, "
                 + "started_at=1784714400000, finished_at=1784714401000 WHERE id='run-finished'");
@@ -143,8 +195,13 @@ class SqliteChatRunQueryServiceTest {
     }
 
     private void insertSession(String id, String userId) {
-        jdbc.update("INSERT INTO chat_session (id, agent_type, working_dir, resume_id, env, user_id) "
-                        + "VALUES (?, 'CODEX', ?, NULL, 'test', ?)", id, "/workspace/" + id, userId);
+        insertSession(id, userId, "CHAT");
+    }
+
+    private void insertSession(String id, String userId, String sessionKind) {
+        jdbc.update("INSERT INTO chat_session (id, agent_type, working_dir, resume_id, env, "
+                        + "user_id, session_kind) VALUES (?, 'CODEX', ?, NULL, 'test', ?, ?)",
+                id, "/workspace/" + id, userId, sessionKind);
     }
 
     private void insertMessage(String sessionId, String role, String content) {
@@ -154,9 +211,19 @@ class SqliteChatRunQueryServiceTest {
 
     private void insertRun(String id, String sessionId, long messageId, String status,
                            long lastSeq, int recallEnabled) {
+        insertRun(id, sessionId, messageId, status, lastSeq, recallEnabled, "CHAT");
+    }
+
+    private void insertRun(String id, String sessionId, long messageId, String status,
+                           long lastSeq, int recallEnabled, String runOrigin) {
+        String originReference = "WORKBENCH".equals(runOrigin)
+                ? "workbench-1:IMPLEMENT_TEST" : null;
+        String executionContextId = "WORKBENCH".equals(runOrigin) ? id : null;
         jdbc.update("INSERT INTO chat_run (id, session_id, user_message_id, idempotency_key, recall_enabled, "
-                        + "status, last_event_seq, created_at, updated_at, version) VALUES (?,?,?,?,?,?,?,?,?,0)",
-                id, sessionId, messageId, "key-" + id, recallEnabled, status, lastSeq,
+                        + "run_origin, origin_reference, execution_context_id, status, last_event_seq, "
+                        + "created_at, updated_at, version) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,0)",
+                id, sessionId, messageId, "key-" + id, recallEnabled,
+                runOrigin, originReference, executionContextId, status, lastSeq,
                 1784714400000L, 1784714400000L);
     }
 }

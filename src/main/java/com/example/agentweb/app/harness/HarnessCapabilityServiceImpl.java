@@ -2,6 +2,10 @@ package com.example.agentweb.app.harness;
 
 import com.example.agentweb.app.harness.port.RuntimePreflightGateway;
 import com.example.agentweb.app.harness.port.RuntimePreflightReport;
+import com.example.agentweb.domain.capability.McpServerCatalog;
+import com.example.agentweb.domain.capability.McpServerDefinition;
+import com.example.agentweb.domain.capability.SkillCatalog;
+import com.example.agentweb.domain.capability.SkillPackage;
 import com.example.agentweb.domain.harness.CapabilitySelectionRequest;
 import com.example.agentweb.domain.harness.CapabilitySnapshot;
 import com.example.agentweb.domain.harness.CapabilitySnapshotRepository;
@@ -18,13 +22,9 @@ import com.example.agentweb.domain.harness.HarnessRunRepository;
 import com.example.agentweb.domain.harness.McpAuthorizationPolicy;
 import com.example.agentweb.domain.harness.McpSelection;
 import com.example.agentweb.domain.harness.McpSelectionRequest;
-import com.example.agentweb.domain.harness.McpServerCatalog;
-import com.example.agentweb.domain.harness.McpServerDefinition;
 import com.example.agentweb.domain.harness.PromptPack;
 import com.example.agentweb.domain.harness.PromptPackCatalog;
-import com.example.agentweb.domain.harness.SkillCatalog;
 import com.example.agentweb.domain.harness.SkillSelection;
-import com.example.agentweb.domain.harness.SkillPackage;
 import com.example.agentweb.domain.harness.SkillSelectionPolicy;
 import com.example.agentweb.domain.harness.WorkspaceSkillTrustPolicy;
 import com.example.agentweb.domain.harness.StageCapabilityPolicy;
@@ -62,6 +62,7 @@ public class HarnessCapabilityServiceImpl implements HarnessCapabilityService {
     private final RuntimePreflightGateway runtimePreflightGateway;
     private final HarnessCapabilitySettings settings;
     private final Clock clock;
+    private final HarnessRetirementPolicy retirementPolicy;
 
     public HarnessCapabilityServiceImpl(HarnessRunRepository runRepository,
                                         CapabilitySnapshotRepository snapshotRepository,
@@ -75,7 +76,8 @@ public class HarnessCapabilityServiceImpl implements HarnessCapabilityService {
                                         ArtifactStore artifactStore,
                                         HarnessArtifactPromptFormatter artifactPromptFormatter,
                                         RuntimePreflightGateway runtimePreflightGateway,
-                                        HarnessCapabilitySettings settings, Clock clock) {
+                                        HarnessCapabilitySettings settings, Clock clock,
+                                        HarnessRetirementPolicy retirementPolicy) {
         this.runRepository = runRepository;
         this.snapshotRepository = snapshotRepository;
         this.promptPackCatalog = promptPackCatalog;
@@ -90,11 +92,13 @@ public class HarnessCapabilityServiceImpl implements HarnessCapabilityService {
         this.runtimePreflightGateway = runtimePreflightGateway;
         this.settings = settings;
         this.clock = clock;
+        this.retirementPolicy = retirementPolicy;
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public CapabilitySnapshotView resolve(ResolveHarnessCapabilityCommand command) {
+        retirementPolicy.requireMutationAvailable();
         HarnessRun run = runRepository.findById(command.getRunId())
                 .orElseThrow(() -> new HarnessRunNotFoundException(command.getRunId()));
         int attemptNumber = run.capabilitySnapshotAttempt(command.getStage());

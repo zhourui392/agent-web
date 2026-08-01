@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 FRONTEND_DIR="$REPO_ROOT/frontend"
 VITE_PORT="${VITE_PORT:-5174}"
+VITE_HOST="${VITE_HOST:-localhost}"
 
 # 1. 清 e2e db
 node "$SCRIPT_DIR/e2e-clean.js"
@@ -15,7 +16,7 @@ cd "$FRONTEND_DIR"
 npm run build
 
 # 3. 后台启动 vite preview（提供前端静态文件 + /api 代理到后端）
-npx vite preview --port "$VITE_PORT" &
+npx vite preview --host "$VITE_HOST" --port "$VITE_PORT" &
 VITE_PID=$!
 
 # 4. 等待 vite preview 启动
@@ -27,5 +28,6 @@ ACTIVE_SPRING_PROFILES="${SPRING_PROFILES:-e2e}"
 unset SPRING_PROFILES
 cd "$REPO_ROOT"
 mvn org.springframework.boot:spring-boot-maven-plugin:run \
+  -Dmaven.test.skip=true \
   -Dspring-boot.run.profiles="$ACTIVE_SPRING_PROFILES" \
   -Dspring-boot.run.jvmArguments=-Dfile.encoding=UTF-8

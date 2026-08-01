@@ -92,6 +92,21 @@ class AgentCatalogTest {
         assertEquals("UNKNOWN_AGENT_TYPE", error.getCode());
     }
 
+    @Test
+    void workbenchSurfaceShouldAllowAvailableCliAgentsAndRejectNative() {
+        AgentCatalog catalog = catalogWithNative();
+
+        assertEquals(AgentType.CODEX, catalog.requireAvailableForSurface(
+                AgentType.CODEX, AgentSurface.WORKBENCH, "test"));
+        assertEquals(AgentType.CLAUDE, catalog.requireAvailableForSurface(
+                AgentType.CLAUDE, AgentSurface.WORKBENCH, "test"));
+        AgentPolicyViolationException nativeFailure = assertThrows(
+                AgentPolicyViolationException.class,
+                () -> catalog.requireAvailableForSurface(
+                        AgentType.NATIVE, AgentSurface.WORKBENCH, "test"));
+        assertEquals("AGENT_SURFACE_UNAVAILABLE", nativeFailure.getCode());
+    }
+
     private AgentCatalog catalogWithNative() {
         return new AgentCatalog(Arrays.asList(
                 AgentRuntimeAvailability.availableEverywhere(AgentType.CODEX),

@@ -1,0 +1,13 @@
+schemaVersion: "1"
+id: platform/workbench-safety
+version: 1.0.0
+source: PLATFORM
+mandatory: true
+summary: Workbench 四阶段共享的安全边界
+applicableUseCases:
+  - REQUIREMENT_ANALYSIS
+  - SOLUTION_DESIGN
+  - IMPLEMENT_TEST
+  - REVIEW_REFACTOR
+resources:
+  rule: rule.md

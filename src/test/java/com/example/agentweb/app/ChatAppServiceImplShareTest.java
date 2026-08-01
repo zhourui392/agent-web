@@ -3,6 +3,7 @@ package com.example.agentweb.app;
 import com.example.agentweb.app.agentrun.port.AgentGateway;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.chat.ChatSession;
+import com.example.agentweb.domain.chat.ChatSessionNotFoundException;
 import com.example.agentweb.domain.chat.SessionCache;
 import com.example.agentweb.domain.chat.SessionRepository;
 import com.example.agentweb.domain.slashcommand.SlashCommandExpander;
@@ -74,7 +75,22 @@ public class ChatAppServiceImplShareTest {
     public void shareSession_should_reject_unknown_session_without_persisting() {
         when(sessionRepository.findById("ghost")).thenReturn(null);
 
-        assertThrows(IllegalArgumentException.class, () -> service.shareSession("ghost"));
+        assertThrows(ChatSessionNotFoundException.class,
+                () -> service.shareSession("ghost"));
+        verify(sessionRepository, never()).setShareToken(anyString(), anyString());
+    }
+
+    @Test
+    public void shareSessionShouldHideWorkbenchSessionWithoutCreatingToken() {
+        ChatSession session = ChatSession.createWorkbenchPhase(
+                "phase-session", AgentType.CODEX, "/tmp/wd",
+                "workbench-1:IMPLEMENT_TEST", "owner-1", "Alex",
+                Instant.parse("2026-08-01T10:00:00Z"));
+        when(sessionRepository.findById("phase-session")).thenReturn(session);
+
+        assertThrows(ChatSessionNotFoundException.class,
+                () -> service.shareSession("phase-session"));
+
         verify(sessionRepository, never()).setShareToken(anyString(), anyString());
     }
 

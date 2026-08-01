@@ -143,6 +143,12 @@ v-for="b in savedBranches" :key="b" closable size="small"
         <div class="topbar-actions">
         <!-- 召回历史已迁移至管理后台「召回历史」页(/admin/refinery.html);此处只保留聊天内的召回开关 -->
 
+        <!-- 本地开发 Workbench -->
+        <el-button style="flex-shrink: 0;" plain @click="goToWorkbench">
+          <el-icon><briefcase /></el-icon>
+          <span class="hidden-mobile">Workbench</span>
+        </el-button>
+
         <!-- ⑧ 定时任务按钮 -->
         <el-button v-if="canUseScheduledTask" style="flex-shrink: 0;" @click="taskManagerVisible = true">
           <el-icon><timer /></el-icon>
@@ -581,6 +587,7 @@ export default {
       authEnabled, username, currentUserId, canUseScheduledTask, isAdmin, initAuth, doLogout
     } = useAuth();
     const goToAdmin = () => { window.location.href = '/admin/dashboard.html'; };
+    const goToWorkbench = () => { window.location.href = '/workbench.html'; };
     const {
       roots, selectedRoot, workspaceCandidatePath, currentPath, folderList,
       workspaceDialogVisible, previewVisible, previewTitle, previewHtml, previewLoading,
@@ -870,6 +877,7 @@ export default {
       authEnabled,
       isAdmin,
       goToAdmin,
+      goToWorkbench,
       doLogout,
     };
   }

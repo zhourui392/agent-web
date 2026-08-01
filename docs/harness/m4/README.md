@@ -205,9 +205,9 @@ Requirement → Acceptance Criteria → Design → Test Evidence
 | --- | --- | --- |
 | `AGENT_HARNESS_ENABLED` | `false` | Harness 总开关 |
 | `AGENT_HARNESS_ARTIFACT_ROOT` | `data/harness/artifacts` | Artifact 正文根 |
-| `AGENT_HARNESS_PROMPT_PACK_ROOT` | 源码资源目录 | Prompt Pack Catalog |
-| `AGENT_HARNESS_PLATFORM_SKILL_ROOT` | 源码资源目录 | 平台 Skill Catalog |
-| `AGENT_HARNESS_MCP_SERVER_ROOT` | 源码资源目录 | 管理员 MCP Catalog |
+| `AGENT_HARNESS_PROMPT_PACK_ROOT` | `src/main/resources/capability/rules` | Harness Prompt Pack 兼容读取根 |
+| `AGENT_HARNESS_PLATFORM_SKILL_ROOT` | `src/main/resources/capability/skills` | Harness 平台 Skill Catalog 兼容读取根 |
+| `AGENT_HARNESS_MCP_SERVER_ROOT` | `src/main/resources/capability/mcp-servers` | Harness 管理员 MCP Catalog 兼容读取根 |
 | `AGENT_HARNESS_ALLOWED_MCP_SERVER_IDS` | 空 | 环境 MCP allowlist；空即全部拒绝 |
 | `AGENT_HARNESS_DEPLOYMENT_TEMPLATE_ROOT` | 空模板目录 | 管理员 local 部署模板 Catalog |
 | `AGENT_HARNESS_CODEX_COMMAND` | `CODEX_CMD`/`codex` | Harness 专用 Codex CLI |

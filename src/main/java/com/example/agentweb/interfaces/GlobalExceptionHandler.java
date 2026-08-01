@@ -13,12 +13,13 @@ import com.example.agentweb.app.harness.InvalidHarnessWorkspaceException;
 import com.example.agentweb.domain.auth.UsernameAlreadyExistsException;
 import com.example.agentweb.domain.agentrun.AgentPolicyViolationException;
 import com.example.agentweb.domain.agentrun.AgentRuntimeUnavailableException;
+import com.example.agentweb.domain.capability.CapabilityCatalogException;
+import com.example.agentweb.domain.capability.CapabilityResolutionException;
 import com.example.agentweb.domain.chat.ChatSessionNotFoundException;
 import com.example.agentweb.domain.chat.SessionDeletionForbiddenException;
 import com.example.agentweb.domain.chatrun.ActiveChatRunExistsException;
 import com.example.agentweb.domain.chatrun.ChatRunNotFoundException;
 import com.example.agentweb.domain.harness.HarnessRunNotFoundException;
-import com.example.agentweb.domain.harness.CapabilityResolutionException;
 import com.example.agentweb.domain.harness.HarnessCatalogException;
 import com.example.agentweb.domain.harness.IllegalHarnessTransitionException;
 import com.example.agentweb.domain.harness.DuplicateHarnessRunException;
@@ -158,6 +159,14 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(HarnessCatalogException.class)
     public ResponseEntity<Map<String, Object>> handleHarnessCatalog(HarnessCatalogException ex) {
+        Map<String, Object> body = new HashMap<String, Object>();
+        body.put("code", ex.getCode());
+        body.put("message", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(body);
+    }
+
+    @ExceptionHandler(CapabilityCatalogException.class)
+    public ResponseEntity<Map<String, Object>> handleCapabilityCatalog(CapabilityCatalogException ex) {
         Map<String, Object> body = new HashMap<String, Object>();
         body.put("code", ex.getCode());
         body.put("message", ex.getMessage());

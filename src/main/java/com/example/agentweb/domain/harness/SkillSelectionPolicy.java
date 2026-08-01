@@ -1,5 +1,12 @@
 package com.example.agentweb.domain.harness;
 
+import com.example.agentweb.domain.capability.CapabilityRequest;
+import com.example.agentweb.domain.capability.CapabilityResolutionException;
+import com.example.agentweb.domain.capability.SkillDependency;
+import com.example.agentweb.domain.capability.SkillManifest;
+import com.example.agentweb.domain.capability.SkillPackage;
+import com.example.agentweb.domain.capability.SkillTrustSource;
+
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -198,10 +205,10 @@ public final class SkillSelectionPolicy {
                 && !request.isWorkspaceApproved(manifest.getId())) {
             return SkillRejectionReason.WORKSPACE_NOT_APPROVED;
         }
-        if (!manifest.getApplicableStages().contains(request.getStage())) {
+        if (!manifest.getApplicableUseCases().contains(request.getStage().name())) {
             return SkillRejectionReason.STAGE_INCOMPATIBLE;
         }
-        if (!manifest.getRuntimes().contains(request.getRuntime())) {
+        if (!manifest.getCompatibleRuntimes().contains(request.getRuntime().name())) {
             return SkillRejectionReason.RUNTIME_INCOMPATIBLE;
         }
         return null;
@@ -217,11 +224,11 @@ public final class SkillSelectionPolicy {
 
     private void requireCompatible(SkillPackage candidate, CapabilitySelectionRequest request) {
         SkillManifest manifest = candidate.getManifest();
-        if (!manifest.getApplicableStages().contains(request.getStage())) {
+        if (!manifest.getApplicableUseCases().contains(request.getStage().name())) {
             throw failure("SKILL_STAGE_INCOMPATIBLE",
                     "skill does not support stage " + request.getStage() + ": " + manifest.getId());
         }
-        if (!manifest.getRuntimes().contains(request.getRuntime())) {
+        if (!manifest.getCompatibleRuntimes().contains(request.getRuntime().name())) {
             throw failure("SKILL_RUNTIME_INCOMPATIBLE",
                     "skill does not support runtime " + request.getRuntime() + ": " + manifest.getId());
         }

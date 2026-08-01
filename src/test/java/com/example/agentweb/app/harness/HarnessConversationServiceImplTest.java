@@ -1,6 +1,6 @@
 package com.example.agentweb.app.harness;
 
-import com.example.agentweb.domain.harness.CapabilityRequest;
+import com.example.agentweb.domain.capability.CapabilityRequest;
 import com.example.agentweb.domain.harness.HarnessCommandId;
 import com.example.agentweb.domain.harness.HarnessStage;
 import org.junit.jupiter.api.BeforeEach;
@@ -12,10 +12,12 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -39,7 +41,24 @@ class HarnessConversationServiceImplTest {
     @BeforeEach
     void setUp() {
         service = new HarnessConversationServiceImpl(
-                preparer, capabilityService, executionService);
+                preparer, capabilityService, executionService,
+                new HarnessRetirementPolicy(true, true, true));
+    }
+
+    @Test
+    void readOnlyWindowShouldRejectConversationBeforePreparation() {
+        service = new HarnessConversationServiceImpl(
+                preparer, capabilityService, executionService,
+                new HarnessRetirementPolicy(true, false, true));
+
+        HarnessRetirementUnavailableException failure = assertThrows(
+                HarnessRetirementUnavailableException.class,
+                () -> service.send(new StartHarnessConversationCommand(
+                        "run-1", HarnessStage.ANALYSIS,
+                        "message-1", "重新整理需求")));
+
+        assertEquals("HARNESS_MUTATION_DISABLED", failure.getCode());
+        verifyNoInteractions(preparer, capabilityService, executionService);
     }
 
     @Test

@@ -1,0 +1,250 @@
+package com.example.agentweb.app.runtime.port;
+
+import com.example.agentweb.domain.capability.ResolvedCapabilityBinding;
+import com.example.agentweb.domain.shared.AgentType;
+import com.example.agentweb.domain.shared.CanonicalHashing;
+import org.junit.jupiter.api.Test;
+
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.Set;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+/**
+ * @author alex
+ * @since 2026-08-01
+ */
+class AgentExecutionPlanTest {
+
+    @Test
+    void createsCompletePlanWithoutHarnessOrNullableOptions() {
+        ResolvedCapabilityBinding binding = capabilityBinding();
+        AgentExecutionPlan plan = new AgentExecutionPlan(
+                new ExecutionIdentity("exec-1", "owner-1", "workbench:wb-1:implementation:1"),
+                new RuntimeSelection(AgentType.CODEX,
+                        RuntimeVersionPolicy.exact("codex-cli@1.2.3"),
+                        CredentialReference.environment("CODEX_RUNTIME_TOKEN")),
+                new PromptPayload("implement the approved design",
+                        CanonicalHashing.sha256("implement the approved design"),
+                        HistoryDelivery.PROMPT_PREFIX),
+                new WorkspaceLayout("/workspace/service-a",
+                        Arrays.asList("/workspace/service-a", "/workspace/service-b"),
+                        Collections.singletonList("/workspace/service-a"),
+                        SandboxMode.WORKSPACE_WRITE),
+                binding,
+                new RuntimeLimits(Duration.ofMinutes(20), 8_388_608L,
+                        new LinkedHashSet<String>(Arrays.asList("PATH", "LANG"))));
+
+        assertEquals("exec-1", plan.getExecutionIdentity().getExecutionId());
+        assertEquals(AgentType.CODEX, plan.getRuntimeSelection().getAgentType());
+        assertEquals("implement the approved design", plan.getPromptPayload().getFinalPrompt());
+        assertEquals("/workspace/service-a",
+                plan.getWorkspaceLayout().getPrimaryRepositoryRoot());
+        assertSame(binding, plan.getCapabilityBinding());
+        assertEquals(Duration.ofMinutes(20), plan.getRuntimeLimits().getTimeout());
+        assertEquals(new LinkedHashSet<String>(Arrays.asList("PATH", "LANG")),
+                plan.getRuntimeLimits().getEnvironmentAllowlist());
+    }
+
+    @Test
+    void defensiveCopiesAllPlanCollections() {
+        ArrayList<String> readable = new ArrayList<String>(Arrays.asList(
+                "/workspace/service-a", "/workspace/service-b"));
+        ArrayList<String> writable = new ArrayList<String>(Collections.singletonList(
+                "/workspace/service-a"));
+        Set<String> environment = new LinkedHashSet<String>(Collections.singletonList("PATH"));
+
+        WorkspaceLayout layout = new WorkspaceLayout("/workspace/service-a", readable,
+                writable, SandboxMode.WORKSPACE_WRITE);
+        RuntimeLimits limits = new RuntimeLimits(Duration.ofSeconds(30), 1024, environment);
+        readable.clear();
+        writable.clear();
+        environment.clear();
+
+        assertEquals(2, layout.getReadableRoots().size());
+        assertEquals(1, layout.getWritableRoots().size());
+        assertEquals(Collections.singleton("PATH"), limits.getEnvironmentAllowlist());
+        assertThrows(UnsupportedOperationException.class,
+                () -> layout.getReadableRoots().add("/workspace/service-c"));
+        assertThrows(UnsupportedOperationException.class,
+                () -> layout.getWritableRoots().clear());
+        assertThrows(UnsupportedOperationException.class,
+                () -> limits.getEnvironmentAllowlist().add("HOME"));
+    }
+
+    @Test
+    void readOnlySandboxRejectsWritableRoots() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new WorkspaceLayout("/workspace/service-a",
+                        Collections.singletonList("/workspace/service-a"),
+                        Collections.singletonList("/workspace/service-a"),
+                        SandboxMode.READ_ONLY));
+
+        WorkspaceLayout layout = new WorkspaceLayout("/workspace/service-a",
+                Collections.singletonList("/workspace/service-a"),
+                Collections.<String>emptyList(), SandboxMode.READ_ONLY);
+
+        assertTrue(layout.getWritableRoots().isEmpty());
+    }
+
+    @Test
+    void writeSandboxRequiresWritableRootsToBeReadable() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new WorkspaceLayout("/workspace/service-a",
+                        Collections.singletonList("/workspace/service-a"),
+                        Collections.singletonList("/workspace/service-b"),
+                        SandboxMode.WORKSPACE_WRITE));
+        assertThrows(IllegalArgumentException.class,
+                () -> new WorkspaceLayout("/workspace/service-a",
+                        Collections.singletonList("/workspace/service-a"),
+                        Collections.<String>emptyList(), SandboxMode.WORKSPACE_WRITE));
+    }
+
+    @Test
+    void workspaceRequiresNormalizedAbsolutePrimaryAndReadableRoots() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new WorkspaceLayout("workspace/service-a",
+                        Collections.singletonList("/workspace/service-a"),
+                        Collections.<String>emptyList(), SandboxMode.READ_ONLY));
+        assertThrows(IllegalArgumentException.class,
+                () -> new WorkspaceLayout("/workspace/service-a",
+                        Collections.singletonList("/workspace/service-b"),
+                        Collections.<String>emptyList(), SandboxMode.READ_ONLY));
+        assertThrows(IllegalArgumentException.class,
+                () -> new WorkspaceLayout("/workspace/service-a/../service-a",
+                        Collections.singletonList("/workspace/service-a"),
+                        Collections.<String>emptyList(), SandboxMode.READ_ONLY));
+    }
+
+    @Test
+    void promptPayloadRejectsHashThatDoesNotMatchFinalPrompt() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new PromptPayload("actual prompt", CanonicalHashing.sha256("other"),
+                        HistoryDelivery.PROVIDER_RESUME));
+        assertThrows(IllegalArgumentException.class,
+                () -> new PromptPayload("actual prompt", CanonicalHashing.sha256("actual prompt"),
+                        null));
+    }
+
+    @Test
+    void runtimeLimitsRequirePositiveBoundsAndValidEnvironmentNames() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new RuntimeLimits(Duration.ZERO, 1024, Collections.<String>emptySet()));
+        assertThrows(IllegalArgumentException.class,
+                () -> new RuntimeLimits(Duration.ofSeconds(1), 0,
+                        Collections.<String>emptySet()));
+        assertThrows(IllegalArgumentException.class,
+                () -> new RuntimeLimits(Duration.ofSeconds(1), 1024,
+                        Collections.singleton("INVALID-NAME")));
+        assertThrows(IllegalArgumentException.class,
+                () -> new RuntimeLimits(Duration.ofSeconds(1), 1024, null));
+    }
+
+    @Test
+    void executionGatewayExposesStableHandleStopAndTechnicalObservation() {
+        RuntimeHandle handle = new RuntimeHandle("exec-1", "runtime-handle-1");
+        RuntimeObservation running = RuntimeObservation.running(handle, 128L);
+        RecordingGateway gateway = new RecordingGateway(handle, running);
+        RuntimeEventSink sink = event -> { };
+
+        RuntimeHandle started = gateway.start(plan(), sink);
+        gateway.requestStop(started);
+        RuntimeObservation observed = gateway.observe(started);
+
+        assertSame(handle, started);
+        assertSame(running, observed);
+        assertSame(handle, gateway.stopRequestedFor);
+        assertEquals(RuntimeState.RUNNING, observed.getState());
+        assertEquals(128L, observed.getObservedOutputBytes());
+        assertFalse(observed.termination().isPresent());
+    }
+
+    @Test
+    void terminalObservationCarriesProviderNeutralTechnicalFacts() {
+        RuntimeHandle handle = new RuntimeHandle("exec-1", "runtime-handle-1");
+
+        RuntimeObservation observation = RuntimeObservation.terminated(handle, 143,
+                RuntimeTerminationReason.REQUESTED_STOP, 256L);
+
+        assertEquals(RuntimeState.TERMINATED, observation.getState());
+        assertTrue(observation.termination().isPresent());
+        assertEquals(143, observation.termination().get().getExitCode());
+        assertEquals(RuntimeTerminationReason.REQUESTED_STOP,
+                observation.termination().get().getReason());
+        assertThrows(IllegalArgumentException.class,
+                () -> RuntimeObservation.running(handle, -1L));
+    }
+
+    @Test
+    void runtimeEventsAreSequencedBoundedAndProviderNeutral() {
+        RuntimeEvent event = new RuntimeEvent("exec-1", 1L, RuntimeEventType.OUTPUT,
+                "safe normalized output");
+
+        assertEquals("exec-1", event.getExecutionId());
+        assertEquals(1L, event.getSequence());
+        assertEquals(RuntimeEventType.OUTPUT, event.getType());
+        assertEquals("safe normalized output", event.getSafePayload());
+        assertThrows(IllegalArgumentException.class,
+                () -> new RuntimeEvent("exec-1", 0L, RuntimeEventType.OUTPUT, "output"));
+        assertThrows(IllegalArgumentException.class,
+                () -> new RuntimeEvent("exec-1", 1L, RuntimeEventType.OUTPUT,
+                        String.join("", Collections.nCopies(65_537, "x"))));
+    }
+
+    private static AgentExecutionPlan plan() {
+        String prompt = "prompt";
+        return new AgentExecutionPlan(
+                new ExecutionIdentity("exec-1", "owner-1", "chat:conversation-1:run-1"),
+                new RuntimeSelection(AgentType.CODEX, RuntimeVersionPolicy.configured(),
+                        CredentialReference.systemConfiguration()),
+                new PromptPayload(prompt, CanonicalHashing.sha256(prompt),
+                        HistoryDelivery.PROVIDER_RESUME),
+                new WorkspaceLayout("/workspace/service-a",
+                        Collections.singletonList("/workspace/service-a"),
+                        Collections.<String>emptyList(), SandboxMode.READ_ONLY),
+                capabilityBinding(),
+                new RuntimeLimits(Duration.ofSeconds(30), 1024,
+                        Collections.<String>emptySet()));
+    }
+
+    private static ResolvedCapabilityBinding capabilityBinding() {
+        return ResolvedCapabilityBinding.resolve("policy@1", "profile", "1",
+                CanonicalHashing.sha256("profile"), Collections.emptyList(),
+                Collections.emptyList(), Collections.emptyList(), Collections.emptyList(),
+                "codex:*");
+    }
+
+    private static final class RecordingGateway implements AgentExecutionGateway {
+        private final RuntimeHandle handle;
+        private final RuntimeObservation observation;
+        private RuntimeHandle stopRequestedFor;
+
+        private RecordingGateway(RuntimeHandle handle, RuntimeObservation observation) {
+            this.handle = handle;
+            this.observation = observation;
+        }
+
+        @Override
+        public RuntimeHandle start(AgentExecutionPlan plan, RuntimeEventSink sink) {
+            return handle;
+        }
+
+        @Override
+        public void requestStop(RuntimeHandle handle) {
+            stopRequestedFor = handle;
+        }
+
+        @Override
+        public RuntimeObservation observe(RuntimeHandle handle) {
+            return observation;
+        }
+    }
+}

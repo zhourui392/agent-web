@@ -1,0 +1,21 @@
+schema: workbench-phase-profile@1
+id: workbench-implement-test
+version: 1.0.0
+phase: IMPLEMENT_TEST
+rules:
+  - id: platform/workbench-safety
+    required: true
+  - id: workbench/tdd-minimal-change
+    required: true
+skills:
+  - id: java-tdd
+    required: false
+  - id: target-development
+    required: false
+  - id: regression-test
+    required: false
+mcp_servers:
+  - id: repository-query
+    required: false
+  - id: local-test-runner
+    required: false

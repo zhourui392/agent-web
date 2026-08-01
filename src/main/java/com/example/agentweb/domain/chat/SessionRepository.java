@@ -9,6 +9,12 @@ import java.util.List;
 public interface SessionRepository {
 
     /**
+     * 严格创建新会话聚合根；会话 ID 已存在时必须失败，且不得覆盖已有会话。
+     * @param session 新会话聚合根
+     */
+    void addSession(ChatSession session);
+
+    /**
      * 保存或更新会话聚合根 (不含 messages,messages 由 addMessage 单独追加).
      * @param session 会话聚合根
      */

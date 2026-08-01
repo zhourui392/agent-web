@@ -2,6 +2,8 @@ package com.example.agentweb.interfaces;
 
 import com.example.agentweb.app.harness.HarnessExecutionResult;
 import com.example.agentweb.app.harness.HarnessExecutionService;
+import com.example.agentweb.app.harness.HarnessRetirementPolicy;
+import com.example.agentweb.app.harness.HarnessRetirementUnavailableException;
 import com.example.agentweb.app.harness.RuntimeExecutionQueryService;
 import com.example.agentweb.app.harness.RuntimeExecutionView;
 import com.example.agentweb.domain.harness.HarnessStage;
@@ -20,6 +22,9 @@ import java.util.Collections;
 import java.util.Optional;
 
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -47,6 +52,35 @@ class HarnessExecutionControllerTest {
 
     @MockBean
     private RuntimeExecutionQueryService queryService;
+
+    @MockBean
+    private HarnessRetirementPolicy retirementPolicy;
+
+    @Test
+    void readOnlyWindowShouldRejectExecutionStartButKeepExecutionRead()
+            throws Exception {
+        doThrow(HarnessRetirementUnavailableException.mutation())
+                .when(retirementPolicy).requireMutationAvailable();
+        RuntimeExecutionView view = mock(RuntimeExecutionView.class);
+        when(view.getExecutionId()).thenReturn("exec-1");
+        when(view.getStatus()).thenReturn("SUCCEEDED");
+        when(view.getSelectedMcpServers()).thenReturn(Collections.emptyList());
+        when(queryService.find("run-1", HarnessStage.ANALYSIS, 1))
+                .thenReturn(Optional.of(view));
+
+        mvc.perform(post(
+                        "/api/harness/runs/run-1/stages/ANALYSIS/executions")
+                        .header("Idempotency-Key", "launch-1"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code")
+                        .value("HARNESS_MUTATION_DISABLED"));
+        mvc.perform(get("/api/harness/runs/run-1/stages/ANALYSIS/attempts/1/execution"))
+                .andExpect(status().isOk());
+
+        verify(executionService, never()).start(
+                org.mockito.ArgumentMatchers.any());
+        verify(retirementPolicy).requireMutationAvailable();
+    }
 
     @Test
     void startAndGetShouldExposeExecutionWithoutRuntimeHandleOrSecretReferences() throws Exception {

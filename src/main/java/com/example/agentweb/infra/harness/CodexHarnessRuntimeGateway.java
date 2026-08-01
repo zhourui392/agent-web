@@ -16,7 +16,7 @@ import com.example.agentweb.domain.harness.ArtifactClassification;
 import com.example.agentweb.domain.harness.ArtifactContent;
 import com.example.agentweb.domain.harness.ArtifactType;
 import com.example.agentweb.domain.harness.HarnessStage;
-import com.example.agentweb.domain.harness.McpSecretReference;
+import com.example.agentweb.domain.capability.McpSecretReference;
 import com.example.agentweb.domain.harness.RuntimeEnforcementProfile;
 import com.example.agentweb.domain.harness.RuntimeExecutionSignal;
 import com.example.agentweb.domain.harness.RuntimeArtifactBundle;
@@ -26,6 +26,13 @@ import com.example.agentweb.domain.harness.SelectedMcpServer;
 import com.example.agentweb.domain.harness.WorkspaceBoundaryKind;
 import com.example.agentweb.domain.harness.WorkspaceRepoSkill;
 import com.example.agentweb.domain.harness.WorkspaceRuntimeInventory;
+import com.example.agentweb.app.runtime.port.RuntimeHandle;
+import com.example.agentweb.infra.runtime.AgentProcessKernel;
+import com.example.agentweb.infra.runtime.RuntimeCleanup;
+import com.example.agentweb.infra.runtime.RuntimeCommandFactory;
+import com.example.agentweb.infra.runtime.RuntimeEventDecoder;
+import com.example.agentweb.infra.runtime.RuntimeOutputRedactor;
+import com.example.agentweb.infra.runtime.RuntimeProcessRegistry;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PreDestroy;
@@ -39,7 +46,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
-import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
@@ -94,6 +100,10 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
     private static final char CARRIAGE_RETURN = '\r';
     private static final char NULL_CHARACTER = '\0';
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final RuntimeOutputRedactor OUTPUT_REDACTOR =
+            new RuntimeOutputRedactor();
+    private static final RuntimeEventDecoder EVENT_DECODER =
+            new RuntimeEventDecoder(OUTPUT_REDACTOR);
 
     private final HarnessRuntimeProperties runtimeProperties;
     private final HarnessSecurityProperties securityProperties;
@@ -101,6 +111,8 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
     private final RuntimeEvidenceStore evidenceStore;
     private final Clock clock;
     private final TaskExecutor monitorExecutor;
+    private final RuntimeCleanup runtimeCleanup = new RuntimeCleanup();
+    private final RuntimeProcessRegistry processRegistry = new RuntimeProcessRegistry();
     private final Map<String, ActiveExecution> activeExecutions =
             new ConcurrentHashMap<String, ActiveExecution>();
 
@@ -157,9 +169,9 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
             processBuilder.redirectErrorStream(true);
             applyEnvironment(processBuilder, executionRoot, spec.getSelectedMcpServers(), secrets);
             Process process = processBuilder.start();
-            String handle;
+            RuntimeHandle handle;
             try {
-                handle = runtimeHandle(process);
+                handle = processRegistry.registerWithProcessId(spec.getExecutionId(), process);
             } catch (RuntimeException ex) {
                 destroyProcessTree(process);
                 throw ex;
@@ -179,6 +191,7 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
             if (active != null) {
                 activeExecutions.remove(spec.getExecutionId(), active);
                 destroyProcessTree(active.getProcess());
+                processRegistry.unregister(active.getRuntimeHandle());
             }
             boolean cleaned = cleanup(executionRoot);
             throw new AgentRuntimeStartException("could not start Codex runtime",
@@ -205,6 +218,7 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
         }
         for (ActiveExecution active : activeExecutions.values()) {
             cleanup(active.getExecutionRoot());
+            processRegistry.unregister(active.getRuntimeHandle());
         }
         activeExecutions.clear();
     }
@@ -270,6 +284,7 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
                     "runtime event callback failed", evidenceReference, cleaned, null, clock.instant());
         } finally {
             activeExecutions.remove(active.getSpec().getExecutionId(), active);
+            processRegistry.unregister(active.getRuntimeHandle());
         }
     }
 
@@ -369,13 +384,8 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
 
     private List<String> command(AgentExecutionSpec spec, Path workspaceBoundary,
                                  Path outputSchema, Path outputLastMessage) {
-        List<String> command = new ArrayList<String>();
-        command.add(runtimeProperties.getCodexCommand());
-        Collections.addAll(command, "--ask-for-approval", "never", "exec");
-        if (authMode() == AuthMode.ISOLATED_KEY) {
-            command.add("--ignore-user-config");
-        }
-        Collections.addAll(command, "--ignore-rules", "--ephemeral", "--json");
+        List<String> command = new RuntimeCommandFactory(runtimeProperties.getCodexCommand())
+                .createCodexJsonPreamble(authMode() == AuthMode.ISOLATED_KEY);
         if (authMode() == AuthMode.ISOLATED_KEY) {
             Collections.addAll(command, "--output-schema", outputSchema.toString());
         }
@@ -639,9 +649,10 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
         if (TURN_FAILED_EVENT.equals(type)) {
             outputState.markTurnFailed();
         }
-        String redacted = redactSecrets(line, active.getSecrets());
+        String redacted = OUTPUT_REDACTOR.redactSecrets(line, active.getSecrets());
         observeCompletedCommand(redacted, active);
-        active.emitOutput(boundedEvidenceLine(redacted), outputSummary(type),
+        active.emitOutput(OUTPUT_REDACTOR.boundEvidenceLine(redacted, 4000),
+                outputSummary(type),
                 runtimeProperties.getMaxOutputBytes(),
                 clock.instant());
     }
@@ -905,16 +916,8 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
     }
 
     private String eventType(String line) {
-        try {
-            JsonNode type = MAPPER.readTree(line).get("type");
-            if (type != null && type.isTextual()
-                    && type.asText().matches("[A-Za-z0-9_.-]{1,80}")) {
-                return type.asText();
-            }
-        } catch (Exception ignored) {
-            // 非 JSON 输出仍进入脱敏 Evidence，只使用固定摘要写 SQLite。
-        }
-        return null;
+        String type = EVENT_DECODER.providerEventType(line);
+        return type.isEmpty() ? null : type;
     }
 
     private String outputSummary(String type) {
@@ -931,18 +934,6 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
             process.waitFor(1L, TimeUnit.SECONDS);
         }
         return process.isAlive() ? -1 : process.exitValue();
-    }
-
-    private String redactSecrets(String value, List<String> secrets) {
-        String redacted = value;
-        for (String secret : secrets) {
-            redacted = redacted.replace(secret, "[REDACTED]");
-        }
-        return redacted;
-    }
-
-    private String boundedEvidenceLine(String value) {
-        return value.length() <= 4000 ? value : value.substring(0, 4000);
     }
 
     private void observeCompletedCommand(String redactedLine, ActiveExecution active) {
@@ -1001,21 +992,7 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
     }
 
     private boolean cleanup(Path root) {
-        if (root == null || Files.notExists(root)) {
-            return true;
-        }
-        try (Stream<Path> paths = Files.walk(root)) {
-            paths.sorted(Comparator.reverseOrder()).forEach(path -> {
-                try {
-                    Files.deleteIfExists(path);
-                } catch (IOException ex) {
-                    throw new CleanupException(ex);
-                }
-            });
-            return true;
-        } catch (IOException | UncheckedIOException | CleanupException ex) {
-            return false;
-        }
+        return runtimeCleanup.deleteRecursively(root);
     }
 
     private void secureDirectory(Path path) throws IOException {
@@ -1044,41 +1021,8 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
         }
     }
 
-    private String runtimeHandle(Process process) {
-        try {
-            Class<?> handleType = Class.forName("java.lang.ProcessHandle");
-            Object handle = Process.class.getMethod("toHandle").invoke(process);
-            Object pid = handleType.getMethod("pid").invoke(handle);
-            return "pid:" + pid;
-        } catch (ReflectiveOperationException ex) {
-            throw new IllegalStateException("runtime process handle is unavailable", ex);
-        }
-    }
-
     private void destroyProcessTree(Process process) {
-        if (process == null) {
-            return;
-        }
-        try {
-            Class<?> handleType = Class.forName("java.lang.ProcessHandle");
-            Object rootHandle = Process.class.getMethod("toHandle").invoke(process);
-            @SuppressWarnings("unchecked")
-            Stream<Object> descendants = (Stream<Object>) handleType.getMethod("descendants")
-                    .invoke(rootHandle);
-            List<Object> handles = new ArrayList<Object>();
-            try {
-                descendants.forEach(handles::add);
-            } finally {
-                descendants.close();
-            }
-            Collections.reverse(handles);
-            for (Object handle : handles) {
-                handleType.getMethod("destroyForcibly").invoke(handle);
-            }
-            handleType.getMethod("destroyForcibly").invoke(rootHandle);
-        } catch (Exception ex) {
-            process.destroyForcibly();
-        }
+        AgentProcessKernel.terminateProcessTree(process);
     }
 
     private static final class RuntimeVersion {
@@ -1171,7 +1115,7 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
         private final Path executionRoot;
         private final List<String> secrets;
         private final Path outputLastMessage;
-        private final String runtimeHandle;
+        private final RuntimeHandle runtimeHandle;
         private final long startedNanos;
         private final AtomicLong sequence = new AtomicLong();
         private final AtomicBoolean cancellationRequested = new AtomicBoolean();
@@ -1182,7 +1126,8 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
 
         private ActiveExecution(AgentExecutionSpec spec, RuntimeEventSink eventSink,
                                 Process process, Path executionRoot, List<String> secrets,
-                                Path outputLastMessage, String runtimeHandle, long startedNanos) {
+                                Path outputLastMessage, RuntimeHandle runtimeHandle,
+                                long startedNanos) {
             this.spec = spec;
             this.eventSink = eventSink;
             this.process = process;
@@ -1198,7 +1143,7 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
             eventSink.onEvent(new RuntimeEvent(spec.getExecutionId(),
                     RuntimeExecutionSignal.started(next,
                             spec.getEnforcementProfile().getRuntimeVersion(),
-                            runtimeHandle, now), "runtime started"));
+                            runtimeHandle.getHandleId(), now), "runtime started"));
         }
 
         private void emitOutput(String redactedLine, String summary, long maximumBytes, Instant now) {
@@ -1272,6 +1217,10 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
 
         private Path getOutputLastMessage() {
             return outputLastMessage;
+        }
+
+        private RuntimeHandle getRuntimeHandle() {
+            return runtimeHandle;
         }
 
         private List<String> getSecrets() {
@@ -1371,10 +1320,4 @@ public class CodexHarnessRuntimeGateway implements AgentRuntimeGateway,
         }
     }
 
-    private static final class CleanupException extends RuntimeException {
-
-        private CleanupException(Throwable cause) {
-            super(cause);
-        }
-    }
 }

@@ -9,7 +9,7 @@ import com.example.agentweb.domain.harness.ArtifactDescriptor;
 import com.example.agentweb.domain.harness.ArtifactStore;
 import com.example.agentweb.domain.harness.ArtifactType;
 import com.example.agentweb.domain.harness.CapabilitySnapshotReference;
-import com.example.agentweb.domain.harness.ChangedFileEvidence;
+import com.example.agentweb.domain.workspace.ChangedFileEvidence;
 import com.example.agentweb.domain.harness.ExecutionPermit;
 import com.example.agentweb.domain.harness.HarnessGeneratedArtifact;
 import com.example.agentweb.domain.harness.HarnessRun;

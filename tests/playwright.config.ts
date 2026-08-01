@@ -39,7 +39,7 @@ export default defineConfig({
   globalSetup: './e2e/global-setup.ts',
   // harness.spec.ts 测 harness 开启态,归 playwright.harness.config.ts(18100 + e2e-harness profile);
   // 默认 config(18099, agent.harness.enabled: false) 下跑会因 harness API 不可用而全失败,故排除。
-  testIgnore: ['harness.spec.ts'],
+  testIgnore: ['harness.spec.ts', 'workbench-real.spec.ts'],
 
   use: {
     baseURL: 'http://localhost:5174',

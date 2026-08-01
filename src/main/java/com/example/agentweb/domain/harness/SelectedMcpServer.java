@@ -1,5 +1,8 @@
 package com.example.agentweb.domain.harness;
 
+import com.example.agentweb.domain.capability.McpCapability;
+import com.example.agentweb.domain.capability.McpSecretReference;
+import com.example.agentweb.domain.capability.McpServerDefinition;
 import lombok.Getter;
 
 import java.util.ArrayList;
@@ -60,8 +63,10 @@ public final class SelectedMcpServer {
                              List<McpSecretReference> secretReferences, int timeoutSeconds,
                              String configurationHash) {
         this(new McpServerDefinition(id, version, "restored MCP server",
-                java.util.EnumSet.allOf(HarnessStage.class),
-                java.util.EnumSet.allOf(AgentRuntime.class), command, capabilities,
+                new java.util.LinkedHashSet<String>(java.util.Arrays.asList(
+                        "ANALYSIS", "DESIGN", "IMPLEMENTATION", "DEPLOYMENT")),
+                new java.util.LinkedHashSet<String>(java.util.Arrays.asList(
+                        "CODEX", "CLAUDE")), command, capabilities,
                 secretReferences, timeoutSeconds, configurationHash));
     }
 

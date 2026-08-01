@@ -2,6 +2,7 @@ package com.example.agentweb.app.agentrun;
 
 import com.example.agentweb.app.agentrun.port.AgentRuntimeRegistry;
 import com.example.agentweb.domain.agentrun.AgentCatalog;
+import com.example.agentweb.domain.agentrun.AgentSurface;
 import com.example.agentweb.domain.shared.AgentType;
 import org.springframework.stereotype.Service;
 
@@ -34,5 +35,11 @@ public class AgentCatalogService {
 
     public AgentType requireChatAvailable(AgentType type, String environment) {
         return currentCatalog().requireChatAvailable(type, environment);
+    }
+
+    public AgentType requireWorkbenchAvailable(
+            AgentType type, String environment) {
+        return currentCatalog().requireAvailableForSurface(
+                type, AgentSurface.WORKBENCH, environment);
     }
 }

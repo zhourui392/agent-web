@@ -1,0 +1,10 @@
+schemaVersion: "1"
+id: workbench/read-only-requirement-analysis
+version: 1.0.0
+source: PLATFORM
+mandatory: true
+summary: 需求分析阶段只读核实事实与验收边界
+applicableUseCases:
+  - REQUIREMENT_ANALYSIS
+resources:
+  rule: rule.md

@@ -1,5 +1,12 @@
 package com.example.agentweb.domain.harness;
 
+import com.example.agentweb.domain.capability.CapabilityRequest;
+import com.example.agentweb.domain.capability.CapabilityResolutionException;
+import com.example.agentweb.domain.capability.SkillDependency;
+import com.example.agentweb.domain.capability.SkillManifest;
+import com.example.agentweb.domain.capability.SkillPackage;
+import com.example.agentweb.domain.capability.SkillTrustSource;
+
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
@@ -213,7 +220,7 @@ class SkillSelectionPolicyTest {
     }
 
     private SkillPackage skill(String id, String version, SkillTrustSource trust,
-                               Set<HarnessStage> stages, Set<String> tags,
+                               Set<String> stages, Set<String> tags,
                                List<SkillDependency> dependencies, Set<String> conflicts,
                                List<CapabilityRequest> requests) {
         return skill(id, version, trust, stages, tags, runtimes(AgentRuntime.CODEX),
@@ -221,20 +228,28 @@ class SkillSelectionPolicyTest {
     }
 
     private SkillPackage skill(String id, String version, SkillTrustSource trust,
-                               Set<HarnessStage> stages, Set<String> tags,
-                               Set<AgentRuntime> runtimes, List<SkillDependency> dependencies,
+                               Set<String> stages, Set<String> tags,
+                               Set<String> runtimes, List<SkillDependency> dependencies,
                                Set<String> conflicts, List<CapabilityRequest> requests) {
         SkillManifest manifest = new SkillManifest(id, version, id + " description", stages, tags,
                 ids(), "SKILL.md", ids(), dependencies, conflicts, runtimes, trust, requests);
         return new SkillPackage(manifest, repeat('a', 64), "# " + id, Collections.<String, String>emptyMap());
     }
 
-    private Set<HarnessStage> stages(HarnessStage... values) {
-        return values.length == 0 ? EnumSet.noneOf(HarnessStage.class) : EnumSet.copyOf(Arrays.asList(values));
+    private Set<String> stages(HarnessStage... values) {
+        Set<String> names = new LinkedHashSet<String>();
+        for (HarnessStage value : values) {
+            names.add(value.name());
+        }
+        return names;
     }
 
-    private Set<AgentRuntime> runtimes(AgentRuntime... values) {
-        return EnumSet.copyOf(Arrays.asList(values));
+    private Set<String> runtimes(AgentRuntime... values) {
+        Set<String> names = new LinkedHashSet<String>();
+        for (AgentRuntime value : values) {
+            names.add(value.name());
+        }
+        return names;
     }
 
     private Set<String> tags(String... values) {

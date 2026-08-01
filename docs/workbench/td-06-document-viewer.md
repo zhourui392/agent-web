@@ -37,10 +37,10 @@ workbenchId + repositoryKey + relativePath
 纯 SELECT/文件读取使用 Application CQRS 接口：
 
 ```text
-WorkbenchDocumentQueryService
-  listTree(DocumentDirectoryQuery): DocumentDirectoryView
-  read(DocumentContentQuery): DocumentContentView
-  metadata(DocumentMetadataQuery): DocumentMetadataView
+WorkbenchDocumentAppService
+  listTree(actor, workbenchId, DocumentDirectoryQuery): DocumentDirectoryView
+  readContent(actor, workbenchId, DocumentReference): DocumentContentView
+  download(actor, workbenchId, DocumentReference): DocumentDownloadView
 ```
 
 返回 DTO/View，不返回 `Path`、`File`、Resource 或半截领域聚合。Infrastructure Adapter 负责真实文件读取、
@@ -51,7 +51,10 @@ MIME、编码和 Hash；业务授权由 Application 先完成。
 ### 4.1 Tree
 
 ```http
-GET /api/workbenches/{id}/repositories/{repositoryKey}/tree?path=src/main
+GET /api/workbenches/{id}/documents/tree
+    ?repositoryKey=service%2Fapi
+    &path=src/main
+    &limit=1000
 ```
 
 ```json
@@ -76,7 +79,9 @@ GET /api/workbenches/{id}/repositories/{repositoryKey}/tree?path=src/main
 ### 4.2 Content
 
 ```http
-GET /api/workbenches/{id}/repositories/{repositoryKey}/documents?path=README.md
+GET /api/workbenches/{id}/documents/content
+    ?repositoryKey=service%2Fapi
+    &path=README.md
 If-None-Match: "content-version"
 ```
 
@@ -99,6 +104,14 @@ If-None-Match: "content-version"
 - 文件删除返回 404，前端保留已加载内容并标记 deleted；
 - 二进制返回 Metadata View 和受控下载入口，不把字节塞 JSON；
 - 图片使用专用 scoped inline endpoint，并设置 `nosniff`、CSP 和正确 MIME。
+
+下载使用同一组 query 参数，不把可能含 `/` 的逻辑 Repository Key 放入 Path Segment：
+
+```http
+GET /api/workbenches/{id}/documents/download
+    ?repositoryKey=service%2Fapi
+    &path=README.md
+```
 
 ## 5. Document Kind
 

@@ -39,17 +39,20 @@ public class ChatRunLifecycleService {
     private final SessionRepository sessionRepository;
     private final DiagnosisCheckpointRepository checkpointRepository;
     private final ChatRunEventAppender eventAppender;
+    private final ChatRunTerminalFinalizer terminalFinalizer;
     private final Clock clock;
 
     public ChatRunLifecycleService(ChatRunRepository runRepository,
                                    SessionRepository sessionRepository,
                                    DiagnosisCheckpointRepository checkpointRepository,
                                    ChatRunEventAppender eventAppender,
+                                   ChatRunTerminalFinalizer terminalFinalizer,
                                    Clock clock) {
         this.runRepository = runRepository;
         this.sessionRepository = sessionRepository;
         this.checkpointRepository = checkpointRepository;
         this.eventAppender = eventAppender;
+        this.terminalFinalizer = terminalFinalizer;
         this.clock = clock;
     }
 
@@ -113,18 +116,18 @@ public class ChatRunLifecycleService {
                             execution.getUsage().outputTokens(),
                             execution.getUsage().cacheReadInputTokens(), now)));
             run.succeed(assistantMessageId, exitCode, now);
-            appendExisting(run, "terminal", terminalPayload(run), now);
+            terminalFinalizer.finalizeFirstTerminal(run, now);
             return Long.valueOf(assistantMessageId);
         }
         if (decision == ChatRunCompletionDecision.CANCEL) {
             run.cancel(exitCode, now);
-            appendExisting(run, "terminal", terminalPayload(run), now);
+            terminalFinalizer.finalizeFirstTerminal(run, now);
             return null;
         }
         String failureCode = failureCode(execution);
         String publicMessage = publicFailureMessage(execution);
         run.fail(failureCode, publicMessage, exitCode, now);
-        appendExisting(run, "terminal", terminalPayload(run), now);
+        terminalFinalizer.finalizeFirstTerminal(run, now);
         return null;
     }
 
@@ -181,7 +184,7 @@ public class ChatRunLifecycleService {
         ChatRun run = require(runId);
         Instant now = clock.instant();
         if (run.fail(failureCode, publicMessage, exitCode, now)) {
-            appendExisting(run, "terminal", terminalPayload(run), now);
+            terminalFinalizer.finalizeFirstTerminal(run, now);
         }
     }
 
@@ -190,7 +193,7 @@ public class ChatRunLifecycleService {
         ChatRun run = require(runId);
         Instant now = clock.instant();
         if (run.interrupt(publicMessage, now)) {
-            appendExisting(run, "terminal", terminalPayload(run), now);
+            terminalFinalizer.finalizeFirstTerminal(run, now);
         }
     }
 
@@ -207,16 +210,6 @@ public class ChatRunLifecycleService {
     private String statusPayload(ChatRun run) {
         Map<String, Object> payload = new LinkedHashMap<String, Object>();
         payload.put("status", run.getStatus().name());
-        return serialize(payload);
-    }
-
-    private String terminalPayload(ChatRun run) {
-        Map<String, Object> payload = new LinkedHashMap<String, Object>();
-        payload.put("status", run.getStatus().name());
-        payload.put("exitCode", run.getExitCode());
-        payload.put("failureCode", run.getFailureCode());
-        payload.put("errorMessage", run.getErrorMessage());
-        payload.put("assistantMessageId", run.getAssistantMessageId());
         return serialize(payload);
     }
 

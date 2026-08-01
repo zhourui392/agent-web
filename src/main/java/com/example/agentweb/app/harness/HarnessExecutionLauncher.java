@@ -20,17 +20,21 @@ public class HarnessExecutionLauncher implements HarnessExecutionService {
     private final HarnessExecutionPreparer preparer;
     private final HarnessRuntimeEventRecorder runtimeEventService;
     private final AgentRuntimeGateway runtimeGateway;
+    private final HarnessRetirementPolicy retirementPolicy;
 
     public HarnessExecutionLauncher(HarnessExecutionPreparer preparer,
                                     HarnessRuntimeEventRecorder runtimeEventService,
-                                    AgentRuntimeGateway runtimeGateway) {
+                                    AgentRuntimeGateway runtimeGateway,
+                                    HarnessRetirementPolicy retirementPolicy) {
         this.preparer = preparer;
         this.runtimeEventService = runtimeEventService;
         this.runtimeGateway = runtimeGateway;
+        this.retirementPolicy = retirementPolicy;
     }
 
     @Override
     public HarnessExecutionResult start(StartHarnessExecutionCommand command) {
+        retirementPolicy.requireMutationAvailable();
         PreparedHarnessExecution prepared = preparer.prepare(command);
         AgentExecutionSpec spec = prepared.getSpec();
         if (preparer.activate(spec.getExecutionId())) {
@@ -48,6 +52,7 @@ public class HarnessExecutionLauncher implements HarnessExecutionService {
 
     @Override
     public HarnessMutationResult cancel(String runId, String reason) {
+        retirementPolicy.requireMutationAvailable();
         PreparedHarnessCancellation prepared = preparer.prepareCancellation(runId, reason);
         if (prepared.getDirective().requiresRuntimeCancellation()) {
             runtimeGateway.cancel(prepared.getDirective().getExecutionId());

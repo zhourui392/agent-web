@@ -18,6 +18,7 @@ import com.example.agentweb.app.harness.HarnessMutationResult;
 import com.example.agentweb.app.harness.HarnessRunQueryService;
 import com.example.agentweb.app.harness.HarnessRunSummaryView;
 import com.example.agentweb.app.harness.HarnessRunView;
+import com.example.agentweb.app.harness.HarnessRetirementPolicy;
 import com.example.agentweb.app.harness.InvalidHarnessIdempotencyKeyException;
 import com.example.agentweb.app.harness.RegisterHarnessArtifactCommand;
 import com.example.agentweb.app.harness.StartHarnessDeploymentCommand;
@@ -76,13 +77,15 @@ public class HarnessController {
     private final HarnessDeploymentReadinessQueryService deploymentReadinessQueryService;
     private final DeploymentExecutionQueryService deploymentQueryService;
     private final HarnessArtifactQueryService artifactQueryService;
+    private final HarnessRetirementPolicy retirementPolicy;
 
     public HarnessController(HarnessAppService appService, HarnessRunQueryService queryService,
                              HarnessExecutionService executionService,
                              HarnessDeploymentService deploymentService,
                              HarnessDeploymentReadinessQueryService deploymentReadinessQueryService,
                              DeploymentExecutionQueryService deploymentQueryService,
-                             HarnessArtifactQueryService artifactQueryService) {
+                             HarnessArtifactQueryService artifactQueryService,
+                             HarnessRetirementPolicy retirementPolicy) {
         this.appService = appService;
         this.queryService = queryService;
         this.executionService = executionService;
@@ -90,12 +93,14 @@ public class HarnessController {
         this.deploymentReadinessQueryService = deploymentReadinessQueryService;
         this.deploymentQueryService = deploymentQueryService;
         this.artifactQueryService = artifactQueryService;
+        this.retirementPolicy = retirementPolicy;
     }
 
     @PostMapping
     public ResponseEntity<HarnessMutationResult> create(
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody HarnessRunCreateRequest request) {
+        retirementPolicy.requireCreationAvailable();
         String key = HarnessControllerSupport.requireIdempotencyKey(idempotencyKey);
         String definitionVersion = request.getDefinitionVersion() == null
                 || request.getDefinitionVersion().trim().isEmpty()
@@ -149,6 +154,7 @@ public class HarnessController {
             @PathVariable("runId") String runId,
             @PathVariable("stage") String stage,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+        retirementPolicy.requireMutationAvailable();
         return accepted(appService.startStage(runId, HarnessControllerSupport.stage(stage),
                 HarnessControllerSupport.requireIdempotencyKey(idempotencyKey)));
     }
@@ -158,6 +164,7 @@ public class HarnessController {
             @PathVariable("runId") String runId,
             @PathVariable("stage") String stage,
             @Valid @RequestBody HarnessArtifactRequest request) {
+        retirementPolicy.requireMutationAvailable();
         RegisterHarnessArtifactCommand command = new RegisterHarnessArtifactCommand(
                 runId, HarnessControllerSupport.stage(stage), ArtifactType.valueOf(request.getArtifactType().trim().toUpperCase()),
                 request.getContent().getBytes(StandardCharsets.UTF_8), request.getContentType(),
@@ -171,6 +178,7 @@ public class HarnessController {
             @PathVariable("runId") String runId,
             @PathVariable("stage") String stage,
             @Valid @RequestBody HarnessGateRequest request) {
+        retirementPolicy.requireMutationAvailable();
         return accepted(appService.evaluateGate(runId, HarnessControllerSupport.stage(stage), request.getRule()));
     }
 
@@ -179,6 +187,7 @@ public class HarnessController {
             @PathVariable("runId") String runId,
             @PathVariable("stage") String stage,
             @Valid @RequestBody HarnessQuestionRequest request) {
+        retirementPolicy.requireMutationAvailable();
         return accepted(appService.requestInput(runId, HarnessControllerSupport.stage(stage), request.getQuestionId(),
                 request.getQuestion(), request.getBlocking().booleanValue()));
     }
@@ -188,6 +197,7 @@ public class HarnessController {
             @PathVariable("runId") String runId,
             @PathVariable("questionId") String questionId,
             @Valid @RequestBody HarnessAnswerRequest request) {
+        retirementPolicy.requireMutationAvailable();
         return accepted(appService.answerQuestion(runId, questionId, request.getAnswer()));
     }
 
@@ -195,6 +205,7 @@ public class HarnessController {
     public ResponseEntity<HarnessMutationResult> requestApproval(
             @PathVariable("runId") String runId,
             @PathVariable("stage") String stage) {
+        retirementPolicy.requireMutationAvailable();
         return accepted(appService.requestApproval(runId, HarnessControllerSupport.stage(stage)));
     }
 
@@ -204,6 +215,7 @@ public class HarnessController {
             @PathVariable("stage") String stage,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody HarnessApprovalRequest request) {
+        retirementPolicy.requireMutationAvailable();
         return accepted(appService.approve(runId, HarnessControllerSupport.stage(stage),
                 request.getArtifactBaselineHash(), request.getReason(),
                 HarnessControllerSupport.requireIdempotencyKey(idempotencyKey)));
@@ -215,6 +227,7 @@ public class HarnessController {
             @PathVariable("stage") String stage,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody HarnessApprovalRequest request) {
+        retirementPolicy.requireMutationAvailable();
         return accepted(appService.reject(runId, HarnessControllerSupport.stage(stage),
                 request.getArtifactBaselineHash(), request.getReason(),
                 HarnessControllerSupport.requireIdempotencyKey(idempotencyKey)));
@@ -225,6 +238,7 @@ public class HarnessController {
             @PathVariable("runId") String runId,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody HarnessDeploymentApprovalRequest request) {
+        retirementPolicy.requireMutationAvailable();
         return accepted(appService.approveDeployment(runId, request.getInputBaselineHash(),
                 request.getReason(), HarnessControllerSupport.requireIdempotencyKey(idempotencyKey)));
     }
@@ -240,6 +254,7 @@ public class HarnessController {
             @PathVariable("runId") String runId,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody HarnessDeploymentStartRequest request) {
+        retirementPolicy.requireMutationAvailable();
         HarnessDeploymentResult result = deploymentService.start(
                 new StartHarnessDeploymentCommand(runId, request.getTemplateId(),
                         request.getApprovedInputBaselineHash(),
@@ -265,6 +280,7 @@ public class HarnessController {
             @PathVariable("runId") String runId,
             @PathVariable("executionId") String executionId,
             @Valid @RequestBody HarnessDeploymentReconcileRequest request) {
+        retirementPolicy.requireMutationAvailable();
         return ResponseEntity.accepted().body(deploymentService.reconcileAsFailed(
                 runId, executionId, request.getReason()));
     }
@@ -274,6 +290,7 @@ public class HarnessController {
             @PathVariable("runId") String runId,
             @PathVariable("stage") String stage,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
+        retirementPolicy.requireMutationAvailable();
         return accepted(appService.retryStage(runId, HarnessControllerSupport.stage(stage),
                 HarnessControllerSupport.requireIdempotencyKey(idempotencyKey)));
     }
@@ -282,6 +299,7 @@ public class HarnessController {
     public ResponseEntity<HarnessMutationResult> cancel(
             @PathVariable("runId") String runId,
             @Valid @RequestBody HarnessCancelRequest request) {
+        retirementPolicy.requireMutationAvailable();
         return accepted(executionService.cancel(runId, request.getReason()));
     }
 

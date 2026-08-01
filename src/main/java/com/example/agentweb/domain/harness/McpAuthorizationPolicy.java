@@ -1,5 +1,8 @@
 package com.example.agentweb.domain.harness;
 
+import com.example.agentweb.domain.capability.CapabilityResolutionException;
+import com.example.agentweb.domain.capability.McpServerDefinition;
+
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -72,10 +75,10 @@ public final class McpAuthorizationPolicy {
         if (!request.getEnvironmentAllowedServerIds().contains(definition.getId())) {
             return McpRejectionReason.ENVIRONMENT_DENIED;
         }
-        if (!definition.getApplicableStages().contains(request.getStage())) {
+        if (!definition.getApplicableUseCases().contains(request.getStage().name())) {
             return McpRejectionReason.STAGE_INCOMPATIBLE;
         }
-        if (!definition.getRuntimes().contains(request.getRuntime())) {
+        if (!definition.getCompatibleRuntimes().contains(request.getRuntime().name())) {
             return McpRejectionReason.RUNTIME_INCOMPATIBLE;
         }
         if (definition.hasUnsupportedResourceCapability()) {
