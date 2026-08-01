@@ -8,6 +8,7 @@
 // @ts-expect-error Vue 的直接 ESM 入口没有为相对路径暴露声明文件。
 import * as frontendVueRuntime from '../../frontend/node_modules/vue/index.mjs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { WorkbenchDocumentApiError } from '../../frontend/js/api/workbench-document.js';
 import type {
   WorkbenchDocumentApiClient,
   WorkbenchDocumentContentView,
@@ -674,6 +675,28 @@ describe('workbench document pane API orchestration', () => {
     expect(pane.selectedRepositoryKey.value).toBe('shared-lib');
     expect(pane.treeEntries.value).toEqual([]);
     expect(pane.documentError.value).toBe('文档响应与当前 Workbench 仓库范围不一致');
+  });
+
+  it('tells the user how to recover when a frozen repository moved or disappeared', async () => {
+    const apiClient = documentApi({
+      listTree: vi.fn().mockRejectedValue(new WorkbenchDocumentApiError(
+        409,
+        'WORKSPACE_TOPOLOGY_CHANGED',
+      )),
+    });
+    const pane = useWorkbenchDocumentPane({
+      userId: ref('user-1'),
+      workbenchId: ref<string | null>('workbench-1'),
+      phase: ref('IMPLEMENT_TEST'),
+      repositories: ref([{ repositoryKey: 'agent-web', primary: true }]),
+      apiClient,
+      storage: memoryStorage(),
+    });
+
+    await vi.waitFor(() => expect(pane.treeLoading.value).toBe(false));
+
+    expect(pane.documentError.value)
+      .toBe('仓库目录已移动或不存在；请恢复原目录，或创建新的 Workbench。');
   });
 
   it('receives exact FILE_CHANGED events without replacing loaded content or scroll', async () => {

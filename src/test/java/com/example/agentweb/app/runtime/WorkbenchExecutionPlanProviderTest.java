@@ -13,10 +13,12 @@ import com.example.agentweb.domain.chatrun.RunOrigin;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.shared.CanonicalHashing;
 import com.example.agentweb.domain.workbench.HandoffSnapshotReference;
+import com.example.agentweb.domain.workbench.DocumentReference;
 import com.example.agentweb.domain.workbench.OwnerReference;
 import com.example.agentweb.domain.workbench.PromptPartSnapshot;
 import com.example.agentweb.domain.workbench.RunMode;
 import com.example.agentweb.domain.workbench.RuntimeEnforcementSnapshot;
+import com.example.agentweb.domain.workbench.VerifiedWorkbenchRunAttachment;
 import com.example.agentweb.domain.workbench.Workbench;
 import com.example.agentweb.domain.workbench.WorkbenchId;
 import com.example.agentweb.domain.workbench.WorkbenchPhase;
@@ -158,6 +160,46 @@ class WorkbenchExecutionPlanProviderTest {
         assertEquals(8_388_608L,
                 plan.getRuntimeLimits().getMaxOutputBytes());
         assertTrue(plan.getRuntimeLimits().getEnvironmentAllowlist().isEmpty());
+    }
+
+    @Test
+    void shouldProjectPersistedSafeAttachmentFactsToPrivateRuntimePlan() {
+        DocumentReference reference = DocumentReference.of(
+                "service-b", "docs/design.md");
+        VerifiedWorkbenchRunAttachment attachment =
+                VerifiedWorkbenchRunAttachment.verify(
+                        reference, repeat('9'), reference, repeat('9'),
+                        "text/markdown", 128L, false);
+        snapshot = WorkbenchRunSnapshot.create(
+                RUN_ID, WORKBENCH_ID, WorkbenchPhase.IMPLEMENT_TEST,
+                "submit-1", repeat('1'), RunMode.MODIFY_WORKSPACE,
+                scope, snapshotReference(), binding(), null,
+                HandoffSnapshotReference.of(
+                        WorkbenchPhase.SOLUTION_DESIGN, 3L, repeat('2')),
+                Collections.singletonList(PromptPartSnapshot.of(
+                        "USER_INPUT", "owner", repeat('3'), 23)),
+                promptPayload.getPromptHash(),
+                RuntimeEnforcementSnapshot.modify(
+                        "CODEX", "0.145.0", scope.getScopeHash(),
+                        "service-a", Arrays.asList("service-a", "service-b"),
+                        1800L, 8_388_608L),
+                Collections.singletonList(attachment), null, NOW.plusSeconds(1));
+        persistAll();
+
+        AgentExecutionPlan plan = provider.prepare(run);
+
+        assertEquals(1, plan.getAttachmentExpectations().size());
+        assertEquals("service-b", plan.getAttachmentExpectations().get(0)
+                .getRepositoryKey());
+        assertEquals("/workspace/service-b", plan.getAttachmentExpectations().get(0)
+                .getRepositoryRoot());
+        assertEquals("docs/design.md", plan.getAttachmentExpectations().get(0)
+                .getRelativePath());
+        assertEquals(repeat('9'), plan.getAttachmentExpectations().get(0)
+                .getContentHash());
+        assertEquals(128L, plan.getAttachmentExpectations().get(0).getSize());
+        assertThrows(UnsupportedOperationException.class,
+                () -> plan.getAttachmentExpectations().clear());
     }
 
     @Test

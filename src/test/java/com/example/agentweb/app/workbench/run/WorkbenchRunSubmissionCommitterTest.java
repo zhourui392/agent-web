@@ -315,6 +315,92 @@ class WorkbenchRunSubmissionCommitterTest {
     }
 
     @Test
+    void fastReplayShouldUseOwnerScopedSnapshotBeforePreparationFactsExist() {
+        SubmitWorkbenchRunCommand staleVersionRetry =
+                new SubmitWorkbenchRunCommand(
+                        WORKBENCH_ID,
+                        WorkbenchPhase.REQUIREMENT_ANALYSIS,
+                        0L, command.getIdempotencyKey(),
+                        command.getMessage(), command.getRunMode(),
+                        null, null, Collections.emptyList());
+        assertEquals(command.getRequestHash(),
+                staleVersionRetry.getRequestHash());
+        ChatRun existingRun = ChatRun.submit(
+                ChatRunId.of(RUN_ID), SESSION_ID, 41L,
+                command.getIdempotencyKey(), false,
+                RunOrigin.WORKBENCH,
+                ExecutionContextReference.of(
+                        originReference(WorkbenchPhase.REQUIREMENT_ANALYSIS),
+                        RUN_ID), NOW.plusSeconds(3));
+        when(snapshotRepository.findReplayCandidate(
+                OWNER, WORKBENCH_ID,
+                WorkbenchPhase.REQUIREMENT_ANALYSIS,
+                command.getIdempotencyKey()))
+                .thenReturn(Optional.of(snapshot));
+        when(runRepository.findById(ChatRunId.of(RUN_ID)))
+                .thenReturn(Optional.of(existingRun));
+        when(promptRepository.findByRunId(RUN_ID))
+                .thenReturn(Optional.of(promptPayload));
+
+        Optional<WorkbenchRunSubmissionResult> result =
+                committer.replayIfPresent(OWNER, staleVersionRetry);
+
+        assertTrue(result.isPresent());
+        assertTrue(result.get().isReplayed());
+        assertEquals(RUN_ID, result.get().getRunId());
+        verify(snapshotRepository).findReplayCandidate(
+                OWNER, WORKBENCH_ID,
+                WorkbenchPhase.REQUIREMENT_ANALYSIS,
+                command.getIdempotencyKey());
+        verify(sessionRepository, never())
+                .addMessageReturningId(any(), any());
+        verify(eventAppender, never()).afterCommit(any());
+        verifyNoInteractions(launcher);
+    }
+
+    @Test
+    void fastReplayShouldStopAfterOwnerScopedLookupWhenNoCandidateExists() {
+        when(snapshotRepository.findReplayCandidate(
+                OWNER, WORKBENCH_ID,
+                WorkbenchPhase.REQUIREMENT_ANALYSIS,
+                command.getIdempotencyKey()))
+                .thenReturn(Optional.empty());
+
+        Optional<WorkbenchRunSubmissionResult> result =
+                committer.replayIfPresent(OWNER, command);
+
+        assertFalse(result.isPresent());
+        verifyNoInteractions(workbenchRepository, promptRepository,
+                runRepository);
+    }
+
+    @Test
+    void fastReplayShouldRejectReusedKeyWithDifferentCanonicalRequestHash() {
+        SubmitWorkbenchRunCommand conflictingCommand =
+                new SubmitWorkbenchRunCommand(
+                        WORKBENCH_ID,
+                        WorkbenchPhase.REQUIREMENT_ANALYSIS,
+                        command.getExpectedVersion(),
+                        command.getIdempotencyKey(),
+                        "不同问题", RunMode.DISCUSS_READ_ONLY,
+                        null, null, Collections.emptyList());
+        when(snapshotRepository.findReplayCandidate(
+                OWNER, WORKBENCH_ID,
+                WorkbenchPhase.REQUIREMENT_ANALYSIS,
+                command.getIdempotencyKey()))
+                .thenReturn(Optional.of(snapshot));
+
+        WorkbenchDomainException failure = assertThrows(
+                WorkbenchDomainException.class,
+                () -> committer.replayIfPresent(
+                        OWNER, conflictingCommand));
+
+        assertEquals(WorkbenchErrorCode.IDEMPOTENCY_CONFLICT,
+                failure.getCode());
+        verifyNoInteractions(promptRepository, runRepository);
+    }
+
+    @Test
     void capacityFullShouldFailBeforeAggregateMutationOrPersistence() {
         when(runQueryService.countActiveRuns()).thenReturn(4L);
         when(streamSettings.getMaxActiveRuns()).thenReturn(4);

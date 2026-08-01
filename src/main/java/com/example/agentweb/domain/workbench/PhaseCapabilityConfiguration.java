@@ -16,8 +16,8 @@ public final class PhaseCapabilityConfiguration {
 
     private final WorkbenchId workbenchId;
     private final WorkbenchPhase phase;
-    private final String baseProfileId;
-    private final String baseProfileVersion;
+    private String baseProfileId;
+    private String baseProfileVersion;
     private CapabilityOverride override;
     private OwnerReference updatedBy;
     private Instant updatedAt;
@@ -32,9 +32,9 @@ public final class PhaseCapabilityConfiguration {
             throw new IllegalArgumentException(
                     "capability configuration required values must not be null");
         }
-        if (version < 0L) {
+        if (version < 1L) {
             throw new IllegalArgumentException(
-                    "capability configuration version must not be negative");
+                    "persisted capability configuration version must be positive");
         }
         this.workbenchId = workbenchId;
         this.phase = phase;
@@ -57,7 +57,30 @@ public final class PhaseCapabilityConfiguration {
         requirePolicy(policy, phase, override);
         return new PhaseCapabilityConfiguration(
                 workbenchId, phase, baseProfileId, baseProfileVersion,
-                override, updatedBy, updatedAt, 0L);
+                override, updatedBy, updatedAt, 1L);
+    }
+
+    static PhaseCapabilityConfiguration createAfter(
+            long previousVersion, WorkbenchId workbenchId,
+            WorkbenchPhase phase, PhaseCapabilityProfile profile,
+            CapabilityOverride override, OwnerReference updatedBy,
+            Instant updatedAt) {
+        if (previousVersion < 0L) {
+            throw new IllegalArgumentException(
+                    "previous capability configuration version must not be negative");
+        }
+        long nextVersion;
+        try {
+            nextVersion = Math.addExact(previousVersion, 1L);
+        } catch (ArithmeticException failure) {
+            throw new IllegalArgumentException(
+                    "capability configuration version is exhausted", failure);
+        }
+        requireProfile(profile, phase, override);
+        return new PhaseCapabilityConfiguration(
+                workbenchId, phase, profile.getProfileId(),
+                profile.getProfileVersion(), override, updatedBy,
+                updatedAt, nextVersion);
     }
 
     public static PhaseCapabilityConfiguration restore(
@@ -75,10 +98,76 @@ public final class PhaseCapabilityConfiguration {
     public void changeOverride(
             long expectedVersion, CapabilityOverride nextOverride,
             PhaseCapabilityOverridePolicy policy, OwnerReference actor, Instant now) {
+        Instant updateTime = requireChange(
+                expectedVersion, actor, now);
+        requirePolicy(policy, phase, nextOverride);
+        override = nextOverride;
+        updatedBy = actor;
+        updatedAt = updateTime;
+        version++;
+    }
+
+    public void changeOverride(
+            long expectedVersion, PhaseCapabilityProfile currentProfile,
+            CapabilityOverride nextOverride, OwnerReference actor,
+            Instant now) {
+        Instant updateTime = requireChange(expectedVersion, actor, now);
+        requireProfile(currentProfile, phase, nextOverride);
+        baseProfileId = currentProfile.getProfileId();
+        baseProfileVersion = currentProfile.getProfileVersion();
+        override = nextOverride;
+        updatedBy = actor;
+        updatedAt = updateTime;
+        version++;
+    }
+
+    public PhaseCapabilityOverrideResolution resolveFor(
+            WorkbenchId expectedWorkbenchId,
+            PhaseCapabilityProfile currentProfile) {
+        if (expectedWorkbenchId == null || currentProfile == null) {
+            throw new IllegalArgumentException(
+                    "capability override resolution target must be complete");
+        }
+        if (!workbenchId.equals(expectedWorkbenchId)
+                || phase != currentProfile.getPhase()) {
+            throw WorkbenchDomainException.runBindingCorrupted();
+        }
+        if (!baseProfileId.equals(currentProfile.getProfileId())
+                || !baseProfileVersion.equals(
+                currentProfile.getProfileVersion())) {
+            return PhaseCapabilityOverrideResolution.restoredDefault(
+                    baseProfileId, baseProfileVersion);
+        }
+        return currentProfile.resolveOverride(override);
+    }
+
+    private static void requirePolicy(
+            PhaseCapabilityOverridePolicy policy, WorkbenchPhase phase,
+            CapabilityOverride override) {
+        if (policy == null) {
+            throw new IllegalArgumentException(
+                    "capability override policy must not be null");
+        }
+        policy.requireAllowed(phase, override);
+    }
+
+    private static void requireProfile(
+            PhaseCapabilityProfile profile, WorkbenchPhase phase,
+            CapabilityOverride override) {
+        if (profile == null) {
+            throw new IllegalArgumentException(
+                    "capability profile must not be null");
+        }
+        if (profile.getPhase() != phase) {
+            throw WorkbenchDomainException.runBindingCorrupted();
+        }
+        requirePolicy(profile.getOverridePolicy(), phase, override);
+    }
+
+    private Instant requireChange(
+            long expectedVersion, OwnerReference actor, Instant now) {
         if (expectedVersion != version) {
-            throw new WorkbenchDomainException(
-                    WorkbenchErrorCode.VERSION_CONFLICT,
-                    "capability configuration expected version does not match");
+            throw versionConflict();
         }
         if (actor == null) {
             throw new IllegalArgumentException(
@@ -90,20 +179,15 @@ public final class PhaseCapabilityConfiguration {
             throw new IllegalArgumentException(
                     "capability configuration time must not move backwards");
         }
-        requirePolicy(policy, phase, nextOverride);
-        override = nextOverride;
-        updatedBy = actor;
-        updatedAt = updateTime;
-        version++;
+        if (version == Long.MAX_VALUE) {
+            throw versionConflict();
+        }
+        return updateTime;
     }
 
-    private static void requirePolicy(
-            PhaseCapabilityOverridePolicy policy, WorkbenchPhase phase,
-            CapabilityOverride override) {
-        if (policy == null) {
-            throw new IllegalArgumentException(
-                    "capability override policy must not be null");
-        }
-        policy.requireAllowed(phase, override);
+    static WorkbenchDomainException versionConflict() {
+        return new WorkbenchDomainException(
+                WorkbenchErrorCode.VERSION_CONFLICT,
+                "capability configuration expected version does not match");
     }
 }

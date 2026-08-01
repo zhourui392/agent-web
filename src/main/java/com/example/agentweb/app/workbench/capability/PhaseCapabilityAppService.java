@@ -5,6 +5,7 @@ import com.example.agentweb.domain.workbench.CapabilityOverride;
 import com.example.agentweb.domain.workbench.OwnerReference;
 import com.example.agentweb.domain.workbench.PhaseCapabilityConfiguration;
 import com.example.agentweb.domain.workbench.PhaseCapabilityConfigurationRepository;
+import com.example.agentweb.domain.workbench.PhaseCapabilityConfigurationState;
 import com.example.agentweb.domain.workbench.PhaseCapabilityProfile;
 import com.example.agentweb.domain.workbench.PhaseCapabilityProfileCatalog;
 import com.example.agentweb.domain.workbench.Workbench;
@@ -77,17 +78,16 @@ public class PhaseCapabilityAppService {
             CreatePhaseCapabilityOverrideCommand command) {
         Objects.requireNonNull(command, "command");
         requireOperableWorkbench(actor, command.getWorkbenchId());
-        requireOverrideAbsent(command.getWorkbenchId(), command.getPhase());
+        PhaseCapabilityConfigurationState state =
+                configurationRepository.findState(
+                        command.getWorkbenchId(), command.getPhase());
+        state.requireCanCreate();
         PhaseCapabilityProfile profile =
                 profileCatalog.requireProfile(command.getPhase());
         CapabilityOverride override = overrideResolver.resolve(
                 profile, command.getSelection());
         PhaseCapabilityConfiguration configuration =
-                PhaseCapabilityConfiguration.create(
-                        command.getWorkbenchId(), command.getPhase(),
-                        profile.getProfileId(), profile.getProfileVersion(),
-                        override, profile.getOverridePolicy(), actor,
-                        clock.instant());
+                state.createOverride(profile, override, actor, clock.instant());
         configurationRepository.save(configuration);
         return PhaseCapabilityOverrideSaveResult.saved(configuration);
     }
@@ -98,15 +98,17 @@ public class PhaseCapabilityAppService {
             UpdatePhaseCapabilityOverrideCommand command) {
         Objects.requireNonNull(command, "command");
         requireOperableWorkbench(actor, command.getWorkbenchId());
-        PhaseCapabilityConfiguration configuration = requireOverride(
-                command.getWorkbenchId(), command.getPhase());
+        PhaseCapabilityConfigurationState state =
+                configurationRepository.findState(
+                        command.getWorkbenchId(), command.getPhase());
+        state.requireCanUpdate(command.getExpectedVersion());
         PhaseCapabilityProfile profile =
                 profileCatalog.requireProfile(command.getPhase());
         CapabilityOverride override = overrideResolver.resolve(
                 profile, command.getSelection());
-        configuration.changeOverride(
-                command.getExpectedVersion(), override,
-                profile.getOverridePolicy(), actor, clock.instant());
+        PhaseCapabilityConfiguration configuration = state.updateOverride(
+                command.getExpectedVersion(), profile, override, actor,
+                clock.instant());
         configurationRepository.save(configuration);
         return PhaseCapabilityOverrideSaveResult.saved(configuration);
     }
@@ -116,33 +118,19 @@ public class PhaseCapabilityAppService {
             OwnerReference actor, PutPhaseCapabilityOverrideCommand command) {
         Objects.requireNonNull(command, "command");
         requireOperableWorkbench(actor, command.getWorkbenchId());
-        Optional<PhaseCapabilityConfiguration> existing =
-                configurationRepository.find(
+        PhaseCapabilityConfigurationState state =
+                configurationRepository.findState(
                         command.getWorkbenchId(), command.getPhase());
-        if (!existing.isPresent() && command.getExpectedVersion() != 0L) {
-            throw new WorkbenchDomainException(
-                    WorkbenchErrorCode.VERSION_CONFLICT,
-                    "capability override no longer exists");
-        }
+        state.requireCanPut(command.getExpectedVersion());
         PhaseCapabilityProfile profile =
                 profileCatalog.requireProfile(command.getPhase());
         CapabilityOverride override = overrideResolver.resolveSelected(
                 profile, command.getOptionalSkillIds(),
                 command.getOptionalMcpServerIds(),
                 command.getAdditionalRule());
-        PhaseCapabilityConfiguration configuration;
-        if (existing.isPresent()) {
-            configuration = existing.get();
-            configuration.changeOverride(
-                    command.getExpectedVersion(), override,
-                    profile.getOverridePolicy(), actor, clock.instant());
-        } else {
-            configuration = PhaseCapabilityConfiguration.create(
-                    command.getWorkbenchId(), command.getPhase(),
-                    profile.getProfileId(), profile.getProfileVersion(),
-                    override, profile.getOverridePolicy(), actor,
-                    clock.instant());
-        }
+        PhaseCapabilityConfiguration configuration = state.putOverride(
+                command.getExpectedVersion(), profile, override, actor,
+                clock.instant());
         configurationRepository.save(configuration);
         return PhaseCapabilityOverrideSaveResult.saved(configuration);
     }
@@ -153,11 +141,11 @@ public class PhaseCapabilityAppService {
             DeletePhaseCapabilityOverrideCommand command) {
         Objects.requireNonNull(command, "command");
         requireOperableWorkbench(actor, command.getWorkbenchId());
-        configurationRepository.delete(
+        long nextVersion = configurationRepository.delete(
                 command.getWorkbenchId(), command.getPhase(),
                 command.getExpectedVersion());
         return PhaseCapabilityOverrideDeleteResult.restoredDefault(
-                command.getWorkbenchId(), command.getPhase());
+                command.getWorkbenchId(), command.getPhase(), nextVersion);
     }
 
     private Workbench requireOwnedWorkbench(
@@ -197,20 +185,4 @@ public class PhaseCapabilityAppService {
         return failure;
     }
 
-    private void requireOverrideAbsent(
-            WorkbenchId workbenchId, WorkbenchPhase phase) {
-        if (configurationRepository.find(workbenchId, phase).isPresent()) {
-            throw new PhaseCapabilityApplicationException(
-                    PhaseCapabilityApplicationErrorCode.OVERRIDE_ALREADY_EXISTS,
-                    "phase capability override already exists");
-        }
-    }
-
-    private PhaseCapabilityConfiguration requireOverride(
-            WorkbenchId workbenchId, WorkbenchPhase phase) {
-        return configurationRepository.find(workbenchId, phase)
-                .orElseThrow(() -> new PhaseCapabilityApplicationException(
-                        PhaseCapabilityApplicationErrorCode.OVERRIDE_NOT_FOUND,
-                        "phase capability override was not found"));
-    }
 }

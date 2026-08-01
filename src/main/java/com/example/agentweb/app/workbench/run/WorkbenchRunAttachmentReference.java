@@ -6,7 +6,7 @@ import lombok.EqualsAndHashCode;
 import lombok.Getter;
 
 /**
- * Workbench Run 提交时绑定的不可变附件内容事实。
+ * Workbench Run 客户端提交的附件声明；进入 Run 前必须重新读取并验证。
  *
  * @author alex
  * @since 2026-08-01

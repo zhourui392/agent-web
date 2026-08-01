@@ -216,11 +216,18 @@ describe('workbench run SSE reducer', () => {
     state = reduce(state, 5, 'command_started', {
       repositoryKey: 'agent-web',
       commandClass: 'TEST',
+      status: 'RUNNING',
+      commandSummary: '在仓库 agent-web 执行 TEST 类命令',
+      command: './mvnw -q test',
     });
     state = reduce(state, 6, 'command_finished', {
       repositoryKey: 'agent-web',
       commandClass: 'TEST',
       exitCode: 0,
+      status: 'SUCCEEDED',
+      commandSummary: '在仓库 agent-web 执行 TEST 类命令',
+      outputSummary: 'TEST 类命令执行成功（退出码 0）',
+      aggregated_output: '/home/alex/secret decoder-secret-never-visible',
     });
     state = reduce(state, 7, 'file_changed', {
       repositoryKey: 'agent-web',
@@ -256,6 +263,18 @@ describe('workbench run SSE reducer', () => {
       'command_started',
       'command_finished',
     ]);
+    expect(state.blocks[3]).toEqual(expect.objectContaining({
+      status: 'RUNNING',
+      commandSummary: '在仓库 agent-web 执行 TEST 类命令',
+    }));
+    expect(state.blocks[4]).toEqual(expect.objectContaining({
+      status: 'SUCCEEDED',
+      commandSummary: '在仓库 agent-web 执行 TEST 类命令',
+      outputSummary: 'TEST 类命令执行成功（退出码 0）',
+    }));
+    expect(JSON.stringify(state.blocks)).not.toContain('./mvnw');
+    expect(JSON.stringify(state.blocks)).not.toContain('/home/alex/secret');
+    expect(JSON.stringify(state.blocks)).not.toContain('decoder-secret-never-visible');
     expect(state.staleDocuments).toEqual([expect.objectContaining({
       repositoryKey: 'agent-web',
       path: 'src/App.java',

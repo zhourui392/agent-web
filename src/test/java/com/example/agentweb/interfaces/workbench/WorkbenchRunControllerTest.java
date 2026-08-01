@@ -24,6 +24,10 @@ import com.example.agentweb.domain.workbench.RunMode;
 import com.example.agentweb.domain.workbench.WorkbenchId;
 import com.example.agentweb.domain.workbench.WorkbenchPhase;
 import com.example.agentweb.interfaces.workbench.dto.SubmitWorkbenchRunRequest;
+import com.example.agentweb.interfaces.workbench.dto.WorkbenchRunAttachmentRequest;
+import jakarta.validation.Validation;
+import jakarta.validation.Validator;
+import jakarta.validation.ValidatorFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -33,7 +37,9 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -109,6 +115,35 @@ class WorkbenchRunControllerTest {
         assertEquals(7L, command.getValue().getExpectedVersion());
         assertEquals("submission-1",
                 command.getValue().getIdempotencyKey());
+    }
+
+    @Test
+    void submitRequestShouldRejectMoreThanEightAttachmentsAtHttpBoundary() {
+        SubmitWorkbenchRunRequest request = new SubmitWorkbenchRunRequest();
+        request.setMessage("design the solution");
+        request.setRunMode("DISCUSS_READ_ONLY");
+        List<WorkbenchRunAttachmentRequest> attachments =
+                new ArrayList<WorkbenchRunAttachmentRequest>();
+        for (int index = 0; index < 9; index++) {
+            WorkbenchRunAttachmentRequest attachment =
+                    new WorkbenchRunAttachmentRequest();
+            attachment.setRepositoryKey("agent-web");
+            attachment.setRelativePath("docs/attachment-" + index + ".md");
+            attachment.setContentHash(String.join(
+                    "", Collections.nCopies(64, "a")));
+            attachments.add(attachment);
+        }
+        request.setAttachments(attachments);
+
+        try (ValidatorFactory factory =
+                     Validation.buildDefaultValidatorFactory()) {
+            Validator validator = factory.getValidator();
+
+            assertEquals(1, validator.validate(request).stream()
+                    .filter(violation -> "attachments".equals(
+                            violation.getPropertyPath().toString()))
+                    .count());
+        }
     }
 
     @Test

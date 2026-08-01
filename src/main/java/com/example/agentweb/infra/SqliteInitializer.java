@@ -42,6 +42,7 @@ public class SqliteInitializer {
         }
         migratePhaseHandoffRevisions();
         migrateWorkbenchRunSubmissionProof();
+        migrateWorkbenchRunAttachments();
         migrateReviewOpinionContent();
         // Migration: add resume_id column for existing databases
         try {
@@ -302,6 +303,11 @@ public class SqliteInitializer {
     private void migrateReviewOpinionContent() {
         addColumnIfMissing("workbench_review_opinion",
                 "opinion_content TEXT");
+    }
+
+    private void migrateWorkbenchRunAttachments() {
+        addColumnIfMissing("workbench_run_snapshot",
+                "attachments_json TEXT NOT NULL DEFAULT '[]'");
     }
 
     private String legacySubmissionKey(String runId) {

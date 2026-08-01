@@ -1,5 +1,6 @@
 package com.example.agentweb.domain.workbench;
 
+import com.example.agentweb.domain.capability.CapabilityAccess;
 import com.example.agentweb.domain.capability.RejectedCapability;
 import com.example.agentweb.domain.capability.ResolvedCapabilityBinding;
 import com.example.agentweb.domain.capability.ResolvedMcpServerBinding;
@@ -39,9 +40,12 @@ public final class PhaseCapabilityPreview {
     private final List<String> warnings;
 
     private PhaseCapabilityPreview(
-            PhaseCapabilityProfile profile, CapabilityOverride override,
+            PhaseCapabilityProfile profile,
+            PhaseCapabilityOverrideResolution overrideResolution,
             ResolvedCapabilityBinding binding) {
         requireMatchingProfile(profile, binding);
+        CapabilityOverride override =
+                overrideResolution.getEffectiveOverride();
         this.phase = profile.getPhase();
         this.profileId = profile.getProfileId();
         this.profileVersion = profile.getProfileVersion();
@@ -87,7 +91,7 @@ public final class PhaseCapabilityPreview {
         this.mcpServers = immutable(mcpItems);
         this.selectedOptionalSkillIds = immutableStrings(selectedSkills);
         this.selectedOptionalMcpIds = immutableStrings(selectedMcpServers);
-        this.warnings = warnings(binding);
+        this.warnings = warnings(overrideResolution, binding);
         this.status = warnings.isEmpty()
                 ? PhaseCapabilityPreviewStatus.AVAILABLE
                 : PhaseCapabilityPreviewStatus.DEGRADED;
@@ -100,8 +104,24 @@ public final class PhaseCapabilityPreview {
             throw new IllegalArgumentException(
                     "capability preview inputs must not be null");
         }
-        profile.getOverridePolicy().requireAllowed(profile.getPhase(), override);
-        return new PhaseCapabilityPreview(profile, override, binding);
+        return create(
+                profile, profile.resolveOverride(override), binding);
+    }
+
+    public static PhaseCapabilityPreview create(
+            PhaseCapabilityProfile profile,
+            PhaseCapabilityOverrideResolution overrideResolution,
+            ResolvedCapabilityBinding binding) {
+        if (profile == null || overrideResolution == null
+                || binding == null) {
+            throw new IllegalArgumentException(
+                    "capability preview inputs must not be null");
+        }
+        profile.getOverridePolicy().requireAllowed(
+                profile.getPhase(),
+                overrideResolution.getEffectiveOverride());
+        return new PhaseCapabilityPreview(
+                profile, overrideResolution, binding);
     }
 
     private PhaseCapabilityPreviewItem previewItem(
@@ -121,8 +141,10 @@ public final class PhaseCapabilityPreview {
                 : resolved.getSource();
         String summary = resolved == null ? null : resolved.getSummary();
         return new PhaseCapabilityPreviewItem(
-                reference.getId(), reference.isRequired(), selected,
-                source, summary);
+                reference.getType(), reference.getId(),
+                reference.isRequired(), selected,
+                source, summary,
+                resolved == null ? null : resolved.getAccess());
     }
 
     private static Map<String, ItemFacts> resolvedFacts(
@@ -130,13 +152,15 @@ public final class PhaseCapabilityPreview {
         Map<String, ItemFacts> result = new HashMap<String, ItemFacts>();
         for (ResolvedRuleBinding rule : binding.getRules()) {
             result.put(rule.getId(), new ItemFacts(
-                    rule.getSource(), rule.getSafeSummary()));
+                    rule.getSource(), rule.getSafeSummary(), null));
         }
         for (ResolvedSkillBinding skill : binding.getSkills()) {
-            result.put(skill.getId(), new ItemFacts(skill.getSource(), null));
+            result.put(skill.getId(), new ItemFacts(
+                    skill.getSource(), null, null));
         }
         for (ResolvedMcpServerBinding mcp : binding.getMcpServers()) {
-            result.put(mcp.getId(), new ItemFacts(MCP_CATALOG_SOURCE, null));
+            result.put(mcp.getId(), new ItemFacts(
+                    MCP_CATALOG_SOURCE, null, mcp.getAccess()));
         }
         return result;
     }
@@ -150,8 +174,11 @@ public final class PhaseCapabilityPreview {
         return result;
     }
 
-    private static List<String> warnings(ResolvedCapabilityBinding binding) {
-        List<String> result = new ArrayList<String>();
+    private static List<String> warnings(
+            PhaseCapabilityOverrideResolution overrideResolution,
+            ResolvedCapabilityBinding binding) {
+        List<String> result = new ArrayList<String>(
+                overrideResolution.getWarnings());
         for (RejectedCapability rejection : binding.getRejected()) {
             result.add(rejection.getId() + ":" + rejection.getReasonCode());
         }
@@ -184,10 +211,13 @@ public final class PhaseCapabilityPreview {
 
         private final String source;
         private final String summary;
+        private final CapabilityAccess access;
 
-        private ItemFacts(String source, String summary) {
+        private ItemFacts(
+                String source, String summary, CapabilityAccess access) {
             this.source = source;
             this.summary = summary;
+            this.access = access;
         }
 
         private String getSource() {
@@ -196,6 +226,10 @@ public final class PhaseCapabilityPreview {
 
         private String getSummary() {
             return summary;
+        }
+
+        private CapabilityAccess getAccess() {
+            return access;
         }
     }
 }

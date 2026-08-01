@@ -82,7 +82,9 @@ describe('workbench shell state', () => {
     expect(workbenchErrorMessage('WORKBENCH_ARCHIVED'))
       .toBe('工作台已归档，不能继续修改');
     expect(workbenchErrorMessage('WORKSPACE_TOPOLOGY_CHANGED'))
-      .toBe('仓库状态已变化，请重新检查工作空间');
+      .toBe('仓库目录或状态已变化；请恢复原目录，或创建新的 Workbench');
+    expect(workbenchErrorMessage('WORKSPACE_REPOSITORY_NOT_FOUND'))
+      .toBe('仓库目录已移动或不存在；请恢复原目录，或创建新的 Workbench');
     expect(workbenchErrorMessage('UNKNOWN_ERROR'))
       .toBe('操作失败，请稍后重试');
   });

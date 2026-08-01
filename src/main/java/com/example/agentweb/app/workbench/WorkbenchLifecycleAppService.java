@@ -48,7 +48,8 @@ public class WorkbenchLifecycleAppService {
             OwnerReference actor, WorkbenchId workbenchId,
             WorkbenchPhase phase, long expectedVersion) {
         return mutatePhase(actor, workbenchId, phase, expectedVersion,
-                (workbench, now) -> workbench.completePhase(phase, actor, now));
+                (workbench, version, now) -> workbench.completePhase(
+                        phase, actor, version, now));
     }
 
     @Transactional
@@ -56,15 +57,16 @@ public class WorkbenchLifecycleAppService {
             OwnerReference actor, WorkbenchId workbenchId,
             WorkbenchPhase phase, long expectedVersion) {
         return mutatePhase(actor, workbenchId, phase, expectedVersion,
-                (workbench, now) -> workbench.reopenPhase(phase, actor, now));
+                (workbench, version, now) -> workbench.reopenPhase(
+                        phase, actor, version, now));
     }
 
     @Transactional
     public WorkbenchLifecycleResult archive(
             OwnerReference actor, WorkbenchId workbenchId, long expectedVersion) {
         Workbench workbench = requireOwnedWorkbench(actor, workbenchId);
-        requireExpectedVersion(workbench, expectedVersion);
-        boolean changed = workbench.archive(actor, clock.instant());
+        boolean changed = workbench.archive(
+                actor, expectedVersion, clock.instant());
         updateWhenChanged(workbench, changed);
         return WorkbenchLifecycleResult.afterMutation(workbench, changed);
     }
@@ -74,8 +76,8 @@ public class WorkbenchLifecycleAppService {
             OwnerReference actor, WorkbenchId workbenchId,
             WorkbenchPhase phase, String conversationId, long expectedVersion) {
         return mutatePhase(actor, workbenchId, phase, expectedVersion,
-                (workbench, now) -> workbench.bindConversation(
-                        phase, conversationId, actor, now));
+                (workbench, version, now) -> workbench.bindConversation(
+                        phase, conversationId, actor, version, now));
     }
 
     @Transactional
@@ -83,8 +85,8 @@ public class WorkbenchLifecycleAppService {
             OwnerReference actor, WorkbenchId workbenchId,
             WorkbenchPhase phase, String conversationId, long expectedVersion) {
         return mutatePhase(actor, workbenchId, phase, expectedVersion,
-                (workbench, now) -> workbench.restartConversation(
-                        phase, conversationId, actor, now));
+                (workbench, version, now) -> workbench.restartConversation(
+                        phase, conversationId, actor, version, now));
     }
 
     private WorkbenchPhaseLifecycleResult mutatePhase(
@@ -96,8 +98,8 @@ public class WorkbenchLifecycleAppService {
                     "workbench phase lifecycle operation is required");
         }
         Workbench workbench = requireOwnedWorkbench(actor, workbenchId);
-        requireExpectedVersion(workbench, expectedVersion);
-        boolean changed = mutation.apply(workbench, clock.instant());
+        boolean changed = mutation.apply(
+                workbench, expectedVersion, clock.instant());
         updateWhenChanged(workbench, changed);
         return WorkbenchPhaseLifecycleResult.from(workbench, phase, changed);
     }
@@ -121,18 +123,6 @@ public class WorkbenchLifecycleAppService {
         }
     }
 
-    private void requireExpectedVersion(Workbench workbench, long expectedVersion) {
-        if (expectedVersion < 0L) {
-            throw new IllegalArgumentException(
-                    "expected workbench version must not be negative");
-        }
-        if (workbench.getVersion() != expectedVersion) {
-            throw new WorkbenchDomainException(
-                    WorkbenchErrorCode.VERSION_CONFLICT,
-                    "stale workbench version");
-        }
-    }
-
     private void updateWhenChanged(Workbench workbench, boolean changed) {
         if (changed) {
             workbenchRepository.update(workbench);
@@ -142,6 +132,6 @@ public class WorkbenchLifecycleAppService {
     @FunctionalInterface
     private interface PhaseMutation {
 
-        boolean apply(Workbench workbench, Instant now);
+        boolean apply(Workbench workbench, long expectedVersion, Instant now);
     }
 }

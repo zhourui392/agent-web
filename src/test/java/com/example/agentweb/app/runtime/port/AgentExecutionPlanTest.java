@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -78,6 +79,38 @@ class AgentExecutionPlanTest {
                 () -> layout.getWritableRoots().clear());
         assertThrows(UnsupportedOperationException.class,
                 () -> limits.getEnvironmentAllowlist().add("HOME"));
+    }
+
+    @Test
+    void attachmentsMustRemainUniqueBoundedAndInsideReadableRoots() {
+        RuntimeAttachmentExpectation expected = attachment(
+                "/workspace/service-a", "docs/design.md");
+        RuntimeAttachmentExpectation duplicate = attachment(
+                "/workspace/service-a", "docs/design.md");
+        RuntimeAttachmentExpectation unreadable = attachment(
+                "/workspace/service-b", "docs/design.md");
+
+        assertThrows(IllegalArgumentException.class,
+                () -> planWithAttachments(Collections.singletonList(unreadable)));
+        assertThrows(IllegalArgumentException.class,
+                () -> planWithAttachments(Arrays.asList(expected, duplicate)));
+        assertThrows(IllegalArgumentException.class,
+                () -> planWithAttachments(Collections.nCopies(9, expected)));
+    }
+
+    @Test
+    void attachmentsAreDefensivelyCopiedAndImmutable() {
+        ArrayList<RuntimeAttachmentExpectation> attachments =
+                new ArrayList<RuntimeAttachmentExpectation>();
+        attachments.add(attachment(
+                "/workspace/service-a", "docs/design.md"));
+
+        AgentExecutionPlan plan = planWithAttachments(attachments);
+        attachments.clear();
+
+        assertEquals(1, plan.getAttachmentExpectations().size());
+        assertThrows(UnsupportedOperationException.class,
+                () -> plan.getAttachmentExpectations().clear());
     }
 
     @Test
@@ -213,6 +246,23 @@ class AgentExecutionPlanTest {
                 capabilityBinding(),
                 new RuntimeLimits(Duration.ofSeconds(30), 1024,
                         Collections.<String>emptySet()));
+    }
+
+    private static AgentExecutionPlan planWithAttachments(
+            List<RuntimeAttachmentExpectation> attachments) {
+        AgentExecutionPlan base = plan();
+        return new AgentExecutionPlan(
+                base.getExecutionIdentity(), base.getRuntimeSelection(),
+                base.getPromptPayload(), base.getWorkspaceLayout(),
+                base.getCapabilityBinding(), base.getRuntimeLimits(),
+                attachments);
+    }
+
+    private static RuntimeAttachmentExpectation attachment(
+            String repositoryRoot, String relativePath) {
+        return new RuntimeAttachmentExpectation(
+                "repository", repositoryRoot, relativePath,
+                CanonicalHashing.sha256("approved"), 8L);
     }
 
     private static ResolvedCapabilityBinding capabilityBinding() {

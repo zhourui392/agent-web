@@ -135,6 +135,15 @@
           </div>
           <el-button
             size="small"
+            plain
+            data-test="workbench-attach-document"
+            :disabled="!canAttachCurrentDocument"
+            @click="attachCurrentDocument"
+          >
+            {{ attachmentSelected ? '已附加' : '附加到对话' }}
+          </el-button>
+          <el-button
+            size="small"
             :loading="contentLoading"
             @click="$emit('refresh-document')"
           >
@@ -222,7 +231,12 @@
                 aria-hidden="true"
                 data-test="workbench-document-line-number"
               >{{ line.number }}</span>
-              <code role="cell">{{ line.text }}</code>
+              <code
+                v-if="line.highlightedHtml !== null"
+                role="cell"
+                v-html="line.highlightedHtml"
+              ></code>
+              <code v-else role="cell">{{ line.text }}</code>
             </div>
             <div
               v-if="textPresentation.omittedLineCount > 0"
@@ -339,7 +353,7 @@
  */
 import { computed, nextTick, ref, watch } from 'vue';
 import {
-  createWorkbenchTextPresentation,
+  createWorkbenchHighlightedPresentation,
   renderWorkbenchMarkdown,
   workbenchDocumentDisplayMode,
   workbenchDocumentLanguageLabel,
@@ -361,6 +375,7 @@ const props = defineProps({
   documentError: { type: String, default: '' },
   mobile: { type: Boolean, default: false },
   maximized: { type: Boolean, default: false },
+  attachmentSelected: { type: Boolean, default: false },
 });
 
 const emit = defineEmits([
@@ -375,6 +390,7 @@ const emit = defineEmits([
   'refresh-document',
   'download-document',
   'update-scroll',
+  'attach-document',
 ]);
 
 const viewerBody = ref(null);
@@ -390,8 +406,10 @@ const markdownRender = computed(() => renderWorkbenchMarkdown(
     : '',
 ));
 
-const textPresentation = computed(() => createWorkbenchTextPresentation(
+const textPresentation = computed(() => createWorkbenchHighlightedPresentation(
   props.loadedContent?.content ?? '',
+  props.currentDocument?.reference?.relativePath ?? '',
+  props.loadedContent?.mediaType ?? '',
 ));
 
 const showLinePresentation = computed(() => renderMode.value === 'TEXT'
@@ -409,6 +427,36 @@ const inlineImageSource = computed(() => workbenchInlineImagePreviewSource(
   props.loadedContent?.kind,
   props.loadedContent?.mediaType,
 ));
+
+const canAttachCurrentDocument = computed(() => {
+  const currentReference = props.currentDocument?.reference;
+  const loadedReference = props.loadedContent?.reference;
+  const contentHash = props.loadedContent?.contentVersion;
+  return !props.attachmentSelected
+    && !props.contentLoading
+    && Boolean(currentReference)
+    && Boolean(loadedReference)
+    && props.repositories.some(repository => (
+      repository.repositoryKey === currentReference?.repositoryKey
+    ))
+    && currentReference?.repositoryKey === loadedReference?.repositoryKey
+    && currentReference?.relativePath === loadedReference?.relativePath
+    && props.currentDocument?.contentVersion === contentHash
+    && !props.currentDocument?.stale
+    && !props.currentDocument?.deleted
+    && !props.loadedContent?.deleted
+    && typeof contentHash === 'string'
+    && /^[a-f0-9]{64}$/.test(contentHash);
+});
+
+function attachCurrentDocument() {
+  if (!canAttachCurrentDocument.value || !props.loadedContent) return;
+  emit('attach-document', {
+    repositoryKey: props.loadedContent.reference.repositoryKey,
+    relativePath: props.loadedContent.reference.relativePath,
+    contentHash: props.loadedContent.contentVersion,
+  });
+}
 
 function openEntry(entry) {
   if (entry.kind === 'DIRECTORY') {
@@ -555,6 +603,37 @@ watch(
   font: inherit;
   white-space: pre;
   background: transparent;
+}
+
+.workbench-document-line :deep(.hljs-comment),
+.workbench-document-line :deep(.hljs-quote) {
+  color: #708090;
+  font-style: italic;
+}
+
+.workbench-document-line :deep(.hljs-keyword),
+.workbench-document-line :deep(.hljs-selector-tag),
+.workbench-document-line :deep(.hljs-type) {
+  color: #8f3f71;
+  font-weight: 600;
+}
+
+.workbench-document-line :deep(.hljs-string),
+.workbench-document-line :deep(.hljs-attr),
+.workbench-document-line :deep(.hljs-template-variable) {
+  color: #2f6f44;
+}
+
+.workbench-document-line :deep(.hljs-number),
+.workbench-document-line :deep(.hljs-literal),
+.workbench-document-line :deep(.hljs-symbol) {
+  color: #845ec2;
+}
+
+.workbench-document-line :deep(.hljs-title),
+.workbench-document-line :deep(.hljs-section),
+.workbench-document-line :deep(.hljs-name) {
+  color: #2458a6;
 }
 
 .workbench-document-lines-omitted {

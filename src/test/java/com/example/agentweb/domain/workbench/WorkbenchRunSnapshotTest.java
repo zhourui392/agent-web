@@ -36,6 +36,8 @@ class WorkbenchRunSnapshotTest {
     @Test
     void createShouldFreezeAllInputsWithoutRunTerminalState() {
         RepositoryScope scope = scope();
+        VerifiedWorkbenchRunAttachment attachment = attachment(
+                "agent-web", "docs/design.md", repeat('8'), 128L);
         WorkbenchRunSnapshot snapshot = WorkbenchRunSnapshot.create(
                 "run-1", WORKBENCH_ID, WorkbenchPhase.IMPLEMENT_TEST,
                 "submit-key-1", repeat('7'),
@@ -51,6 +53,7 @@ class WorkbenchRunSnapshotTest {
                 RuntimeEnforcementSnapshot.modify(
                         "CODEX", "0.42", scope.getScopeHash(), "agent-web",
                         WorkbenchDomainFixtures.repositoryKeys(scope), 1800L, 8388608L),
+                Collections.singletonList(attachment),
                 null, NOW);
 
         assertEquals("run-1", snapshot.getRunId());
@@ -63,8 +66,12 @@ class WorkbenchRunSnapshotTest {
         assertEquals(4L, snapshot.getHandoffSource().getSourceVersion());
         assertEquals(2, snapshot.getPromptParts().size());
         assertEquals(repeat('5'), snapshot.getPromptHash());
+        assertEquals(Collections.singletonList(attachment),
+                snapshot.getVerifiedAttachments());
         assertThrows(UnsupportedOperationException.class,
                 () -> snapshot.getPromptParts().clear());
+        assertThrows(UnsupportedOperationException.class,
+                () -> snapshot.getVerifiedAttachments().clear());
 
         HandoffReception reception = HandoffReception.accept(
                 WORKBENCH_ID, WorkbenchPhase.IMPLEMENT_TEST,
@@ -76,6 +83,30 @@ class WorkbenchRunSnapshotTest {
                         WORKBENCH_ID, WorkbenchPhase.IMPLEMENT_TEST,
                         WorkbenchPhase.SOLUTION_DESIGN, 3L, repeat('2'),
                         owner(), NOW)));
+    }
+
+    @Test
+    void snapshotShouldRejectAttachmentOutsideFrozenRepositoryScope() {
+        RepositoryScope scope = scope();
+        VerifiedWorkbenchRunAttachment outside = attachment(
+                "unselected", "secret.txt", repeat('8'), 6L);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> WorkbenchRunSnapshot.create(
+                        "run-outside-attachment", WORKBENCH_ID,
+                        WorkbenchPhase.REQUIREMENT_ANALYSIS,
+                        "submit-outside-attachment", repeat('7'),
+                        RunMode.DISCUSS_READ_ONLY, scope,
+                        WorkbenchDomainFixtures.snapshotReference(
+                                "snapshot-1", repeat('1')),
+                        binding(), null, null,
+                        Collections.singletonList(PromptPartSnapshot.of(
+                                "USER_INPUT", "user", repeat('4'), 32)),
+                        repeat('5'),
+                        RuntimeEnforcementSnapshot.readOnly(
+                                "CODEX", "0.42", scope.getScopeHash(),
+                                "agent-web", 1800L, 8388608L),
+                        Collections.singletonList(outside), null, NOW));
     }
 
     @Test
@@ -238,6 +269,31 @@ class WorkbenchRunSnapshotTest {
         assertIdempotencyConflict(() -> snapshot.requireReplay(
                 WORKBENCH_ID, WorkbenchPhase.SOLUTION_DESIGN,
                 "submit-key-replayed", repeat('7')));
+    }
+
+    @Test
+    void ownerScopedReplayShouldRequireExactOwnerAndWorkbenchBinding() {
+        Workbench ownedWorkbench = workbench(WORKBENCH_ID);
+        WorkbenchRunSnapshot snapshot = readOnlySnapshot(
+                WORKBENCH_ID, "run-owner-replayed");
+
+        assertEquals("run-owner-replayed", snapshot.requireReplay(
+                ownedWorkbench, owner(), WorkbenchPhase.REQUIREMENT_ANALYSIS,
+                "submit-run-owner-replayed", repeat('7')));
+
+        WorkbenchDomainException foreignOwner = assertThrows(
+                WorkbenchDomainException.class,
+                () -> snapshot.requireReplay(
+                        ownedWorkbench,
+                        OwnerReference.of("user-2", "Taylor"),
+                        WorkbenchPhase.REQUIREMENT_ANALYSIS,
+                        "submit-run-owner-replayed", repeat('7')));
+        assertEquals(WorkbenchErrorCode.OWNER_REQUIRED,
+                foreignOwner.getCode());
+        assertIdempotencyConflict(() -> snapshot.requireReplay(
+                workbench(WorkbenchId.of("workbench-2")), owner(),
+                WorkbenchPhase.REQUIREMENT_ANALYSIS,
+                "submit-run-owner-replayed", repeat('7')));
     }
 
     @Test
@@ -577,5 +633,15 @@ class WorkbenchRunSnapshotTest {
             result.append(value);
         }
         return result.toString();
+    }
+
+    private static VerifiedWorkbenchRunAttachment attachment(
+            String repositoryKey, String relativePath,
+            String contentHash, long size) {
+        DocumentReference reference = DocumentReference.of(
+                repositoryKey, relativePath);
+        return VerifiedWorkbenchRunAttachment.verify(
+                reference, contentHash, reference, contentHash,
+                "text/plain", size, false);
     }
 }

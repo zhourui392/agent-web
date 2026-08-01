@@ -128,10 +128,24 @@ class RuntimeEventDecoderTest {
                 .get(1).getData().get("repositoryKey"));
         assertEquals("TEST", started.getEvent().getSemanticEvents()
                 .get(1).getData().get("commandClass"));
+        assertEquals("在仓库 service-a 执行 TEST 类命令",
+                started.getEvent().getSemanticEvents()
+                        .get(1).getData().get("commandSummary"));
+        assertEquals("RUNNING", started.getEvent().getSemanticEvents()
+                .get(1).getData().get("status"));
+        assertEquals("TEST 类命令执行成功（退出码 0）",
+                completed.getEvent().getSemanticEvents()
+                        .get(1).getData().get("outputSummary"));
+        assertEquals("SUCCEEDED", completed.getEvent().getSemanticEvents()
+                .get(1).getData().get("status"));
         assertFalse(completed.getEvent().getSafePayload().contains("/home/"));
         assertFalse(completed.getEvent().getSafePayload().contains(SECRET));
         assertFalse(completed.getEvent().getSemanticEvents().toString()
                 .contains("./mvnw"));
+        assertFalse(completed.getEvent().getSemanticEvents().toString()
+                .contains("/home/alex/secret"));
+        assertFalse(completed.getEvent().getSemanticEvents().toString()
+                .contains(SECRET));
     }
 
     @Test

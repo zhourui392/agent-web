@@ -150,6 +150,47 @@ function handoffSource(targetPhase: Phase) {
   };
 }
 
+function effectiveCapabilityProfile(phase: Phase) {
+  return {
+    phase,
+    status: 'AVAILABLE',
+    profileId: `workbench-${phase.toLowerCase().replaceAll('_', '-')}`,
+    profileVersion: '1.0.0',
+    profileHash: HASH,
+    rules: [{
+      id: 'platform/workbench-safety',
+      required: true,
+      selected: true,
+      source: 'PHASE_PROFILE',
+      summary: '平台安全边界',
+      access: null,
+    }],
+    skills: [{
+      id: phase.toLowerCase().replaceAll('_', '-'),
+      required: false,
+      selected: true,
+      source: 'PHASE_PROFILE',
+      summary: `${phaseLabel(phase)}默认能力`,
+      access: null,
+    }],
+    mcpServers: [{
+      id: 'repository-query',
+      required: false,
+      selected: true,
+      source: 'MCP_CATALOG',
+      summary: '仓库只读查询',
+      access: 'READ',
+    }],
+    optionalSkillIds: [phase.toLowerCase().replaceAll('_', '-')],
+    optionalMcpServerIds: ['repository-query'],
+    additionalRule: '',
+    overrideVersion: 0,
+    warnings: [],
+    effectiveFrom: 'NEXT_RUN',
+    activeRunSnapshotHash: null,
+  };
+}
+
 function proposedOperation() {
   return {
     operationId: 'operation-e2e',
@@ -231,6 +272,10 @@ async function installWorkbenchFixture(page: Page, options: FixtureOptions = {})
   } = null;
   let runSequence = 0;
   const submittedRunPhases = new Map<string, Phase>();
+  const ensuredConversations = new Map<Phase, {
+    sessionId: string;
+    workbenchVersion: number;
+  }>();
 
   await page.route('**/api/**', async (route) => {
     const request = route.request();
@@ -267,6 +312,42 @@ async function installWorkbenchFixture(page: Page, options: FixtureOptions = {})
     if (url.pathname.endsWith('/handoff-source') && method === 'GET') {
       const phase = phaseFromUrl(url);
       await json(route, handoffSource(phase ?? 'REQUIREMENT_ANALYSIS'));
+      return;
+    }
+    if (url.pathname.endsWith('/capability-profile') && method === 'GET') {
+      const phase = phaseFromUrl(url) ?? 'REQUIREMENT_ANALYSIS';
+      await json(route, effectiveCapabilityProfile(phase));
+      return;
+    }
+    if (url.pathname.endsWith('/conversation/messages') && method === 'GET') {
+      const phase = phaseFromUrl(url) ?? 'REQUIREMENT_ANALYSIS';
+      const ensured = ensuredConversations.get(phase);
+      const activeSession = options.activeRun?.phase === phase
+        ? `session-${phase}` : null;
+      await json(route, {
+        sessionId: ensured?.sessionId ?? activeSession,
+        generation: 0,
+        workbenchVersion: ensured?.workbenchVersion ?? 7,
+        messages: [],
+        nextCursor: null,
+      });
+      return;
+    }
+    if (url.pathname.endsWith('/conversation') && method === 'POST') {
+      const phase = phaseFromUrl(url) ?? 'REQUIREMENT_ANALYSIS';
+      const expectedVersion = Number(request.headers()['if-match']);
+      const existing = ensuredConversations.get(phase);
+      const ensured = existing ?? {
+        sessionId: `session-ensure-${phase}`,
+        workbenchVersion: expectedVersion + 1,
+      };
+      ensuredConversations.set(phase, ensured);
+      await json(route, {
+        sessionId: ensured.sessionId,
+        generation: 0,
+        workbenchVersion: ensured.workbenchVersion,
+        created: existing == null,
+      });
       return;
     }
     if (url.pathname === `/api/workbenches/${WORKBENCH_ID}/operations` && method === 'GET') {
@@ -459,6 +540,22 @@ async function installWorkbenchFixture(page: Page, options: FixtureOptions = {})
         profileHash: HASH,
         bindingHash: SECOND_HASH,
         runtimeCompatibility: 'm0-2026-07-22',
+        repositoryScopeHash: HASH,
+        primaryRepositoryKey: 'service-a',
+        repositories: [
+          {
+            repositoryKey: 'service-a',
+            relativePath: 'service-a',
+            primary: true,
+            access: 'READ',
+          },
+          {
+            repositoryKey: 'service-b',
+            relativePath: 'service-b',
+            primary: false,
+            access: 'READ',
+          },
+        ],
         rules: [{
           id: 'platform/workbench-safety', version: '1.0.0', source: 'PLATFORM',
           contentHash: HASH, mandatory: true, safeSummary: '平台安全边界',
@@ -469,8 +566,6 @@ async function installWorkbenchFixture(page: Page, options: FixtureOptions = {})
         }],
         mcpServers: [],
         rejected: [],
-        command: '/private/never-render',
-        token: 'server-secret',
       });
       return;
     }
@@ -651,7 +746,7 @@ test('四阶段可任意导航，对话模式按阶段收敛且 Owner 缺失时 
   await expect.poll(() => submitted.length).toBe(1);
   expect(submitted[0].phase).toBe('REQUIREMENT_ANALYSIS');
   expect(submitted[0].body).toEqual({ message: '解释当前需求边界', runMode: 'DISCUSS_READ_ONLY' });
-  expect(submitted[0].headers['if-match']).toBe('7');
+  expect(submitted[0].headers['if-match']).toBe('8');
   expect(submitted[0].headers['idempotency-key']).toBeTruthy();
 
   await page.getByRole('button', { name: /技术方案设计/ }).click();

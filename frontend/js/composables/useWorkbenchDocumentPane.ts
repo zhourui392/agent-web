@@ -212,7 +212,7 @@ function documentErrorMessage(error: unknown): string {
   if (error.code === 'WORKBENCH_REPOSITORY_NOT_FOUND'
     || error.code === 'WORKBENCH_REPOSITORY_SCOPE_INVALID'
     || error.code === 'WORKSPACE_TOPOLOGY_CHANGED') {
-    return '当前仓库已不在 Workbench 授权范围内';
+    return '仓库目录已移动或不存在；请恢复原目录，或创建新的 Workbench。';
   }
   if (error.code === 'WORKBENCH_PATH_FORBIDDEN'
     || error.code === 'WORKSPACE_PATH_FORBIDDEN') {

@@ -1,5 +1,6 @@
 package com.example.agentweb.domain.workbench;
 
+import com.example.agentweb.domain.capability.CapabilityAccess;
 import com.example.agentweb.domain.capability.RejectedCapability;
 import com.example.agentweb.domain.capability.ResolvedCapabilityBinding;
 import com.example.agentweb.domain.capability.ResolvedMcpServerBinding;
@@ -57,15 +58,50 @@ class PhaseCapabilityPreviewTest {
                         "repository-query:OPTIONAL_MCP_UNAVAILABLE"),
                 preview.getWarnings());
         assertEquals("PLATFORM", preview.getRules().get(0).getSource());
+        assertEquals(null, preview.getRules().get(0).getAccess());
         assertEquals("Workbench safety", preview.getRules().get(0).getSummary());
         assertTrue(preview.getRules().get(0).isRequired());
         assertTrue(preview.getRules().get(0).isSelected());
         assertEquals("PLATFORM", preview.getSkills().get(0).getSource());
+        assertEquals(null, preview.getSkills().get(0).getAccess());
         assertTrue(preview.getSkills().get(0).isSelected());
         assertEquals("PHASE_PROFILE", preview.getSkills().get(1).getSource());
         assertFalse(preview.getSkills().get(1).isSelected());
         assertEquals("UNAVAILABLE", preview.getMcpServers().get(0).getSource());
+        assertEquals(null, preview.getMcpServers().get(0).getAccess());
         assertTrue(preview.getMcpServers().get(0).isSelected());
+    }
+
+    @Test
+    void resolvedMcpShouldExposeTrustedAccessWithoutAddingAccessToOtherItems() {
+        PhaseCapabilityProfile profile = profile();
+        CapabilityOverride override = profile.overrideWithSelectedOptionals(
+                Collections.singleton("java-tdd"),
+                Collections.singleton("repository-query"), null);
+        ResolvedCapabilityBinding binding = ResolvedCapabilityBinding.resolve(
+                "workbench-policy@1", profile.getProfileId(),
+                profile.getProfileVersion(), profile.getProfileHash(),
+                Collections.singletonList(new ResolvedRuleBinding(
+                        "platform/workbench-safety", "1.0.0", "PLATFORM",
+                        CanonicalHashing.sha256("rule"), true,
+                        "Workbench safety")),
+                Collections.singletonList(new ResolvedSkillBinding(
+                        "java-tdd", "1.0.0", "PLATFORM",
+                        CanonicalHashing.sha256("skill"), "PLATFORM")),
+                Collections.singletonList(new ResolvedMcpServerBinding(
+                        "repository-query", "1.0.0",
+                        CanonicalHashing.sha256("mcp"),
+                        CapabilityAccess.WRITE, "STDIO")),
+                Collections.<RejectedCapability>emptyList(),
+                "CODEX_WORKBENCH@1");
+
+        PhaseCapabilityPreview preview = PhaseCapabilityPreview.create(
+                profile, override, binding);
+
+        assertEquals(null, preview.getRules().get(0).getAccess());
+        assertEquals(null, preview.getSkills().get(0).getAccess());
+        assertEquals(CapabilityAccess.WRITE,
+                preview.getMcpServers().get(0).getAccess());
     }
 
     @Test

@@ -20,6 +20,7 @@ import com.example.agentweb.domain.workbench.PromptPartSnapshot;
 import com.example.agentweb.domain.workbench.PushTarget;
 import com.example.agentweb.domain.workbench.RunMode;
 import com.example.agentweb.domain.workbench.RuntimeEnforcementSnapshot;
+import com.example.agentweb.domain.workbench.VerifiedWorkbenchRunAttachment;
 import com.example.agentweb.domain.workbench.WorkbenchId;
 import com.example.agentweb.domain.workbench.WorkbenchPhase;
 import com.example.agentweb.domain.workbench.WorkbenchRunReference;
@@ -265,6 +266,38 @@ final class WorkbenchJsonCodec {
             result.add(PromptPartSnapshot.of(
                     text(node, "type"), text(node, "source"),
                     text(node, "contentHash"), integer(node, "contentSize")));
+        }
+        return result;
+    }
+
+    String writeVerifiedAttachments(
+            List<VerifiedWorkbenchRunAttachment> attachments) {
+        ArrayNode result = mapper.createArrayNode();
+        for (VerifiedWorkbenchRunAttachment attachment : attachments) {
+            ObjectNode node = result.addObject();
+            node.put("repositoryKey", attachment.getDocumentReference()
+                    .getRepositoryKey());
+            node.put("relativePath", attachment.getDocumentReference()
+                    .getRelativePath());
+            node.put("contentVersion", attachment.getContentVersion());
+            node.put("mediaType", attachment.getMediaType());
+            node.put("size", attachment.getSize());
+        }
+        return write(result);
+    }
+
+    List<VerifiedWorkbenchRunAttachment> readVerifiedAttachments(
+            String json) {
+        List<VerifiedWorkbenchRunAttachment> result =
+                new ArrayList<VerifiedWorkbenchRunAttachment>();
+        for (JsonNode node : array(json, "verified attachments")) {
+            requireObject(node, "verified attachment");
+            result.add(VerifiedWorkbenchRunAttachment.restore(
+                    DocumentReference.of(
+                            text(node, "repositoryKey"),
+                            text(node, "relativePath")),
+                    text(node, "contentVersion"),
+                    text(node, "mediaType"), longValue(node, "size")));
         }
         return result;
     }

@@ -2,6 +2,7 @@ package com.example.agentweb.domain.workbench;
 
 import com.example.agentweb.domain.shared.DomainText;
 import com.example.agentweb.domain.workspace.RepositoryScope;
+import com.example.agentweb.domain.workspace.ResolvedRepository;
 import lombok.Getter;
 
 import java.util.ArrayList;
@@ -110,6 +111,30 @@ public final class RuntimeEnforcementSnapshot {
                     "Runtime repository scope does not match persisted snapshot");
         }
         repositoryScope.requireRepositoryRoots(writableRepositoryKeys);
+    }
+
+    /**
+     * 返回本轮冻结 Scope 的逻辑仓库及实际读写权限，不暴露绝对路径。
+     */
+    public List<RunRepositoryScopeFact> repositoryScopeFacts(
+            RepositoryScope repositoryScope) {
+        requireRepositoryScope(repositoryScope);
+        Set<String> writable = new HashSet<String>(
+                writableRepositoryKeys);
+        List<RunRepositoryScopeFact> facts =
+                new ArrayList<RunRepositoryScopeFact>();
+        for (ResolvedRepository repository
+                : repositoryScope.getRepositories()) {
+            String repositoryKey = repository.getRepositoryKey();
+            RunRepositoryScopeFact.Access access =
+                    writable.contains(repositoryKey)
+                            ? RunRepositoryScopeFact.Access.WRITE
+                            : RunRepositoryScopeFact.Access.READ;
+            facts.add(RunRepositoryScopeFact.of(
+                    repositoryKey, repository.getRelativePath(),
+                    primaryRepositoryKey.equals(repositoryKey), access));
+        }
+        return Collections.unmodifiableList(facts);
     }
 
     private static List<String> normalizeRepositories(List<String> repositories) {

@@ -2,6 +2,7 @@ package com.example.agentweb.domain.workbench;
 
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.workspace.RepositoryScope;
+import org.junit.jupiter.api.function.Executable;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -381,6 +382,31 @@ class WorkbenchTest {
     }
 
     @Test
+    void lifecycleMutationsShouldValidateExpectedVersionInsideAggregate() {
+        Workbench workbench = newWorkbench();
+
+        assertVersionConflict(() -> workbench.bindConversation(
+                WorkbenchPhase.REQUIREMENT_ANALYSIS, "conversation-1", OWNER,
+                1L, NOW.plusSeconds(1)));
+        assertVersionConflict(() -> workbench.restartConversation(
+                WorkbenchPhase.REQUIREMENT_ANALYSIS, "conversation-2", OWNER,
+                1L, NOW.plusSeconds(1)));
+        assertVersionConflict(() -> workbench.completePhase(
+                WorkbenchPhase.REQUIREMENT_ANALYSIS, OWNER,
+                1L, NOW.plusSeconds(1)));
+        assertVersionConflict(() -> workbench.reopenPhase(
+                WorkbenchPhase.REQUIREMENT_ANALYSIS, OWNER,
+                1L, NOW.plusSeconds(1)));
+        assertVersionConflict(() -> workbench.archive(
+                OWNER, 1L, NOW.plusSeconds(1)));
+
+        assertEquals(0L, workbench.getVersion());
+        assertTrue(workbench.phase(WorkbenchPhase.REQUIREMENT_ANALYSIS)
+                .getConversationHistory().isEmpty());
+        assertEquals(WorkbenchStatus.ACTIVE, workbench.getStatus());
+    }
+
+    @Test
     void ownerOnlyCheckShouldAllowArchivedOwnerAndRejectForeignActor() {
         Workbench workbench = newWorkbench();
         OwnerReference stranger = OwnerReference.of("user-2", "Other");
@@ -504,5 +530,11 @@ class WorkbenchTest {
             result.append(value);
         }
         return result.toString();
+    }
+
+    private static void assertVersionConflict(Executable mutation) {
+        WorkbenchDomainException error = assertThrows(
+                WorkbenchDomainException.class, mutation);
+        assertEquals(WorkbenchErrorCode.VERSION_CONFLICT, error.getCode());
     }
 }

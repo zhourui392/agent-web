@@ -58,7 +58,7 @@ describe('workbench document text presentation', () => {
     expect(workbenchDocumentDisplayMode('SOURCE_CODE', null)).toBe('METADATA');
   });
 
-  it('labels known source and structured formats without implementing a lexer', () => {
+  it('labels known source and structured formats for the registered highlighter', () => {
     expect(workbenchDocumentLanguageLabel('src/App.java', 'text/x-java-source')).toBe('Java');
     expect(workbenchDocumentLanguageLabel('js/App.vue', 'text/plain')).toBe('Vue');
     expect(workbenchDocumentLanguageLabel('config/data.json', 'application/json')).toBe('JSON');
@@ -118,9 +118,10 @@ describe('WorkbenchDocumentPane render contract', () => {
     ), 'utf8');
 
     expect(component).toContain('v-html="markdownRender.html"');
-    expect(component.match(/v-html=/g)).toHaveLength(1);
+    expect(component.match(/v-html=/g)).toHaveLength(2);
     expect(component).not.toMatch(/v-html="(?:loadedContent|currentDocument)/);
-    expect(component).toContain('{{ line.text }}');
+    expect(component).toContain('v-html="line.highlightedHtml"');
+    expect(component).toContain('v-else role="cell">{{ line.text }}');
     expect(component).toContain('data-test="workbench-document-line-number"');
     expect(component).toContain(':src="inlineImageSource"');
     expect(component).not.toMatch(/:src="(?:loadedContent|currentDocument)/);

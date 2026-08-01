@@ -150,6 +150,14 @@ public final class Workbench {
         return changed;
     }
 
+    public boolean bindConversation(
+            WorkbenchPhase phase, String conversationId,
+            OwnerReference actor, long expectedVersion, Instant now) {
+        requireOperableBy(actor);
+        requireExpectedVersion(expectedVersion);
+        return bindConversation(phase, conversationId, actor, now);
+    }
+
     public boolean restartConversation(WorkbenchPhase phase, String newConversationId,
                                        OwnerReference actor, Instant now) {
         requireOperableBy(actor);
@@ -160,6 +168,14 @@ public final class Workbench {
             recordMutation(activityTime);
         }
         return changed;
+    }
+
+    public boolean restartConversation(
+            WorkbenchPhase phase, String newConversationId,
+            OwnerReference actor, long expectedVersion, Instant now) {
+        requireOperableBy(actor);
+        requireExpectedVersion(expectedVersion);
+        return restartConversation(phase, newConversationId, actor, now);
     }
 
     public PhaseConversationProvisioning planConversationEnsure(
@@ -328,6 +344,14 @@ public final class Workbench {
         return changed;
     }
 
+    public boolean completePhase(
+            WorkbenchPhase phase, OwnerReference actor,
+            long expectedVersion, Instant now) {
+        requireOperableBy(actor);
+        requireExpectedVersion(expectedVersion);
+        return completePhase(phase, actor, now);
+    }
+
     public boolean reopenPhase(WorkbenchPhase phase, OwnerReference actor, Instant now) {
         requireOperableBy(actor);
         Instant activityTime = requireActivityTime(now);
@@ -336,6 +360,14 @@ public final class Workbench {
             recordMutation(activityTime);
         }
         return changed;
+    }
+
+    public boolean reopenPhase(
+            WorkbenchPhase phase, OwnerReference actor,
+            long expectedVersion, Instant now) {
+        requireOperableBy(actor);
+        requireExpectedVersion(expectedVersion);
+        return reopenPhase(phase, actor, now);
     }
 
     public boolean archive(OwnerReference actor, Instant now) {
@@ -352,6 +384,13 @@ public final class Workbench {
         status = WorkbenchStatus.ARCHIVED;
         recordMutation(archiveTime);
         return true;
+    }
+
+    public boolean archive(
+            OwnerReference actor, long expectedVersion, Instant now) {
+        requireOwner(actor);
+        requireExpectedVersion(expectedVersion);
+        return archive(actor, now);
     }
 
     private void requireOwner(OwnerReference actor) {

@@ -100,7 +100,8 @@ public class WorkbenchRunHistoryAppService {
         AuthorizedWorkbenchRun authorized = accessResolver
                 .requireAuthorized(actor, workbenchId, runId);
         return WorkbenchRunCapabilityView.from(
-                authorized.getSnapshot());
+                authorized.getSnapshot(),
+                authorized.getWorkbench().getRepositoryScope());
     }
 
     private void requireReplayCursor(

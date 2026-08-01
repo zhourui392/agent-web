@@ -74,15 +74,23 @@ class PhaseCapabilityOwnerServiceTest {
     }
 
     @Test
-    void deleteShouldReturnDefaultVersionWithoutChangingActiveBindingEvidence() {
+    void deleteShouldReturnTombstoneVersionWithoutChangingActiveBindingEvidence() {
         String activeHash = "b".repeat(64);
+        PhaseCapabilityOverrideDeleteResult deleted =
+                PhaseCapabilityOverrideDeleteResult.restoredDefault(
+                        WORKBENCH_ID, PHASE, 5L);
+        when(mutationService.deleteOverride(
+                org.mockito.ArgumentMatchers.eq(OWNER),
+                org.mockito.ArgumentMatchers.any(
+                        DeletePhaseCapabilityOverrideCommand.class)))
+                .thenReturn(deleted);
         when(activeBindingQuery.findActiveBindingHash(WORKBENCH_ID, PHASE))
                 .thenReturn(Optional.of(activeHash));
 
         PhaseCapabilityMutationView result = service.deleteOverride(
                 OWNER, WORKBENCH_ID, PHASE, 4L);
 
-        assertEquals(0L, result.getVersion());
+        assertEquals(5L, result.getVersion());
         assertEquals(activeHash, result.getActiveRunSnapshotHash());
         ArgumentCaptor<DeletePhaseCapabilityOverrideCommand> commandCaptor =
                 ArgumentCaptor.forClass(

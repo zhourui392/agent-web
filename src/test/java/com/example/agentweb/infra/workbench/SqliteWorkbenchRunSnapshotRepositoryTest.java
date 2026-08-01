@@ -1,8 +1,10 @@
 package com.example.agentweb.infra.workbench;
 
 import com.example.agentweb.domain.capability.ResolvedCapabilityBinding;
+import com.example.agentweb.domain.workbench.DocumentReference;
 import com.example.agentweb.domain.workbench.ReviewModifyConfirmation;
 import com.example.agentweb.domain.workbench.ReviewOpinion;
+import com.example.agentweb.domain.workbench.VerifiedWorkbenchRunAttachment;
 import com.example.agentweb.domain.workbench.Workbench;
 import com.example.agentweb.domain.workbench.WorkbenchPhase;
 import com.example.agentweb.domain.workbench.WorkbenchRunSnapshot;
@@ -15,6 +17,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.nio.file.Path;
 import java.sql.Statement;
+import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -95,6 +98,15 @@ class SqliteWorkbenchRunSnapshotRepositoryTest {
         assertEquals(source.getRunId(), replayProof.getRunId());
         assertEquals(source.getSubmissionRequestHash(),
                 replayProof.getSubmissionRequestHash());
+        assertEquals(source.getRunId(), snapshotRepository.findReplayCandidate(
+                        WorkbenchPersistenceFixtures.OWNER,
+                        workbench.getId(), WorkbenchPhase.REVIEW_REFACTOR,
+                        source.getSubmissionIdempotencyKey())
+                .orElseThrow(AssertionError::new).getRunId());
+        assertFalse(snapshotRepository.findReplayCandidate(
+                WorkbenchPersistenceFixtures.OWNER_2,
+                workbench.getId(), WorkbenchPhase.REVIEW_REFACTOR,
+                source.getSubmissionIdempotencyKey()).isPresent());
         assertFalse(snapshotRepository.findByWorkbenchPhaseAndIdempotencyKey(
                 workbench.getId(), WorkbenchPhase.REVIEW_REFACTOR,
                 "missing-key").isPresent());
@@ -108,6 +120,53 @@ class SqliteWorkbenchRunSnapshotRepositoryTest {
         assertEquals(2, restored.getPromptParts().size());
         assertEquals(2,
                 restored.getRuntimeEnforcement().getWritableRepositoryKeys().size());
+    }
+
+    @Test
+    void safeAttachmentFactsShouldRoundTripAndCorruptPathShouldFailClosed() {
+        ReviewModifyConfirmation confirmation = persistReviewFacts();
+        WorkbenchRunSnapshot base = WorkbenchPersistenceFixtures.reviewRunSnapshot(
+                workbench, workspace.snapshot(), confirmation, "attachment-run");
+        DocumentReference reference = DocumentReference.of(
+                "agent-web", "docs/design.md");
+        VerifiedWorkbenchRunAttachment attachment =
+                VerifiedWorkbenchRunAttachment.verify(
+                        reference, WorkbenchPersistenceFixtures.HASH_A,
+                        reference, WorkbenchPersistenceFixtures.HASH_A,
+                        "text/markdown", 128L, false);
+        WorkbenchRunSnapshot source = WorkbenchRunSnapshot.create(
+                base.getRunId(), base.getWorkbenchId(), base.getPhase(),
+                base.getSubmissionIdempotencyKey(),
+                base.getSubmissionRequestHash(), base.getRunMode(),
+                workbench.getRepositoryScope(),
+                base.getWorkspaceSnapshotReference(),
+                base.getCapabilityBinding(), base.getOverrideVersion(),
+                base.getHandoffSource(), base.getPromptParts(),
+                base.getPromptHash(), base.getRuntimeEnforcement(),
+                Collections.singletonList(attachment), confirmation,
+                base.getCreatedAt());
+
+        snapshotRepository.add(source);
+
+        WorkbenchRunSnapshot restored = snapshotRepository.findByRunId(
+                        source.getRunId())
+                .orElseThrow(AssertionError::new);
+        assertEquals(Collections.singletonList(attachment),
+                restored.getVerifiedAttachments());
+        String persisted = jdbc.queryForObject(
+                "SELECT attachments_json FROM workbench_run_snapshot WHERE run_id=?",
+                String.class, source.getRunId());
+        assertFalse(persisted.contains(workspace.scope().getWorkspaceRoot()));
+
+        jdbc.update("UPDATE workbench_run_snapshot SET attachments_json=? WHERE run_id=?",
+                "[{\"repositoryKey\":\"agent-web\","
+                        + "\"relativePath\":\"../secret\","
+                        + "\"contentVersion\":\""
+                        + WorkbenchPersistenceFixtures.HASH_A + "\","
+                        + "\"mediaType\":\"text/plain\",\"size\":1}]",
+                source.getRunId());
+        assertThrows(IllegalStateException.class,
+                () -> snapshotRepository.findByRunId(source.getRunId()));
     }
 
     @Test
@@ -236,6 +295,8 @@ class SqliteWorkbenchRunSnapshotRepositoryTest {
                     actual.getPromptParts().get(i).getContentSize());
         }
         assertEquals(expected.getPromptHash(), actual.getPromptHash());
+        assertEquals(expected.getVerifiedAttachments(),
+                actual.getVerifiedAttachments());
         assertEquals(expected.getRuntimeEnforcement().getRuntime(),
                 actual.getRuntimeEnforcement().getRuntime());
         assertEquals(expected.getRuntimeEnforcement().getRuntimeVersion(),

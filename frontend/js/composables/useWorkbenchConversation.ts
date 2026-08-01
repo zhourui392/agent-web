@@ -8,7 +8,11 @@ import { computed, ref, watch, type Ref } from 'vue';
 import {
   WorkbenchRunApiError,
   createWorkbenchRunApiClient,
+  normalizeWorkbenchRunAttachments,
   type WorkbenchPhaseConversation,
+  type WorkbenchPhaseConversationMessage,
+  type WorkbenchPhaseConversationRestart,
+  type WorkbenchRunAttachment,
   type WorkbenchRunApiClient,
   type WorkbenchRunSubmission,
 } from '../api/workbench-run.js';
@@ -20,7 +24,7 @@ import type {
   WorkbenchRunMarkerIdentity,
   WorkbenchRunMode,
 } from '../lib/workbench-run-state.js';
-import type { WorkbenchPhase } from '../lib/workbench-state.js';
+import type { WorkbenchPhase, WorkbenchPhaseStatus } from '../lib/workbench-state.js';
 
 export interface UseWorkbenchConversationOptions {
   ownerId: Ref<string>;
@@ -30,6 +34,7 @@ export interface UseWorkbenchConversationOptions {
   currentConversationId?: Ref<string | null>;
   activeRunId: Ref<string | null>;
   expectedVersion: Ref<number | null>;
+  phaseStatus?: Ref<WorkbenchPhaseStatus>;
   archived?: Ref<boolean>;
   handoffRequired: Ref<boolean>;
   handoffSourceVersion: Ref<number | null>;
@@ -38,6 +43,7 @@ export interface UseWorkbenchConversationOptions {
   stream?: UseWorkbenchRunStream;
   onSubmitted?: (submission: WorkbenchRunSubmission, mode: WorkbenchRunMode) => void;
   onConversationEnsured?: (conversation: WorkbenchPhaseConversation) => void;
+  onConversationRestarted?: (conversation: WorkbenchPhaseConversationRestart) => void;
   onTerminal?: (runId: string) => void;
 }
 
@@ -59,10 +65,20 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
   const runMode = ref<WorkbenchRunMode>(defaultRunMode(options.phase.value));
   const submitting = ref(false);
   const stopping = ref(false);
+  const messagesLoading = ref(false);
+  const olderMessagesLoading = ref(false);
+  const restarting = ref(false);
+  const conversationMessages = ref<WorkbenchPhaseConversationMessage[]>([]);
+  const olderMessagesCursor = ref<number | null>(null);
+  const pendingAttachments = ref<WorkbenchRunAttachment[]>([]);
   const conversationError = ref<string | null>(null);
   const conversationNotice = ref<string | null>(null);
   const localRunId = ref<string | null>(null);
   let failedSubmission: { fingerprint: string; idempotencyKey: string } | null = null;
+  let failedRestart: { fingerprint: string; idempotencyKey: string } | null = null;
+  let submitRequestToken = 0;
+  let restartRequestToken = 0;
+  let messageRequestToken = 0;
   let lastTerminalKey = '';
 
   const conversationReadOnly = computed(() => options.archived?.value ?? false);
@@ -86,6 +102,90 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
     handoffReady.value &&
     Boolean(composerText.value.trim()),
   );
+  const canRestartConversation = computed(() => {
+    const expectedVersion = options.expectedVersion.value;
+    return !conversationReadOnly.value
+      && identityReady.value
+      && options.phaseStatus?.value === 'IN_PROGRESS'
+      && !runActive.value
+      && !submitting.value
+      && !stopping.value
+      && !restarting.value
+      && Boolean(options.currentConversationId?.value?.trim())
+      && expectedVersion != null
+      && Number.isSafeInteger(expectedVersion)
+      && expectedVersion >= 0;
+  });
+  const hasOlderConversationMessages = computed(() => olderMessagesCursor.value != null);
+
+  async function refreshConversationMessages(): Promise<void> {
+    const currentIdentity = identity.value;
+    const workbenchId = currentIdentity?.workbenchId;
+    const phase = currentIdentity?.phase;
+    const generation = currentIdentity?.conversationGeneration;
+    const sessionId = options.currentConversationId?.value?.trim() || null;
+    const requestToken = ++messageRequestToken;
+    conversationMessages.value = [];
+    olderMessagesCursor.value = null;
+    olderMessagesLoading.value = false;
+    if (!currentIdentity || !workbenchId || !phase || generation == null) {
+      messagesLoading.value = false;
+      return;
+    }
+    messagesLoading.value = true;
+    try {
+      const response = await apiClient.getConversationMessages(workbenchId, phase);
+      if (requestToken !== messageRequestToken) return;
+      if (response.generation !== generation
+        || options.currentConversationId && response.sessionId !== sessionId) {
+        return;
+      }
+      conversationMessages.value = response.messages;
+      olderMessagesCursor.value = response.nextCursor;
+    } catch (error) {
+      if (requestToken === messageRequestToken) {
+        conversationError.value = conversationErrorMessage(error);
+      }
+    } finally {
+      if (requestToken === messageRequestToken) messagesLoading.value = false;
+    }
+  }
+
+  async function loadOlderConversationMessages(): Promise<void> {
+    const currentIdentity = identity.value;
+    const workbenchId = currentIdentity?.workbenchId;
+    const phase = currentIdentity?.phase;
+    const generation = currentIdentity?.conversationGeneration;
+    const sessionId = options.currentConversationId?.value?.trim() || null;
+    const cursor = olderMessagesCursor.value;
+    const requestToken = messageRequestToken;
+    if (!currentIdentity || !workbenchId || !phase || generation == null
+      || !sessionId || cursor == null || olderMessagesLoading.value) return;
+    olderMessagesLoading.value = true;
+    conversationError.value = null;
+    try {
+      const response = await apiClient.getConversationMessages(
+        workbenchId, phase, cursor,
+      );
+      if (requestToken !== messageRequestToken) return;
+      if (response.generation !== generation || response.sessionId !== sessionId
+        || response.messages.some(message => message.messageId >= cursor)) {
+        return;
+      }
+      const merged = new Map<number, WorkbenchPhaseConversationMessage>();
+      for (const message of response.messages) merged.set(message.messageId, message);
+      for (const message of conversationMessages.value) merged.set(message.messageId, message);
+      conversationMessages.value = Array.from(merged.values())
+        .sort((left, right) => left.messageId - right.messageId);
+      olderMessagesCursor.value = response.nextCursor;
+    } catch (error) {
+      if (requestToken === messageRequestToken) {
+        conversationError.value = conversationErrorMessage(error);
+      }
+    } finally {
+      if (requestToken === messageRequestToken) olderMessagesLoading.value = false;
+    }
+  }
 
   function updateComposerText(value: string): void {
     if (typeof value !== 'string' || conversationReadOnly.value) return;
@@ -93,6 +193,36 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
     conversationError.value = null;
     conversationNotice.value = null;
     if (failedSubmission?.fingerprint !== submissionFingerprintOrNull()) failedSubmission = null;
+  }
+
+  function addAttachment(attachment: WorkbenchRunAttachment): void {
+    if (conversationReadOnly.value) return;
+    pendingAttachments.value = normalizeWorkbenchRunAttachments([
+      ...pendingAttachments.value,
+      attachment,
+    ]);
+    conversationError.value = null;
+    conversationNotice.value = null;
+    if (failedSubmission?.fingerprint !== submissionFingerprintOrNull()) failedSubmission = null;
+  }
+
+  function removeAttachment(repositoryKey: string, relativePath: string): void {
+    if (conversationReadOnly.value) return;
+    const remaining = pendingAttachments.value.filter(attachment => !(
+      attachment.repositoryKey === repositoryKey && attachment.relativePath === relativePath
+    ));
+    if (remaining.length === pendingAttachments.value.length) return;
+    pendingAttachments.value = remaining;
+    conversationError.value = null;
+    conversationNotice.value = null;
+    if (failedSubmission?.fingerprint !== submissionFingerprintOrNull()) failedSubmission = null;
+  }
+
+  function isAttachmentPending(repositoryKey: unknown, relativePath: unknown): boolean {
+    return typeof repositoryKey === 'string' && typeof relativePath === 'string'
+      && pendingAttachments.value.some(attachment => (
+        attachment.repositoryKey === repositoryKey && attachment.relativePath === relativePath
+      ));
   }
 
   function updateRunMode(mode: WorkbenchRunMode): void {
@@ -108,10 +238,11 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
     const workbenchId = options.workbenchId.value?.trim();
     const expectedVersion = options.expectedVersion.value;
     const message = composerText.value;
+    const submissionIdentity = identity.value;
     if (!workbenchId || conversationReadOnly.value || submitting.value) return;
     conversationError.value = null;
     conversationNotice.value = null;
-    if (!identityReady.value) {
+    if (!submissionIdentity) {
       conversationError.value = '当前用户身份不可用，无法建立隔离的 Run 恢复流，请重新登录后重试。';
       return;
     }
@@ -135,20 +266,27 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
       conversationError.value = '当前阶段只允许只读讨论。';
       return;
     }
-    const reviewModify = options.phase.value === 'REVIEW_REFACTOR' && runMode.value === 'MODIFY_WORKSPACE';
+    const submissionPhase = submissionIdentity.phase;
+    const submissionRunMode = runMode.value;
+    const submissionHandoffVersion = options.handoffSourceVersion.value;
+    const reviewModify = submissionPhase === 'REVIEW_REFACTOR'
+      && submissionRunMode === 'MODIFY_WORKSPACE';
     const confirmationId = options.reviewConfirmationId.value;
     if (reviewModify && !confirmationId) {
       conversationError.value = '请先保存并精确确认当前 Review Opinion，再启动重构写入。';
       return;
     }
+    const requestToken = ++submitRequestToken;
     submitting.value = true;
     try {
+      const attachments = normalizeWorkbenchRunAttachments(pendingAttachments.value);
       let submissionVersion = expectedVersion;
       if (options.currentConversationId
         && !options.currentConversationId.value?.trim()) {
         const ensured = await apiClient.ensureConversation(
-          workbenchId, options.phase.value, expectedVersion,
+          workbenchId, submissionPhase, expectedVersion,
         );
+        if (!isCurrentSubmission(requestToken, submissionIdentity)) return;
         submissionVersion = ensured.workbenchVersion;
         options.onConversationEnsured?.(ensured);
       }
@@ -156,9 +294,10 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
         workbenchId,
         submissionVersion,
         message,
-        runMode.value,
-        options.handoffSourceVersion.value,
+        submissionRunMode,
+        submissionHandoffVersion,
         reviewModify ? confirmationId : null,
+        attachments,
       );
       const idempotencyKey = failedSubmission?.fingerprint === fingerprint
         ? failedSubmission.idempotencyKey
@@ -166,31 +305,114 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
       failedSubmission = { fingerprint, idempotencyKey };
       const request = {
         message,
-        runMode: runMode.value,
-        ...(options.handoffSourceVersion.value == null
-          ? {} : { handoffSourceVersion: options.handoffSourceVersion.value }),
+        runMode: submissionRunMode,
+        ...(submissionHandoffVersion == null
+          ? {} : { handoffSourceVersion: submissionHandoffVersion }),
         ...(reviewModify ? { reviewConfirmationId: confirmationId } : {}),
+        ...(attachments.length === 0 ? {} : { attachments }),
       };
       const submitted = await apiClient.submitRun({
         workbenchId,
-        phase: options.phase.value,
+        phase: submissionPhase,
         expectedVersion: submissionVersion,
         idempotencyKey,
         request,
       });
+      if (!isCurrentSubmission(requestToken, submissionIdentity)) return;
       localRunId.value = submitted.runId;
       stream.attach(submitted.runId, 0);
       failedSubmission = null;
       composerText.value = '';
+      pendingAttachments.value = [];
       conversationNotice.value = submitted.replayed
         ? '已恢复同一幂等请求创建的 Run。'
         : 'Run 已提交，正在等待 Runtime 输出。';
-      options.onSubmitted?.(submitted, runMode.value);
+      options.onSubmitted?.(submitted, submissionRunMode);
+      await refreshConversationMessages();
     } catch (error) {
-      conversationError.value = conversationErrorMessage(error);
+      if (isCurrentSubmission(requestToken, submissionIdentity)) {
+        conversationError.value = conversationErrorMessage(error);
+      }
     } finally {
-      submitting.value = false;
+      if (requestToken === submitRequestToken) submitting.value = false;
     }
+  }
+
+  function isCurrentSubmission(
+    requestToken: number,
+    expectedIdentity: WorkbenchRunMarkerIdentity,
+  ): boolean {
+    return requestToken === submitRequestToken
+      && sameRunIdentity(identity.value, expectedIdentity);
+  }
+
+  async function restartConversation(): Promise<void> {
+    if (!canRestartConversation.value) return;
+    const workbenchId = options.workbenchId.value?.trim();
+    const expectedVersion = options.expectedVersion.value;
+    const currentSessionId = options.currentConversationId?.value?.trim();
+    if (!workbenchId || expectedVersion == null || !currentSessionId) return;
+    const fingerprint = restartFingerprint(
+      identity.value,
+      currentSessionId,
+      expectedVersion,
+    );
+    const idempotencyKey = failedRestart?.fingerprint === fingerprint
+      ? failedRestart.idempotencyKey
+      : newIdempotencyKey();
+    failedRestart = { fingerprint, idempotencyKey };
+    const requestToken = ++restartRequestToken;
+    restarting.value = true;
+    conversationError.value = null;
+    conversationNotice.value = null;
+    try {
+      const restarted = await apiClient.restartConversation(
+        workbenchId,
+        options.phase.value,
+        expectedVersion,
+        idempotencyKey,
+      );
+      if (!isCurrentRestart(requestToken, fingerprint)) return;
+      stream.close();
+      stream.state.value = null;
+      localRunId.value = null;
+      composerText.value = '';
+      pendingAttachments.value = [];
+      failedSubmission = null;
+      failedRestart = null;
+      lastTerminalKey = '';
+      messageRequestToken += 1;
+      conversationMessages.value = [];
+      olderMessagesCursor.value = null;
+      messagesLoading.value = false;
+      olderMessagesLoading.value = false;
+      options.onConversationRestarted?.(restarted);
+      conversationNotice.value = restarted.replayed
+        ? '已恢复同一幂等请求创建的新会话；旧历史只读保留，新会话未复制任何消息。'
+        : '会话已重启；旧历史只读保留，新会话未复制任何消息。';
+    } catch (error) {
+      if (isCurrentRestart(requestToken, fingerprint)) {
+        conversationError.value = conversationErrorMessage(error);
+      }
+    } finally {
+      if (requestToken === restartRequestToken) restarting.value = false;
+    }
+  }
+
+  function isCurrentRestart(
+    requestToken: number,
+    fingerprint: string,
+  ): boolean {
+    const currentSessionId = options.currentConversationId?.value?.trim();
+    const currentVersion = options.expectedVersion.value;
+    return requestToken === restartRequestToken
+      && Boolean(currentSessionId)
+      && currentVersion != null
+      && restartFingerprint(
+        identity.value,
+        currentSessionId as string,
+        currentVersion,
+      ) === fingerprint;
   }
 
   async function stopConversation(): Promise<void> {
@@ -221,6 +443,7 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
       runMode.value,
       options.handoffSourceVersion.value,
       options.reviewConfirmationId.value,
+      pendingAttachments.value,
     );
   }
 
@@ -233,14 +456,39 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
     ].join('\u0000'),
     () => {
       composerText.value = '';
+      pendingAttachments.value = [];
       runMode.value = defaultRunMode(options.phase.value);
       localRunId.value = null;
       conversationError.value = null;
       conversationNotice.value = null;
+      submitRequestToken += 1;
+      restartRequestToken += 1;
+      submitting.value = false;
+      restarting.value = false;
+      messageRequestToken += 1;
+      conversationMessages.value = [];
+      olderMessagesCursor.value = null;
+      messagesLoading.value = false;
+      olderMessagesLoading.value = false;
       failedSubmission = null;
+      failedRestart = null;
       lastTerminalKey = '';
     },
     { flush: 'sync' },
+  );
+
+  watch(
+    () => [
+      identity.value?.userId ?? '',
+      identity.value?.workbenchId ?? '',
+      options.phase.value,
+      options.conversationGeneration.value,
+      options.currentConversationId?.value ?? '',
+    ].join('\u0000'),
+    () => {
+      void refreshConversationMessages();
+    },
+    { immediate: true, flush: 'post' },
   );
 
   watch(
@@ -281,6 +529,7 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
       if (!key || key === lastTerminalKey || !stream.state.value?.terminal) return;
       lastTerminalKey = key;
       localRunId.value = null;
+      void refreshConversationMessages();
       options.onTerminal?.(stream.state.value.context.runId);
     },
     { flush: 'sync' },
@@ -294,6 +543,12 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
     connectionStatus: stream.connectionStatus,
     submitting,
     stopping,
+    messagesLoading,
+    olderMessagesLoading,
+    restarting,
+    conversationMessages,
+    hasOlderConversationMessages,
+    pendingAttachments,
     conversationError,
     conversationNotice,
     conversationReadOnly,
@@ -303,11 +558,44 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
     currentRunId,
     runActive,
     conversationCanSubmit,
+    canRestartConversation,
     updateComposerText,
     updateRunMode,
+    addAttachment,
+    removeAttachment,
+    isAttachmentPending,
     submitConversation,
     stopConversation,
+    refreshConversationMessages,
+    loadOlderConversationMessages,
+    restartConversation,
   };
+}
+
+function restartFingerprint(
+  identity: WorkbenchRunMarkerIdentity | null,
+  currentSessionId: string,
+  expectedVersion: number,
+): string {
+  return JSON.stringify([
+    identity?.userId ?? '',
+    identity?.workbenchId ?? '',
+    identity?.phase ?? '',
+    identity?.conversationGeneration ?? -1,
+    currentSessionId,
+    expectedVersion,
+  ]);
+}
+
+function sameRunIdentity(
+  current: WorkbenchRunMarkerIdentity | null,
+  expected: WorkbenchRunMarkerIdentity,
+): boolean {
+  return current != null
+    && current.userId === expected.userId
+    && current.workbenchId === expected.workbenchId
+    && current.phase === expected.phase
+    && current.conversationGeneration === expected.conversationGeneration;
 }
 
 function defaultRunMode(phase: WorkbenchPhase): WorkbenchRunMode {
@@ -326,6 +614,7 @@ function submissionFingerprint(
   runMode: WorkbenchRunMode,
   handoffSourceVersion: number | null,
   reviewConfirmationId: string | null,
+  attachments: ReadonlyArray<WorkbenchRunAttachment>,
 ): string {
   return JSON.stringify([
     workbenchId,
@@ -334,6 +623,11 @@ function submissionFingerprint(
     runMode,
     handoffSourceVersion,
     reviewConfirmationId,
+    attachments.map(attachment => [
+      attachment.repositoryKey,
+      attachment.relativePath,
+      attachment.contentHash,
+    ]),
   ]);
 }
 
@@ -351,6 +645,12 @@ function conversationErrorMessage(error: unknown): string {
     case 'WORKBENCH_VERSION_CONFLICT':
     case 'WORKBENCH_RUN_CONFLICT':
       return 'Workbench 状态已变化，请刷新后重试。';
+    case 'WORKSPACE_TOPOLOGY_CHANGED':
+    case 'WORKSPACE_REPOSITORY_NOT_FOUND':
+    case 'WORKBENCH_REPOSITORY_SCOPE_INVALID':
+      return '仓库目录已移动、消失或不再匹配冻结范围；请恢复原目录，或创建新的 Workbench。';
+    case 'REPOSITORY_SCOPE_VIOLATION':
+      return '当前请求超出本轮冻结的仓库范围，系统已停止执行。';
     case 'WORKBENCH_RUN_CURSOR_EXPIRED':
     case 'CURSOR_EXPIRED':
       return 'Run 事件游标已过期，请刷新状态；系统不会自动重放写操作。';

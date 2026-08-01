@@ -3,7 +3,12 @@ package com.example.agentweb.app.runtime.port;
 import com.example.agentweb.domain.capability.ResolvedCapabilityBinding;
 import lombok.Getter;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * 一次公共 Agent Runtime 执行所需的完整、不可变事实。
@@ -23,6 +28,7 @@ public final class AgentExecutionPlan {
     private final WorkspaceLayout workspaceLayout;
     private final ResolvedCapabilityBinding capabilityBinding;
     private final RuntimeLimits runtimeLimits;
+    private final List<RuntimeAttachmentExpectation> attachmentExpectations;
 
     public AgentExecutionPlan(ExecutionIdentity executionIdentity,
                               RuntimeSelection runtimeSelection,
@@ -30,6 +36,19 @@ public final class AgentExecutionPlan {
                               WorkspaceLayout workspaceLayout,
                               ResolvedCapabilityBinding capabilityBinding,
                               RuntimeLimits runtimeLimits) {
+        this(executionIdentity, runtimeSelection, promptPayload,
+                workspaceLayout, capabilityBinding, runtimeLimits,
+                Collections.<RuntimeAttachmentExpectation>emptyList());
+    }
+
+    public AgentExecutionPlan(
+            ExecutionIdentity executionIdentity,
+            RuntimeSelection runtimeSelection,
+            PromptPayload promptPayload,
+            WorkspaceLayout workspaceLayout,
+            ResolvedCapabilityBinding capabilityBinding,
+            RuntimeLimits runtimeLimits,
+            List<RuntimeAttachmentExpectation> attachmentExpectations) {
         this.executionIdentity = Objects.requireNonNull(
                 executionIdentity, "executionIdentity");
         this.runtimeSelection = Objects.requireNonNull(runtimeSelection, "runtimeSelection");
@@ -38,5 +57,33 @@ public final class AgentExecutionPlan {
         this.capabilityBinding = Objects.requireNonNull(
                 capabilityBinding, "capabilityBinding");
         this.runtimeLimits = Objects.requireNonNull(runtimeLimits, "runtimeLimits");
+        this.attachmentExpectations = immutableAttachments(
+                attachmentExpectations, workspaceLayout);
+    }
+
+    private static List<RuntimeAttachmentExpectation> immutableAttachments(
+            List<RuntimeAttachmentExpectation> attachments,
+            WorkspaceLayout workspaceLayout) {
+        if (attachments == null || attachments.contains(null)
+                || attachments.size() > 8) {
+            throw new IllegalArgumentException(
+                    "runtime attachment expectations must be complete and bounded");
+        }
+        Set<String> unique = new HashSet<String>();
+        for (RuntimeAttachmentExpectation attachment : attachments) {
+            if (!workspaceLayout.getReadableRoots().contains(
+                    attachment.getRepositoryRoot())) {
+                throw new IllegalArgumentException(
+                        "runtime attachment repository must be readable");
+            }
+            String identity = attachment.getRepositoryRoot()
+                    + "\n" + attachment.getRelativePath();
+            if (!unique.add(identity)) {
+                throw new IllegalArgumentException(
+                        "runtime attachment expectations must be unique");
+            }
+        }
+        return Collections.unmodifiableList(
+                new ArrayList<RuntimeAttachmentExpectation>(attachments));
     }
 }

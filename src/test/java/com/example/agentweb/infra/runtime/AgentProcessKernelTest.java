@@ -2,10 +2,12 @@ package com.example.agentweb.infra.runtime;
 
 import com.example.agentweb.app.runtime.port.AgentExecutionPlan;
 import com.example.agentweb.app.runtime.port.CredentialReference;
+import com.example.agentweb.app.runtime.port.RuntimeAttachmentExpectation;
 import com.example.agentweb.app.runtime.port.RuntimeEvent;
 import com.example.agentweb.app.runtime.port.RuntimeEventSink;
 import com.example.agentweb.app.runtime.port.RuntimeEventType;
 import com.example.agentweb.app.runtime.port.RuntimeHandle;
+import com.example.agentweb.app.runtime.port.RuntimeSemanticEvent;
 import com.example.agentweb.app.runtime.port.RuntimeState;
 import com.example.agentweb.app.runtime.port.RuntimeTerminationReason;
 import com.example.agentweb.app.runtime.port.SandboxMode;
@@ -37,9 +39,12 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.LongSupplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -244,6 +249,83 @@ class AgentProcessKernelTest {
     }
 
     @Test
+    void executionContextShouldEnhanceFinishedToolWithObservedDurationOnly()
+            throws Exception {
+        Path primary = Files.createDirectory(
+                tempDir.resolve("primary-tool-duration"));
+        Path script = script("tool-duration.sh", "#!/bin/sh\n"
+                + "cat >/dev/null\n"
+                + "printf '%s\\n' '{\"type\":\"item.started\",\"item\":{"
+                + "\"id\":\"tool-1\",\"type\":\"command_execution\","
+                + "\"command\":\"pwd\",\"status\":\"in_progress\"}}'\n"
+                + "printf '%s\\n' '{\"type\":\"item.completed\",\"item\":{"
+                + "\"id\":\"tool-1\",\"type\":\"command_execution\","
+                + "\"command\":\"pwd\","
+                + "\"aggregated_output\":\"/home/private tool-secret\","
+                + "\"exit_code\":0,\"status\":\"completed\"}}'\n"
+                + "printf '%s\\n' '{\"type\":\"turn.completed\"}'\n");
+        RuntimeProcessRegistry registry = new RuntimeProcessRegistry();
+        AgentProcessKernel kernel = kernel(
+                script, "runtime-tool-duration",
+                Collections.<String, String>emptyMap(), registry,
+                times(10_000_000L, 17_000_000L));
+        AgentExecutionPlan plan = RuntimePlanFixtures.readOnly(
+                "exec-tool-duration", primary,
+                Collections.singletonList(primary),
+                Collections.<String>emptySet(),
+                CredentialReference.systemConfiguration());
+        Events events = new Events();
+
+        kernel.start(plan, events);
+        events.awaitTerminal();
+
+        RuntimeSemanticEvent started = semantic(events, "tool_started");
+        RuntimeSemanticEvent finished = semantic(events, "tool_finished");
+        assertFalse(started.getData().containsKey("durationMs"));
+        assertEquals(7L, finished.getData().get("durationMs"));
+        assertFalse(finished.getData().toString().contains("pwd"));
+        assertFalse(finished.getData().toString().contains("/home/private"));
+        assertFalse(finished.getData().toString().contains("tool-secret"));
+    }
+
+    @Test
+    void changedAttachmentShouldPreventProcessStart() throws Exception {
+        Path primary = Files.createDirectory(tempDir.resolve("primary-attachment"));
+        Path marker = tempDir.resolve("attachment-process-started");
+        Path script = script("attachment.sh", "#!/bin/sh\n"
+                + "touch '" + marker + "'\n"
+                + "cat >/dev/null\n");
+        byte[] approved = "approved".getBytes(StandardCharsets.UTF_8);
+        Path attachment = Files.write(primary.resolve("design.md"), approved);
+        AgentExecutionPlan base = RuntimePlanFixtures.readOnly(
+                "exec-attachment", primary,
+                Collections.singletonList(primary),
+                Collections.<String>emptySet(),
+                CredentialReference.systemConfiguration());
+        RuntimeAttachmentExpectation expectation =
+                new RuntimeAttachmentExpectation(
+                        "primary", primary.toString(), "design.md",
+                        CanonicalHashing.sha256(approved), approved.length);
+        AgentExecutionPlan plan = new AgentExecutionPlan(
+                base.getExecutionIdentity(), base.getRuntimeSelection(),
+                base.getPromptPayload(), base.getWorkspaceLayout(),
+                base.getCapabilityBinding(), base.getRuntimeLimits(),
+                Collections.singletonList(expectation));
+        Files.write(attachment, "tampered".getBytes(StandardCharsets.UTF_8));
+        RuntimeProcessRegistry registry = new RuntimeProcessRegistry();
+        AgentProcessKernel kernel = kernel(
+                script, "runtime-attachment", Collections.emptyMap(), registry);
+
+        IllegalStateException failure = assertThrows(
+                IllegalStateException.class, () -> kernel.start(plan, new Events()));
+
+        assertFalse(Files.exists(marker));
+        assertTrue(registry.activeHandles().isEmpty());
+        assertFalse(failure.toString().contains(primary.toString()));
+        assertFalse(failure.toString().contains("tampered"));
+    }
+
+    @Test
     void blockedHighImpactIntentStopsProcessBeforeFollowingSideEffectAndEmitsSafeEvent()
             throws Exception {
         Path primary = Files.createDirectory(tempDir.resolve("primary-blocked"));
@@ -291,10 +373,34 @@ class AgentProcessKernelTest {
                         reference -> new char[0]));
     }
 
+    private AgentProcessKernel kernel(
+            Path command, String runtimeDirectory,
+            Map<String, String> environment,
+            RuntimeProcessRegistry registry,
+            LongSupplier toolNanoTimeSource) {
+        return kernel(
+                command, runtimeDirectory, environment, registry,
+                new RuntimeCapabilityMaterializer(
+                        Collections::emptyList, Collections::emptyList,
+                        reference -> new char[0]),
+                toolNanoTimeSource);
+    }
+
     private AgentProcessKernel kernel(Path command, String runtimeDirectory,
                                       Map<String, String> environment,
                                       RuntimeProcessRegistry registry,
                                       RuntimeCapabilityMaterializer capabilityMaterializer) {
+        return kernel(
+                command, runtimeDirectory, environment, registry,
+                capabilityMaterializer, System::nanoTime);
+    }
+
+    private AgentProcessKernel kernel(
+            Path command, String runtimeDirectory,
+            Map<String, String> environment,
+            RuntimeProcessRegistry registry,
+            RuntimeCapabilityMaterializer capabilityMaterializer,
+            LongSupplier toolNanoTimeSource) {
         ExecutorService executor = Executors.newCachedThreadPool(runnable -> {
             Thread thread = new Thread(runnable, "runtime-kernel-test");
             thread.setDaemon(true);
@@ -307,7 +413,8 @@ class AgentProcessKernelTest {
                 capabilityMaterializer,
                 new RuntimeEventDecoder(new RuntimeOutputRedactor()),
                 new RuntimeCredentialResolver(() -> null, environment::get),
-                registry, new RuntimeCleanup(), executor);
+                registry, new RuntimeCleanup(), executor,
+                toolNanoTimeSource);
         kernels.add(kernel);
         return kernel;
     }
@@ -317,7 +424,7 @@ class AgentProcessKernelTest {
         return new AgentExecutionPlan(
                 plan.getExecutionIdentity(), plan.getRuntimeSelection(),
                 plan.getPromptPayload(), plan.getWorkspaceLayout(), binding,
-                plan.getRuntimeLimits());
+                plan.getRuntimeLimits(), plan.getAttachmentExpectations());
     }
 
     private McpServerDefinition mcpDefinition() {
@@ -378,6 +485,21 @@ class AgentProcessKernelTest {
                     "runtime event sequence must be strictly increasing");
             previous = event.getSequence();
         }
+    }
+
+    private static RuntimeSemanticEvent semantic(
+            Events events, String eventType) {
+        return events.events.stream()
+                .flatMap(event -> event.getSemanticEvents().stream())
+                .filter(event -> eventType.equals(event.getEventType()))
+                .findFirst()
+                .orElseThrow(AssertionError::new);
+    }
+
+    private static LongSupplier times(long... observations) {
+        AtomicInteger index = new AtomicInteger();
+        return () -> observations[Math.min(
+                index.getAndIncrement(), observations.length - 1)];
     }
 
     private static final class Events implements RuntimeEventSink {

@@ -6,7 +6,37 @@
  * @since 2026-08-01
  */
 import { describe, expect, it } from 'vitest';
-import { renderWorkbenchMarkdown } from '../../frontend/js/lib/workbench-document-renderer.js';
+import {
+  createWorkbenchHighlightedPresentation,
+  renderWorkbenchMarkdown,
+} from '../../frontend/js/lib/workbench-document-renderer.js';
+
+describe('workbench source syntax highlighting', () => {
+  it('uses an allowlisted language highlighter while escaping executable source markup', () => {
+    const presentation = createWorkbenchHighlightedPresentation(
+      'public final class App {\n  String value = "<script>alert(1)</script>";\n}',
+      'src/App.java',
+      'text/x-java-source',
+    );
+
+    expect(presentation.lines[0].highlightedHtml).toContain('hljs-keyword');
+    expect(presentation.lines[0].highlightedHtml).toContain('class');
+    expect(presentation.lines[1].highlightedHtml).toContain('&lt;script&gt;');
+    expect(presentation.lines[1].highlightedHtml).not.toContain('<script>');
+    expect(presentation.lines[2].highlightedHtml).toBe('}');
+  });
+
+  it('fails closed to text-only lines for unknown formats', () => {
+    const presentation = createWorkbenchHighlightedPresentation(
+      '<script>alert(1)</script>',
+      'artifact.unknown',
+      'application/octet-stream',
+    );
+
+    expect(presentation.lines[0].highlightedHtml).toBeNull();
+    expect(presentation.lines[0].text).toBe('<script>alert(1)</script>');
+  });
+});
 
 describe('workbench markdown sanitizer', () => {
   it('renders ordinary markdown and hardens external links', () => {

@@ -30,6 +30,7 @@ const PROFILE: WorkbenchEffectiveCapabilityProfile = {
     selected: true,
     source: 'PHASE_PROFILE',
     summary: '平台安全规则',
+    access: null,
   }],
   skills: [{
     id: 'java-tdd',
@@ -37,6 +38,7 @@ const PROFILE: WorkbenchEffectiveCapabilityProfile = {
     selected: true,
     source: 'PHASE_PROFILE',
     summary: 'Java TDD',
+    access: null,
   }],
   mcpServers: [{
     id: 'repository-query',
@@ -44,6 +46,7 @@ const PROFILE: WorkbenchEffectiveCapabilityProfile = {
     selected: false,
     source: 'PHASE_PROFILE',
     summary: '只读仓库查询',
+    access: null,
   }],
   optionalSkillIds: ['java-tdd'],
   optionalMcpServerIds: [],
@@ -83,6 +86,46 @@ function api(
 }
 
 describe('useWorkbenchCapability', () => {
+  it('automatically refreshes the lightweight effective status for each Workbench Phase identity', async () => {
+    const workbenchId = ref<string | null>('wb-1');
+    const phase = ref<'IMPLEMENT_TEST' | 'REVIEW_REFACTOR'>('IMPLEMENT_TEST');
+    const client = api({
+      getEffectiveProfile: vi.fn()
+        .mockResolvedValueOnce(PROFILE)
+        .mockResolvedValueOnce({
+          ...PROFILE,
+          phase: 'REVIEW_REFACTOR',
+          status: 'DEGRADED',
+        })
+        .mockResolvedValueOnce({
+          ...PROFILE,
+          phase: 'REVIEW_REFACTOR',
+          status: 'UNAVAILABLE',
+        })
+        .mockRejectedValueOnce({
+          status: 503,
+          code: 'WORKBENCH_PROFILE_UNAVAILABLE',
+        }),
+    });
+
+    const capability = useWorkbenchCapability({ workbenchId, phase, apiClient: client });
+
+    await vi.waitFor(() => expect(capability.capabilitySummaryStatus.value).toBe('AVAILABLE'));
+    expect(client.getOverride).not.toHaveBeenCalled();
+
+    phase.value = 'REVIEW_REFACTOR';
+    await vi.waitFor(() => expect(capability.capabilitySummaryStatus.value).toBe('DEGRADED'));
+
+    workbenchId.value = 'wb-2';
+    await vi.waitFor(() => expect(capability.capabilitySummaryStatus.value).toBe('UNAVAILABLE'));
+
+    phase.value = 'IMPLEMENT_TEST';
+    await vi.waitFor(() => expect(capability.capabilitySummaryStatus.value).toBe('LOAD_FAILED'));
+    expect(capability.capabilityError.value).toBe('当前阶段能力 Profile 暂不可用，请稍后重试。');
+    expect(client.getEffectiveProfile).toHaveBeenLastCalledWith('wb-2', 'IMPLEMENT_TEST');
+    expect(client.getOverride).not.toHaveBeenCalled();
+  });
+
   it('loads profile and override when opened and isolates state by workbench and phase', async () => {
     const workbenchId = ref<string | null>('wb-1');
     const phase = ref<'IMPLEMENT_TEST' | 'REVIEW_REFACTOR'>('IMPLEMENT_TEST');
@@ -146,6 +189,7 @@ describe('useWorkbenchCapability', () => {
     };
     const client = api({
       getEffectiveProfile: vi.fn()
+        .mockResolvedValueOnce(PROFILE)
         .mockResolvedValueOnce(PROFILE)
         .mockResolvedValueOnce(refreshedProfile),
     });

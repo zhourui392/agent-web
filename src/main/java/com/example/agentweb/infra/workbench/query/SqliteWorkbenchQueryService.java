@@ -1,11 +1,15 @@
 package com.example.agentweb.infra.workbench.query;
 
 import com.example.agentweb.app.workbench.query.WorkbenchDetailView;
+import com.example.agentweb.app.workbench.query.PhaseConversationMessagePage;
+import com.example.agentweb.app.workbench.query.PhaseConversationMessageRequest;
+import com.example.agentweb.app.workbench.query.PhaseConversationMessageTooLargeException;
 import com.example.agentweb.app.workbench.query.WorkbenchListCursor;
 import com.example.agentweb.app.workbench.query.WorkbenchListItemView;
 import com.example.agentweb.app.workbench.query.WorkbenchListPage;
 import com.example.agentweb.app.workbench.query.WorkbenchListRequest;
 import com.example.agentweb.app.workbench.query.WorkbenchQueryService;
+import com.example.agentweb.domain.workbench.WorkbenchPhase;
 import lombok.Getter;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -32,6 +36,7 @@ import java.util.Optional;
 public class SqliteWorkbenchQueryService implements WorkbenchQueryService {
 
     private static final int MAX_ID_LENGTH = 128;
+    private static final long MAX_MESSAGE_CONTENT_BYTES = 1024L * 1024L;
 
     private static final String LIST_COLUMNS =
             "w.id, w.title, w.status, w.agent_type, w.environment, "
@@ -47,6 +52,14 @@ public class SqliteWorkbenchQueryService implements WorkbenchQueryService {
                     + "creation_snapshot_topology_hash, creation_snapshot_state_hash, "
                     + "creation_snapshot_repository_count FROM workbench "
                     + "WHERE owner_id = ? AND id = ?";
+
+    private static final String CURRENT_CONVERSATION_SQL =
+            "SELECT w.version, p.conversation_generation, c.session_id "
+                    + "FROM workbench w JOIN workbench_phase p ON p.workbench_id = w.id "
+                    + "LEFT JOIN workbench_phase_conversation c "
+                    + "ON c.workbench_id = p.workbench_id AND c.phase = p.phase "
+                    + "AND c.generation = p.conversation_generation AND c.retired_at IS NULL "
+                    + "WHERE w.owner_id = ? AND w.id = ? AND p.phase = ?";
 
     private final JdbcTemplate jdbc;
 
@@ -118,6 +131,45 @@ public class SqliteWorkbenchQueryService implements WorkbenchQueryService {
                 creationSnapshot, loadPhases(root.getId())));
     }
 
+    @Override
+    public Optional<PhaseConversationMessagePage> findCurrentPhaseConversationByOwner(
+            String ownerId, String workbenchId, WorkbenchPhase phase,
+            PhaseConversationMessageRequest request) {
+        String validOwnerId = requireIdentity(ownerId, "ownerId");
+        String validWorkbenchId = requireIdentity(workbenchId, "workbenchId");
+        Objects.requireNonNull(phase, "phase");
+        Objects.requireNonNull(request, "request");
+        List<CurrentConversationRow> rows = jdbc.query(
+                CURRENT_CONVERSATION_SQL,
+                (resultSet, rowNumber) -> new CurrentConversationRow(
+                        resultSet.getString("session_id"),
+                        resultSet.getInt("conversation_generation"),
+                        resultSet.getLong("version")),
+                validOwnerId, validWorkbenchId, phase.name());
+        if (rows.isEmpty()) {
+            return Optional.empty();
+        }
+        CurrentConversationRow row = rows.get(0);
+        List<PhaseConversationMessagePage.MessageView> messages =
+                row.getSessionId() == null
+                        ? new ArrayList<PhaseConversationMessagePage.MessageView>()
+                        : loadConversationMessages(
+                                row.getSessionId(),
+                                validWorkbenchId + ":" + phase.name(),
+                                request);
+        boolean hasMore = messages.size() > request.getLimit();
+        if (hasMore) {
+            messages = new ArrayList<PhaseConversationMessagePage.MessageView>(
+                    messages.subList(0, request.getLimit()));
+        }
+        Collections.reverse(messages);
+        Long nextCursor = hasMore
+                ? Long.valueOf(messages.get(0).getMessageId()) : null;
+        return Optional.of(new PhaseConversationMessagePage(
+                row.getSessionId(), row.getGeneration(),
+                row.getWorkbenchVersion(), messages, nextCursor));
+    }
+
     private WorkbenchListItemView mapListItem(ResultSet resultSet, int rowNumber)
             throws SQLException {
         return new WorkbenchListItemView(
@@ -165,6 +217,50 @@ public class SqliteWorkbenchQueryService implements WorkbenchQueryService {
                         resultSet.getString("relative_path"),
                         resultSet.getInt("primary_repository") != 0),
                 workbenchId);
+    }
+
+    private List<PhaseConversationMessagePage.MessageView> loadConversationMessages(
+            String sessionId, String originReference,
+            PhaseConversationMessageRequest request) {
+        StringBuilder sql = new StringBuilder(
+                "SELECT m.id, m.role, CASE WHEN length(CAST(m.content AS BLOB)) <= "
+                        + MAX_MESSAGE_CONTENT_BYTES
+                        + " THEN m.content ELSE NULL END AS content, m.timestamp, "
+                        + "length(CAST(m.content AS BLOB)) AS content_bytes, "
+                        + "(SELECT r.id FROM chat_run r WHERE r.session_id = m.session_id "
+                        + "AND r.run_origin = 'WORKBENCH' "
+                        + "AND r.origin_reference = ? "
+                        + "AND r.execution_context_id = r.id "
+                        + "AND (r.user_message_id = m.id OR r.assistant_message_id = m.id) "
+                        + "ORDER BY r.created_at DESC LIMIT 1) AS run_id "
+                        + "FROM chat_message m WHERE m.session_id = ? ");
+        List<Object> arguments = new ArrayList<Object>();
+        arguments.add(originReference);
+        arguments.add(sessionId);
+        if (request.getBeforeMessageId() != null) {
+            sql.append("AND m.id < ? ");
+            arguments.add(request.getBeforeMessageId());
+        }
+        sql.append("ORDER BY m.id DESC LIMIT ?");
+        arguments.add(Integer.valueOf(request.getLimit() + 1));
+        return jdbc.query(
+                sql.toString(),
+                (resultSet, rowNumber) -> new PhaseConversationMessagePage.MessageView(
+                        resultSet.getLong("id"),
+                        resultSet.getString("role"),
+                        boundedMessageContent(resultSet),
+                        resultSet.getString("timestamp"),
+                        resultSet.getString("run_id")),
+                arguments.toArray());
+    }
+
+    private String boundedMessageContent(ResultSet resultSet)
+            throws SQLException {
+        if (resultSet.getLong("content_bytes")
+                > MAX_MESSAGE_CONTENT_BYTES) {
+            throw new PhaseConversationMessageTooLargeException();
+        }
+        return resultSet.getString("content");
     }
 
     private List<WorkbenchDetailView.PhaseView> loadPhases(String workbenchId) {
@@ -327,6 +423,21 @@ public class SqliteWorkbenchQueryService implements WorkbenchQueryService {
                 WorkbenchDetailView.ConversationView view) {
             this.phase = phase;
             this.view = view;
+        }
+    }
+
+    @Getter
+    private static final class CurrentConversationRow {
+
+        private final String sessionId;
+        private final int generation;
+        private final long workbenchVersion;
+
+        private CurrentConversationRow(
+                String sessionId, int generation, long workbenchVersion) {
+            this.sessionId = sessionId;
+            this.generation = generation;
+            this.workbenchVersion = workbenchVersion;
         }
     }
 }

@@ -11,6 +11,8 @@ import com.example.agentweb.app.runtime.port.RuntimeHandle;
 import com.example.agentweb.app.workbench.port.WorkbenchTelemetry;
 import com.example.agentweb.domain.chatrun.ChatRun;
 import com.example.agentweb.domain.chatrun.ChatRunStatus;
+import com.example.agentweb.domain.workbench.RunMode;
+import com.example.agentweb.domain.workbench.WorkbenchPhase;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -18,6 +20,7 @@ import org.mockito.InOrder;
 
 import java.time.Clock;
 import java.time.ZoneOffset;
+import java.util.Collections;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -68,6 +71,64 @@ class WorkbenchRunAppServiceTest {
                 executionGateway, replayService, safeLogger,
                 telemetry,
                 Clock.fixed(WorkbenchRunTestFixtures.NOW, ZoneOffset.UTC));
+    }
+
+    @Test
+    void exactRetryShouldReplayBeforePreparationDespiteStaleExpectedVersion() {
+        SubmitWorkbenchRunCommand retry = new SubmitWorkbenchRunCommand(
+                WorkbenchRunTestFixtures.WORKBENCH_ID,
+                WorkbenchPhase.REQUIREMENT_ANALYSIS,
+                0L, "submit-run-1", "请核实需求边界",
+                RunMode.DISCUSS_READ_ONLY, null, null,
+                Collections.emptyList());
+        WorkbenchRunSubmissionResult replayed =
+                mock(WorkbenchRunSubmissionResult.class);
+        when(submissionCommitter.replayIfPresent(
+                WorkbenchRunTestFixtures.OWNER, retry))
+                .thenReturn(Optional.of(replayed));
+
+        WorkbenchRunSubmissionResult result = service.submit(
+                WorkbenchRunTestFixtures.OWNER, retry);
+
+        assertEquals(replayed, result);
+        verify(submissionCommitter).replayIfPresent(
+                WorkbenchRunTestFixtures.OWNER, retry);
+        verifyNoInteractions(preparationService);
+        verify(submissionCommitter, never()).commit(any(), any());
+    }
+
+    @Test
+    void firstSubmissionShouldPrepareAndCommitWhenFastReplayIsAbsent() {
+        SubmitWorkbenchRunCommand command = new SubmitWorkbenchRunCommand(
+                WorkbenchRunTestFixtures.WORKBENCH_ID,
+                WorkbenchPhase.REQUIREMENT_ANALYSIS,
+                0L, "submit-new", "请分析需求",
+                RunMode.DISCUSS_READ_ONLY, null, null,
+                Collections.emptyList());
+        PreparedWorkbenchRun prepared = mock(PreparedWorkbenchRun.class);
+        WorkbenchRunSubmissionResult committed =
+                mock(WorkbenchRunSubmissionResult.class);
+        when(submissionCommitter.replayIfPresent(
+                WorkbenchRunTestFixtures.OWNER, command))
+                .thenReturn(Optional.empty());
+        when(preparationService.prepare(
+                WorkbenchRunTestFixtures.OWNER, command))
+                .thenReturn(prepared);
+        when(submissionCommitter.commit(
+                WorkbenchRunTestFixtures.OWNER, prepared))
+                .thenReturn(committed);
+
+        WorkbenchRunSubmissionResult result = service.submit(
+                WorkbenchRunTestFixtures.OWNER, command);
+
+        assertEquals(committed, result);
+        InOrder order = inOrder(preparationService, submissionCommitter);
+        order.verify(submissionCommitter).replayIfPresent(
+                WorkbenchRunTestFixtures.OWNER, command);
+        order.verify(preparationService).prepare(
+                WorkbenchRunTestFixtures.OWNER, command);
+        order.verify(submissionCommitter).commit(
+                WorkbenchRunTestFixtures.OWNER, prepared);
     }
 
     @Test

@@ -43,12 +43,35 @@ describe('WorkbenchCapabilityDrawer source contract', () => {
     expect(production).not.toContain('selectedOptionalRuleIds');
   });
 
-  it('is reachable from the phase toolbar instead of the future-feature placeholder', async () => {
+  it('shows trusted MCP access with an explicit WRITE danger warning and never guesses from identity', async () => {
+    const drawer = await source('frontend/js/components/WorkbenchCapabilityDrawer.vue');
+    const mcpStart = drawer.indexOf('data-test="capability-mcp-servers"');
+    const mcpEnd = drawer.indexOf('data-test="capability-additional-rule"', mcpStart);
+    const mcpSection = drawer.slice(mcpStart, mcpEnd);
+
+    expect(mcpStart).toBeGreaterThan(0);
+    expect(mcpEnd).toBeGreaterThan(mcpStart);
+    expect(mcpSection).toContain('data-test="capability-mcp-access"');
+    expect(mcpSection).toContain("server.access === 'WRITE'");
+    expect(drawer).toContain("access === 'WRITE' ? 'danger'");
+    expect(drawer).toContain("server.access === 'WRITE' ? 'dark' : 'plain'");
+    expect(drawer).toContain("return 'WRITE · 可修改外部状态'");
+    expect(drawer).toContain("return 'READ · 只读访问'");
+    expect(drawer).toContain("return server.source === 'UNAVAILABLE'");
+    expect(drawer).toContain("? '不可用 · 未授权' : '未授权'");
+    expect(mcpSection).toContain("server.source === 'UNAVAILABLE'");
+    expect(mcpSection).toContain('!draft.optionalMcpServerIds.includes(server.id)');
+    expect(drawer).not.toMatch(/(?:id|summary|source).*includes\([^\n]*(?:write|写入)/i);
+    expect(drawer).not.toMatch(/(?:write|写入).*includes\([^\n]*(?:id|summary|source)/i);
+  });
+
+  it('is reachable from the phase advanced menu instead of the future-feature placeholder', async () => {
     const page = await source('frontend/js/pages/Workbench.vue');
 
-    expect(page).toContain('data-test="open-capability-drawer"');
+    expect(page).toContain('data-test="phase-advanced-menu"');
+    expect(page).toContain('command="open-capability"');
     expect(page).toContain('<workbench-capability-drawer');
-    expect(page).toContain('@click="openCapabilityDrawer"');
+    expect(page).toContain('await capability.openCapabilityDrawer()');
     expect(page).not.toContain("{ name: '阶段能力'");
   });
 });

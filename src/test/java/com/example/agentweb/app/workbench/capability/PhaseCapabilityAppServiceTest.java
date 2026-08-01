@@ -7,6 +7,7 @@ import com.example.agentweb.domain.workbench.CapabilityOverride;
 import com.example.agentweb.domain.workbench.OwnerReference;
 import com.example.agentweb.domain.workbench.PhaseCapabilityConfiguration;
 import com.example.agentweb.domain.workbench.PhaseCapabilityConfigurationRepository;
+import com.example.agentweb.domain.workbench.PhaseCapabilityConfigurationState;
 import com.example.agentweb.domain.workbench.PhaseCapabilityProfile;
 import com.example.agentweb.domain.workbench.PhaseCapabilityProfileCatalog;
 import com.example.agentweb.domain.workbench.PhaseCapabilityReference;
@@ -146,7 +147,7 @@ class PhaseCapabilityAppServiceTest {
         assertEquals(WORKBENCH_ID, found.get().getWorkbenchId());
         assertEquals(WorkbenchPhase.REVIEW_REFACTOR, found.get().getPhase());
         assertEquals(profile.getProfileId(), found.get().getBaseProfileId());
-        assertEquals(0L, found.get().getVersion());
+        assertEquals(1L, found.get().getVersion());
         assertTrue(found.get().getAddedOptionalSkillIds()
                 .contains("refactor-assistant"));
 
@@ -178,9 +179,10 @@ class PhaseCapabilityAppServiceTest {
         CapabilityOverride resolved = validOverride();
         when(workbenchRepository.findById(WORKBENCH_ID))
                 .thenReturn(Optional.of(workbench));
-        when(configurationRepository.find(
+        when(configurationRepository.findState(
                 WORKBENCH_ID, WorkbenchPhase.REVIEW_REFACTOR))
-                .thenReturn(Optional.empty());
+                .thenReturn(PhaseCapabilityConfigurationState.initiallyAbsent(
+                        WORKBENCH_ID, WorkbenchPhase.REVIEW_REFACTOR));
         when(profileCatalog.requireProfile(WorkbenchPhase.REVIEW_REFACTOR))
                 .thenReturn(profile);
         when(overrideResolver.resolve(profile, selection)).thenReturn(resolved);
@@ -191,7 +193,7 @@ class PhaseCapabilityAppServiceTest {
 
         assertEquals(CapabilityOverrideEffectiveFrom.NEXT_RUN,
                 result.getEffectiveFrom());
-        assertEquals(0L, result.getOverride().getVersion());
+        assertEquals(1L, result.getOverride().getVersion());
         assertEquals(profile.getProfileId(),
                 result.getOverride().getBaseProfileId());
         assertEquals(profile.getProfileVersion(),
@@ -206,7 +208,7 @@ class PhaseCapabilityAppServiceTest {
                 workbenchRepository, configurationRepository,
                 profileCatalog, overrideResolver);
         order.verify(workbenchRepository).findById(WORKBENCH_ID);
-        order.verify(configurationRepository).find(
+        order.verify(configurationRepository).findState(
                 WORKBENCH_ID, WorkbenchPhase.REVIEW_REFACTOR);
         order.verify(profileCatalog).requireProfile(WorkbenchPhase.REVIEW_REFACTOR);
         order.verify(overrideResolver).resolve(profile, selection);
@@ -215,7 +217,7 @@ class PhaseCapabilityAppServiceTest {
     }
 
     @Test
-    void putOverrideShouldCreateAtVersionZeroThenUpdateExistingVersion() {
+    void putOverrideShouldCreateAfterAbsentTokenThenUpdatePersistedVersion() {
         PhaseCapabilityProfile profile = profile(WorkbenchPhase.REVIEW_REFACTOR);
         CapabilityOverride first = validOverride();
         CapabilityOverride second = CapabilityOverride.of(
@@ -230,16 +232,19 @@ class PhaseCapabilityAppServiceTest {
                         Collections.<String>emptyList(), "first");
         PutPhaseCapabilityOverrideCommand update =
                 new PutPhaseCapabilityOverrideCommand(
-                        WORKBENCH_ID, WorkbenchPhase.REVIEW_REFACTOR, 0L,
+                        WORKBENCH_ID, WorkbenchPhase.REVIEW_REFACTOR, 1L,
                         Collections.<String>emptyList(),
                         Collections.<String>emptyList(), "second");
         when(workbenchRepository.findById(WORKBENCH_ID))
                 .thenReturn(Optional.of(workbench()));
         when(profileCatalog.requireProfile(WorkbenchPhase.REVIEW_REFACTOR))
                 .thenReturn(profile);
-        when(configurationRepository.find(
+        PhaseCapabilityConfigurationState state =
+                PhaseCapabilityConfigurationState.initiallyAbsent(
+                        WORKBENCH_ID, WorkbenchPhase.REVIEW_REFACTOR);
+        when(configurationRepository.findState(
                 WORKBENCH_ID, WorkbenchPhase.REVIEW_REFACTOR))
-                .thenReturn(Optional.empty());
+                .thenReturn(state);
         when(overrideResolver.resolveSelected(
                 profile, create.getOptionalSkillIds(),
                 create.getOptionalMcpServerIds(), create.getAdditionalRule()))
@@ -248,16 +253,13 @@ class PhaseCapabilityAppServiceTest {
         PhaseCapabilityOverrideSaveResult created =
                 service.putOverride(OWNER, create);
 
-        assertEquals(0L, created.getOverride().getVersion());
+        assertEquals(1L, created.getOverride().getVersion());
         ArgumentCaptor<PhaseCapabilityConfiguration> saved =
                 ArgumentCaptor.forClass(PhaseCapabilityConfiguration.class);
         verify(configurationRepository).save(saved.capture());
         PhaseCapabilityConfiguration persisted = saved.getValue();
         assertSame(first, persisted.getOverride());
 
-        when(configurationRepository.find(
-                WORKBENCH_ID, WorkbenchPhase.REVIEW_REFACTOR))
-                .thenReturn(Optional.of(persisted));
         when(overrideResolver.resolveSelected(
                 profile, update.getOptionalSkillIds(),
                 update.getOptionalMcpServerIds(), update.getAdditionalRule()))
@@ -266,10 +268,54 @@ class PhaseCapabilityAppServiceTest {
         PhaseCapabilityOverrideSaveResult updated =
                 service.putOverride(OWNER, update);
 
-        assertEquals(1L, updated.getOverride().getVersion());
+        assertEquals(2L, updated.getOverride().getVersion());
         assertSame(second, persisted.getOverride());
         verify(configurationRepository, times(2))
                 .save(any(PhaseCapabilityConfiguration.class));
+    }
+
+    @Test
+    void putOverrideShouldDelegateProfileUpgradeRebaseToDomainState() {
+        PhaseCapabilityProfile oldProfile =
+                profile(WorkbenchPhase.REVIEW_REFACTOR);
+        PhaseCapabilityProfile upgradedProfile = PhaseCapabilityProfile.create(
+                oldProfile.getProfileId() + "-v2", "2", oldProfile.getPhase(),
+                oldProfile.getCapabilities());
+        PhaseCapabilityConfiguration existing =
+                PhaseCapabilityConfiguration.restore(
+                        WORKBENCH_ID, WorkbenchPhase.REVIEW_REFACTOR,
+                        oldProfile.getProfileId(), oldProfile.getProfileVersion(),
+                        validOverride(), OWNER, NOW.minusSeconds(1), 7L,
+                        oldProfile.getOverridePolicy());
+        CapabilityOverride next = CapabilityOverride.empty();
+        PutPhaseCapabilityOverrideCommand command =
+                new PutPhaseCapabilityOverrideCommand(
+                        WORKBENCH_ID, WorkbenchPhase.REVIEW_REFACTOR, 7L,
+                        Collections.<String>emptyList(),
+                        Collections.<String>emptyList(), "");
+        when(workbenchRepository.findById(WORKBENCH_ID))
+                .thenReturn(Optional.of(workbench()));
+        when(configurationRepository.findState(
+                WORKBENCH_ID, WorkbenchPhase.REVIEW_REFACTOR))
+                .thenReturn(PhaseCapabilityConfigurationState.present(existing));
+        when(profileCatalog.requireProfile(WorkbenchPhase.REVIEW_REFACTOR))
+                .thenReturn(upgradedProfile);
+        when(overrideResolver.resolveSelected(
+                upgradedProfile, command.getOptionalSkillIds(),
+                command.getOptionalMcpServerIds(), command.getAdditionalRule()))
+                .thenReturn(next);
+
+        PhaseCapabilityOverrideSaveResult result =
+                service.putOverride(OWNER, command);
+
+        assertEquals(8L, result.getOverride().getVersion());
+        assertEquals(oldProfile.getProfileId() + "-v2",
+                existing.getBaseProfileId());
+        assertEquals("2", existing.getBaseProfileVersion());
+        assertSame(next, existing.getOverride());
+        verify(configurationRepository).save(existing);
+        verify(configurationRepository, never()).find(
+                WORKBENCH_ID, WorkbenchPhase.REVIEW_REFACTOR);
     }
 
     @Test
@@ -281,9 +327,10 @@ class PhaseCapabilityAppServiceTest {
                         Collections.<String>emptyList(), "");
         when(workbenchRepository.findById(WORKBENCH_ID))
                 .thenReturn(Optional.of(workbench()));
-        when(configurationRepository.find(
+        when(configurationRepository.findState(
                 WORKBENCH_ID, WorkbenchPhase.REVIEW_REFACTOR))
-                .thenReturn(Optional.empty());
+                .thenReturn(PhaseCapabilityConfigurationState.initiallyAbsent(
+                        WORKBENCH_ID, WorkbenchPhase.REVIEW_REFACTOR));
 
         WorkbenchDomainException failure = assertThrows(
                 WorkbenchDomainException.class,
@@ -300,18 +347,19 @@ class PhaseCapabilityAppServiceTest {
         PhaseCapabilityProfile profile = profile(WorkbenchPhase.REVIEW_REFACTOR);
         when(workbenchRepository.findById(WORKBENCH_ID))
                 .thenReturn(Optional.of(workbench()));
-        when(configurationRepository.find(
+        when(configurationRepository.findState(
                 WORKBENCH_ID, WorkbenchPhase.REVIEW_REFACTOR))
-                .thenReturn(Optional.of(configuration(profile)));
+                .thenReturn(PhaseCapabilityConfigurationState.present(
+                        configuration(profile)));
 
-        PhaseCapabilityApplicationException failure = assertThrows(
-                PhaseCapabilityApplicationException.class,
+        WorkbenchDomainException failure = assertThrows(
+                WorkbenchDomainException.class,
                 () -> service.createOverride(
                         OWNER, new CreatePhaseCapabilityOverrideCommand(
                                 WORKBENCH_ID, WorkbenchPhase.REVIEW_REFACTOR,
                                 selection())));
 
-        assertEquals(PhaseCapabilityApplicationErrorCode.OVERRIDE_ALREADY_EXISTS,
+        assertEquals(WorkbenchErrorCode.VERSION_CONFLICT,
                 failure.getCode());
         verifyNoInteractions(profileCatalog, overrideResolver);
         verify(configurationRepository, never())
@@ -328,9 +376,10 @@ class PhaseCapabilityAppServiceTest {
                 Collections.<String>emptyList());
         when(workbenchRepository.findById(WORKBENCH_ID))
                 .thenReturn(Optional.of(workbench()));
-        when(configurationRepository.find(
+        when(configurationRepository.findState(
                 WORKBENCH_ID, WorkbenchPhase.REVIEW_REFACTOR))
-                .thenReturn(Optional.empty());
+                .thenReturn(PhaseCapabilityConfigurationState.initiallyAbsent(
+                        WORKBENCH_ID, WorkbenchPhase.REVIEW_REFACTOR));
         when(profileCatalog.requireProfile(WorkbenchPhase.REVIEW_REFACTOR))
                 .thenReturn(profile);
         when(overrideResolver.resolve(profile, duplicated))
@@ -361,9 +410,10 @@ class PhaseCapabilityAppServiceTest {
                 Collections.<String>emptyList());
         when(workbenchRepository.findById(WORKBENCH_ID))
                 .thenReturn(Optional.of(workbench()));
-        when(configurationRepository.find(
+        when(configurationRepository.findState(
                 WORKBENCH_ID, WorkbenchPhase.REVIEW_REFACTOR))
-                .thenReturn(Optional.empty());
+                .thenReturn(PhaseCapabilityConfigurationState.initiallyAbsent(
+                        WORKBENCH_ID, WorkbenchPhase.REVIEW_REFACTOR));
         when(profileCatalog.requireProfile(WorkbenchPhase.REVIEW_REFACTOR))
                 .thenReturn(profile);
         when(overrideResolver.resolve(profile, conflicting))
@@ -391,9 +441,10 @@ class PhaseCapabilityAppServiceTest {
                 Collections.<String>emptySet());
         when(workbenchRepository.findById(WORKBENCH_ID))
                 .thenReturn(Optional.of(workbench()));
-        when(configurationRepository.find(
+        when(configurationRepository.findState(
                 WORKBENCH_ID, WorkbenchPhase.REVIEW_REFACTOR))
-                .thenReturn(Optional.empty());
+                .thenReturn(PhaseCapabilityConfigurationState.initiallyAbsent(
+                        WORKBENCH_ID, WorkbenchPhase.REVIEW_REFACTOR));
         when(profileCatalog.requireProfile(WorkbenchPhase.REVIEW_REFACTOR))
                 .thenReturn(profile);
         when(overrideResolver.resolve(profile, selection)).thenReturn(untrusted);
@@ -422,9 +473,10 @@ class PhaseCapabilityAppServiceTest {
                 Collections.singleton("review/human-opinion-only"));
         when(workbenchRepository.findById(WORKBENCH_ID))
                 .thenReturn(Optional.of(workbench()));
-        when(configurationRepository.find(
+        when(configurationRepository.findState(
                 WORKBENCH_ID, WorkbenchPhase.REVIEW_REFACTOR))
-                .thenReturn(Optional.of(configuration));
+                .thenReturn(PhaseCapabilityConfigurationState.present(
+                        configuration));
         when(profileCatalog.requireProfile(WorkbenchPhase.REVIEW_REFACTOR))
                 .thenReturn(profile);
         when(overrideResolver.resolve(profile, selection)).thenReturn(next);
@@ -432,9 +484,9 @@ class PhaseCapabilityAppServiceTest {
         PhaseCapabilityOverrideSaveResult result = service.updateOverride(
                 OWNER, new UpdatePhaseCapabilityOverrideCommand(
                         WORKBENCH_ID, WorkbenchPhase.REVIEW_REFACTOR,
-                        0L, selection));
+                        1L, selection));
 
-        assertEquals(1L, result.getOverride().getVersion());
+        assertEquals(2L, result.getOverride().getVersion());
         assertEquals(CapabilityOverrideEffectiveFrom.NEXT_RUN,
                 result.getEffectiveFrom());
         assertSame(next, configuration.getOverride());
@@ -451,9 +503,10 @@ class PhaseCapabilityAppServiceTest {
         CapabilityOverrideSelection selection = selection();
         when(workbenchRepository.findById(WORKBENCH_ID))
                 .thenReturn(Optional.of(workbench()));
-        when(configurationRepository.find(
+        when(configurationRepository.findState(
                 WORKBENCH_ID, WorkbenchPhase.REVIEW_REFACTOR))
-                .thenReturn(Optional.of(configuration));
+                .thenReturn(PhaseCapabilityConfigurationState.present(
+                        configuration));
         when(profileCatalog.requireProfile(WorkbenchPhase.REVIEW_REFACTOR))
                 .thenReturn(profile);
         when(overrideResolver.resolve(profile, selection))
@@ -468,7 +521,7 @@ class PhaseCapabilityAppServiceTest {
 
         assertEquals(WorkbenchErrorCode.VERSION_CONFLICT, failure.getCode());
         assertSame(initial, configuration.getOverride());
-        assertEquals(0L, configuration.getVersion());
+        assertEquals(1L, configuration.getVersion());
         verify(configurationRepository, never()).save(configuration);
     }
 
@@ -476,18 +529,19 @@ class PhaseCapabilityAppServiceTest {
     void updateOverrideShouldFailMissingBeforeCatalogResolution() {
         when(workbenchRepository.findById(WORKBENCH_ID))
                 .thenReturn(Optional.of(workbench()));
-        when(configurationRepository.find(
+        when(configurationRepository.findState(
                 WORKBENCH_ID, WorkbenchPhase.REVIEW_REFACTOR))
-                .thenReturn(Optional.empty());
+                .thenReturn(PhaseCapabilityConfigurationState.initiallyAbsent(
+                        WORKBENCH_ID, WorkbenchPhase.REVIEW_REFACTOR));
 
-        PhaseCapabilityApplicationException failure = assertThrows(
-                PhaseCapabilityApplicationException.class,
+        WorkbenchDomainException failure = assertThrows(
+                WorkbenchDomainException.class,
                 () -> service.updateOverride(
                         OWNER, new UpdatePhaseCapabilityOverrideCommand(
                                 WORKBENCH_ID, WorkbenchPhase.REVIEW_REFACTOR,
                                 0L, selection())));
 
-        assertEquals(PhaseCapabilityApplicationErrorCode.OVERRIDE_NOT_FOUND,
+        assertEquals(WorkbenchErrorCode.VERSION_CONFLICT,
                 failure.getCode());
         verifyNoInteractions(profileCatalog, overrideResolver);
         verify(configurationRepository, never())
@@ -498,6 +552,9 @@ class PhaseCapabilityAppServiceTest {
     void deleteOverrideShouldDelegateExpectedVersionAndReturnNextRunEffect() {
         when(workbenchRepository.findById(WORKBENCH_ID))
                 .thenReturn(Optional.of(workbench()));
+        when(configurationRepository.delete(
+                WORKBENCH_ID, WorkbenchPhase.REVIEW_REFACTOR, 7L))
+                .thenReturn(8L);
 
         PhaseCapabilityOverrideDeleteResult result = service.deleteOverride(
                 OWNER, new DeletePhaseCapabilityOverrideCommand(
@@ -505,6 +562,7 @@ class PhaseCapabilityAppServiceTest {
 
         assertEquals(WORKBENCH_ID, result.getWorkbenchId());
         assertEquals(WorkbenchPhase.REVIEW_REFACTOR, result.getPhase());
+        assertEquals(8L, result.getVersion());
         assertEquals(CapabilityOverrideEffectiveFrom.NEXT_RUN,
                 result.getEffectiveFrom());
         verify(configurationRepository).delete(

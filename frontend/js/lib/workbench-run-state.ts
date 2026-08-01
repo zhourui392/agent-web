@@ -20,6 +20,8 @@ export const WORKBENCH_RUN_LIMITS = {
   testProgress: 100,
   operations: 50,
   genericSummaryChars: 4000,
+  commandSummaryChars: 1024,
+  outputSummaryChars: 1024,
   textChars: 32 * 1024,
   eventPayloadChars: 128 * 1024,
   operationTargetChars: 8000,
@@ -124,6 +126,8 @@ export interface WorkbenchRunBlock {
   repositoryKey?: string;
   commandClass?: string;
   exitCode?: number;
+  commandSummary?: string;
+  outputSummary?: string;
   eventType?: string;
   summary?: string;
 }
@@ -470,6 +474,17 @@ function reduceCommand(
   const repositoryKey = optionalIdentifier(envelope.data.repositoryKey, 256);
   const commandClass = optionalIdentifier(envelope.data.commandClass, 128);
   if (!repositoryKey || !commandClass) return state;
+  const status = optionalIdentifier(envelope.data.status, 80, true);
+  const commandSummary = optionalText(
+    envelope.data.commandSummary,
+    WORKBENCH_RUN_LIMITS.commandSummaryChars,
+  );
+  const outputSummary = optionalText(
+    envelope.data.outputSummary,
+    WORKBENCH_RUN_LIMITS.outputSummaryChars,
+  );
+  if (envelope.data.status != null && !status
+    || commandSummary === undefined || outputSummary === undefined) return state;
   const exitCode = envelope.data.exitCode == null
     ? undefined
     : safeInteger(envelope.data.exitCode);
@@ -480,7 +495,10 @@ function reduceCommand(
     occurredAt: envelope.occurredAt,
     repositoryKey,
     commandClass,
+    status: status || undefined,
     exitCode: exitCode == null ? undefined : exitCode,
+    commandSummary: commandSummary || undefined,
+    outputSummary: outputSummary || undefined,
   });
 }
 

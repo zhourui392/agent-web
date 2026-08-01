@@ -1,5 +1,7 @@
 package com.example.agentweb.app.workbench.query;
 
+import com.example.agentweb.domain.workbench.WorkbenchPhase;
+
 import java.util.Optional;
 
 /**
@@ -13,4 +15,17 @@ public interface WorkbenchQueryService {
     WorkbenchListPage listByOwner(String ownerId, WorkbenchListRequest request);
 
     Optional<WorkbenchDetailView> findDetailByOwner(String ownerId, String workbenchId);
+
+    default Optional<PhaseConversationMessagePage>
+            findCurrentPhaseConversationByOwner(
+                    String ownerId, String workbenchId,
+                    WorkbenchPhase phase) {
+        return findCurrentPhaseConversationByOwner(
+                ownerId, workbenchId, phase,
+                PhaseConversationMessageRequest.latest());
+    }
+
+    Optional<PhaseConversationMessagePage> findCurrentPhaseConversationByOwner(
+            String ownerId, String workbenchId, WorkbenchPhase phase,
+            PhaseConversationMessageRequest request);
 }

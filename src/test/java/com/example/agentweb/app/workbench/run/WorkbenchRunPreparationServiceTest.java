@@ -9,6 +9,11 @@ import com.example.agentweb.app.runtime.port.RuntimePreflightReport;
 import com.example.agentweb.app.runtime.port.RuntimePreflightRequest;
 import com.example.agentweb.app.runtime.port.SandboxMode;
 import com.example.agentweb.app.workbench.WorkspaceSnapshotIdGenerator;
+import com.example.agentweb.app.workbench.document.DocumentContentView;
+import com.example.agentweb.app.workbench.document.DocumentFailureCode;
+import com.example.agentweb.app.workbench.document.DocumentKind;
+import com.example.agentweb.app.workbench.document.DocumentOperationException;
+import com.example.agentweb.app.workbench.document.port.ScopedDocumentGateway;
 import com.example.agentweb.app.workbench.port.WorkspaceSnapshotGateway;
 import com.example.agentweb.app.workbench.port.WorkbenchTelemetry;
 import com.example.agentweb.domain.capability.ResolvedCapabilityBinding;
@@ -19,17 +24,20 @@ import com.example.agentweb.domain.chat.SessionRepository;
 import com.example.agentweb.domain.chatrun.ChatRunId;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.shared.CanonicalHashing;
+import com.example.agentweb.domain.workbench.CapabilityOverride;
+import com.example.agentweb.domain.workbench.DocumentReference;
 import com.example.agentweb.domain.workbench.HandoffReception;
 import com.example.agentweb.domain.workbench.HandoffReceptionRepository;
 import com.example.agentweb.domain.workbench.OwnerReference;
 import com.example.agentweb.domain.workbench.PhaseCapabilityBindingResolver;
+import com.example.agentweb.domain.workbench.PhaseCapabilityConfiguration;
 import com.example.agentweb.domain.workbench.PhaseCapabilityConfigurationRepository;
+import com.example.agentweb.domain.workbench.PhaseCapabilityOverridePolicy;
 import com.example.agentweb.domain.workbench.PhaseCapabilityProfile;
 import com.example.agentweb.domain.workbench.PhaseCapabilityProfileCatalog;
 import com.example.agentweb.domain.workbench.PhaseCapabilityReference;
 import com.example.agentweb.domain.workbench.PhaseCapabilityResolutionPolicy;
 import com.example.agentweb.domain.workbench.PhaseCapabilityType;
-import com.example.agentweb.domain.workbench.PhaseHandoffRepository;
 import com.example.agentweb.domain.workbench.PhaseHandoff;
 import com.example.agentweb.domain.workbench.PhaseHandoffRevision;
 import com.example.agentweb.domain.workbench.PhaseHandoffRevisionRepository;
@@ -69,6 +77,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -79,6 +88,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -117,8 +127,8 @@ class WorkbenchRunPreparationServiceTest {
     private PhaseCapabilityBindingResolver capabilityBindingResolver;
     private WorkspaceSnapshotIdGenerator snapshotIdGenerator;
     private WorkspaceSnapshotGateway snapshotGateway;
+    private ScopedDocumentGateway documentGateway;
     private RuntimePreflightGateway preflightGateway;
-    private PhaseHandoffRepository handoffRepository;
     private PhaseHandoffRevisionRepository revisionRepository;
     private HandoffReceptionRepository receptionRepository;
     private ReviewModifyConfirmationRepository confirmationRepository;
@@ -145,8 +155,8 @@ class WorkbenchRunPreparationServiceTest {
                 PhaseCapabilityBindingResolver.class);
         snapshotIdGenerator = mock(WorkspaceSnapshotIdGenerator.class);
         snapshotGateway = mock(WorkspaceSnapshotGateway.class);
+        documentGateway = mock(ScopedDocumentGateway.class);
         preflightGateway = mock(RuntimePreflightGateway.class);
-        handoffRepository = mock(PhaseHandoffRepository.class);
         revisionRepository = mock(PhaseHandoffRevisionRepository.class);
         receptionRepository = mock(HandoffReceptionRepository.class);
         confirmationRepository = mock(
@@ -158,7 +168,7 @@ class WorkbenchRunPreparationServiceTest {
                 availability, workbenchRepository, sessionRepository, historyQuery,
                 profileCatalog, configurationRepository,
                 capabilityBindingResolver, snapshotIdGenerator,
-                snapshotGateway, preflightGateway, handoffRepository,
+                snapshotGateway, documentGateway, preflightGateway,
                 revisionRepository, receptionRepository,
                 confirmationRepository, opinionRepository, runIdGenerator,
                 telemetry,
@@ -196,7 +206,7 @@ class WorkbenchRunPreparationServiceTest {
                 workbenchRepository, sessionRepository, historyQuery,
                 profileCatalog, configurationRepository,
                 capabilityBindingResolver, snapshotIdGenerator,
-                snapshotGateway, preflightGateway, handoffRepository,
+                snapshotGateway, documentGateway, preflightGateway,
                 revisionRepository, receptionRepository,
                 confirmationRepository, opinionRepository,
                 runIdGenerator);
@@ -232,6 +242,8 @@ class WorkbenchRunPreparationServiceTest {
         assertTrue(prepared.getPromptPayload().getFinalPrompt()
                 .contains("历史😀"));
         assertTrue(prepared.getPromptPayload().getFinalPrompt()
+                .contains("## ORIGINAL_GOAL\n" + workbench.getOriginalGoal()));
+        assertTrue(prepared.getPromptPayload().getFinalPrompt()
                 .contains(command.getMessage()));
         assertTrue(prepared.getPromptPayload().getFinalPrompt()
                 .contains(CATALOG_RULE_CONTENT));
@@ -256,6 +268,26 @@ class WorkbenchRunPreparationServiceTest {
             assertEquals(content.getBytes(StandardCharsets.UTF_8).length,
                     part.getContentSize());
         }
+        PromptPartSnapshot originalGoalSnapshot = prepared.getSnapshot()
+                .getPromptParts().stream()
+                .filter(part -> WorkbenchPromptPartType.ORIGINAL_GOAL.name()
+                        .equals(part.getType()))
+                .findFirst()
+                .orElseThrow(AssertionError::new);
+        assertEquals("workbench/original-goal@1",
+                originalGoalSnapshot.getSource());
+        assertEquals(CanonicalHashing.sha256(workbench.getOriginalGoal()),
+                originalGoalSnapshot.getContentHash());
+        assertEquals(workbench.getOriginalGoal()
+                        .getBytes(StandardCharsets.UTF_8).length,
+                originalGoalSnapshot.getContentSize());
+        String prompt = prepared.getPromptPayload().getFinalPrompt();
+        assertTrue(prompt.indexOf("## WORKSPACE_CONTEXT\n")
+                < prompt.indexOf("## ORIGINAL_GOAL\n"));
+        assertTrue(prompt.indexOf("## ORIGINAL_GOAL\n")
+                < prompt.indexOf("## PHASE_HISTORY\n"));
+        assertTrue(prompt.indexOf("## ORIGINAL_GOAL\n")
+                < prompt.indexOf("## USER_INPUT\n"));
         assertFalse(prepared.getSnapshot().getPromptParts().isEmpty());
         verify(historyQuery).load(any());
         ArgumentCaptor<SnapshotPurpose> purpose =
@@ -282,6 +314,145 @@ class WorkbenchRunPreparationServiceTest {
     }
 
     @Test
+    void prepareShouldReadExactAttachmentFromFrozenScopeAndKeepVerifiedFact() {
+        DocumentReference reference = DocumentReference.of(
+                "agent-web", "docs/design.md");
+        WorkbenchRunAttachmentReference attachment =
+                WorkbenchRunAttachmentReference.of(
+                        reference.getRepositoryKey(),
+                        reference.getRelativePath(), repeat('a'));
+        command = command(Collections.singletonList(attachment));
+        when(documentGateway.readContent(same(scope), eq(reference)))
+                .thenReturn(content(reference, repeat('a'), false));
+
+        PreparedWorkbenchRun prepared = service.prepare(OWNER, command);
+
+        assertEquals(1, prepared.getVerifiedAttachments().size());
+        assertEquals(reference, prepared.getVerifiedAttachments().get(0)
+                .getDocumentReference());
+        assertEquals(repeat('a'), prepared.getVerifiedAttachments().get(0)
+                .getContentVersion());
+        assertEquals("text/markdown", prepared.getVerifiedAttachments().get(0)
+                .getMediaType());
+        assertEquals(10L, prepared.getVerifiedAttachments().get(0).getSize());
+        assertEquals(prepared.getVerifiedAttachments(),
+                prepared.getSnapshot().getVerifiedAttachments());
+        String prompt = prepared.getPromptPayload().getFinalPrompt();
+        String attachmentContent = promptPartContent(
+                prompt, WorkbenchPromptPartType.ATTACHMENTS);
+        assertEquals("- repositoryKey=agent-web"
+                        + " relativePath=docs/design.md"
+                        + " contentHash=" + repeat('a')
+                        + " mediaType=text/markdown size=10",
+                attachmentContent);
+        assertFalse(attachmentContent.contains("/workspace/"));
+        PromptPartSnapshot attachmentSnapshot = prepared.getSnapshot()
+                .getPromptParts().stream()
+                .filter(part -> WorkbenchPromptPartType.ATTACHMENTS.name()
+                        .equals(part.getType()))
+                .findFirst()
+                .orElseThrow(AssertionError::new);
+        assertEquals("workbench/attachments@1",
+                attachmentSnapshot.getSource());
+        assertEquals(CanonicalHashing.sha256(attachmentContent),
+                attachmentSnapshot.getContentHash());
+        assertEquals(attachmentContent.getBytes(StandardCharsets.UTF_8).length,
+                attachmentSnapshot.getContentSize());
+        assertTrue(prompt.indexOf("## ORIGINAL_GOAL\n")
+                < prompt.indexOf("## ATTACHMENTS\n"));
+        assertTrue(prompt.indexOf("## ATTACHMENTS\n")
+                < prompt.indexOf("## PHASE_HISTORY\n"));
+        assertThrows(UnsupportedOperationException.class,
+                () -> prepared.getVerifiedAttachments().clear());
+        verify(documentGateway).readContent(same(scope), eq(reference));
+    }
+
+    @Test
+    void prepareShouldRejectAttachmentChangedSinceClientObservation() {
+        DocumentReference reference = DocumentReference.of(
+                "agent-web", "docs/design.md");
+        command = command(Collections.singletonList(
+                WorkbenchRunAttachmentReference.of(
+                        "agent-web", "docs/design.md", repeat('a'))));
+        when(documentGateway.readContent(same(scope), eq(reference)))
+                .thenReturn(content(reference, repeat('b'), false));
+
+        WorkbenchDomainException failure = assertThrows(
+                WorkbenchDomainException.class,
+                () -> service.prepare(OWNER, command));
+
+        assertEquals(WorkbenchErrorCode.VERSION_CONFLICT,
+                failure.getCode());
+        verify(snapshotGateway, never()).capture(any(), any(), any());
+        verify(preflightGateway, never()).inspect(any());
+        verify(runIdGenerator, never()).nextId();
+    }
+
+    @Test
+    void prepareShouldRejectUnexpectedObservedAttachmentReference() {
+        DocumentReference requested = DocumentReference.of(
+                "agent-web", "docs/design.md");
+        DocumentReference observed = DocumentReference.of(
+                "agent-web", "docs/other.md");
+        command = command(Collections.singletonList(
+                WorkbenchRunAttachmentReference.of(
+                        "agent-web", "docs/design.md", repeat('a'))));
+        when(documentGateway.readContent(same(scope), eq(requested)))
+                .thenReturn(content(observed, repeat('a'), false));
+
+        WorkbenchDomainException failure = assertThrows(
+                WorkbenchDomainException.class,
+                () -> service.prepare(OWNER, command));
+
+        assertEquals(WorkbenchErrorCode.RUN_BINDING_CORRUPTED,
+                failure.getCode());
+        verify(snapshotGateway, never()).capture(any(), any(), any());
+        verify(preflightGateway, never()).inspect(any());
+    }
+
+    @Test
+    void prepareShouldRejectAttachmentDeletedDuringTrustedRead() {
+        DocumentReference reference = DocumentReference.of(
+                "agent-web", "docs/design.md");
+        command = command(Collections.singletonList(
+                WorkbenchRunAttachmentReference.of(
+                        "agent-web", "docs/design.md", repeat('a'))));
+        when(documentGateway.readContent(same(scope), eq(reference)))
+                .thenReturn(content(reference, repeat('a'), true));
+
+        WorkbenchDomainException failure = assertThrows(
+                WorkbenchDomainException.class,
+                () -> service.prepare(OWNER, command));
+
+        assertEquals(WorkbenchErrorCode.VERSION_CONFLICT,
+                failure.getCode());
+        verify(snapshotGateway, never()).capture(any(), any(), any());
+        verify(preflightGateway, never()).inspect(any());
+    }
+
+    @Test
+    void prepareShouldPropagateScopedDocumentFailureBeforeRuntimePreparation() {
+        DocumentReference reference = DocumentReference.of(
+                "agent-web", "data/secrets.properties");
+        command = command(Collections.singletonList(
+                WorkbenchRunAttachmentReference.of(
+                        "agent-web", "data/secrets.properties", repeat('a'))));
+        DocumentOperationException unavailable =
+                new DocumentOperationException(
+                        DocumentFailureCode.WORKBENCH_DOCUMENT_NOT_FOUND,
+                        "document is not available in the scoped repository");
+        when(documentGateway.readContent(same(scope), eq(reference)))
+                .thenThrow(unavailable);
+
+        assertSame(unavailable, assertThrows(
+                DocumentOperationException.class,
+                () -> service.prepare(OWNER, command)));
+        verify(snapshotGateway, never()).capture(any(), any(), any());
+        verify(preflightGateway, never()).inspect(any());
+        verify(runIdGenerator, never()).nextId();
+    }
+
+    @Test
     void prepareShouldResolveCapabilityAgainstRuntimeCompatibilityMatrix() {
         service.prepare(OWNER, command);
 
@@ -293,6 +464,49 @@ class WorkbenchRunPreparationServiceTest {
         assertEquals(RUNTIME_COMPATIBILITY,
                 policy.getValue().getRuntimeCompatibility());
         verify(telemetry).capabilityResolution("SUCCESS");
+    }
+
+    @Test
+    void prepareShouldIgnoreExpiredOverrideAndFreezeCurrentProfileDefault() {
+        PhaseCapabilityProfile currentProfile = profile(
+                WorkbenchPhase.REQUIREMENT_ANALYSIS);
+        CapabilityOverride staleOverride =
+                CapabilityOverride.withExplicitOptionalMcpSelection(
+                        Collections.<String>emptySet(),
+                        Collections.<String>emptySet(),
+                        Collections.singleton("retired-query"),
+                        Collections.<String>emptySet(), null);
+        PhaseCapabilityOverridePolicy oldPolicy =
+                PhaseCapabilityOverridePolicy.constrainedTo(
+                        WorkbenchPhase.REQUIREMENT_ANALYSIS,
+                        Collections.<String>emptySet(),
+                        Collections.singleton("retired-query"),
+                        Collections.<String>emptySet(),
+                        Collections.<String>emptySet());
+        PhaseCapabilityConfiguration staleConfiguration =
+                PhaseCapabilityConfiguration.restore(
+                        WORKBENCH_ID, WorkbenchPhase.REQUIREMENT_ANALYSIS,
+                        currentProfile.getProfileId(), "0",
+                        staleOverride, OWNER, NOW, 9L, oldPolicy);
+        when(profileCatalog.requireProfile(
+                WorkbenchPhase.REQUIREMENT_ANALYSIS))
+                .thenReturn(currentProfile);
+        when(configurationRepository.find(
+                WORKBENCH_ID, WorkbenchPhase.REQUIREMENT_ANALYSIS))
+                .thenReturn(Optional.of(staleConfiguration));
+
+        PreparedWorkbenchRun prepared = service.prepare(OWNER, command);
+
+        ArgumentCaptor<CapabilityOverride> effectiveOverride =
+                ArgumentCaptor.forClass(CapabilityOverride.class);
+        verify(capabilityBindingResolver).resolveForRun(
+                eq(currentProfile), effectiveOverride.capture(), any());
+        assertTrue(effectiveOverride.getValue()
+                .getSelectedOptionalMcpIds().isEmpty());
+        assertFalse(effectiveOverride.getValue()
+                .hasExplicitOptionalMcpSelection());
+        assertEquals(Long.valueOf(9L),
+                prepared.getSnapshot().getOverrideVersion());
     }
 
     @Test
@@ -414,33 +628,23 @@ class WorkbenchRunPreparationServiceTest {
     }
 
     @Test
-    void prepareShouldCreateVersionZeroReceptionAndFreezeExactRevision() {
-        PhaseHandoff source = configureSolutionPhase();
-        PhaseHandoffRevision revision = PhaseHandoffRevision.capture(source);
+    void prepareShouldRejectMissingExplicitReceptionBeforeHandoffOrRuntimeReads() {
+        configureSolutionPhase();
         when(receptionRepository.find(
                 WORKBENCH_ID, WorkbenchPhase.SOLUTION_DESIGN,
                 WorkbenchPhase.REQUIREMENT_ANALYSIS))
                 .thenReturn(Optional.empty());
-        when(handoffRepository.find(
-                WORKBENCH_ID, WorkbenchPhase.REQUIREMENT_ANALYSIS))
-                .thenReturn(Optional.of(source));
-        when(revisionRepository.findExact(
-                WORKBENCH_ID, WorkbenchPhase.REQUIREMENT_ANALYSIS,
-                0L, source.getContentHash()))
-                .thenReturn(Optional.of(revision));
 
-        PreparedWorkbenchRun prepared = service.prepare(OWNER, command);
+        WorkbenchDomainException failure = assertThrows(
+                WorkbenchDomainException.class,
+                () -> service.prepare(OWNER, command));
 
-        HandoffReception reception = prepared.getHandoffReception();
-        assertEquals(0L, reception.getSourceVersion());
-        assertEquals(source.getContentHash(), reception.getSourceHash());
-        assertEquals(reception.getSourceVersion(),
-                prepared.getSnapshot().getHandoffSource()
-                        .getSourceVersion());
-        assertEquals(reception.getSourceHash(),
-                prepared.getSnapshot().getHandoffSource().getSourceHash());
-        assertTrue(prepared.getPromptPayload().getFinalPrompt()
-                .contains("人工确认的需求交接😀"));
+        assertEquals(WorkbenchErrorCode.PHASE_TRANSITION_INVALID,
+                failure.getCode());
+        verifyNoInteractions(revisionRepository);
+        verify(snapshotGateway, never()).capture(any(), any(), any());
+        verify(preflightGateway, never()).inspect(any());
+        verify(runIdGenerator, never()).nextId();
     }
 
     @Test
@@ -473,22 +677,22 @@ class WorkbenchRunPreparationServiceTest {
                 .contains("人工确认的需求交接😀"));
         assertFalse(prepared.getPromptPayload().getFinalPrompt()
                 .contains("更新后的交接，不得静默注入"));
-        verify(handoffRepository, never()).find(any(), any());
     }
 
     @Test
     void prepareShouldFailClosedBeforeWorkspaceWhenExactHandoffRevisionMissing() {
         PhaseHandoff source = configureSolutionPhase();
+        HandoffReception accepted = HandoffReception.accept(
+                WORKBENCH_ID, WorkbenchPhase.SOLUTION_DESIGN,
+                WorkbenchPhase.REQUIREMENT_ANALYSIS, 0L,
+                source.getContentHash(), OWNER, NOW.plusSeconds(1));
         when(receptionRepository.find(
                 WORKBENCH_ID, WorkbenchPhase.SOLUTION_DESIGN,
                 WorkbenchPhase.REQUIREMENT_ANALYSIS))
-                .thenReturn(Optional.empty());
-        when(handoffRepository.find(
-                WORKBENCH_ID, WorkbenchPhase.REQUIREMENT_ANALYSIS))
-                .thenReturn(Optional.of(source));
+                .thenReturn(Optional.of(accepted));
         when(revisionRepository.findExact(
                 WORKBENCH_ID, WorkbenchPhase.REQUIREMENT_ANALYSIS,
-                0L, source.getContentHash()))
+                0L, accepted.getSourceHash()))
                 .thenReturn(Optional.empty());
 
         WorkbenchDomainException failure = assertThrows(
@@ -585,6 +789,24 @@ class WorkbenchRunPreparationServiceTest {
                 WORKBENCH_ID, phase, workbench.getVersion(),
                 "submission-key-1", "请核实需求边界😀", runMode,
                 handoffSourceVersion, null, Collections.emptyList());
+    }
+
+    private SubmitWorkbenchRunCommand command(
+            List<WorkbenchRunAttachmentReference> attachments) {
+        return new SubmitWorkbenchRunCommand(
+                WORKBENCH_ID, WorkbenchPhase.REQUIREMENT_ANALYSIS,
+                workbench.getVersion(), "submission-key-1",
+                "请核实需求边界😀", RunMode.DISCUSS_READ_ONLY,
+                null, null, attachments);
+    }
+
+    private static DocumentContentView content(
+            DocumentReference reference, String contentVersion,
+            boolean deleted) {
+        return new DocumentContentView(
+                reference, DocumentKind.MARKDOWN, "text/markdown",
+                "UTF-8", 10L, NOW.toEpochMilli(), contentVersion,
+                "attachment content", false, deleted);
     }
 
     private static RepositoryScope scope() {

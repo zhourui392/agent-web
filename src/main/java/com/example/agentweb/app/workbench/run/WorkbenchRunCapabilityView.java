@@ -6,8 +6,10 @@ import com.example.agentweb.domain.capability.ResolvedMcpServerBinding;
 import com.example.agentweb.domain.capability.ResolvedRuleBinding;
 import com.example.agentweb.domain.capability.ResolvedSkillBinding;
 import com.example.agentweb.domain.workbench.RunMode;
+import com.example.agentweb.domain.workbench.RunRepositoryScopeFact;
 import com.example.agentweb.domain.workbench.WorkbenchPhase;
 import com.example.agentweb.domain.workbench.WorkbenchRunSnapshot;
+import com.example.agentweb.domain.workspace.RepositoryScope;
 import lombok.Getter;
 
 import java.util.ArrayList;
@@ -38,12 +40,16 @@ public final class WorkbenchRunCapabilityView {
     private final String profileHash;
     private final String bindingHash;
     private final String runtimeCompatibility;
+    private final String repositoryScopeHash;
+    private final String primaryRepositoryKey;
+    private final List<RepositoryView> repositories;
     private final List<RuleView> rules;
     private final List<SkillView> skills;
     private final List<McpServerView> mcpServers;
     private final List<RejectedView> rejected;
 
-    private WorkbenchRunCapabilityView(WorkbenchRunSnapshot snapshot) {
+    private WorkbenchRunCapabilityView(
+            WorkbenchRunSnapshot snapshot, RepositoryScope repositoryScope) {
         ResolvedCapabilityBinding binding = snapshot.getCapabilityBinding();
         this.runId = snapshot.getRunId();
         this.workbenchId = snapshot.getWorkbenchId().getValue();
@@ -58,6 +64,10 @@ public final class WorkbenchRunCapabilityView {
         this.profileHash = binding.getProfileHash();
         this.bindingHash = binding.getBindingHash();
         this.runtimeCompatibility = binding.getRuntimeCompatibility();
+        this.repositoryScopeHash = snapshot.getRepositoryScopeHash();
+        this.primaryRepositoryKey = repositoryScope.getPrimaryRepositoryKey();
+        this.repositories = repositoryViews(
+                snapshot.repositoryScopeFacts(repositoryScope));
         this.rules = ruleViews(binding.getRules());
         this.skills = skillViews(binding.getSkills());
         this.mcpServers = mcpViews(binding.getMcpServers());
@@ -65,12 +75,25 @@ public final class WorkbenchRunCapabilityView {
     }
 
     public static WorkbenchRunCapabilityView from(
-            WorkbenchRunSnapshot snapshot) {
-        if (snapshot == null) {
+            WorkbenchRunSnapshot snapshot,
+            RepositoryScope repositoryScope) {
+        if (snapshot == null || repositoryScope == null) {
             throw new IllegalArgumentException(
-                    "workbench run snapshot is required");
+                    "workbench run snapshot and repository scope are required");
         }
-        return new WorkbenchRunCapabilityView(snapshot);
+        return new WorkbenchRunCapabilityView(snapshot, repositoryScope);
+    }
+
+    private static List<RepositoryView> repositoryViews(
+            List<RunRepositoryScopeFact> facts) {
+        List<RepositoryView> views =
+                new ArrayList<RepositoryView>(facts.size());
+        for (RunRepositoryScopeFact fact : facts) {
+            views.add(new RepositoryView(
+                    fact.getRepositoryKey(), fact.getRelativePath(),
+                    fact.isPrimary(), fact.getAccess().name()));
+        }
+        return Collections.unmodifiableList(views);
     }
 
     private static List<RuleView> ruleViews(
@@ -118,6 +141,23 @@ public final class WorkbenchRunCapabilityView {
                     binding.getId(), binding.getReasonCode()));
         }
         return Collections.unmodifiableList(views);
+    }
+
+    @Getter
+    public static final class RepositoryView {
+        private final String repositoryKey;
+        private final String relativePath;
+        private final boolean primary;
+        private final String access;
+
+        private RepositoryView(
+                String repositoryKey, String relativePath,
+                boolean primary, String access) {
+            this.repositoryKey = repositoryKey;
+            this.relativePath = relativePath;
+            this.primary = primary;
+            this.access = access;
+        }
     }
 
     @Getter

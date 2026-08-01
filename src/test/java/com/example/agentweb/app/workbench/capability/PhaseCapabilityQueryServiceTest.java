@@ -14,8 +14,10 @@ import com.example.agentweb.domain.workbench.CapabilityOverride;
 import com.example.agentweb.domain.workbench.OwnerReference;
 import com.example.agentweb.domain.workbench.PhaseCapabilityConfiguration;
 import com.example.agentweb.domain.workbench.PhaseCapabilityConfigurationRepository;
+import com.example.agentweb.domain.workbench.PhaseCapabilityConfigurationState;
 import com.example.agentweb.domain.workbench.PhaseCapabilityPreview;
 import com.example.agentweb.domain.workbench.PhaseCapabilityPreviewResolver;
+import com.example.agentweb.domain.workbench.PhaseCapabilityOverrideResolution;
 import com.example.agentweb.domain.workbench.PhaseCapabilityProfile;
 import com.example.agentweb.domain.workbench.PhaseCapabilityProfileCatalog;
 import com.example.agentweb.domain.workbench.PhaseCapabilityReference;
@@ -40,6 +42,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -100,14 +103,20 @@ class PhaseCapabilityQueryServiceTest {
                         WORKBENCH_ID, PHASE, profile.getProfileId(),
                         profile.getProfileVersion(), override,
                         OWNER, NOW, 3L, profile.getOverridePolicy());
-        PhaseCapabilityPreview preview = preview(profile, override);
+        PhaseCapabilityOverrideResolution overrideResolution =
+                configuration.resolveFor(WORKBENCH_ID, profile);
+        PhaseCapabilityPreview preview = preview(
+                profile, overrideResolution, CapabilityAccess.READ);
         String activeBindingHash = CanonicalHashing.sha256("active-binding");
         when(workbenchRepository.findById(WORKBENCH_ID))
                 .thenReturn(Optional.of(workbench));
-        when(configurationRepository.find(WORKBENCH_ID, PHASE))
-                .thenReturn(Optional.of(configuration));
+        when(configurationRepository.findState(WORKBENCH_ID, PHASE))
+                .thenReturn(PhaseCapabilityConfigurationState.present(
+                        configuration));
         when(profileCatalog.requireProfile(PHASE)).thenReturn(profile);
-        when(previewResolver.resolve(profile, override, AgentType.CODEX))
+        when(previewResolver.resolve(
+                eq(profile), any(PhaseCapabilityOverrideResolution.class),
+                eq(AgentType.CODEX)))
                 .thenReturn(preview);
         when(activeRunBindingQuery.findActiveBindingHash(WORKBENCH_ID, PHASE))
                 .thenReturn(Optional.of(activeBindingHash));
@@ -134,14 +143,19 @@ class PhaseCapabilityQueryServiceTest {
     void effectiveProfileWithoutOverrideShouldUseDefaultDomainOverrideVersionZero() {
         Workbench workbench = workbench();
         PhaseCapabilityProfile profile = profile();
-        CapabilityOverride defaults = CapabilityOverride.empty();
-        PhaseCapabilityPreview preview = preview(profile, defaults);
+        PhaseCapabilityOverrideResolution defaults =
+                profile.defaultOverrideResolution();
+        PhaseCapabilityPreview preview = preview(
+                profile, defaults, CapabilityAccess.READ);
         when(workbenchRepository.findById(WORKBENCH_ID))
                 .thenReturn(Optional.of(workbench));
-        when(configurationRepository.find(WORKBENCH_ID, PHASE))
-                .thenReturn(Optional.empty());
+        when(configurationRepository.findState(WORKBENCH_ID, PHASE))
+                .thenReturn(PhaseCapabilityConfigurationState.initiallyAbsent(
+                        WORKBENCH_ID, PHASE));
         when(profileCatalog.requireProfile(PHASE)).thenReturn(profile);
-        when(previewResolver.resolve(any(), any(), any())).thenReturn(preview);
+        when(previewResolver.resolve(
+                eq(profile), any(PhaseCapabilityOverrideResolution.class),
+                eq(AgentType.CODEX))).thenReturn(preview);
         when(activeRunBindingQuery.findActiveBindingHash(WORKBENCH_ID, PHASE))
                 .thenReturn(Optional.empty());
 
@@ -151,11 +165,40 @@ class PhaseCapabilityQueryServiceTest {
         assertEquals(0L, view.getOverrideVersion());
         assertEquals("", view.getAdditionalRule());
         assertEquals(null, view.getActiveRunSnapshotHash());
-        ArgumentCaptor<CapabilityOverride> captured =
-                ArgumentCaptor.forClass(CapabilityOverride.class);
+        ArgumentCaptor<PhaseCapabilityOverrideResolution> captured =
+                ArgumentCaptor.forClass(
+                        PhaseCapabilityOverrideResolution.class);
         verify(previewResolver).resolve(
                 eq(profile), captured.capture(), eq(AgentType.CODEX));
-        assertFalse(captured.getValue().hasExplicitOptionalMcpSelection());
+        assertFalse(captured.getValue().getEffectiveOverride()
+                .hasExplicitOptionalMcpSelection());
+    }
+
+    @Test
+    void effectiveProfileAfterDeleteShouldExposeTombstoneConcurrencyToken() {
+        PhaseCapabilityProfile profile = profile();
+        PhaseCapabilityOverrideResolution defaults =
+                profile.defaultOverrideResolution();
+        when(workbenchRepository.findById(WORKBENCH_ID))
+                .thenReturn(Optional.of(workbench()));
+        when(configurationRepository.findState(WORKBENCH_ID, PHASE))
+                .thenReturn(PhaseCapabilityConfigurationState.absent(
+                        WORKBENCH_ID, PHASE, 6L));
+        when(profileCatalog.requireProfile(PHASE)).thenReturn(profile);
+        when(previewResolver.resolve(
+                eq(profile), any(PhaseCapabilityOverrideResolution.class),
+                eq(AgentType.CODEX)))
+                .thenReturn(preview(
+                        profile, defaults, CapabilityAccess.READ));
+        when(activeRunBindingQuery.findActiveBindingHash(WORKBENCH_ID, PHASE))
+                .thenReturn(Optional.empty());
+
+        EffectivePhaseCapabilityView view = service.getEffectiveProfile(
+                OWNER, WORKBENCH_ID, PHASE);
+
+        assertEquals(6L, view.getOverrideVersion());
+        assertEquals(Collections.singletonList("java-tdd"),
+                view.getOptionalSkillIds());
     }
 
     @Test
@@ -169,14 +212,19 @@ class PhaseCapabilityQueryServiceTest {
                         WORKBENCH_ID, PHASE, profile.getProfileId(),
                         profile.getProfileVersion(), override,
                         OWNER, NOW, 4L, profile.getOverridePolicy());
+        PhaseCapabilityOverrideResolution overrideResolution =
+                configuration.resolveFor(WORKBENCH_ID, profile);
         when(workbenchRepository.findById(WORKBENCH_ID))
                 .thenReturn(Optional.of(workbench()));
         when(configurationRepository.find(WORKBENCH_ID, PHASE))
                 .thenReturn(Optional.of(configuration))
                 .thenReturn(Optional.empty());
         when(profileCatalog.requireProfile(PHASE)).thenReturn(profile);
-        when(previewResolver.resolve(profile, override, AgentType.CODEX))
-                .thenReturn(preview(profile, override));
+        when(previewResolver.resolve(
+                eq(profile), any(PhaseCapabilityOverrideResolution.class),
+                eq(AgentType.CODEX)))
+                .thenReturn(preview(
+                        profile, overrideResolution, CapabilityAccess.READ));
 
         Optional<PublicPhaseCapabilityOverrideView> found =
                 service.getOverride(OWNER, WORKBENCH_ID, PHASE);
@@ -192,6 +240,108 @@ class PhaseCapabilityQueryServiceTest {
         assertEquals(NOW.toEpochMilli(), found.get().getUpdatedAt());
         assertFalse(missing.isPresent());
         verify(profileCatalog).requireProfile(PHASE);
+    }
+
+    @Test
+    void staleOverrideShouldRestoreDefaultAndExposeWarningInsteadOfFailing() {
+        PhaseCapabilityProfile profile = profile();
+        CapabilityOverride staleOverride =
+                CapabilityOverride.withExplicitOptionalMcpSelection(
+                        Collections.<String>emptySet(),
+                        Collections.singleton("retired-skill"),
+                        Collections.singleton("retired-query"),
+                        Collections.<String>emptySet(), null);
+        com.example.agentweb.domain.workbench.PhaseCapabilityOverridePolicy
+                oldPolicy = com.example.agentweb.domain.workbench
+                .PhaseCapabilityOverridePolicy.constrainedTo(
+                        PHASE, Collections.singleton("retired-skill"),
+                        Collections.singleton("retired-query"),
+                        Collections.<String>emptySet(),
+                        Collections.<String>emptySet());
+        PhaseCapabilityConfiguration configuration =
+                PhaseCapabilityConfiguration.restore(
+                        WORKBENCH_ID, PHASE, profile.getProfileId(), "0.9.0",
+                        staleOverride, OWNER, NOW, 9L, oldPolicy);
+        PhaseCapabilityOverrideResolution degraded =
+                configuration.resolveFor(WORKBENCH_ID, profile);
+        when(workbenchRepository.findById(WORKBENCH_ID))
+                .thenReturn(Optional.of(workbench()));
+        when(configurationRepository.findState(WORKBENCH_ID, PHASE))
+                .thenReturn(PhaseCapabilityConfigurationState.present(
+                        configuration));
+        when(configurationRepository.find(WORKBENCH_ID, PHASE))
+                .thenReturn(Optional.of(configuration));
+        when(profileCatalog.requireProfile(PHASE)).thenReturn(profile);
+        when(previewResolver.resolve(
+                eq(profile), any(PhaseCapabilityOverrideResolution.class),
+                eq(AgentType.CODEX)))
+                .thenReturn(preview(
+                        profile, degraded, CapabilityAccess.READ));
+
+        EffectivePhaseCapabilityView view = service.getEffectiveProfile(
+                OWNER, WORKBENCH_ID, PHASE);
+        Optional<PublicPhaseCapabilityOverrideView> publicOverride =
+                service.getOverride(OWNER, WORKBENCH_ID, PHASE);
+
+        assertEquals("DEGRADED", view.getStatus());
+        assertEquals(Collections.singletonList(
+                        PhaseCapabilityOverrideResolution
+                                .RESTORED_DEFAULT_WARNING),
+                view.getWarnings());
+        assertEquals(Collections.singletonList("java-tdd"),
+                view.getOptionalSkillIds());
+        assertEquals(Collections.singletonList("repository-query"),
+                view.getOptionalMcpServerIds());
+        assertEquals(9L, view.getOverrideVersion());
+        assertTrue(publicOverride.isPresent());
+        assertEquals(Collections.singletonList("java-tdd"),
+                publicOverride.get().getOptionalSkillIds());
+        assertEquals(Collections.singletonList("repository-query"),
+                publicOverride.get().getOptionalMcpServerIds());
+        assertEquals("", publicOverride.get().getAdditionalRule());
+        assertEquals(9L, publicOverride.get().getVersion());
+        ArgumentCaptor<PhaseCapabilityOverrideResolution> captured =
+                ArgumentCaptor.forClass(
+                        PhaseCapabilityOverrideResolution.class);
+        verify(previewResolver, org.mockito.Mockito.times(2)).resolve(
+                eq(profile), captured.capture(), eq(AgentType.CODEX));
+        assertTrue(captured.getAllValues().get(0).getEffectiveOverride()
+                .getRemovedOptionalSkillIds().isEmpty());
+        assertFalse(captured.getAllValues().get(0).getEffectiveOverride()
+                .hasExplicitOptionalMcpSelection());
+    }
+
+    @Test
+    void effectiveProfileShouldProjectTrustedWriteAccessOnlyForMcpItems() {
+        PhaseCapabilityProfile profile = profile();
+        CapabilityOverride override = profile.overrideWithSelectedOptionals(
+                Collections.singleton("java-tdd"),
+                Collections.singleton("repository-query"), null);
+        PhaseCapabilityConfiguration configuration =
+                PhaseCapabilityConfiguration.restore(
+                        WORKBENCH_ID, PHASE, profile.getProfileId(),
+                        profile.getProfileVersion(), override,
+                        OWNER, NOW, 5L, profile.getOverridePolicy());
+        PhaseCapabilityOverrideResolution resolution =
+                configuration.resolveFor(WORKBENCH_ID, profile);
+        when(workbenchRepository.findById(WORKBENCH_ID))
+                .thenReturn(Optional.of(workbench()));
+        when(configurationRepository.findState(WORKBENCH_ID, PHASE))
+                .thenReturn(PhaseCapabilityConfigurationState.present(
+                        configuration));
+        when(profileCatalog.requireProfile(PHASE)).thenReturn(profile);
+        when(previewResolver.resolve(
+                eq(profile), any(PhaseCapabilityOverrideResolution.class),
+                eq(AgentType.CODEX)))
+                .thenReturn(preview(
+                        profile, resolution, CapabilityAccess.WRITE));
+
+        EffectivePhaseCapabilityView view = service.getEffectiveProfile(
+                OWNER, WORKBENCH_ID, PHASE);
+
+        assertNull(view.getRules().get(0).getAccess());
+        assertNull(view.getSkills().get(0).getAccess());
+        assertEquals("WRITE", view.getMcpServers().get(0).getAccess());
     }
 
     @Test
@@ -214,7 +364,10 @@ class PhaseCapabilityQueryServiceTest {
     }
 
     private static PhaseCapabilityPreview preview(
-            PhaseCapabilityProfile profile, CapabilityOverride override) {
+            PhaseCapabilityProfile profile,
+            PhaseCapabilityOverrideResolution resolution,
+            CapabilityAccess mcpAccess) {
+        CapabilityOverride override = resolution.getEffectiveOverride();
         PhaseCapabilityReference mcpReference = new PhaseCapabilityReference(
                 "repository-query", PhaseCapabilityType.MCP_SERVER, false);
         java.util.List<ResolvedMcpServerBinding> mcpServers =
@@ -223,7 +376,7 @@ class PhaseCapabilityQueryServiceTest {
                         new ResolvedMcpServerBinding(
                                 "repository-query", "1.0.0",
                                 CanonicalHashing.sha256("mcp"),
-                                CapabilityAccess.READ, "STDIO"))
+                                mcpAccess, "STDIO"))
                         : Collections.<ResolvedMcpServerBinding>emptyList();
         ResolvedCapabilityBinding binding = ResolvedCapabilityBinding.resolve(
                 "workbench-policy@1", profile.getProfileId(),
@@ -236,7 +389,7 @@ class PhaseCapabilityQueryServiceTest {
                         CanonicalHashing.sha256("skill"), "PLATFORM")),
                 mcpServers,
                 Collections.emptyList(), "CODEX_WORKBENCH@1");
-        return PhaseCapabilityPreview.create(profile, override, binding);
+        return PhaseCapabilityPreview.create(profile, resolution, binding);
     }
 
     private static PhaseCapabilityProfile profile() {

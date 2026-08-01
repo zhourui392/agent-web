@@ -3,6 +3,10 @@ package com.example.agentweb.infra.workbench;
 import com.example.agentweb.domain.workbench.CapabilityOverride;
 import com.example.agentweb.domain.workbench.AdditionalCapabilityRule;
 import com.example.agentweb.domain.workbench.PhaseCapabilityConfiguration;
+import com.example.agentweb.domain.workbench.PhaseCapabilityConfigurationState;
+import com.example.agentweb.domain.workbench.PhaseCapabilityProfile;
+import com.example.agentweb.domain.workbench.PhaseCapabilityReference;
+import com.example.agentweb.domain.workbench.PhaseCapabilityType;
 import com.example.agentweb.domain.workbench.Workbench;
 import com.example.agentweb.domain.workbench.WorkbenchDomainException;
 import com.example.agentweb.domain.workbench.WorkbenchErrorCode;
@@ -13,6 +17,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.Collections;
 
 import static com.example.agentweb.infra.workbench.WorkbenchPersistenceFixtures.NOW;
@@ -126,9 +131,9 @@ class SqlitePhaseCapabilityConfigurationRepositoryTest {
                 Collections.singleton("optional-linter"),
                 Collections.<String>emptySet(),
                 Collections.singleton("review/style"));
-        winner.changeOverride(0L, next, WorkbenchPersistenceFixtures.capabilityPolicy(),
+        winner.changeOverride(1L, next, WorkbenchPersistenceFixtures.capabilityPolicy(),
                 OWNER, NOW.plusSeconds(10));
-        stale.changeOverride(0L, CapabilityOverride.empty(),
+        stale.changeOverride(1L, CapabilityOverride.empty(),
                 WorkbenchPersistenceFixtures.capabilityPolicy(),
                 OWNER, NOW.plusSeconds(10));
 
@@ -140,11 +145,102 @@ class SqlitePhaseCapabilityConfigurationRepositoryTest {
         WorkbenchDomainException deleteConflict = assertThrows(
                 WorkbenchDomainException.class,
                 () -> repository.delete(workbench.getId(),
-                        WorkbenchPhase.REVIEW_REFACTOR, 0L));
+                        WorkbenchPhase.REVIEW_REFACTOR, 1L));
         assertEquals(WorkbenchErrorCode.VERSION_CONFLICT, deleteConflict.getCode());
-        repository.delete(workbench.getId(), WorkbenchPhase.REVIEW_REFACTOR, 1L);
+        assertEquals(3L, repository.delete(
+                workbench.getId(), WorkbenchPhase.REVIEW_REFACTOR, 2L));
         assertFalse(repository.find(
                 workbench.getId(), WorkbenchPhase.REVIEW_REFACTOR).isPresent());
+        assertEquals(3L, repository.findState(
+                workbench.getId(), WorkbenchPhase.REVIEW_REFACTOR).getVersion());
+    }
+
+    @Test
+    void concurrentInitialCreatesShouldNotShareTheAbsentVersionToken() {
+        PhaseCapabilityConfiguration first =
+                PhaseCapabilityConfigurationState.initiallyAbsent(
+                                workbench.getId(),
+                                WorkbenchPhase.REVIEW_REFACTOR)
+                        .putOverride(
+                                0L, capabilityProfile(),
+                                CapabilityOverride.empty(), OWNER,
+                                NOW.plusSeconds(5));
+        PhaseCapabilityConfiguration stale =
+                PhaseCapabilityConfigurationState.initiallyAbsent(
+                                workbench.getId(),
+                                WorkbenchPhase.REVIEW_REFACTOR)
+                        .putOverride(
+                                0L, capabilityProfile(),
+                                CapabilityOverride.empty(), OWNER,
+                                NOW.plusSeconds(5));
+
+        repository.save(first);
+
+        WorkbenchDomainException conflict = assertThrows(
+                WorkbenchDomainException.class,
+                () -> repository.save(stale));
+        assertEquals(WorkbenchErrorCode.VERSION_CONFLICT,
+                conflict.getCode());
+        assertEquals(1L, repository.findState(
+                workbench.getId(), WorkbenchPhase.REVIEW_REFACTOR).getVersion());
+    }
+
+    @Test
+    void deleteAndRecreateShouldKeepMonotonicTokenAndRejectAbaWriter() {
+        repository.save(WorkbenchPersistenceFixtures.capabilityConfiguration(workbench));
+        PhaseCapabilityConfiguration stale = repository.find(
+                        workbench.getId(), WorkbenchPhase.REVIEW_REFACTOR)
+                .orElseThrow(AssertionError::new);
+
+        assertEquals(2L, repository.delete(
+                workbench.getId(), WorkbenchPhase.REVIEW_REFACTOR, 1L));
+        PhaseCapabilityConfigurationState deleted = repository.findState(
+                        workbench.getId(), WorkbenchPhase.REVIEW_REFACTOR);
+        assertFalse(deleted.getConfiguration().isPresent());
+        PhaseCapabilityConfiguration recreated = deleted.putOverride(
+                2L, capabilityProfile(),
+                CapabilityOverride.empty(), OWNER, NOW.plusSeconds(10));
+        repository.save(recreated);
+
+        stale.changeOverride(
+                1L, CapabilityOverride.empty(),
+                WorkbenchPersistenceFixtures.capabilityPolicy(), OWNER,
+                NOW.plusSeconds(11));
+        WorkbenchDomainException abaConflict = assertThrows(
+                WorkbenchDomainException.class,
+                () -> repository.save(stale));
+
+        assertEquals(WorkbenchErrorCode.VERSION_CONFLICT,
+                abaConflict.getCode());
+        assertEquals(3L, repository.findState(
+                workbench.getId(), WorkbenchPhase.REVIEW_REFACTOR).getVersion());
+    }
+
+    @Test
+    void profileUpgradeSaveShouldPersistRebasedProfileIdentityAndOverride() {
+        repository.save(WorkbenchPersistenceFixtures.capabilityConfiguration(workbench));
+        PhaseCapabilityConfiguration configuration = repository.find(
+                        workbench.getId(), WorkbenchPhase.REVIEW_REFACTOR)
+                .orElseThrow(AssertionError::new);
+        PhaseCapabilityProfile upgraded = PhaseCapabilityProfile.create(
+                "review-profile", "4", WorkbenchPhase.REVIEW_REFACTOR,
+                capabilityProfile().getCapabilities());
+        CapabilityOverride next = upgraded.overrideWithSelectedOptionals(
+                Collections.singleton("refactor-assistant"),
+                Collections.<String>emptySet(), null);
+
+        configuration.changeOverride(
+                1L, upgraded, next, OWNER, NOW.plusSeconds(10));
+        repository.save(configuration);
+
+        PhaseCapabilityConfiguration restored = repository.find(
+                        workbench.getId(), WorkbenchPhase.REVIEW_REFACTOR)
+                .orElseThrow(AssertionError::new);
+        assertEquals("4", restored.getBaseProfileVersion());
+        assertEquals(2L, restored.getVersion());
+        assertEquals(next.getAddedOptionalSkillIds(), restored.resolveFor(
+                        workbench.getId(), upgraded)
+                .getEffectiveOverride().getAddedOptionalSkillIds());
     }
 
     @Test
@@ -157,6 +253,22 @@ class SqlitePhaseCapabilityConfigurationRepositoryTest {
 
         assertThrows(IllegalStateException.class, () -> repository.find(
                 workbench.getId(), WorkbenchPhase.REVIEW_REFACTOR));
+    }
+
+    private PhaseCapabilityProfile capabilityProfile() {
+        return PhaseCapabilityProfile.create(
+                "review-profile", "3", WorkbenchPhase.REVIEW_REFACTOR,
+                Arrays.asList(
+                        new PhaseCapabilityReference(
+                                "platform/safety", PhaseCapabilityType.RULE, true),
+                        new PhaseCapabilityReference(
+                                "refactor-assistant", PhaseCapabilityType.SKILL, false),
+                        new PhaseCapabilityReference(
+                                "optional-linter", PhaseCapabilityType.SKILL, false),
+                        new PhaseCapabilityReference(
+                                "repository-query", PhaseCapabilityType.MCP_SERVER, false),
+                        new PhaseCapabilityReference(
+                                "review/style", PhaseCapabilityType.RULE, false)));
     }
 
     private void assertConfiguration(PhaseCapabilityConfiguration expected,

@@ -16,6 +16,16 @@ const EVENT_TYPE_MAX_LENGTH = 80;
 const EVENT_PAYLOAD_MAX_LENGTH = 131_072;
 const HISTORY_LIST_MAX_LIMIT = 100;
 const EVENT_PAGE_MAX_LIMIT = 500;
+const CONVERSATION_MESSAGE_MAX_COUNT = 10_000;
+const CONVERSATION_CONTENT_MAX_LENGTH = 1_000_000;
+const TIMESTAMP_MAX_LENGTH = 128;
+const ATTACHMENT_REPOSITORY_KEY_MAX_LENGTH = 512;
+const ATTACHMENT_RELATIVE_PATH_MAX_LENGTH = 4_096;
+const ATTACHMENT_MAX_COUNT = 8;
+const RUN_REPOSITORY_KEY_MAX_LENGTH = 512;
+const RUN_REPOSITORY_RELATIVE_PATH_MAX_LENGTH = 4_096;
+const RUN_REPOSITORY_MAX_COUNT = 50;
+const LOWERCASE_SHA_256 = /^[a-f0-9]{64}$/;
 
 const RUN_STATUSES = new Set<WorkbenchRunStatus>([
   'PENDING',
@@ -30,6 +40,19 @@ const RUN_STATUSES = new Set<WorkbenchRunStatus>([
 const RUN_MODES = new Set<WorkbenchRunMode>(['DISCUSS_READ_ONLY', 'MODIFY_WORKSPACE']);
 
 const PHASE_STATUSES = new Set<WorkbenchPhaseStatus>(['NOT_STARTED', 'IN_PROGRESS', 'HUMAN_COMPLETED']);
+
+const RUN_REPOSITORY_ACCESSES = new Set<WorkbenchRunRepositoryAccess>(['READ', 'WRITE']);
+const RUN_REPOSITORY_FIELDS = new Set(['repositoryKey', 'relativePath', 'primary', 'access']);
+const FORBIDDEN_CAPABILITY_SCOPE_FIELDS = new Set([
+  'workspaceRoot',
+  'repositoryRoot',
+  'absolutePath',
+  'workingDir',
+  'command',
+  'args',
+  'env',
+  'executable',
+]);
 
 const ERROR_DETAILS: Readonly<Record<number, { code: string; message: string }>> = {
   401: {
@@ -75,6 +98,10 @@ const SAFE_SERVER_ERROR_CODES = new Set([
   'WORKBENCH_RUN_CONFLICT',
   'ACTIVE_RUN_CONFLICT',
   'ACTIVE_WRITE_RUN_CONFLICT',
+  'WORKSPACE_TOPOLOGY_CHANGED',
+  'WORKSPACE_REPOSITORY_NOT_FOUND',
+  'WORKBENCH_REPOSITORY_SCOPE_INVALID',
+  'REPOSITORY_SCOPE_VIOLATION',
   'WORKBENCH_RUN_CURSOR_EXPIRED',
   'CURSOR_EXPIRED',
   'WORKBENCH_RUN_INVALID',
@@ -88,7 +115,9 @@ const SAFE_SERVER_ERROR_CODES = new Set([
 export type WorkbenchRunFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 export interface WorkbenchRunAttachment {
-  readonly [name: string]: unknown;
+  repositoryKey: string;
+  relativePath: string;
+  contentHash: string;
 }
 
 export interface SubmitWorkbenchRunRequest {
@@ -123,6 +152,30 @@ export interface WorkbenchPhaseConversation {
   generation: number;
   workbenchVersion: number;
   created: boolean;
+}
+
+export interface WorkbenchPhaseConversationMessage {
+  messageId: number;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+  runId: string | null;
+}
+
+export interface WorkbenchPhaseConversationMessages {
+  sessionId: string | null;
+  generation: number;
+  workbenchVersion: number;
+  messages: WorkbenchPhaseConversationMessage[];
+  nextCursor: number | null;
+}
+
+export interface WorkbenchPhaseConversationRestart {
+  sessionId: string;
+  previousSessionId: string;
+  generation: number;
+  workbenchVersion: number;
+  replayed: boolean;
 }
 
 export interface WorkbenchRunDetail {
@@ -223,6 +276,15 @@ export interface WorkbenchRunRejectedCapability {
   reasonCode: string;
 }
 
+export type WorkbenchRunRepositoryAccess = 'READ' | 'WRITE';
+
+export interface WorkbenchRunRepository {
+  repositoryKey: string;
+  relativePath: string;
+  primary: boolean;
+  access: WorkbenchRunRepositoryAccess;
+}
+
 export interface WorkbenchRunCapability {
   runId: string;
   workbenchId: string;
@@ -236,6 +298,9 @@ export interface WorkbenchRunCapability {
   profileHash: string;
   bindingHash: string;
   runtimeCompatibility: string;
+  repositoryScopeHash: string;
+  primaryRepositoryKey: string;
+  repositories: WorkbenchRunRepository[];
   rules: WorkbenchRunCapabilityRule[];
   skills: WorkbenchRunCapabilitySkill[];
   mcpServers: WorkbenchRunCapabilityMcpServer[];
@@ -261,11 +326,22 @@ export class WorkbenchRunApiError extends Error {
 }
 
 export interface WorkbenchRunApiClient {
+  getConversationMessages(
+    workbenchId: string,
+    phase: WorkbenchPhase,
+    beforeMessageId?: number,
+  ): Promise<WorkbenchPhaseConversationMessages>;
   ensureConversation(
     workbenchId: string,
     phase: WorkbenchPhase,
     expectedVersion: number,
   ): Promise<WorkbenchPhaseConversation>;
+  restartConversation(
+    workbenchId: string,
+    phase: WorkbenchPhase,
+    expectedVersion: number,
+    idempotencyKey: string,
+  ): Promise<WorkbenchPhaseConversationRestart>;
   submitRun(command: SubmitWorkbenchRunCommand): Promise<WorkbenchRunSubmission>;
   getRun(workbenchId: string, runId: string): Promise<WorkbenchRunDetail>;
   stopRun(workbenchId: string, runId: string): Promise<WorkbenchRunStopResponse>;
@@ -296,6 +372,25 @@ function boundedString(value: unknown, maximum: number): string | null {
     return null;
   }
   return normalized;
+}
+
+function logicalRelativePath(value: unknown, maximum: number): string | null {
+  const normalized = boundedString(value, maximum);
+  if (!normalized || normalized.includes('\\') || normalized.startsWith('/')
+    || /^[A-Za-z]:/.test(normalized)) {
+    return null;
+  }
+  const segments = normalized.split('/');
+  return segments.some(segment => !segment || segment === '.' || segment === '..')
+    ? null : normalized;
+}
+
+function hasOnlyFields(body: Record<string, unknown>, allowed: Set<string>): boolean {
+  return Object.keys(body).every(field => allowed.has(field));
+}
+
+function hasForbiddenCapabilityScopeField(body: Record<string, unknown>): boolean {
+  return Object.keys(body).some(field => FORBIDDEN_CAPABILITY_SCOPE_FIELDS.has(field));
 }
 
 function nonNegativeInteger(value: unknown): number | null {
@@ -369,6 +464,70 @@ function conversationProjection(body: unknown): WorkbenchPhaseConversation | nul
     generation,
     workbenchVersion,
     created: body.created,
+  };
+}
+
+function conversationMessageProjection(body: unknown): WorkbenchPhaseConversationMessage | null {
+  if (!isRecord(body)) return null;
+  const messageId = positiveInteger(body.messageId);
+  const role = body.role === 'user' || body.role === 'assistant' ? body.role : null;
+  const content = typeof body.content === 'string'
+    && body.content.length <= CONVERSATION_CONTENT_MAX_LENGTH ? body.content : null;
+  const timestamp = boundedString(body.timestamp, TIMESTAMP_MAX_LENGTH);
+  const runId = nullableBoundedString(body.runId, IDENTIFIER_MAX_LENGTH);
+  if (messageId == null || !role || content == null || !timestamp || runId === undefined
+    || !Number.isFinite(Date.parse(timestamp))) {
+    return null;
+  }
+  return { messageId, role, content, timestamp, runId };
+}
+
+function conversationMessagesProjection(body: unknown): WorkbenchPhaseConversationMessages | null {
+  if (!isRecord(body) || !Array.isArray(body.messages)
+    || body.messages.length > CONVERSATION_MESSAGE_MAX_COUNT) {
+    return null;
+  }
+  const sessionId = nullableBoundedString(body.sessionId, IDENTIFIER_MAX_LENGTH);
+  const generation = nonNegativeInteger(body.generation);
+  const workbenchVersion = nonNegativeInteger(body.workbenchVersion);
+  const nextCursor = body.nextCursor === null
+    ? null : positiveInteger(body.nextCursor);
+  if (sessionId === undefined || generation == null || workbenchVersion == null
+    || nextCursor === null && body.nextCursor !== null
+    || sessionId === null && (body.messages.length > 0 || nextCursor != null)) {
+    return null;
+  }
+  const messages: WorkbenchPhaseConversationMessage[] = [];
+  let previousMessageId = 0;
+  for (const candidate of body.messages) {
+    const message = conversationMessageProjection(candidate);
+    if (!message || message.messageId <= previousMessageId) return null;
+    messages.push(message);
+    previousMessageId = message.messageId;
+  }
+  if (nextCursor != null
+    && (messages.length === 0 || nextCursor !== messages[0].messageId)) {
+    return null;
+  }
+  return { sessionId, generation, workbenchVersion, messages, nextCursor };
+}
+
+function conversationRestartProjection(body: unknown): WorkbenchPhaseConversationRestart | null {
+  if (!isRecord(body)) return null;
+  const sessionId = boundedString(body.sessionId, IDENTIFIER_MAX_LENGTH);
+  const previousSessionId = boundedString(body.previousSessionId, IDENTIFIER_MAX_LENGTH);
+  const generation = positiveInteger(body.generation);
+  const workbenchVersion = nonNegativeInteger(body.workbenchVersion);
+  if (!sessionId || !previousSessionId || sessionId === previousSessionId
+    || generation == null || workbenchVersion == null || typeof body.replayed !== 'boolean') {
+    return null;
+  }
+  return {
+    sessionId,
+    previousSessionId,
+    generation,
+    workbenchVersion,
+    replayed: body.replayed,
   };
 }
 
@@ -555,6 +714,54 @@ function rejectedCapabilityProjection(body: unknown): WorkbenchRunRejectedCapabi
   return id && reasonCode ? { id, reasonCode } : null;
 }
 
+function runRepositoryProjection(body: unknown): WorkbenchRunRepository | null {
+  if (!isRecord(body) || !hasOnlyFields(body, RUN_REPOSITORY_FIELDS)) return null;
+  const repositoryKey = logicalRelativePath(body.repositoryKey, RUN_REPOSITORY_KEY_MAX_LENGTH);
+  const relativePath = logicalRelativePath(body.relativePath, RUN_REPOSITORY_RELATIVE_PATH_MAX_LENGTH);
+  const access = knownValue(body.access, RUN_REPOSITORY_ACCESSES);
+  if (!repositoryKey || !relativePath || typeof body.primary !== 'boolean' || !access) return null;
+  return { repositoryKey, relativePath, primary: body.primary, access };
+}
+
+function repositoryScopeProjection(body: Record<string, unknown>): {
+  repositoryScopeHash: string;
+  primaryRepositoryKey: string;
+  repositories: WorkbenchRunRepository[];
+} | null {
+  if (hasForbiddenCapabilityScopeField(body)
+    || typeof body.repositoryScopeHash !== 'string'
+    || !LOWERCASE_SHA_256.test(body.repositoryScopeHash)) {
+    return null;
+  }
+  const primaryRepositoryKey = logicalRelativePath(
+    body.primaryRepositoryKey,
+    RUN_REPOSITORY_KEY_MAX_LENGTH,
+  );
+  if (!primaryRepositoryKey || !Array.isArray(body.repositories)
+    || body.repositories.length < 1 || body.repositories.length > RUN_REPOSITORY_MAX_COUNT) {
+    return null;
+  }
+  const repositories: WorkbenchRunRepository[] = [];
+  const repositoryKeys = new Set<string>();
+  let projectedPrimaryKey: string | null = null;
+  for (const candidate of body.repositories) {
+    const repository = runRepositoryProjection(candidate);
+    if (!repository || repositoryKeys.has(repository.repositoryKey)) return null;
+    repositoryKeys.add(repository.repositoryKey);
+    if (repository.primary) {
+      if (projectedPrimaryKey !== null) return null;
+      projectedPrimaryKey = repository.repositoryKey;
+    }
+    repositories.push(repository);
+  }
+  if (projectedPrimaryKey !== primaryRepositoryKey) return null;
+  return {
+    repositoryScopeHash: body.repositoryScopeHash,
+    primaryRepositoryKey,
+    repositories,
+  };
+}
+
 function capabilityProjection(body: unknown): WorkbenchRunCapability | null {
   if (!isRecord(body)) return null;
   const runId = boundedString(body.runId, IDENTIFIER_MAX_LENGTH);
@@ -568,19 +775,21 @@ function capabilityProjection(body: unknown): WorkbenchRunCapability | null {
   const profileHash = boundedString(body.profileHash, HASH_MAX_LENGTH);
   const bindingHash = boundedString(body.bindingHash, HASH_MAX_LENGTH);
   const runtimeCompatibility = boundedString(body.runtimeCompatibility, IDENTIFIER_MAX_LENGTH);
+  const repositoryScope = repositoryScopeProjection(body);
   const rules = projectArray(body.rules, capabilityRuleProjection);
   const skills = projectArray(body.skills, capabilitySkillProjection);
   const mcpServers = projectArray(body.mcpServers, capabilityMcpProjection);
   const rejected = projectArray(body.rejected, rejectedCapabilityProjection);
   if (!runId || !workbenchId || !isWorkbenchPhase(body.phase) || !runMode || createdAt == null
     || overrideVersion == null || !policyVersion || !profileId || !profileVersion || !profileHash
-    || !bindingHash || !runtimeCompatibility || !rules || !skills || !mcpServers || !rejected) {
+    || !bindingHash || !runtimeCompatibility || !repositoryScope
+    || !rules || !skills || !mcpServers || !rejected) {
     return null;
   }
   return {
     runId, workbenchId, phase: body.phase, runMode, createdAt, overrideVersion,
     policyVersion, profileId, profileVersion, profileHash, bindingHash,
-    runtimeCompatibility, rules, skills, mcpServers, rejected,
+    runtimeCompatibility, ...repositoryScope, rules, skills, mcpServers, rejected,
   };
 }
 
@@ -609,6 +818,14 @@ function unexpectedResponse(status: number): WorkbenchRunApiError {
     status,
     'WORKBENCH_RUN_UNEXPECTED_RESPONSE',
     'Workbench Run service returned an unexpected response',
+  );
+}
+
+function invalidProjectionResponse(status: number): WorkbenchRunApiError {
+  return new WorkbenchRunApiError(
+    status,
+    'WORKBENCH_RUN_RESPONSE_INVALID',
+    'Workbench Run service returned an invalid response',
   );
 }
 
@@ -641,6 +858,60 @@ function scopedRunUrl(workbenchId: string, runId: string): string {
   );
 }
 
+function normalizedAttachmentPath(value: unknown, name: string, maximum: number): string {
+  const normalized = boundedString(value, maximum);
+  if (!normalized || normalized.includes('\\') || normalized.startsWith('/')
+    || /^[A-Za-z]:/.test(normalized)) {
+    throw new Error(`workbench run attachment ${name} is invalid`);
+  }
+  const segments = normalized.split('/');
+  if (segments.some(segment => !segment || segment === '.' || segment === '..')) {
+    throw new Error(`workbench run attachment ${name} is invalid`);
+  }
+  return normalized;
+}
+
+export function normalizeWorkbenchRunAttachments(value: unknown): WorkbenchRunAttachment[] {
+  if (!Array.isArray(value)) {
+    throw new Error('workbench run attachments must be an array');
+  }
+  if (value.length > ATTACHMENT_MAX_COUNT) {
+    throw new Error('workbench run accepts at most eight attachments');
+  }
+  const normalized: WorkbenchRunAttachment[] = [];
+  const references = new Set<string>();
+  for (const candidate of value) {
+    if (!isRecord(candidate)) {
+      throw new Error('workbench run attachment is invalid');
+    }
+    const repositoryKey = normalizedAttachmentPath(
+      candidate.repositoryKey,
+      'repository key',
+      ATTACHMENT_REPOSITORY_KEY_MAX_LENGTH,
+    );
+    const relativePath = normalizedAttachmentPath(
+      candidate.relativePath,
+      'relative path',
+      ATTACHMENT_RELATIVE_PATH_MAX_LENGTH,
+    );
+    if (typeof candidate.contentHash !== 'string'
+      || !LOWERCASE_SHA_256.test(candidate.contentHash)) {
+      throw new Error('workbench run attachment content hash is invalid');
+    }
+    const reference = `${repositoryKey}\u0000${relativePath}`;
+    if (references.has(reference)) {
+      throw new Error('workbench run attachment references must be unique');
+    }
+    references.add(reference);
+    normalized.push({
+      repositoryKey,
+      relativePath,
+      contentHash: candidate.contentHash,
+    });
+  }
+  return normalized;
+}
+
 function submitPayload(request: SubmitWorkbenchRunRequest): Record<string, unknown> {
   const payload: Record<string, unknown> = {
     message: request.message,
@@ -653,7 +924,7 @@ function submitPayload(request: SubmitWorkbenchRunRequest): Record<string, unkno
     payload.reviewConfirmationId = request.reviewConfirmationId;
   }
   if (request.attachments !== undefined) {
-    payload.attachments = request.attachments;
+    payload.attachments = normalizeWorkbenchRunAttachments(request.attachments);
   }
   return payload;
 }
@@ -732,6 +1003,7 @@ export function createWorkbenchRunApiClient(
     init: RequestInit,
     expectedStatus: number,
     projection: (body: unknown) => T | null,
+    projectionError: (status: number) => WorkbenchRunApiError = unexpectedResponse,
   ): Promise<T> {
     let response: Response;
     try {
@@ -746,11 +1018,41 @@ export function createWorkbenchRunApiClient(
       throw unexpectedResponse(response.status);
     }
     const projected = projection(body);
-    if (!projected) throw unexpectedResponse(response.status);
+    if (!projected) throw projectionError(response.status);
     return projected;
   }
 
   return {
+    async getConversationMessages(
+      workbenchId,
+      phase,
+      beforeMessageId,
+    ): Promise<WorkbenchPhaseConversationMessages> {
+      let url = '/api/workbenches/'
+        + encodedPathSegment(workbenchId, 'workbenchId')
+        + '/phases/'
+        + encodedPathSegment(phase, 'phase')
+        + '/conversation/messages';
+      if (beforeMessageId !== undefined) {
+        const cursor = positiveInteger(beforeMessageId);
+        if (cursor == null) {
+          throw new WorkbenchRunApiError(
+            0,
+            'WORKBENCH_RUN_REQUEST_INVALID',
+            'Workbench Run request is invalid',
+          );
+        }
+        url += `?beforeMessageId=${cursor}`;
+      }
+      return request<WorkbenchPhaseConversationMessages>(
+        url,
+        { method: 'GET' },
+        200,
+        conversationMessagesProjection,
+        invalidProjectionResponse,
+      );
+    },
+
     async ensureConversation(
       workbenchId,
       phase,
@@ -770,6 +1072,34 @@ export function createWorkbenchRunApiClient(
         },
         200,
         conversationProjection,
+      );
+    },
+
+    async restartConversation(
+      workbenchId,
+      phase,
+      expectedVersion,
+      idempotencyKey,
+    ): Promise<WorkbenchPhaseConversationRestart> {
+      requireExpectedVersion(expectedVersion);
+      const normalizedIdempotencyKey = requireIdempotencyKey(idempotencyKey);
+      const url = '/api/workbenches/'
+        + encodedPathSegment(workbenchId, 'workbenchId')
+        + '/phases/'
+        + encodedPathSegment(phase, 'phase')
+        + '/conversation/restart';
+      return request<WorkbenchPhaseConversationRestart>(
+        url,
+        {
+          method: 'POST',
+          headers: {
+            'If-Match': String(expectedVersion),
+            'Idempotency-Key': normalizedIdempotencyKey,
+          },
+        },
+        200,
+        conversationRestartProjection,
+        invalidProjectionResponse,
       );
     },
 

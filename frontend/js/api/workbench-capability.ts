@@ -50,12 +50,15 @@ export type WorkbenchCapabilityProfileStatus =
   | 'DEGRADED'
   | 'UNAVAILABLE';
 
+export type WorkbenchCapabilityAccess = 'READ' | 'WRITE';
+
 export interface WorkbenchCapabilityItem {
   id: string;
   required: boolean;
   selected: boolean;
   source: string;
   summary: string | null;
+  access: WorkbenchCapabilityAccess | null;
 }
 
 export interface WorkbenchCapabilityOverrideInput {
@@ -225,9 +228,9 @@ function effectiveProfile(value: unknown): WorkbenchEffectiveCapabilityProfile |
   const profileId = boundedString(body.profileId, IDENTIFIER_MAX_LENGTH);
   const profileVersion = boundedString(body.profileVersion, IDENTIFIER_MAX_LENGTH);
   const profileHash = sha256(body.profileHash);
-  const rules = capabilityItems(body.rules);
-  const skills = capabilityItems(body.skills);
-  const mcpServers = capabilityItems(body.mcpServers);
+  const rules = capabilityItems(body.rules, 'NON_MCP');
+  const skills = capabilityItems(body.skills, 'NON_MCP');
+  const mcpServers = capabilityItems(body.mcpServers, 'MCP');
   const selection = overrideInputOrNull(body);
   const overrideVersion = nonNegativeInteger(body.overrideVersion);
   const warnings = boundedStringList(body.warnings, WARNING_MAX_LENGTH, MAXIMUM_WARNINGS);
@@ -254,7 +257,10 @@ function effectiveProfile(value: unknown): WorkbenchEffectiveCapabilityProfile |
   };
 }
 
-function capabilityItems(value: unknown): WorkbenchCapabilityItem[] | null {
+function capabilityItems(
+  value: unknown,
+  type: 'NON_MCP' | 'MCP',
+): WorkbenchCapabilityItem[] | null {
   if (!Array.isArray(value) || value.length > MAXIMUM_CAPABILITIES) return null;
   const result: WorkbenchCapabilityItem[] = [];
   const identifiers = new Set<string>();
@@ -264,20 +270,41 @@ function capabilityItems(value: unknown): WorkbenchCapabilityItem[] | null {
     const id = boundedString(item.id, IDENTIFIER_MAX_LENGTH);
     const source = boundedString(item.source, SOURCE_MAX_LENGTH);
     const summary = nullableBoundedString(item.summary, SUMMARY_MAX_LENGTH);
+    const required = typeof item.required === 'boolean' ? item.required : null;
+    const selected = typeof item.selected === 'boolean' ? item.selected : null;
     if (!id || !source || summary === undefined
-      || typeof item.required !== 'boolean' || typeof item.selected !== 'boolean'
-      || item.required && !item.selected || !identifiers.add(id)) {
+      || required == null || selected == null
+      || required && !selected || !identifiers.add(id)) {
+      return null;
+    }
+    const access = capabilityAccess(item.access, type, selected, source);
+    if (access === undefined) {
       return null;
     }
     result.push({
       id,
-      required: item.required,
-      selected: item.selected,
+      required,
+      selected,
       source,
       summary,
+      access,
     });
   }
   return result;
+}
+
+function capabilityAccess(
+  value: unknown,
+  type: 'NON_MCP' | 'MCP',
+  selected: boolean,
+  source: string,
+): WorkbenchCapabilityAccess | null | undefined {
+  if (type === 'NON_MCP') return value === null ? null : undefined;
+  if (value === null) {
+    return !selected || source === 'UNAVAILABLE' ? null : undefined;
+  }
+  if (value !== 'READ' && value !== 'WRITE') return undefined;
+  return selected && source !== 'UNAVAILABLE' ? value : undefined;
 }
 
 function overrideProjection(value: unknown): WorkbenchPhaseCapabilityOverride | null {

@@ -14,6 +14,8 @@ public enum WorkbenchPromptPartType {
     SELECTED_CAPABILITIES(true),
     UPSTREAM_HANDOFF(false),
     WORKSPACE_CONTEXT(true),
+    ORIGINAL_GOAL(true),
+    ATTACHMENTS(false),
     PHASE_HISTORY(false),
     USER_INPUT(true),
     OUTPUT_INSTRUCTION(true);

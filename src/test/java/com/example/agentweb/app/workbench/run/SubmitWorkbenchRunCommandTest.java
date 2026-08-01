@@ -212,6 +212,38 @@ class SubmitWorkbenchRunCommandTest {
                 () -> attachment("agent-web", "src/Main.java", "not-a-sha256"));
     }
 
+    @Test
+    void commandShouldAllowEightAttachmentsAndRejectNinthOrDuplicateReference() {
+        List<WorkbenchRunAttachmentReference> eight =
+                attachmentReferences(8);
+
+        SubmitWorkbenchRunCommand accepted = command(
+                WorkbenchId.of("workbench-1"),
+                WorkbenchPhase.IMPLEMENT_TEST, 0L, "key", "message",
+                RunMode.MODIFY_WORKSPACE, null, null, eight);
+
+        assertEquals(8, accepted.getAttachments().size());
+
+        WorkbenchRunAttachmentReference first = eight.get(0);
+        List<WorkbenchRunAttachmentReference> duplicate =
+                new ArrayList<WorkbenchRunAttachmentReference>(eight);
+        duplicate.set(1, WorkbenchRunAttachmentReference.of(
+                first.getDocumentReference().getRepositoryKey(),
+                first.getDocumentReference().getRelativePath(), HASH_B));
+
+        assertThrows(IllegalStateException.class,
+                () -> command(
+                        WorkbenchId.of("workbench-1"),
+                        WorkbenchPhase.IMPLEMENT_TEST, 0L, "key", "message",
+                        RunMode.MODIFY_WORKSPACE, null, null,
+                        attachmentReferences(9)));
+        assertThrows(IllegalStateException.class,
+                () -> command(
+                        WorkbenchId.of("workbench-1"),
+                        WorkbenchPhase.IMPLEMENT_TEST, 0L, "key", "message",
+                        RunMode.MODIFY_WORKSPACE, null, null, duplicate));
+    }
+
     private static SubmitWorkbenchRunCommand baseCommand(
             WorkbenchId workbenchId, WorkbenchPhase phase, long expectedVersion,
             String idempotencyKey, String message, RunMode runMode,
@@ -242,6 +274,17 @@ class SubmitWorkbenchRunCommandTest {
             String repositoryKey, String relativePath, String contentHash) {
         return WorkbenchRunAttachmentReference.of(
                 repositoryKey, relativePath, contentHash);
+    }
+
+    private static List<WorkbenchRunAttachmentReference> attachmentReferences(
+            int count) {
+        List<WorkbenchRunAttachmentReference> attachments =
+                new ArrayList<WorkbenchRunAttachmentReference>(count);
+        for (int index = 0; index < count; index++) {
+            attachments.add(attachment(
+                    "agent-web", "docs/attachment-" + index + ".md", HASH_A));
+        }
+        return attachments;
     }
 
     private static void assertHashDiffers(

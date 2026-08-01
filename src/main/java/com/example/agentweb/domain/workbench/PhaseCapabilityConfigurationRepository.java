@@ -13,7 +13,11 @@ public interface PhaseCapabilityConfigurationRepository {
     Optional<PhaseCapabilityConfiguration> find(WorkbenchId workbenchId,
                                                 WorkbenchPhase phase);
 
+    PhaseCapabilityConfigurationState findState(
+            WorkbenchId workbenchId, WorkbenchPhase phase);
+
     void save(PhaseCapabilityConfiguration configuration);
 
-    void delete(WorkbenchId workbenchId, WorkbenchPhase phase, long expectedVersion);
+    long delete(WorkbenchId workbenchId, WorkbenchPhase phase,
+                long expectedVersion);
 }

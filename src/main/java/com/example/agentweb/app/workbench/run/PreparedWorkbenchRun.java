@@ -2,10 +2,14 @@ package com.example.agentweb.app.workbench.run;
 
 import com.example.agentweb.domain.workbench.HandoffReception;
 import com.example.agentweb.domain.workbench.ReviewModifyConfirmation;
+import com.example.agentweb.domain.workbench.VerifiedWorkbenchRunAttachment;
 import com.example.agentweb.domain.workbench.WorkbenchRunPromptPayload;
 import com.example.agentweb.domain.workbench.WorkbenchRunSnapshot;
 import com.example.agentweb.domain.workspace.WorkspaceSnapshot;
 import lombok.Getter;
+
+import java.util.Collections;
+import java.util.List;
 
 /**
  * 进入提交事务前已完成 Snapshot、Prompt、Handoff 与 Review 解析的 Run 候选。
@@ -22,6 +26,7 @@ public final class PreparedWorkbenchRun {
     private final WorkbenchRunPromptPayload promptPayload;
     private final ReviewModifyConfirmation reviewConfirmation;
     private final HandoffReception handoffReception;
+    private final List<VerifiedWorkbenchRunAttachment> verifiedAttachments;
 
     private PreparedWorkbenchRun(
             SubmitWorkbenchRunCommand command,
@@ -29,7 +34,8 @@ public final class PreparedWorkbenchRun {
             WorkspaceSnapshot workspaceSnapshot,
             WorkbenchRunPromptPayload promptPayload,
             ReviewModifyConfirmation reviewConfirmation,
-            HandoffReception handoffReception) {
+            HandoffReception handoffReception,
+            List<VerifiedWorkbenchRunAttachment> verifiedAttachments) {
         if (command == null || snapshot == null || workspaceSnapshot == null
                 || promptPayload == null) {
             throw new IllegalArgumentException(
@@ -48,6 +54,9 @@ public final class PreparedWorkbenchRun {
         this.promptPayload = promptPayload;
         this.reviewConfirmation = reviewConfirmation;
         this.handoffReception = handoffReception;
+        this.verifiedAttachments =
+                VerifiedWorkbenchRunAttachment.immutableList(
+                        verifiedAttachments);
     }
 
     public static PreparedWorkbenchRun of(
@@ -59,6 +68,20 @@ public final class PreparedWorkbenchRun {
             HandoffReception handoffReception) {
         return new PreparedWorkbenchRun(
                 command, snapshot, workspaceSnapshot, promptPayload,
-                reviewConfirmation, handoffReception);
+                reviewConfirmation, handoffReception,
+                Collections.<VerifiedWorkbenchRunAttachment>emptyList());
+    }
+
+    public static PreparedWorkbenchRun of(
+            SubmitWorkbenchRunCommand command,
+            WorkbenchRunSnapshot snapshot,
+            WorkspaceSnapshot workspaceSnapshot,
+            WorkbenchRunPromptPayload promptPayload,
+            ReviewModifyConfirmation reviewConfirmation,
+            HandoffReception handoffReception,
+            List<VerifiedWorkbenchRunAttachment> verifiedAttachments) {
+        return new PreparedWorkbenchRun(
+                command, snapshot, workspaceSnapshot, promptPayload,
+                reviewConfirmation, handoffReception, verifiedAttachments);
     }
 }

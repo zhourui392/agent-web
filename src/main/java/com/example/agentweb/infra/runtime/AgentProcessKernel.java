@@ -25,6 +25,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.LongSupplier;
 import java.util.stream.Stream;
 
 /**
@@ -45,6 +46,8 @@ public final class AgentProcessKernel implements AgentExecutionGateway, AutoClos
     private final RuntimeProcessRegistry processRegistry;
     private final RuntimeCleanup cleanup;
     private final Executor monitorExecutor;
+    private final LongSupplier toolNanoTimeSource;
+    private final RuntimeAttachmentVerifier attachmentVerifier;
     private final ConcurrentMap<String, ExecutionContext> contexts =
             new ConcurrentHashMap<String, ExecutionContext>();
 
@@ -71,6 +74,20 @@ public final class AgentProcessKernel implements AgentExecutionGateway, AutoClos
                               RuntimeProcessRegistry processRegistry,
                               RuntimeCleanup cleanup,
                               Executor monitorExecutor) {
+        this(commandFactory, workspaceMaterializer, capabilityMaterializer,
+                eventDecoder, credentialResolver, processRegistry, cleanup,
+                monitorExecutor, System::nanoTime);
+    }
+
+    AgentProcessKernel(RuntimeCommandFactory commandFactory,
+                       RuntimeWorkspaceMaterializer workspaceMaterializer,
+                       RuntimeCapabilityMaterializer capabilityMaterializer,
+                       RuntimeEventDecoder eventDecoder,
+                       RuntimeCredentialResolver credentialResolver,
+                       RuntimeProcessRegistry processRegistry,
+                       RuntimeCleanup cleanup,
+                       Executor monitorExecutor,
+                       LongSupplier toolNanoTimeSource) {
         this.commandFactory = Objects.requireNonNull(commandFactory, "commandFactory");
         this.workspaceMaterializer = Objects.requireNonNull(
                 workspaceMaterializer, "workspaceMaterializer");
@@ -82,6 +99,9 @@ public final class AgentProcessKernel implements AgentExecutionGateway, AutoClos
         this.processRegistry = Objects.requireNonNull(processRegistry, "processRegistry");
         this.cleanup = Objects.requireNonNull(cleanup, "cleanup");
         this.monitorExecutor = Objects.requireNonNull(monitorExecutor, "monitorExecutor");
+        this.toolNanoTimeSource = Objects.requireNonNull(
+                toolNanoTimeSource, "toolNanoTimeSource");
+        this.attachmentVerifier = new RuntimeAttachmentVerifier();
     }
 
     @Override
@@ -105,13 +125,15 @@ public final class AgentProcessKernel implements AgentExecutionGateway, AutoClos
             credential = credentialResolver.prepareEnvironment(
                     plan.getRuntimeSelection(), plan.getRuntimeLimits(),
                     workspace.getIsolatedHome(), processEnvironment);
+            attachmentVerifier.verify(plan);
             capabilities.applySecretEnvironment(processEnvironment);
             process = builder.start();
             capabilities.clearSecretEnvironment(processEnvironment);
             handle = processRegistry.register(
                     plan.getExecutionIdentity().getExecutionId(), process);
             ExecutionContext context = new ExecutionContext(plan, sink, handle, process,
-                    workspace, capabilities, credential, System.nanoTime());
+                    workspace, capabilities, credential, System.nanoTime(),
+                    toolNanoTimeSource);
             ExecutionContext previous = contexts.putIfAbsent(handle.getHandleId(), context);
             if (previous != null) {
                 throw new IllegalStateException("runtime handle context is already active");
@@ -268,6 +290,7 @@ public final class AgentProcessKernel implements AgentExecutionGateway, AutoClos
 
     private void complete(ExecutionContext context, int exitCode,
                           RuntimeTerminationReason reason) {
+        context.releaseTiming();
         context.getCapabilities().close();
         RuntimeCleanup.CleanupResult cleanupResult = cleanup.cleanup(
                 context.getWorkspace().getExecutionRoot(), context.getCredential());
@@ -354,6 +377,7 @@ public final class AgentProcessKernel implements AgentExecutionGateway, AutoClos
         private final RuntimeCapabilityMaterialization capabilities;
         private final RuntimeCredentialResolver.ResolvedCredential credential;
         private final long startedNanos;
+        private final RuntimeToolTimingTracker toolTiming;
         private final AtomicLong sequence = new AtomicLong();
         private final AtomicBoolean stopEventEmitted = new AtomicBoolean();
 
@@ -362,7 +386,8 @@ public final class AgentProcessKernel implements AgentExecutionGateway, AutoClos
                                  RuntimeWorkspaceMaterializer.MaterializedWorkspace workspace,
                                  RuntimeCapabilityMaterialization capabilities,
                                  RuntimeCredentialResolver.ResolvedCredential credential,
-                                 long startedNanos) {
+                                 long startedNanos,
+                                 LongSupplier toolNanoTimeSource) {
             this.plan = plan;
             this.sink = sink;
             this.handle = handle;
@@ -371,6 +396,8 @@ public final class AgentProcessKernel implements AgentExecutionGateway, AutoClos
             this.capabilities = capabilities;
             this.credential = credential;
             this.startedNanos = startedNanos;
+            this.toolTiming = new RuntimeToolTimingTracker(
+                    handle.getExecutionId(), toolNanoTimeSource);
         }
 
         private synchronized void emit(RuntimeEventType type, String payload) {
@@ -398,8 +425,12 @@ public final class AgentProcessKernel implements AgentExecutionGateway, AutoClos
             RuntimeEventDecoder.DecodedEvent decoded = decoder.decode(
                     handle.getExecutionId(), sequence.incrementAndGet(), line,
                     credential, capabilities, plan.getWorkspaceLayout());
-            sink.onEvent(decoded.getEvent());
+            sink.onEvent(toolTiming.enhance(decoded.getEvent()));
             return decoded;
+        }
+
+        private void releaseTiming() {
+            toolTiming.clear();
         }
 
         private AgentExecutionPlan getPlan() {

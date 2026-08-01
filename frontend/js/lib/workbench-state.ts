@@ -55,7 +55,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   WORKBENCH_IDEMPOTENCY_CONFLICT: '创建请求与已有请求冲突，请重新打开创建窗口',
   WORKSPACE_SELECTION_INVALID: '请选择至少一个仓库，并指定主仓库',
   WORKSPACE_PATH_FORBIDDEN: '当前工作空间不在允许范围内',
-  WORKSPACE_TOPOLOGY_CHANGED: '仓库状态已变化，请重新检查工作空间',
+  WORKSPACE_TOPOLOGY_CHANGED: '仓库目录或状态已变化；请恢复原目录，或创建新的 Workbench',
+  WORKSPACE_REPOSITORY_NOT_FOUND: '仓库目录已移动或不存在；请恢复原目录，或创建新的 Workbench',
   WORKSPACE_CAPTURE_UNSTABLE: '仓库状态不稳定，请稍后重新检查',
   WORKSPACE_GIT_UNAVAILABLE: '暂时无法读取 Git 状态',
 };

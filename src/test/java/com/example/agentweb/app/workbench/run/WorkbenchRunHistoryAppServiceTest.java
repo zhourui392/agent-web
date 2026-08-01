@@ -185,6 +185,14 @@ class WorkbenchRunHistoryAppServiceTest {
         assertEquals("repository-query", view.getMcpServers().get(0).getId());
         assertEquals("READ", view.getMcpServers().get(0).getAccess());
         assertEquals("production-write", view.getRejected().get(0).getId());
+        assertEquals(authorized.getSnapshot().getRepositoryScopeHash(),
+                view.getRepositoryScopeHash());
+        assertEquals("repo", view.getPrimaryRepositoryKey());
+        assertEquals(1, view.getRepositories().size());
+        assertEquals("repo", view.getRepositories().get(0).getRepositoryKey());
+        assertEquals("repo", view.getRepositories().get(0).getRelativePath());
+        assertEquals(true, view.getRepositories().get(0).isPrimary());
+        assertEquals("READ", view.getRepositories().get(0).getAccess());
     }
 
     private AuthorizedWorkbenchRun authorize(ChatRun run) {

@@ -1056,6 +1056,7 @@ CREATE TABLE IF NOT EXISTS workbench_run_snapshot (
     handoff_source_hash             TEXT,
     prompt_parts_json               TEXT    NOT NULL,
     prompt_hash                     TEXT    NOT NULL,
+    attachments_json                TEXT    NOT NULL DEFAULT '[]',
     runtime_enforcement_json        TEXT    NOT NULL,
     review_confirmation_id          TEXT,
     review_opinion_version          INTEGER,

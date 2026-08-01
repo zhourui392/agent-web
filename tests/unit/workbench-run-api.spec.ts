@@ -49,6 +49,251 @@ function acceptedSubmission(
 }
 
 describe("Workbench Run API client", () => {
+  it("loads the current Phase conversation messages through a strict safe projection", async () => {
+    const body = {
+      sessionId: "phase-session-1",
+      generation: 2,
+      workbenchVersion: 8,
+      messages: [
+        {
+          messageId: 10,
+          role: "user",
+          content: "请解释设计",
+          timestamp: "2026-08-01T00:00:00Z",
+          runId: "run-1",
+          workingDir: "/private/repository",
+        },
+        {
+          messageId: 11,
+          role: "assistant",
+          content: "## 方案\n\n```java\nrecord A() {}\n```",
+          timestamp: "2026-08-01T00:00:01Z",
+          runId: null,
+          token: "server-secret",
+        },
+      ],
+      nextCursor: 10,
+      ownerId: "private-owner",
+    };
+    const { client, fetchMock } = clientWith(jsonResponse(200, body));
+
+    await expect(client.getConversationMessages(
+      "wb/一", "SOLUTION_DESIGN",
+    )).resolves.toEqual({
+      sessionId: "phase-session-1",
+      generation: 2,
+      workbenchVersion: 8,
+      messages: [
+        {
+          messageId: 10,
+          role: "user",
+          content: "请解释设计",
+          timestamp: "2026-08-01T00:00:00Z",
+          runId: "run-1",
+        },
+        {
+          messageId: 11,
+          role: "assistant",
+          content: "## 方案\n\n```java\nrecord A() {}\n```",
+          timestamp: "2026-08-01T00:00:01Z",
+          runId: null,
+        },
+      ],
+      nextCursor: 10,
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/workbenches/wb%2F%E4%B8%80/phases/SOLUTION_DESIGN/conversation/messages",
+      { method: "GET" },
+    );
+  });
+
+  it("accepts an empty not-yet-created Phase conversation", async () => {
+    const { client } = clientWith(jsonResponse(200, {
+      sessionId: null,
+      generation: 0,
+      workbenchVersion: 3,
+      messages: [],
+      nextCursor: null,
+    }));
+
+    await expect(client.getConversationMessages(
+      "wb-1", "REQUIREMENT_ANALYSIS",
+    )).resolves.toEqual({
+      sessionId: null,
+      generation: 0,
+      workbenchVersion: 3,
+      messages: [],
+      nextCursor: null,
+    });
+  });
+
+  it("loads older Phase messages with an opaque positive cursor", async () => {
+    const { client, fetchMock } = clientWith(jsonResponse(200, {
+      sessionId: "phase-session-1",
+      generation: 2,
+      workbenchVersion: 8,
+      messages: [{
+        messageId: 4,
+        role: "user",
+        content: "更早的问题",
+        timestamp: "2026-08-01T00:00:00Z",
+        runId: null,
+      }],
+      nextCursor: null,
+    }));
+
+    await expect(client.getConversationMessages(
+      "wb-1", "SOLUTION_DESIGN", 10,
+    )).resolves.toMatchObject({ messages: [{ messageId: 4 }], nextCursor: null });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/workbenches/wb-1/phases/SOLUTION_DESIGN/conversation/messages?beforeMessageId=10",
+      { method: "GET" },
+    );
+  });
+
+  it.each([
+    {
+      name: "non-array messages",
+      change: { messages: {} },
+    },
+    {
+      name: "messages when no session exists",
+      change: {
+        sessionId: null,
+        messages: [{
+          messageId: 1,
+          role: "user",
+          content: "unexpected",
+          timestamp: "2026-08-01T00:00:00Z",
+          runId: null,
+        }],
+      },
+    },
+    {
+      name: "unknown role",
+      change: {
+        messages: [{
+          messageId: 1,
+          role: "system",
+          content: "hidden",
+          timestamp: "2026-08-01T00:00:00Z",
+          runId: null,
+        }],
+      },
+    },
+    {
+      name: "invalid timestamp",
+      change: {
+        messages: [{
+          messageId: 1,
+          role: "assistant",
+          content: "reply",
+          timestamp: "not-a-time",
+          runId: null,
+        }],
+      },
+    },
+    {
+      name: "non-increasing message id",
+      change: {
+        messages: [
+          {
+            messageId: 2,
+            role: "user",
+            content: "first",
+            timestamp: "2026-08-01T00:00:00Z",
+            runId: "run-1",
+          },
+          {
+            messageId: 2,
+            role: "assistant",
+            content: "duplicate",
+            timestamp: "2026-08-01T00:00:01Z",
+            runId: "run-1",
+          },
+        ],
+      },
+    },
+    {
+      name: "oversized content",
+      change: {
+        messages: [{
+          messageId: 1,
+          role: "assistant",
+          content: "x".repeat(1_000_001),
+          timestamp: "2026-08-01T00:00:00Z",
+          runId: null,
+        }],
+      },
+    },
+  ])("rejects malformed or over-bound conversation messages: $name", async ({ change }) => {
+    const valid = {
+      sessionId: "phase-session-1",
+      generation: 0,
+      workbenchVersion: 3,
+      messages: [],
+      nextCursor: null,
+    };
+    const { client } = clientWith(jsonResponse(200, { ...valid, ...change }));
+
+    await expect(client.getConversationMessages(
+      "wb-1", "REQUIREMENT_ANALYSIS",
+    )).rejects.toMatchObject({ code: "WORKBENCH_RUN_RESPONSE_INVALID" });
+  });
+
+  it("restarts a Phase conversation with optimistic and idempotency headers", async () => {
+    const { client, fetchMock } = clientWith(jsonResponse(200, {
+      sessionId: "phase-session-2",
+      previousSessionId: "phase-session-1",
+      generation: 2,
+      workbenchVersion: 9,
+      replayed: false,
+      repositoryRoot: "/private/repository",
+    }));
+
+    await expect(client.restartConversation(
+      "wb/一", "IMPLEMENT_TEST", 8, "restart-key-1",
+    )).resolves.toEqual({
+      sessionId: "phase-session-2",
+      previousSessionId: "phase-session-1",
+      generation: 2,
+      workbenchVersion: 9,
+      replayed: false,
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/workbenches/wb%2F%E4%B8%80/phases/IMPLEMENT_TEST/conversation/restart",
+      {
+        method: "POST",
+        headers: {
+          "If-Match": "8",
+          "Idempotency-Key": "restart-key-1",
+        },
+      },
+    );
+  });
+
+  it("rejects malformed restart responses and invalid restart headers", async () => {
+    const malformed = clientWith(jsonResponse(200, {
+      sessionId: "same-session",
+      previousSessionId: "same-session",
+      generation: 0,
+      workbenchVersion: 9,
+      replayed: false,
+    }));
+    await expect(malformed.client.restartConversation(
+      "wb-1", "IMPLEMENT_TEST", 8, "restart-key-1",
+    )).rejects.toMatchObject({ code: "WORKBENCH_RUN_RESPONSE_INVALID" });
+
+    const invalid = clientWith(jsonResponse(200, {}));
+    await expect(invalid.client.restartConversation(
+      "wb-1", "IMPLEMENT_TEST", Number.NaN, "restart-key-1",
+    )).rejects.toThrow("If-Match");
+    await expect(invalid.client.restartConversation(
+      "wb-1", "IMPLEMENT_TEST", 8, "   ",
+    )).rejects.toThrow("Idempotency-Key");
+    expect(invalid.fetchMock).not.toHaveBeenCalled();
+  });
+
   it("ensures a Phase conversation with exact optimistic version and safe projection", async () => {
     const response = {
       sessionId: "phase-session-1",
@@ -92,9 +337,19 @@ describe("Workbench Run API client", () => {
           handoffSourceVersion: 3,
           reviewConfirmationId: "review/1",
           attachments: [
-            { attachmentId: "attachment/1", kind: "FILE" },
-            { attachmentId: "attachment-2", kind: "IMAGE" },
-          ],
+            {
+              repositoryKey: "agent-web",
+              relativePath: "docs/design.md",
+              contentHash: "a".repeat(64),
+              absolutePath: "/private/agent-web/docs/design.md",
+              content: "private body",
+            },
+            {
+              repositoryKey: "shared-lib",
+              relativePath: "src/main/App.java",
+              contentHash: "b".repeat(64),
+            },
+          ] as never,
         },
       }),
     ).resolves.toEqual(accepted);
@@ -114,12 +369,118 @@ describe("Workbench Run API client", () => {
           handoffSourceVersion: 3,
           reviewConfirmationId: "review/1",
           attachments: [
-            { attachmentId: "attachment/1", kind: "FILE" },
-            { attachmentId: "attachment-2", kind: "IMAGE" },
+            {
+              repositoryKey: "agent-web",
+              relativePath: "docs/design.md",
+              contentHash: "a".repeat(64),
+            },
+            {
+              repositoryKey: "shared-lib",
+              relativePath: "src/main/App.java",
+              contentHash: "b".repeat(64),
+            },
           ],
         }),
       },
     );
+  });
+
+  it.each([
+    { name: "non-array", attachments: { repositoryKey: "agent-web" } },
+    {
+      name: "more than eight",
+      attachments: Array.from({ length: 9 }, (_, index) => ({
+        repositoryKey: "agent-web",
+        relativePath: `docs/${index}.md`,
+        contentHash: "a".repeat(64),
+      })),
+    },
+    {
+      name: "uppercase hash",
+      attachments: [{
+        repositoryKey: "agent-web",
+        relativePath: "README.md",
+        contentHash: "A".repeat(64),
+      }],
+    },
+    {
+      name: "short hash",
+      attachments: [{
+        repositoryKey: "agent-web",
+        relativePath: "README.md",
+        contentHash: "a".repeat(63),
+      }],
+    },
+    {
+      name: "absolute relative path",
+      attachments: [{
+        repositoryKey: "agent-web",
+        relativePath: "/etc/passwd",
+        contentHash: "a".repeat(64),
+      }],
+    },
+    {
+      name: "windows path",
+      attachments: [{
+        repositoryKey: "agent-web",
+        relativePath: "C:\\secret.txt",
+        contentHash: "a".repeat(64),
+      }],
+    },
+    {
+      name: "parent segment",
+      attachments: [{
+        repositoryKey: "agent-web",
+        relativePath: "docs/../secret.txt",
+        contentHash: "a".repeat(64),
+      }],
+    },
+    {
+      name: "empty segment",
+      attachments: [{
+        repositoryKey: "agent-web",
+        relativePath: "docs//design.md",
+        contentHash: "a".repeat(64),
+      }],
+    },
+    {
+      name: "invalid repository key",
+      attachments: [{
+        repositoryKey: "../agent-web",
+        relativePath: "README.md",
+        contentHash: "a".repeat(64),
+      }],
+    },
+    {
+      name: "duplicate reference",
+      attachments: [
+        {
+          repositoryKey: "agent-web",
+          relativePath: "README.md",
+          contentHash: "a".repeat(64),
+        },
+        {
+          repositoryKey: "agent-web",
+          relativePath: "README.md",
+          contentHash: "b".repeat(64),
+        },
+      ],
+    },
+  ])("rejects malformed Run attachments before fetch: $name", async ({ attachments }) => {
+    const { client, fetchMock } = clientWith(jsonResponse(202, acceptedSubmission()));
+
+    await expect(client.submitRun({
+      workbenchId: "wb-1",
+      phase: "SOLUTION_DESIGN",
+      expectedVersion: 1,
+      idempotencyKey: "run-key-invalid-attachment",
+      request: {
+        message: "讨论方案",
+        runMode: "DISCUSS_READ_ONLY",
+        attachments: attachments as never,
+      },
+    })).rejects.toThrow(/attachment/i);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("omits optional submit properties instead of inventing contract defaults", async () => {
@@ -489,6 +850,34 @@ describe("Workbench Run API client", () => {
         /home|workingDir|secret|token/i,
       );
       expect(rejection.message).not.toMatch(/home|workingDir|secret|token/i);
+    },
+  );
+
+  it.each([
+    ["WORKSPACE_TOPOLOGY_CHANGED", 409],
+    ["WORKSPACE_REPOSITORY_NOT_FOUND", 422],
+    ["WORKBENCH_REPOSITORY_SCOPE_INVALID", 422],
+    ["REPOSITORY_SCOPE_VIOLATION", 403],
+  ])(
+    "preserves actionable Repository Scope error code %s from HTTP %i",
+    async (code, status) => {
+      const { client } = clientWith(
+        jsonResponse(status, {
+          code,
+          message: "repository failed at /home/private/project with secret-value",
+          repositoryRoot: "/home/private/project",
+          token: "secret-value",
+        }),
+      );
+
+      const rejection = await client
+        .getRun("wb-1", "run-1")
+        .catch((error) => error);
+
+      expect(rejection).toEqual(expect.objectContaining({ status, code }));
+      expect(Object.keys(rejection).sort()).toEqual(["code", "name", "status"]);
+      expect(JSON.stringify(rejection)).not.toMatch(/home|repositoryRoot|secret|token/i);
+      expect(rejection.message).not.toMatch(/home|secret/i);
     },
   );
 

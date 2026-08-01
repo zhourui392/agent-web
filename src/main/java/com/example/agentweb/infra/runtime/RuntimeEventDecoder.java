@@ -221,7 +221,8 @@ public final class RuntimeEventDecoder {
                     "shell", callId,
                     succeeded ? "SUCCEEDED" : "FAILED"));
             events.add(RuntimeSemanticEvent.commandFinished(
-                    repositoryKey, commandClass.name(), exitCode));
+                    repositoryKey, commandClass.name(), exitCode,
+                    succeeded ? "SUCCEEDED" : "FAILED"));
             addProgress(events, repositoryKey, commandClass,
                     succeeded ? "PASSED" : "FAILED",
                     succeeded ? "命令已完成" : "命令执行失败");

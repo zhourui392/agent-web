@@ -29,6 +29,7 @@ import com.example.agentweb.domain.workbench.WorkbenchRunSnapshot;
 import com.example.agentweb.domain.workbench.WorkbenchRunSnapshotRepository;
 import com.example.agentweb.domain.workspace.WorkspaceSnapshotRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -113,6 +114,26 @@ public class WorkbenchRunSubmissionCommitter {
                 () -> commitInTransaction(actor, prepared));
     }
 
+    @Transactional(readOnly = true)
+    public Optional<WorkbenchRunSubmissionResult> replayIfPresent(
+            OwnerReference actor, SubmitWorkbenchRunCommand command) {
+        if (actor == null || command == null) {
+            throw new IllegalArgumentException(
+                    "workbench run actor and command are required");
+        }
+        Optional<WorkbenchRunSnapshot> existing = snapshotRepository
+                .findReplayCandidate(
+                        actor, command.getWorkbenchId(), command.getPhase(),
+                        command.getIdempotencyKey());
+        if (!existing.isPresent()) {
+            return Optional.empty();
+        }
+        Workbench workbench = requireOwnedWorkbench(
+                actor, command.getWorkbenchId());
+        return Optional.of(replay(
+                workbench, actor, command, existing.get()));
+    }
+
     private WorkbenchRunSubmissionResult commitInTransaction(
             OwnerReference actor, PreparedWorkbenchRun prepared) {
         SubmitWorkbenchRunCommand command = prepared.getCommand();
@@ -124,7 +145,7 @@ public class WorkbenchRunSubmissionCommitter {
                         command.getWorkbenchId(), command.getPhase(),
                         command.getIdempotencyKey());
         if (existing.isPresent()) {
-            return replay(workbench, command, existing.get());
+            return replay(workbench, actor, command, existing.get());
         }
         requireCapacity();
         PhaseConversationProvisioning provisioning = obscureOwner(() ->
@@ -174,10 +195,11 @@ public class WorkbenchRunSubmissionCommitter {
     }
 
     private WorkbenchRunSubmissionResult replay(
-            Workbench workbench, SubmitWorkbenchRunCommand command,
+            Workbench workbench, OwnerReference actor,
+            SubmitWorkbenchRunCommand command,
             WorkbenchRunSnapshot existing) {
         String runId = existing.requireReplay(
-                command.getWorkbenchId(), command.getPhase(),
+                workbench, actor, command.getPhase(),
                 command.getIdempotencyKey(), command.getRequestHash());
         WorkbenchRunPromptPayload prompt = promptRepository.findByRunId(runId)
                 .orElseThrow(() -> new IllegalStateException(

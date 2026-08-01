@@ -102,8 +102,10 @@ class WorkbenchRuntimeRestartRecoveryProcessIntegrationTest {
         long initialVersion = created.path("version").asLong();
         long runExpectedVersion = ensurePhaseConversation(
                 port, cookie, workbenchId, initialVersion);
-        long handoffVersion = saveSolutionHandoff(
+        JsonNode handoff = saveSolutionHandoff(
                 port, cookie, workbenchId);
+        acceptSolutionHandoff(port, cookie, workbenchId, handoff);
+        long handoffVersion = handoff.path("version").asLong();
         JsonNode firstSubmission = submitWriteRun(
                 port, cookie, workbenchId, runExpectedVersion,
                 handoffVersion, "restart-first", WAIT_MARKER
@@ -331,7 +333,7 @@ class WorkbenchRuntimeRestartRecoveryProcessIntegrationTest {
                 201);
     }
 
-    private long saveSolutionHandoff(
+    private JsonNode saveSolutionHandoff(
             int port, String cookie, String workbenchId) throws Exception {
         ObjectNode body = MAPPER.createObjectNode();
         body.put("summary", "确定性进程恢复测试的方案交接");
@@ -345,7 +347,24 @@ class WorkbenchRuntimeRestartRecoveryProcessIntegrationTest {
                 body, cookie, header("If-Match", "0")), 200);
         assertEquals("SOLUTION_DESIGN",
                 handoff.path("sourcePhase").asText());
-        return handoff.path("version").asLong();
+        return handoff;
+    }
+
+    private void acceptSolutionHandoff(
+            int port, String cookie, String workbenchId,
+            JsonNode handoff) throws Exception {
+        ObjectNode body = MAPPER.createObjectNode();
+        body.put("sourcePhase", handoff.path("sourcePhase").asText());
+        body.put("sourceVersion", handoff.path("version").asLong());
+        body.put("sourceHash", handoff.path("contentHash").asText());
+        JsonNode reception = requireJson(request(
+                port, "POST", "/api/workbenches/" + workbenchId
+                        + "/phases/IMPLEMENT_TEST/handoff-receptions",
+                body, cookie, Collections.<String, String>emptyMap()), 200);
+        assertEquals("SOLUTION_DESIGN",
+                reception.path("sourcePhase").asText());
+        assertEquals(handoff.path("version").asLong(),
+                reception.path("sourceVersion").asLong());
     }
 
     private long ensurePhaseConversation(

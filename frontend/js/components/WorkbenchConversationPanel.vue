@@ -41,9 +41,19 @@
       :closable="false"
       title="请先在“阶段交接”中预览并接受上游版本；系统不会静默注入最新内容。"
     />
+    <el-alert
+      v-if="terminalDocumentStale"
+      class="workbench-conversation-alert"
+      data-test="workbench-terminal-document-stale"
+      type="warning"
+      show-icon
+      :closable="false"
+      title="本轮运行已结束，当前打开文件已有更新；请在文档区手动刷新。"
+    />
 
     <div
       ref="timeline"
+      v-loading="messagesLoading"
       class="workbench-conversation-timeline"
       data-test="workbench-run-timeline"
       @scroll.passive="handleTimelineScroll"
@@ -59,14 +69,37 @@
       >
         有新输出，回到底部
       </el-button>
-      <div v-if="!runState || !hasTimeline" class="workbench-conversation-empty">
+      <div v-if="hasOlderMessages" class="workbench-load-older-messages">
+        <el-button
+          text
+          :loading="olderMessagesLoading"
+          data-test="workbench-load-older-messages"
+          @click="emit('load-older-messages')"
+        >
+          加载更早消息
+        </el-button>
+      </div>
+      <div v-if="!messagesLoading && !hasTimeline" class="workbench-conversation-empty">
         <span>本阶段还没有可恢复的 Run 输出。</span>
         <small>发送消息后，Agent 文本、工具、命令、文件和测试事件会在这里持续展示。</small>
       </div>
 
+      <article
+        v-for="message in visibleMessages"
+        :key="message.messageId"
+        :class="['workbench-timeline-block', `kind-${message.role}`]"
+      >
+        <header>
+          <span>{{ message.role === 'user' ? '你' : 'Agent' }}</span>
+          <small>{{ formatTime(message.timestamp) }}</small>
+        </header>
+        <p v-if="message.role === 'user'">{{ message.content }}</p>
+        <div v-else v-html="renderMarkdown(message.content)"></div>
+      </article>
+
       <template v-if="runState">
         <article
-          v-for="block in runState.blocks"
+          v-for="block in visibleRunBlocks"
           :key="block.eventId"
           :class="['workbench-timeline-block', `kind-${block.kind}`]"
         >
@@ -76,7 +109,10 @@
           </header>
           <p v-if="block.content">{{ block.content }}</p>
           <details v-else>
-            <summary>{{ block.summary || block.tool || block.commandClass || block.eventType }}</summary>
+            <summary>{{ block.commandSummary || block.outputSummary || block.summary || block.tool || block.commandClass || block.eventType }}</summary>
+            <p v-if="block.outputSummary" data-test="workbench-command-output-summary">
+              {{ block.outputSummary }}
+            </p>
             <dl>
               <template v-if="block.repositoryKey"><dt>仓库</dt><dd>{{ block.repositoryKey }}</dd></template>
               <template v-if="block.status"><dt>状态</dt><dd>{{ block.status }}</dd></template>
@@ -131,9 +167,39 @@
           <el-radio-button value="DISCUSS_READ_ONLY">只读讨论</el-radio-button>
           <el-radio-button v-if="modifyAllowed" value="MODIFY_WORKSPACE">修改工作区</el-radio-button>
         </el-radio-group>
+        <small v-if="runMode === 'DISCUSS_READ_ONLY'" data-test="run-read-only-scope">
+          只读模式不授予仓库写入权限。
+        </small>
+        <small v-else-if="runMode === 'MODIFY_WORKSPACE'" data-test="run-modify-scope">
+          本轮允许写入仓库：
+          <el-tag
+            v-for="repositoryKey in repositoryKeys"
+            :key="repositoryKey"
+            size="small"
+            effect="plain"
+          >
+            {{ repositoryKey }}
+          </el-tag>
+        </small>
         <small v-if="phase === 'REVIEW_REFACTOR' && runMode === 'MODIFY_WORKSPACE'">
           必须绑定上方当前 Review Confirmation。
         </small>
+      </div>
+      <div
+        v-if="attachments.length"
+        class="workbench-pending-attachments"
+        data-test="workbench-pending-attachments"
+      >
+        <span>待发送文档</span>
+        <el-tag
+          v-for="attachment in attachments"
+          :key="`${attachment.repositoryKey}:${attachment.relativePath}`"
+          closable
+          :disable-transitions="true"
+          @close="emit('remove-attachment', attachment.repositoryKey, attachment.relativePath)"
+        >
+          {{ attachment.repositoryKey }}/{{ attachment.relativePath }}
+        </el-tag>
       </div>
       <el-input
         :model-value="modelValue"
@@ -185,6 +251,7 @@
  * @since 2026-08-01
  */
 import { computed, nextTick, ref, watch } from 'vue';
+import { renderMarkdown, formatTime } from '../lib/formatters.js';
 
 const props = defineProps({
   phase: { type: String, required: true },
@@ -192,6 +259,12 @@ const props = defineProps({
   modelValue: { type: String, required: true },
   runMode: { type: String, required: true },
   runState: { type: Object, default: null },
+  messages: { type: Array, required: true },
+  messagesLoading: { type: Boolean, required: true },
+  hasOlderMessages: { type: Boolean, required: true },
+  olderMessagesLoading: { type: Boolean, required: true },
+  repositoryKeys: { type: Array, required: true },
+  attachments: { type: Array, required: true },
   connectionStatus: { type: String, required: true },
   error: { type: String, default: null },
   notice: { type: String, default: null },
@@ -204,6 +277,7 @@ const props = defineProps({
   modifyReady: { type: Boolean, required: true },
   mobile: { type: Boolean, required: true },
   documentCollapsed: { type: Boolean, required: true },
+  terminalDocumentStale: { type: Boolean, required: true },
 });
 
 const emit = defineEmits([
@@ -214,15 +288,27 @@ const emit = defineEmits([
   'open-document',
   'open-document-pane',
   'restore-document-pane',
+  'remove-attachment',
+  'load-older-messages',
 ]);
 const timeline = ref(null);
 const newOutputAvailable = ref(false);
 
 const runActive = computed(() => ['PENDING', 'RUNNING', 'CANCEL_REQUESTED']
   .includes(props.runState?.status || ''));
+const visibleMessages = computed(() => props.messages);
+const persistedAssistantRunIds = computed(() => new Set(
+  props.messages
+    .filter(message => message.role === 'assistant' && message.runId)
+    .map(message => message.runId),
+));
+const visibleRunBlocks = computed(() => (props.runState?.blocks || []).filter(block => !(
+  block.kind === 'agent_chunk'
+    && persistedAssistantRunIds.value.has(props.runState?.context.runId || '')
+)));
 const hasTimeline = computed(() => Boolean(
-  props.runState && (
-    props.runState.blocks.length ||
+  props.messages.length || props.runState && (
+    visibleRunBlocks.value.length ||
     props.runState.staleDocuments.length ||
     props.runState.testProgress.length ||
     props.runState.terminal

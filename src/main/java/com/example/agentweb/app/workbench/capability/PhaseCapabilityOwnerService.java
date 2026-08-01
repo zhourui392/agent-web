@@ -74,11 +74,12 @@ public class PhaseCapabilityOwnerService {
             OwnerReference actor, WorkbenchId workbenchId,
             WorkbenchPhase phase, long expectedVersion) {
         try {
-            mutationService.deleteOverride(
-                    actor, new DeletePhaseCapabilityOverrideCommand(
-                            workbenchId, phase, expectedVersion));
+            PhaseCapabilityOverrideDeleteResult result =
+                    mutationService.deleteOverride(
+                            actor, new DeletePhaseCapabilityOverrideCommand(
+                                    workbenchId, phase, expectedVersion));
             telemetry.capabilityVersionChanged();
-            return mutationView(workbenchId, phase, 0L);
+            return mutationView(workbenchId, phase, result.getVersion());
         } catch (WorkbenchDomainException failure) {
             throw translateMutationFailure(failure);
         }

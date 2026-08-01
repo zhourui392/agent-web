@@ -135,7 +135,18 @@
               :model-value="true"
               disabled
             >
-              {{ server.id }}（required）
+              <span class="capability-mcp-copy">
+                <span>{{ server.id }}（required）</span>
+                <small v-if="server.summary">{{ server.summary }}</small>
+              </span>
+              <el-tag
+                size="small"
+                data-test="capability-mcp-access"
+                :type="mcpAccessType(server.access)"
+                :effect="server.access === 'WRITE' ? 'dark' : 'plain'"
+              >
+                {{ mcpAccessLabel(server) }}
+              </el-tag>
             </el-checkbox>
           </div>
           <el-checkbox-group
@@ -147,9 +158,21 @@
               v-for="server in optionalMcpServers"
               :key="server.id"
               :value="server.id"
+              :disabled="server.source === 'UNAVAILABLE'
+                && !draft.optionalMcpServerIds.includes(server.id)"
             >
-              <span>{{ server.id }}</span>
-              <small v-if="server.summary">{{ server.summary }}</small>
+              <span class="capability-mcp-copy">
+                <span>{{ server.id }}</span>
+                <small v-if="server.summary">{{ server.summary }}</small>
+              </span>
+              <el-tag
+                size="small"
+                data-test="capability-mcp-access"
+                :type="mcpAccessType(server.access)"
+                :effect="server.access === 'WRITE' ? 'dark' : 'plain'"
+              >
+                {{ mcpAccessLabel(server) }}
+              </el-tag>
             </el-checkbox>
           </el-checkbox-group>
         </section>
@@ -248,6 +271,17 @@ function required(items) {
 
 function optional(items) {
   return (items || []).filter(item => !item.required);
+}
+
+function mcpAccessType(access) {
+  return access === 'WRITE' ? 'danger' : access === 'READ' ? 'info' : 'warning';
+}
+
+function mcpAccessLabel(server) {
+  if (server.access === 'WRITE') return 'WRITE · 可修改外部状态';
+  if (server.access === 'READ') return 'READ · 只读访问';
+  return server.source === 'UNAVAILABLE'
+    ? '不可用 · 未授权' : '未授权';
 }
 
 function updateSkillIds(value) {
@@ -355,6 +389,13 @@ function shortHash(value) {
   display: block;
   margin-left: 4px;
   color: var(--el-text-color-secondary);
+}
+
+.capability-mcp-copy {
+  display: inline-grid;
+  gap: 2px;
+  margin-right: 8px;
+  vertical-align: middle;
 }
 
 .capability-warning-list {

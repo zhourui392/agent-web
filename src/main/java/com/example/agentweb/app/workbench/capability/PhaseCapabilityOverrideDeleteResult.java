@@ -17,17 +17,24 @@ public final class PhaseCapabilityOverrideDeleteResult {
 
     private final WorkbenchId workbenchId;
     private final WorkbenchPhase phase;
+    private final long version;
     private final CapabilityOverrideEffectiveFrom effectiveFrom;
 
     private PhaseCapabilityOverrideDeleteResult(
-            WorkbenchId workbenchId, WorkbenchPhase phase) {
+            WorkbenchId workbenchId, WorkbenchPhase phase, long version) {
         this.workbenchId = Objects.requireNonNull(workbenchId, "workbenchId");
         this.phase = Objects.requireNonNull(phase, "phase");
+        if (version < 1L) {
+            throw new IllegalArgumentException(
+                    "deleted capability override version must be positive");
+        }
+        this.version = version;
         this.effectiveFrom = CapabilityOverrideEffectiveFrom.NEXT_RUN;
     }
 
     public static PhaseCapabilityOverrideDeleteResult restoredDefault(
-            WorkbenchId workbenchId, WorkbenchPhase phase) {
-        return new PhaseCapabilityOverrideDeleteResult(workbenchId, phase);
+            WorkbenchId workbenchId, WorkbenchPhase phase, long version) {
+        return new PhaseCapabilityOverrideDeleteResult(
+                workbenchId, phase, version);
     }
 }

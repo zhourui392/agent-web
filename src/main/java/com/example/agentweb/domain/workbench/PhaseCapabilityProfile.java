@@ -100,6 +100,16 @@ public final class PhaseCapabilityProfile {
                 additionalRule);
     }
 
+    public PhaseCapabilityOverrideResolution resolveOverride(
+            CapabilityOverride candidate) {
+        return overridePolicy.reconcile(phase, candidate);
+    }
+
+    public PhaseCapabilityOverrideResolution defaultOverrideResolution() {
+        return PhaseCapabilityOverrideResolution.accepted(
+                CapabilityOverride.empty());
+    }
+
     private Set<String> optionalCapabilityIds(PhaseCapabilityType type) {
         Set<String> identifiers = new HashSet<String>();
         for (PhaseCapabilityReference capability : capabilities) {

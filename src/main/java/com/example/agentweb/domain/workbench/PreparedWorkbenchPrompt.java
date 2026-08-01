@@ -14,8 +14,8 @@ import java.util.Map;
  * Workbench 单轮 Prompt 的不可变、确定性装配结果。
  *
  * <p>输入顺序不影响结果；每个类型最多一个，安全、范围、阶段规则、能力、
- * Workspace Context、用户输入和输出契约必须齐全。Handoff 与当前阶段历史仅在
- * 存在真实来源时加入。</p>
+ * Workspace Context、Workbench 原始目标、用户输入和输出契约必须齐全。
+ * Handoff、可信附件与当前阶段历史仅在存在真实来源时加入。</p>
  *
  * @author alex
  * @since 2026-08-01

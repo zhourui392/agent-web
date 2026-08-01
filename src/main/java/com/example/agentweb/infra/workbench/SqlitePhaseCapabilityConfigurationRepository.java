@@ -4,6 +4,7 @@ import com.example.agentweb.domain.workbench.CapabilityOverride;
 import com.example.agentweb.domain.workbench.OwnerReference;
 import com.example.agentweb.domain.workbench.PhaseCapabilityConfiguration;
 import com.example.agentweb.domain.workbench.PhaseCapabilityConfigurationRepository;
+import com.example.agentweb.domain.workbench.PhaseCapabilityConfigurationState;
 import com.example.agentweb.domain.workbench.PhaseCapabilityOverridePolicy;
 import com.example.agentweb.domain.workbench.WorkbenchDomainException;
 import com.example.agentweb.domain.workbench.WorkbenchErrorCode;
@@ -24,12 +25,17 @@ import java.util.Optional;
 /**
  * Phase Capability Configuration 的 SQLite 写侧 Repository。
  *
+ * <p>兼容既有表的零基 version 存储：领域/API token 恒为数据库 version + 1；
+ * 删除写入 JSON null tombstone 并递增 token，不物理删除生命周期版本。</p>
+ *
  * @author alex
  * @since 2026-08-01
  */
 @Repository
 public class SqlitePhaseCapabilityConfigurationRepository
         implements PhaseCapabilityConfigurationRepository {
+
+    private static final String ABSENT_OVERRIDE_JSON = "null";
 
     private static final String COLUMNS = "workbench_id, phase, base_profile_id, "
             + "base_profile_version, override_json, updated_by_id, updated_by_name, "
@@ -50,7 +56,7 @@ public class SqlitePhaseCapabilityConfigurationRepository
             throw new IllegalArgumentException(
                     "phase capability configuration must not be null");
         }
-        if (configuration.getVersion() == 0L) {
+        if (configuration.getVersion() == 1L) {
             insert(configuration);
             return;
         }
@@ -61,22 +67,36 @@ public class SqlitePhaseCapabilityConfigurationRepository
     @Transactional(readOnly = true)
     public Optional<PhaseCapabilityConfiguration> find(
             WorkbenchId workbenchId, WorkbenchPhase phase) {
+        return findState(workbenchId, phase).getConfiguration();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PhaseCapabilityConfigurationState findState(
+            WorkbenchId workbenchId, WorkbenchPhase phase) {
         requireIdentity(workbenchId, phase);
         List<ConfigurationRow> rows = jdbc.query(
                 "SELECT " + COLUMNS + " FROM workbench_phase_capability_config "
                         + "WHERE workbench_id=? AND phase=?",
                 this::read, workbenchId.getValue(), phase.name());
         if (rows.isEmpty()) {
-            return Optional.empty();
+            return PhaseCapabilityConfigurationState.initiallyAbsent(
+                    workbenchId, phase);
         }
         ConfigurationRow row = rows.get(0);
+        long publicVersion = publicVersion(row.version);
+        if (ABSENT_OVERRIDE_JSON.equals(row.overrideJson)) {
+            return PhaseCapabilityConfigurationState.absent(
+                    workbenchId, phase, publicVersion);
+        }
         try {
             CapabilityOverride override = codec.readCapabilityOverride(row.overrideJson);
-            return Optional.of(PhaseCapabilityConfiguration.restore(
+            return PhaseCapabilityConfigurationState.present(
+                    PhaseCapabilityConfiguration.restore(
                     WorkbenchId.of(row.workbenchId), WorkbenchPhase.valueOf(row.phase),
                     row.baseProfileId, row.baseProfileVersion, override,
                     OwnerReference.of(row.updatedById, row.updatedByName),
-                    row.updatedAt, row.version, restorationPolicy(
+                    row.updatedAt, publicVersion, restorationPolicy(
                             WorkbenchPhase.valueOf(row.phase), override)));
         } catch (IllegalArgumentException ex) {
             throw new IllegalStateException(
@@ -87,26 +107,36 @@ public class SqlitePhaseCapabilityConfigurationRepository
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void delete(WorkbenchId workbenchId, WorkbenchPhase phase,
+    public long delete(WorkbenchId workbenchId, WorkbenchPhase phase,
                        long expectedVersion) {
         requireIdentity(workbenchId, phase);
         if (expectedVersion < 0L) {
             throw new IllegalArgumentException(
-                    "capability configuration expected version must not be negative");
+                    "capability configuration expected version is invalid");
+        }
+        if (expectedVersion == Long.MAX_VALUE) {
+            throw versionConflict(workbenchId.getValue() + ":" + phase);
         }
         int rows = jdbc.update(
-                "DELETE FROM workbench_phase_capability_config "
-                        + "WHERE workbench_id=? AND phase=? AND version=?",
-                workbenchId.getValue(), phase.name(), expectedVersion);
+                "UPDATE workbench_phase_capability_config "
+                        + "SET override_json=?, version=? "
+                        + "WHERE workbench_id=? AND phase=? AND version=? "
+                        + "AND override_json<>?",
+                ABSENT_OVERRIDE_JSON, expectedVersion,
+                workbenchId.getValue(), phase.name(), expectedVersion - 1L,
+                ABSENT_OVERRIDE_JSON);
         if (rows != 1) {
             throw versionConflict(workbenchId.getValue() + ":" + phase);
         }
+        return expectedVersion + 1L;
     }
 
     private void insert(PhaseCapabilityConfiguration configuration) {
         try {
-            jdbc.update("INSERT INTO workbench_phase_capability_config (" + COLUMNS
-                            + ") VALUES (?,?,?,?,?,?,?,?,?)",
+            int rows = jdbc.update(
+                    "INSERT INTO workbench_phase_capability_config (" + COLUMNS
+                            + ") VALUES (?,?,?,?,?,?,?,?,?) "
+                            + "ON CONFLICT(workbench_id, phase) DO NOTHING",
                     configuration.getWorkbenchId().getValue(),
                     configuration.getPhase().name(), configuration.getBaseProfileId(),
                     configuration.getBaseProfileVersion(),
@@ -114,7 +144,12 @@ public class SqlitePhaseCapabilityConfigurationRepository
                     configuration.getUpdatedBy().getOwnerId(),
                     configuration.getUpdatedBy().getOwnerName(),
                     configuration.getUpdatedAt().toEpochMilli(),
-                    configuration.getVersion());
+                    configuration.getVersion() - 1L);
+            if (rows != 1) {
+                throw versionConflict(identity(configuration));
+            }
+        } catch (WorkbenchDomainException ex) {
+            throw ex;
         } catch (DataAccessException ex) {
             throw new IllegalStateException(
                     "phase capability configuration could not be added: "
@@ -123,22 +158,22 @@ public class SqlitePhaseCapabilityConfigurationRepository
     }
 
     private void update(PhaseCapabilityConfiguration configuration) {
-        long expectedVersion = configuration.getVersion() - 1L;
+        long expectedStorageVersion = configuration.getVersion() - 2L;
         try {
             int rows = jdbc.update(
-                    "UPDATE workbench_phase_capability_config SET override_json=?, "
+                    "UPDATE workbench_phase_capability_config SET "
+                            + "base_profile_id=?, base_profile_version=?, override_json=?, "
                             + "updated_by_id=?, updated_by_name=?, updated_at=?, version=? "
-                            + "WHERE workbench_id=? AND phase=? AND version=? "
-                            + "AND base_profile_id=? AND base_profile_version=?",
+                            + "WHERE workbench_id=? AND phase=? AND version=?",
+                    configuration.getBaseProfileId(),
+                    configuration.getBaseProfileVersion(),
                     codec.writeCapabilityOverride(configuration.getOverride()),
                     configuration.getUpdatedBy().getOwnerId(),
                     configuration.getUpdatedBy().getOwnerName(),
                     configuration.getUpdatedAt().toEpochMilli(),
-                    configuration.getVersion(),
+                    configuration.getVersion() - 1L,
                     configuration.getWorkbenchId().getValue(),
-                    configuration.getPhase().name(), expectedVersion,
-                    configuration.getBaseProfileId(),
-                    configuration.getBaseProfileVersion());
+                    configuration.getPhase().name(), expectedStorageVersion);
             if (rows != 1) {
                 throw versionConflict(identity(configuration));
             }
@@ -160,6 +195,14 @@ public class SqlitePhaseCapabilityConfigurationRepository
                 rs.getString("updated_by_name"),
                 Instant.ofEpochMilli(rs.getLong("updated_at")),
                 rs.getLong("version"));
+    }
+
+    private long publicVersion(long storageVersion) {
+        if (storageVersion < 0L || storageVersion == Long.MAX_VALUE) {
+            throw new IllegalStateException(
+                    "capability configuration storage version is invalid");
+        }
+        return storageVersion + 1L;
     }
 
     private PhaseCapabilityOverridePolicy restorationPolicy(

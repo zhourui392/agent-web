@@ -20,8 +20,11 @@ import java.util.Map;
 @Getter
 public final class RuntimeSemanticEvent {
 
+    public static final long MAX_TOOL_DURATION_MILLIS = 86_400_000L;
+
     private static final int MAX_IDENTIFIER_LENGTH = 512;
     private static final int MAX_TEXT_LENGTH = 65_536;
+    private static final int MAX_COMMAND_SUMMARY_LENGTH = 1024;
 
     private final String eventType;
     private final Map<String, Object> data;
@@ -52,6 +55,21 @@ public final class RuntimeSemanticEvent {
         return tool("tool_finished", tool, callId, status);
     }
 
+    public RuntimeSemanticEvent withDurationMs(long durationMs) {
+        if (!"tool_finished".equals(eventType)) {
+            throw new IllegalStateException(
+                    "duration is only valid for finished tool events");
+        }
+        if (durationMs < 0L || durationMs > MAX_TOOL_DURATION_MILLIS) {
+            throw new IllegalArgumentException(
+                    "tool duration must be non-negative and bounded");
+        }
+        Map<String, Object> enriched =
+                new LinkedHashMap<String, Object>(data);
+        enriched.put("durationMs", Long.valueOf(durationMs));
+        return new RuntimeSemanticEvent(eventType, enriched);
+    }
+
     private static RuntimeSemanticEvent tool(
             String eventType, String tool, String callId, String status) {
         Map<String, Object> data = data();
@@ -66,26 +84,63 @@ public final class RuntimeSemanticEvent {
     public static RuntimeSemanticEvent commandStarted(
             String repositoryKey, String commandClass) {
         Map<String, Object> data = commandData(repositoryKey, commandClass);
+        data.put("status", "RUNNING");
         return new RuntimeSemanticEvent("command_started", data);
     }
 
     public static RuntimeSemanticEvent commandFinished(
             String repositoryKey, String commandClass, Integer exitCode) {
+        String status = exitCode != null && exitCode.intValue() == 0
+                ? "SUCCEEDED" : "FAILED";
+        return commandFinished(
+                repositoryKey, commandClass, exitCode, status);
+    }
+
+    public static RuntimeSemanticEvent commandFinished(
+            String repositoryKey, String commandClass,
+            Integer exitCode, String status) {
         Map<String, Object> data = commandData(repositoryKey, commandClass);
+        String normalizedStatus = requireCommandCompletionStatus(status);
+        data.put("status", normalizedStatus);
         if (exitCode != null) {
             data.put("exitCode", exitCode);
         }
+        String result = "SUCCEEDED".equals(normalizedStatus)
+                ? "执行成功" : "执行失败";
+        String exit = exitCode == null
+                ? "退出码未知" : "退出码 " + exitCode;
+        data.put("outputSummary", requireSingleLineText(
+                data.get("commandClass") + " 类命令" + result
+                        + "（" + exit + "）",
+                "command output summary", MAX_COMMAND_SUMMARY_LENGTH));
         return new RuntimeSemanticEvent("command_finished", data);
     }
 
     private static Map<String, Object> commandData(
             String repositoryKey, String commandClass) {
         Map<String, Object> data = data();
-        data.put("repositoryKey", requireIdentifier(
-                repositoryKey, "repository key", MAX_IDENTIFIER_LENGTH));
-        data.put("commandClass", requireIdentifier(
-                commandClass, "command class", 128));
+        String normalizedRepositoryKey = requireIdentifier(
+                repositoryKey, "repository key", MAX_IDENTIFIER_LENGTH);
+        String normalizedCommandClass = requireIdentifier(
+                commandClass, "command class", 128);
+        data.put("repositoryKey", normalizedRepositoryKey);
+        data.put("commandClass", normalizedCommandClass);
+        data.put("commandSummary", requireSingleLineText(
+                "在仓库 " + normalizedRepositoryKey + " 执行 "
+                        + normalizedCommandClass + " 类命令",
+                "command summary", MAX_COMMAND_SUMMARY_LENGTH));
         return data;
+    }
+
+    private static String requireCommandCompletionStatus(String status) {
+        String normalized = requireIdentifier(
+                status, "command completion status", 80);
+        if (!"SUCCEEDED".equals(normalized)
+                && !"FAILED".equals(normalized)) {
+            throw new IllegalArgumentException(
+                    "command completion status is invalid");
+        }
+        return normalized;
     }
 
     public static RuntimeSemanticEvent fileChanged(
@@ -146,6 +201,17 @@ public final class RuntimeSemanticEvent {
             throw new IllegalArgumentException(name + " is invalid");
         }
         return value;
+    }
+
+    private static String requireSingleLineText(
+            String value, String name, int maximumLength) {
+        String required = requireText(value, name, maximumLength);
+        for (int index = 0; index < required.length(); index++) {
+            if (Character.isISOControl(required.charAt(index))) {
+                throw new IllegalArgumentException(name + " is invalid");
+            }
+        }
+        return required;
     }
 
     private static String requireRelativePath(String value) {

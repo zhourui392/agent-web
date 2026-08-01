@@ -3,6 +3,7 @@ package com.example.agentweb.infra.workbench;
 import com.example.agentweb.domain.capability.ResolvedCapabilityBinding;
 import com.example.agentweb.domain.shared.DomainText;
 import com.example.agentweb.domain.workbench.HandoffSnapshotReference;
+import com.example.agentweb.domain.workbench.OwnerReference;
 import com.example.agentweb.domain.workbench.PromptPartSnapshot;
 import com.example.agentweb.domain.workbench.RunMode;
 import com.example.agentweb.domain.workbench.RuntimeEnforcementSnapshot;
@@ -10,6 +11,7 @@ import com.example.agentweb.domain.workbench.WorkbenchId;
 import com.example.agentweb.domain.workbench.WorkbenchPhase;
 import com.example.agentweb.domain.workbench.WorkbenchRunSnapshot;
 import com.example.agentweb.domain.workbench.WorkbenchRunSnapshotRepository;
+import com.example.agentweb.domain.workbench.VerifiedWorkbenchRunAttachment;
 import com.example.agentweb.domain.workspace.RepositoryScope;
 import com.example.agentweb.domain.workspace.WorkspaceSnapshotReference;
 import org.springframework.dao.DataAccessException;
@@ -40,7 +42,8 @@ public class SqliteWorkbenchRunSnapshotRepository
             + "workspace_snapshot_repository_count, profile_id, profile_version, "
             + "override_version, capability_bindings_json, capability_snapshot_hash, "
             + "handoff_source_phase, handoff_source_version, handoff_source_hash, "
-            + "prompt_parts_json, prompt_hash, runtime_enforcement_json, "
+            + "prompt_parts_json, prompt_hash, attachments_json, "
+            + "runtime_enforcement_json, "
             + "review_confirmation_id, review_opinion_version, review_opinion_hash, "
             + "created_at";
 
@@ -65,7 +68,7 @@ public class SqliteWorkbenchRunSnapshotRepository
             ResolvedCapabilityBinding capability = snapshot.getCapabilityBinding();
             HandoffSnapshotReference handoff = snapshot.getHandoffSource();
             jdbc.update("INSERT INTO workbench_run_snapshot (" + COLUMNS
-                            + ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                            + ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     snapshot.getRunId(), snapshot.getWorkbenchId().getValue(),
                     snapshot.getPhase().name(),
                     snapshot.getSubmissionIdempotencyKey(),
@@ -80,6 +83,8 @@ public class SqliteWorkbenchRunSnapshotRepository
                     handoff == null ? null : handoff.getSourceHash(),
                     codec.writePromptParts(snapshot.getPromptParts()),
                     snapshot.getPromptHash(),
+                    codec.writeVerifiedAttachments(
+                            snapshot.getVerifiedAttachments()),
                     codec.writeRuntimeEnforcement(snapshot.getRuntimeEnforcement()),
                     snapshot.getReviewConfirmationId(),
                     snapshot.getReviewOpinionVersion(), snapshot.getReviewOpinionHash(),
@@ -100,6 +105,28 @@ public class SqliteWorkbenchRunSnapshotRepository
         return find("SELECT " + COLUMNS
                         + " FROM workbench_run_snapshot WHERE run_id=?",
                 runId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<WorkbenchRunSnapshot> findReplayCandidate(
+            OwnerReference owner, WorkbenchId workbenchId,
+            WorkbenchPhase phase, String submissionIdempotencyKey) {
+        if (owner == null || workbenchId == null || phase == null) {
+            throw new IllegalArgumentException(
+                    "owner, workbench id and phase are required for replay lookup");
+        }
+        String key = DomainText.require(
+                submissionIdempotencyKey,
+                "workbench run submission idempotency key", 128);
+        return find("SELECT " + COLUMNS + " FROM workbench_run_snapshot "
+                        + "WHERE workbench_id=? AND phase=? "
+                        + "AND submission_idempotency_key=? "
+                        + "AND EXISTS (SELECT 1 FROM workbench w "
+                        + "WHERE w.id=workbench_run_snapshot.workbench_id "
+                        + "AND w.owner_id=?)",
+                workbenchId.getValue(), phase.name(), key,
+                owner.getOwnerId());
     }
 
     @Override
@@ -151,6 +178,8 @@ public class SqliteWorkbenchRunSnapshotRepository
                     row.handoffSourceVersion.longValue(), row.handoffSourceHash);
             List<PromptPartSnapshot> promptParts =
                     codec.readPromptParts(row.promptPartsJson);
+            List<VerifiedWorkbenchRunAttachment> attachments =
+                    codec.readVerifiedAttachments(row.attachmentsJson);
             RuntimeEnforcementSnapshot runtime =
                     codec.readRuntimeEnforcement(row.runtimeEnforcementJson);
             verifyReviewConfirmation(row);
@@ -161,6 +190,7 @@ public class SqliteWorkbenchRunSnapshotRepository
                     RunMode.valueOf(row.runMode),
                     scope, workspace, capability, row.overrideVersion, handoff,
                     promptParts, row.promptHash, runtime,
+                    attachments,
                     row.reviewConfirmationId, row.reviewOpinionVersion,
                     row.reviewOpinionHash, row.createdAt));
         } catch (RuntimeException ex) {
@@ -241,6 +271,7 @@ public class SqliteWorkbenchRunSnapshotRepository
                 nullableLong(rs, "handoff_source_version"),
                 rs.getString("handoff_source_hash"),
                 rs.getString("prompt_parts_json"), rs.getString("prompt_hash"),
+                rs.getString("attachments_json"),
                 rs.getString("runtime_enforcement_json"),
                 rs.getString("review_confirmation_id"),
                 nullableLong(rs, "review_opinion_version"),
@@ -275,6 +306,7 @@ public class SqliteWorkbenchRunSnapshotRepository
         private final String handoffSourceHash;
         private final String promptPartsJson;
         private final String promptHash;
+        private final String attachmentsJson;
         private final String runtimeEnforcementJson;
         private final String reviewConfirmationId;
         private final Long reviewOpinionVersion;
@@ -291,7 +323,8 @@ public class SqliteWorkbenchRunSnapshotRepository
                 Long overrideVersion, String capabilityJson, String capabilityHash,
                 String handoffSourcePhase, Long handoffSourceVersion,
                 String handoffSourceHash, String promptPartsJson, String promptHash,
-                String runtimeEnforcementJson, String reviewConfirmationId,
+                String attachmentsJson, String runtimeEnforcementJson,
+                String reviewConfirmationId,
                 Long reviewOpinionVersion, String reviewOpinionHash, Instant createdAt) {
             this.runId = runId;
             this.workbenchId = workbenchId;
@@ -314,6 +347,7 @@ public class SqliteWorkbenchRunSnapshotRepository
             this.handoffSourceHash = handoffSourceHash;
             this.promptPartsJson = promptPartsJson;
             this.promptHash = promptHash;
+            this.attachmentsJson = attachmentsJson;
             this.runtimeEnforcementJson = runtimeEnforcementJson;
             this.reviewConfirmationId = reviewConfirmationId;
             this.reviewOpinionVersion = reviewOpinionVersion;

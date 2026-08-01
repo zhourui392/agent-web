@@ -84,6 +84,18 @@ class WorkbenchRunPreparationPlanTest {
     }
 
     @Test
+    void downstreamPreparationShouldRequireExplicitAcceptedReception() {
+        WorkbenchRunPreparationPlan plan = workbench.planRunPreparation(
+                WorkbenchPhase.SOLUTION_DESIGN,
+                RunMode.DISCUSS_READ_ONLY, Long.valueOf(0L), null,
+                OWNER, workbench.getVersion());
+
+        assertCode(
+                WorkbenchErrorCode.PHASE_TRANSITION_INVALID,
+                () -> plan.requireAcceptedHandoff(null));
+    }
+
+    @Test
     void implementModifyShouldFreezeAllSelectedRepositoriesAsWritable() {
         WorkbenchRunPreparationPlan plan = workbench.planRunPreparation(
                 WorkbenchPhase.IMPLEMENT_TEST,

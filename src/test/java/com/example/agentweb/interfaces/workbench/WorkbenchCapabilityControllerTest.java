@@ -187,16 +187,33 @@ class WorkbenchCapabilityControllerTest {
     }
 
     @Test
+    void putAgainstInitialAbsentTokenShouldReturnFirstPersistedVersionOne()
+            throws Exception {
+        when(service.putOverride(any(), any())).thenReturn(
+                PhaseCapabilityMutationView.nextRun(1L, null));
+
+        mvc.perform(put(OVERRIDE_ROUTE, WORKBENCH_ID, "requirement_analysis")
+                        .header("If-Match", "0")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"optionalSkillIds\":[],"
+                                + "\"optionalMcpServerIds\":[],"
+                                + "\"additionalRule\":\"\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.version").value(1))
+                .andExpect(jsonPath("$.effectiveFrom").value("NEXT_RUN"));
+    }
+
+    @Test
     void deleteShouldRestoreDefaultAndPreserveActiveSnapshotEvidence()
             throws Exception {
         when(service.deleteOverride(any(), any(), any(), eq(4L)))
                 .thenReturn(PhaseCapabilityMutationView.nextRun(
-                        0L, "d".repeat(64)));
+                        5L, "d".repeat(64)));
 
         mvc.perform(delete(OVERRIDE_ROUTE, WORKBENCH_ID, "review_refactor")
                         .header("If-Match", "4"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.version").value(0))
+                .andExpect(jsonPath("$.version").value(5))
                 .andExpect(jsonPath("$.effectiveFrom").value("NEXT_RUN"))
                 .andExpect(jsonPath("$.activeRunSnapshotHash")
                         .value("d".repeat(64)));

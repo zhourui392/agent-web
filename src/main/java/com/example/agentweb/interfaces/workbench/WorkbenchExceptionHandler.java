@@ -4,6 +4,7 @@ import com.example.agentweb.app.runtime.port.RuntimePreflightException;
 import com.example.agentweb.app.workbench.WorkbenchNotFoundException;
 import com.example.agentweb.app.workbench.WorkspaceFailureCode;
 import com.example.agentweb.app.workbench.WorkspaceOperationException;
+import com.example.agentweb.app.workbench.query.PhaseConversationMessageTooLargeException;
 import com.example.agentweb.app.workbench.capability.PhaseCapabilityApplicationErrorCode;
 import com.example.agentweb.app.workbench.capability.PhaseCapabilityApplicationException;
 import com.example.agentweb.app.workbench.document.DocumentFailureCode;
@@ -103,6 +104,14 @@ public class WorkbenchExceptionHandler {
                 exception.getEarliestRetainedSeq());
         body.put("lastEventSeq", exception.getLastEventSeq());
         return ResponseEntity.status(HttpStatus.GONE).body(body);
+    }
+
+    @ExceptionHandler(PhaseConversationMessageTooLargeException.class)
+    public ResponseEntity<Map<String, Object>> handlePhaseMessageTooLarge(
+            PhaseConversationMessageTooLargeException exception) {
+        return error(HttpStatus.PAYLOAD_TOO_LARGE,
+                "WORKBENCH_PHASE_MESSAGE_TOO_LARGE",
+                exception.getMessage());
     }
 
     @ExceptionHandler(WorkbenchDomainException.class)

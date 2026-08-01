@@ -45,19 +45,24 @@ class SqliteWorkbenchRunSubmissionMigrationTest {
         Map<String, Map<String, Object>> columns = columns(jdbc);
         assertTrue(columns.containsKey("submission_idempotency_key"));
         assertTrue(columns.containsKey("submission_request_hash"));
+        assertTrue(columns.containsKey("attachments_json"));
         assertEquals(1, ((Number) columns.get(
                 "submission_idempotency_key").get("notnull")).intValue());
         assertEquals(1, ((Number) columns.get(
                 "submission_request_hash").get("notnull")).intValue());
+        assertEquals(1, ((Number) columns.get(
+                "attachments_json").get("notnull")).intValue());
 
         Map<String, Object> migratedLegacy = jdbc.queryForMap(
-                "SELECT submission_idempotency_key, submission_request_hash "
+                "SELECT submission_idempotency_key, submission_request_hash, "
+                        + "attachments_json "
                         + "FROM workbench_run_snapshot WHERE run_id=?",
                 "legacy-run");
         assertEquals("legacy:60ee7dbe5e91227acd7980c4e022893002793e0318a5e09592c7a07bb2b937fd",
                 migratedLegacy.get("submission_idempotency_key"));
         assertEquals("b43ee4576517dbf14ca173260a1c4bf354fb97789bd8c1dd27f99e76f661521e",
                 migratedLegacy.get("submission_request_hash"));
+        assertEquals("[]", migratedLegacy.get("attachments_json"));
         assertEquals(0, jdbc.queryForObject(
                 "SELECT COUNT(*) FROM workbench_run_snapshot "
                         + "WHERE workbench_id=? AND phase=? "

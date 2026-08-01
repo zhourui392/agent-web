@@ -33,6 +33,70 @@ const run = {
   failureCode: null,
 };
 
+const repositoryScopeHash = 'f'.repeat(64);
+const repositories = [
+  {
+    repositoryKey: 'agent-web',
+    relativePath: 'agent-web',
+    primary: true,
+    access: 'WRITE',
+  },
+  {
+    repositoryKey: 'shared-lib',
+    relativePath: 'libraries/shared-lib',
+    primary: false,
+    access: 'READ',
+  },
+];
+
+function capabilityResponse(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    runId: 'run-2',
+    workbenchId: 'wb-1',
+    phase: 'IMPLEMENT_TEST',
+    runMode: 'MODIFY_WORKSPACE',
+    createdAt: run.createdAt,
+    overrideVersion: 3,
+    policyVersion: 'workbench-policy@1',
+    profileId: 'workbench-implement-test',
+    profileVersion: '1.0.0',
+    profileHash: 'a'.repeat(64),
+    bindingHash: 'b'.repeat(64),
+    runtimeCompatibility: 'm0-2026-07-22',
+    repositoryScopeHash,
+    primaryRepositoryKey: 'agent-web',
+    repositories,
+    rules: [{
+      id: 'workbench/tdd-minimal-change',
+      version: '1.0.0',
+      source: 'PLATFORM',
+      contentHash: 'c'.repeat(64),
+      mandatory: true,
+      safeSummary: 'TDD 最小修改',
+      content: 'private rule body',
+    }],
+    skills: [{
+      id: 'java-tdd',
+      version: '1.0.0',
+      source: 'PLATFORM',
+      packageHash: 'd'.repeat(64),
+      trustTier: 'PLATFORM',
+      entryContent: 'private skill body',
+    }],
+    mcpServers: [{
+      id: 'local-test-runner',
+      version: '1.0.0',
+      definitionHash: 'e'.repeat(64),
+      access: 'WRITE',
+      transport: 'STDIO',
+      command: '/private/runner',
+      env: { TOKEN: 'secret' },
+    }],
+    rejected: [{ id: 'optional-missing', reasonCode: 'UNAVAILABLE', details: 'private' }],
+    ...overrides,
+  };
+}
+
 describe('Workbench Run history API', () => {
   it('lists terminal runs with an owner-scoped phase cursor and drops unknown fields', async () => {
     const { earliestRetainedSeq: _earliestRetainedSeq, ...listedRun } = run;
@@ -107,47 +171,7 @@ describe('Workbench Run history API', () => {
   });
 
   it('projects the frozen capability binding without executable or secret MCP fields', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, {
-      runId: 'run-2',
-      workbenchId: 'wb-1',
-      phase: 'IMPLEMENT_TEST',
-      runMode: 'MODIFY_WORKSPACE',
-      createdAt: run.createdAt,
-      overrideVersion: 3,
-      policyVersion: 'workbench-policy@1',
-      profileId: 'workbench-implement-test',
-      profileVersion: '1.0.0',
-      profileHash: 'a'.repeat(64),
-      bindingHash: 'b'.repeat(64),
-      runtimeCompatibility: 'm0-2026-07-22',
-      rules: [{
-        id: 'workbench/tdd-minimal-change',
-        version: '1.0.0',
-        source: 'PLATFORM',
-        contentHash: 'c'.repeat(64),
-        mandatory: true,
-        safeSummary: 'TDD 最小修改',
-        content: 'private rule body',
-      }],
-      skills: [{
-        id: 'java-tdd',
-        version: '1.0.0',
-        source: 'PLATFORM',
-        packageHash: 'd'.repeat(64),
-        trustTier: 'PLATFORM',
-        entryContent: 'private skill body',
-      }],
-      mcpServers: [{
-        id: 'local-test-runner',
-        version: '1.0.0',
-        definitionHash: 'e'.repeat(64),
-        access: 'WRITE',
-        transport: 'STDIO',
-        command: '/private/runner',
-        env: { TOKEN: 'secret' },
-      }],
-      rejected: [{ id: 'optional-missing', reasonCode: 'UNAVAILABLE', details: 'private' }],
-    }));
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, capabilityResponse()));
     const client = createWorkbenchRunApiClient(fetchMock as WorkbenchRunFetch);
 
     const capability = await client.getRunCapability('wb-1', 'run-2');
@@ -165,6 +189,9 @@ describe('Workbench Run history API', () => {
       profileHash: 'a'.repeat(64),
       bindingHash: 'b'.repeat(64),
       runtimeCompatibility: 'm0-2026-07-22',
+      repositoryScopeHash,
+      primaryRepositoryKey: 'agent-web',
+      repositories,
       rules: [{
         id: 'workbench/tdd-minimal-change',
         version: '1.0.0',
@@ -190,6 +217,93 @@ describe('Workbench Run history API', () => {
       rejected: [{ id: 'optional-missing', reasonCode: 'UNAVAILABLE' }],
     });
     expect(JSON.stringify(capability)).not.toMatch(/private|command|env|token|secret|content\"/i);
+  });
+
+  it.each([
+    {
+      name: 'non-SHA-256 repository scope hash',
+      change: { repositoryScopeHash: 'sha256:scope' },
+    },
+    {
+      name: 'oversized primary repository key',
+      change: { primaryRepositoryKey: 'x'.repeat(513) },
+    },
+    {
+      name: 'empty repository collection',
+      change: { repositories: [] },
+    },
+    {
+      name: 'repository collection above the configured bound',
+      change: {
+        repositories: Array.from({ length: 51 }, (_, index) => ({
+          repositoryKey: `repo-${index}`,
+          relativePath: `repo-${index}`,
+          primary: index === 0,
+          access: 'READ',
+        })),
+        primaryRepositoryKey: 'repo-0',
+      },
+    },
+    {
+      name: 'duplicate repository keys',
+      change: {
+        repositories: [repositories[0], { ...repositories[1], repositoryKey: 'agent-web' }],
+      },
+    },
+    {
+      name: 'no primary repository',
+      change: { repositories: repositories.map(repository => ({ ...repository, primary: false })) },
+    },
+    {
+      name: 'multiple primary repositories',
+      change: { repositories: repositories.map(repository => ({ ...repository, primary: true })) },
+    },
+    {
+      name: 'primary repository different from primaryRepositoryKey',
+      change: { primaryRepositoryKey: 'shared-lib' },
+    },
+    {
+      name: 'access beyond READ and WRITE',
+      change: { repositories: [{ ...repositories[0], access: 'EXECUTE' }, repositories[1]] },
+    },
+    {
+      name: 'absolute repository relative path',
+      change: { repositories: [{ ...repositories[0], relativePath: '/private/agent-web' }] },
+    },
+    {
+      name: 'oversized repository key',
+      change: {
+        primaryRepositoryKey: 'x'.repeat(513),
+        repositories: [{ ...repositories[0], repositoryKey: 'x'.repeat(513) }],
+      },
+    },
+    {
+      name: 'oversized repository relative path',
+      change: { repositories: [{ ...repositories[0], relativePath: 'x'.repeat(4_097) }] },
+    },
+    {
+      name: 'absolute path extension field',
+      change: { repositories: [{ ...repositories[0], absolutePath: '/private/agent-web' }] },
+    },
+    {
+      name: 'executable extension field',
+      change: { repositories: [{ ...repositories[0], command: '/private/run-agent' }] },
+    },
+    {
+      name: 'top-level absolute workspace extension field',
+      change: { workspaceRoot: '/private/workspace' },
+    },
+    {
+      name: 'top-level executable extension field',
+      change: { command: '/private/run-agent' },
+    },
+  ])('rejects malformed frozen Repository Scope: $name', async ({ change }) => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, capabilityResponse(change)));
+    const client = createWorkbenchRunApiClient(fetchMock as WorkbenchRunFetch);
+
+    await expect(client.getRunCapability('wb-1', 'run-2')).rejects.toMatchObject({
+      code: 'WORKBENCH_RUN_UNEXPECTED_RESPONSE',
+    });
   });
 
   it('rejects incomplete cursors, invalid limits, and malformed historical projections before use', async () => {

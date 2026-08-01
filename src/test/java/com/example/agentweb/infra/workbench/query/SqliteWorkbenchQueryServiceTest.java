@@ -1,11 +1,15 @@
 package com.example.agentweb.infra.workbench.query;
 
 import com.example.agentweb.app.workbench.query.WorkbenchDetailView;
+import com.example.agentweb.app.workbench.query.PhaseConversationMessagePage;
+import com.example.agentweb.app.workbench.query.PhaseConversationMessageRequest;
+import com.example.agentweb.app.workbench.query.PhaseConversationMessageTooLargeException;
 import com.example.agentweb.app.workbench.query.WorkbenchListCursor;
 import com.example.agentweb.app.workbench.query.WorkbenchListItemView;
 import com.example.agentweb.app.workbench.query.WorkbenchListPage;
 import com.example.agentweb.app.workbench.query.WorkbenchListRequest;
 import com.example.agentweb.domain.workbench.WorkbenchStatus;
+import com.example.agentweb.domain.workbench.WorkbenchPhase;
 import com.example.agentweb.infra.SqliteInitializer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -251,6 +255,126 @@ class SqliteWorkbenchQueryServiceTest {
         assertEquals(foreign, missing);
     }
 
+    @Test
+    void findCurrentPhaseConversationShouldReturnOnlyOwnerScopedCurrentGenerationMessages() {
+        insertWorkbench("wb-chat", "owner-1", "ACTIVE", BASE_TIME + 500, "Workbench Chat");
+        jdbc.update("UPDATE workbench_phase SET status='IN_PROGRESS', conversation_generation=1 "
+                        + "WHERE workbench_id=? AND phase='REQUIREMENT_ANALYSIS'",
+                "wb-chat");
+        insertChatSession("analysis-v0", "wb-chat:REQUIREMENT_ANALYSIS:0");
+        insertChatSession("analysis-v1", "wb-chat:REQUIREMENT_ANALYSIS:1");
+        insertChatSession("solution-v0", "wb-chat:SOLUTION_DESIGN:0");
+        insertConversation("wb-chat", "REQUIREMENT_ANALYSIS", 0, "analysis-v0",
+                BASE_TIME + 10, Long.valueOf(BASE_TIME + 20));
+        insertConversation("wb-chat", "REQUIREMENT_ANALYSIS", 1, "analysis-v1",
+                BASE_TIME + 30, null);
+        insertConversation("wb-chat", "SOLUTION_DESIGN", 0, "solution-v0",
+                BASE_TIME + 40, null);
+        long oldMessage = insertMessage("analysis-v0", "user", "旧代际消息", BASE_TIME + 11);
+        long userMessage = insertMessage("analysis-v1", "user", "当前问题", BASE_TIME + 31);
+        long assistantMessage = insertMessage(
+                "analysis-v1", "assistant", "当前回答", BASE_TIME + 32);
+        insertMessage("solution-v0", "assistant", "其他阶段消息", BASE_TIME + 41);
+        insertWorkbenchRun("run-current", "analysis-v1", userMessage, assistantMessage,
+                "wb-chat:REQUIREMENT_ANALYSIS", "run-current");
+        insertWorkbenchRun("run-cross-bound", "analysis-v1", userMessage, null,
+                "wb-private:REQUIREMENT_ANALYSIS", "run-cross-bound");
+
+        Optional<PhaseConversationMessagePage> latest =
+                queryService.findCurrentPhaseConversationByOwner(
+                        "owner-1", "wb-chat", WorkbenchPhase.REQUIREMENT_ANALYSIS,
+                        new PhaseConversationMessageRequest(null, 1));
+
+        assertTrue(latest.isPresent());
+        PhaseConversationMessagePage page = latest.get();
+        assertEquals("analysis-v1", page.getSessionId());
+        assertEquals(1, page.getGeneration());
+        assertEquals(3L, page.getWorkbenchVersion());
+        assertEquals(1, page.getMessages().size());
+        assertEquals(assistantMessage, page.getMessages().get(0).getMessageId());
+        assertEquals("assistant", page.getMessages().get(0).getRole());
+        assertEquals("当前回答", page.getMessages().get(0).getContent());
+        assertEquals("run-current", page.getMessages().get(0).getRunId());
+        assertEquals(Long.valueOf(assistantMessage), page.getNextCursor());
+
+        Optional<PhaseConversationMessagePage> older =
+                queryService.findCurrentPhaseConversationByOwner(
+                        "owner-1", "wb-chat", WorkbenchPhase.REQUIREMENT_ANALYSIS,
+                        new PhaseConversationMessageRequest(
+                                page.getNextCursor(), 1));
+        assertTrue(older.isPresent());
+        assertEquals(1, older.get().getMessages().size());
+        assertEquals(userMessage,
+                older.get().getMessages().get(0).getMessageId());
+        assertEquals("user", older.get().getMessages().get(0).getRole());
+        assertEquals("当前问题",
+                older.get().getMessages().get(0).getContent());
+        assertEquals("run-current",
+                older.get().getMessages().get(0).getRunId());
+        assertNull(older.get().getNextCursor());
+        assertFalse(page.getMessages().stream()
+                .anyMatch(message -> message.getMessageId() == oldMessage));
+        assertThrows(UnsupportedOperationException.class,
+                () -> page.getMessages().clear());
+    }
+
+    @Test
+    void phaseConversationMessageRequestShouldRejectUnsafeCursorOrPageSize() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new PhaseConversationMessageRequest(Long.valueOf(0L), 20));
+        assertThrows(IllegalArgumentException.class,
+                () -> new PhaseConversationMessageRequest(null, 0));
+        assertThrows(IllegalArgumentException.class,
+                () -> new PhaseConversationMessageRequest(
+                        null, PhaseConversationMessageRequest.MAX_LIMIT + 1));
+    }
+
+    @Test
+    void phaseConversationMessageShouldFailWithStableBoundedReadError()
+            throws Exception {
+        insertWorkbench("wb-chat-large", "owner-1", "ACTIVE",
+                BASE_TIME + 500, "Large Chat");
+        insertChatSession(
+                "large-v0", "wb-chat-large:REQUIREMENT_ANALYSIS:0");
+        insertConversation(
+                "wb-chat-large", "REQUIREMENT_ANALYSIS", 0,
+                "large-v0", BASE_TIME + 10, null);
+        insertMessage(
+                "large-v0", "assistant",
+                repeatText('x', 1024 * 1024 + 1), BASE_TIME + 11);
+
+        assertThrows(PhaseConversationMessageTooLargeException.class,
+                () -> queryService.findCurrentPhaseConversationByOwner(
+                        "owner-1", "wb-chat-large",
+                        WorkbenchPhase.REQUIREMENT_ANALYSIS,
+                        PhaseConversationMessageRequest.latest()));
+    }
+
+    @Test
+    void findCurrentPhaseConversationShouldObscureForeignWorkbenchAndRepresentUnstartedPhase() {
+        insertWorkbench("wb-chat-private", "owner-2", "ACTIVE",
+                BASE_TIME + 100, "Private Chat");
+        insertWorkbench("wb-chat-empty", "owner-1", "ACTIVE",
+                BASE_TIME + 200, "Empty Chat");
+
+        Optional<PhaseConversationMessagePage> foreign =
+                queryService.findCurrentPhaseConversationByOwner(
+                        "owner-1", "wb-chat-private", WorkbenchPhase.REQUIREMENT_ANALYSIS);
+        Optional<PhaseConversationMessagePage> missing =
+                queryService.findCurrentPhaseConversationByOwner(
+                        "owner-1", "wb-chat-missing", WorkbenchPhase.REQUIREMENT_ANALYSIS);
+        Optional<PhaseConversationMessagePage> empty =
+                queryService.findCurrentPhaseConversationByOwner(
+                        "owner-1", "wb-chat-empty", WorkbenchPhase.REQUIREMENT_ANALYSIS);
+
+        assertFalse(foreign.isPresent());
+        assertEquals(foreign, missing);
+        assertTrue(empty.isPresent());
+        assertNull(empty.get().getSessionId());
+        assertEquals(0, empty.get().getGeneration());
+        assertTrue(empty.get().getMessages().isEmpty());
+    }
+
     private void insertCreationSnapshot() {
         jdbc.update("INSERT INTO workspace_snapshot (snapshot_id, purpose, workspace_root, "
                         + "primary_repository_key, topology_hash, clean, state_hash, capture_started_at, "
@@ -299,6 +423,38 @@ class SqliteWorkbenchQueryServiceTest {
                         + "VALUES (?,?,?,?,?,?,?,?)",
                 workbenchId, phase, generation, sessionId,
                 "owner-1", "Owner One", createdAt, retiredAt);
+    }
+
+    private void insertChatSession(String sessionId, String contextId) {
+        jdbc.update("INSERT INTO chat_session (id, agent_type, working_dir, created_at, "
+                        + "session_kind, context_id) VALUES (?,?,?,?,?,?)",
+                sessionId, "CODEX", "/secret/workspace/agent-web",
+                "2026-08-01T00:00:00Z", "WORKBENCH_PHASE", contextId);
+    }
+
+    private long insertMessage(
+            String sessionId, String role, String content, long timestamp) {
+        jdbc.update("INSERT INTO chat_message (session_id, role, content, timestamp) "
+                        + "VALUES (?,?,?,?)",
+                sessionId, role, content,
+                java.time.Instant.ofEpochMilli(timestamp).toString());
+        return jdbc.queryForObject(
+                "SELECT MAX(id) FROM chat_message", Long.class).longValue();
+    }
+
+    private void insertWorkbenchRun(
+            String runId, String sessionId, long userMessageId,
+            Long assistantMessageId, String originReference,
+            String executionContextId) {
+        jdbc.update("INSERT INTO chat_run (id, session_id, user_message_id, assistant_message_id, "
+                        + "idempotency_key, recall_enabled, run_origin, origin_reference, "
+                        + "execution_context_id, status, last_event_seq, created_at, updated_at, version) "
+                        + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                runId, sessionId, userMessageId, assistantMessageId,
+                "key-" + runId, 0, "WORKBENCH", originReference,
+                executionContextId, "SUCCEEDED", 2,
+                "run-cross-bound".equals(runId) ? BASE_TIME + 40 : BASE_TIME + 31,
+                BASE_TIME + 42, 1L);
     }
 
     private static List<String> ids(List<WorkbenchListItemView> items) {

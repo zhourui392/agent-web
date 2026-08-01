@@ -20,6 +20,7 @@ import com.example.agentweb.domain.shared.CanonicalHashing;
 import com.example.agentweb.domain.workbench.HandoffReception;
 import com.example.agentweb.domain.workbench.HandoffReceptionRepository;
 import com.example.agentweb.domain.workbench.HandoffSnapshotReference;
+import com.example.agentweb.domain.workbench.OwnerReference;
 import com.example.agentweb.domain.workbench.PhaseHandoff;
 import com.example.agentweb.domain.workbench.PromptPartSnapshot;
 import com.example.agentweb.domain.workbench.RunMode;
@@ -451,6 +452,14 @@ class WorkbenchRunSubmissionTransactionTest {
             @Override
             public Optional<WorkbenchRunSnapshot> findByRunId(String runId) {
                 return snapshotRepository.findByRunId(runId);
+            }
+
+            @Override
+            public Optional<WorkbenchRunSnapshot> findReplayCandidate(
+                    OwnerReference owner, WorkbenchId workbenchId,
+                    WorkbenchPhase phase, String submissionIdempotencyKey) {
+                return snapshotRepository.findReplayCandidate(
+                        owner, workbenchId, phase, submissionIdempotencyKey);
             }
 
             @Override

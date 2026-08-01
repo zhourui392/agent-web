@@ -105,24 +105,17 @@ public final class WorkbenchRunPreparationPlan {
         return reviewConfirmationId != null;
     }
 
-    public HandoffReception acceptLatestHandoff(
-            PhaseHandoff latest, OwnerReference actor, Instant acceptedAt) {
-        requireHandoffIdentity(latest);
-        if (latest.getVersion() != handoffSourceVersion.longValue()) {
-            throw new WorkbenchDomainException(
-                    WorkbenchErrorCode.VERSION_CONFLICT,
-                    "requested handoff version is stale");
-        }
-        return HandoffReception.accept(
-                workbenchId, phase, handoffSourcePhase,
-                latest.getVersion(), latest.getContentHash(), actor,
-                acceptedAt);
-    }
-
     public HandoffReception requireAcceptedHandoff(
             HandoffReception reception) {
-        if (!requiresHandoff() || reception == null
-                || !workbenchId.equals(reception.getWorkbenchId())
+        if (!requiresHandoff()) {
+            throw WorkbenchDomainException.runBindingCorrupted();
+        }
+        if (reception == null) {
+            throw new WorkbenchDomainException(
+                    WorkbenchErrorCode.PHASE_TRANSITION_INVALID,
+                    "downstream phase run requires an explicitly accepted handoff");
+        }
+        if (!workbenchId.equals(reception.getWorkbenchId())
                 || phase != reception.getTargetPhase()
                 || handoffSourcePhase != reception.getSourcePhase()
                 || handoffSourceVersion.longValue()
@@ -191,22 +184,14 @@ public final class WorkbenchRunPreparationPlan {
                 allowedSkillTrustSources);
     }
 
-    public CapabilityOverride capabilityOverride(
+    public PhaseCapabilityOverrideResolution resolveCapabilityOverride(
             PhaseCapabilityProfile profile,
             PhaseCapabilityConfiguration configuration) {
         requireProfile(profile);
         if (configuration == null) {
-            return CapabilityOverride.empty();
+            return profile.defaultOverrideResolution();
         }
-        if (!workbenchId.equals(configuration.getWorkbenchId())
-                || phase != configuration.getPhase()
-                || !profile.getProfileId().equals(
-                configuration.getBaseProfileId())
-                || !profile.getProfileVersion().equals(
-                configuration.getBaseProfileVersion())) {
-            throw WorkbenchDomainException.runBindingCorrupted();
-        }
-        return configuration.getOverride();
+        return configuration.resolveFor(workbenchId, profile);
     }
 
     public Long capabilityOverrideVersion(
@@ -217,14 +202,6 @@ public final class WorkbenchRunPreparationPlan {
 
     public void requireProfile(PhaseCapabilityProfile profile) {
         if (profile == null || profile.getPhase() != phase) {
-            throw WorkbenchDomainException.runBindingCorrupted();
-        }
-    }
-
-    private void requireHandoffIdentity(PhaseHandoff latest) {
-        if (!requiresHandoff() || latest == null
-                || !workbenchId.equals(latest.getWorkbenchId())
-                || handoffSourcePhase != latest.getSourcePhase()) {
             throw WorkbenchDomainException.runBindingCorrupted();
         }
     }

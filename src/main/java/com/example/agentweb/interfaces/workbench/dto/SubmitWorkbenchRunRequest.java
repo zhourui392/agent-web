@@ -37,6 +37,7 @@ public class SubmitWorkbenchRunRequest {
 
     @Valid
     @NotNull
+    @Size(max = 8)
     private List<WorkbenchRunAttachmentRequest> attachments =
             Collections.emptyList();
 }

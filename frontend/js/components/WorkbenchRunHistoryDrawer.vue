@@ -86,7 +86,10 @@
                   <header><span>{{ blockLabel(block.kind) }}</span><small>#{{ block.eventId }}</small></header>
                   <p v-if="block.content">{{ block.content }}</p>
                   <details v-else>
-                    <summary>{{ block.summary || block.tool || block.commandClass || block.eventType }}</summary>
+                    <summary>{{ block.commandSummary || block.outputSummary || block.summary || block.tool || block.commandClass || block.eventType }}</summary>
+                    <p v-if="block.outputSummary" data-test="workbench-history-command-output-summary">
+                      {{ block.outputSummary }}
+                    </p>
                     <dl>
                       <template v-if="block.repositoryKey"><dt>仓库</dt><dd>{{ block.repositoryKey }}</dd></template>
                       <template v-if="block.status"><dt>状态</dt><dd>{{ block.status }}</dd></template>
@@ -149,7 +152,36 @@
                 <dt>Policy</dt><dd>{{ capability.policyVersion }}</dd>
                 <dt>Runtime</dt><dd>{{ capability.runtimeCompatibility }}</dd>
                 <dt>Override</dt><dd>v{{ capability.overrideVersion }}</dd>
+                <dt>Scope Hash</dt><dd><code :title="capability.repositoryScopeHash">{{ shortHash(capability.repositoryScopeHash) }}</code></dd>
               </dl>
+              <section
+                class="workbench-run-repository-scope"
+                data-test="workbench-run-repository-scope"
+              >
+                <header>
+                  <h4>Repository Scope · {{ capability.repositories.length }}</h4>
+                  <small>本轮冻结的仓库读写边界</small>
+                </header>
+                <article
+                  v-for="repository in capability.repositories"
+                  :key="repository.repositoryKey"
+                >
+                  <div>
+                    <strong>{{ repository.repositoryKey }}</strong>
+                    <el-tag size="small" :type="repository.primary ? 'primary' : 'info'">
+                      {{ repository.primary ? '主仓' : '参与仓' }}
+                    </el-tag>
+                  </div>
+                  <small>相对路径 · <code>{{ repository.relativePath }}</code></small>
+                  <el-tag
+                    size="small"
+                    effect="plain"
+                    :type="repository.access === 'WRITE' ? 'warning' : 'info'"
+                  >
+                    {{ repository.access }}
+                  </el-tag>
+                </article>
+              </section>
               <div class="workbench-run-capability-grid">
                 <section>
                   <h4>Rules · {{ capability.rules.length }}</h4>
@@ -403,6 +435,33 @@ function blockLabel(kind) {
 .workbench-run-capability-meta dd {
   margin: 0;
   overflow-wrap: anywhere;
+}
+.workbench-run-repository-scope {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+.workbench-run-repository-scope > header,
+.workbench-run-repository-scope article > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.workbench-run-repository-scope article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px 10px;
+  padding: 9px;
+  border-radius: 8px;
+  background: var(--el-fill-color-light);
+  overflow-wrap: anywhere;
+}
+.workbench-run-repository-scope article > div {
+  grid-column: 1 / -1;
+}
+.workbench-run-repository-scope small {
+  color: var(--el-text-color-secondary);
 }
 .workbench-run-capability-grid {
   display: grid;

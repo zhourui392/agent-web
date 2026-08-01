@@ -27,4 +27,29 @@ describe('WorkbenchRunHistoryDrawer source contract', () => {
     expect(drawer).toContain('capability.bindingHash');
     expect(drawer).not.toContain('v-html');
   });
+
+  it('renders the frozen Repository Scope with relative identity, primary marker, and exact access only', async () => {
+    const drawer = await source('frontend/js/components/WorkbenchRunHistoryDrawer.vue');
+
+    expect(drawer).toContain('data-test="workbench-run-repository-scope"');
+    expect(drawer).toContain('v-for="repository in capability.repositories"');
+    expect(drawer).toContain('{{ repository.repositoryKey }}');
+    expect(drawer).toContain('{{ repository.relativePath }}');
+    expect(drawer).toContain("repository.primary ? '主仓' : '参与仓'");
+    expect(drawer).toContain('{{ repository.access }}');
+
+    const scopeStart = drawer.indexOf('data-test="workbench-run-repository-scope"');
+    const scopeEnd = drawer.indexOf('</section>', scopeStart);
+    const scope = drawer.slice(scopeStart, scopeEnd);
+    expect(scope).not.toMatch(/absolutePath|repositoryRoot|workspaceRoot|workingDir|command|env/i);
+  });
+
+  it('renders only bounded safe command summaries and keeps output collapsed', async () => {
+    const drawer = await source('frontend/js/components/WorkbenchRunHistoryDrawer.vue');
+
+    expect(drawer).toContain('block.commandSummary || block.outputSummary');
+    expect(drawer).toContain('v-if="block.outputSummary"');
+    expect(drawer).toContain('{{ block.outputSummary }}');
+    expect(drawer).not.toContain('<details open');
+  });
 });

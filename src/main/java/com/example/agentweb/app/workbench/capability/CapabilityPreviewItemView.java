@@ -17,6 +17,7 @@ public final class CapabilityPreviewItemView {
     private final boolean selected;
     private final String source;
     private final String summary;
+    private final String access;
 
     CapabilityPreviewItemView(PhaseCapabilityPreviewItem item) {
         this.id = item.getId();
@@ -24,5 +25,7 @@ public final class CapabilityPreviewItemView {
         this.selected = item.isSelected();
         this.source = item.getSource();
         this.summary = item.getSummary();
+        this.access = item.getAccess() == null
+                ? null : item.getAccess().name();
     }
 }

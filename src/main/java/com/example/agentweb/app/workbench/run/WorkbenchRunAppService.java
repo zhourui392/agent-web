@@ -82,6 +82,11 @@ public class WorkbenchRunAppService {
 
     public WorkbenchRunSubmissionResult submit(
             OwnerReference actor, SubmitWorkbenchRunCommand command) {
+        Optional<WorkbenchRunSubmissionResult> replayed =
+                submissionCommitter.replayIfPresent(actor, command);
+        if (replayed.isPresent()) {
+            return replayed.get();
+        }
         PreparedWorkbenchRun prepared = preparationService.prepare(
                 actor, command);
         return submissionCommitter.commit(actor, prepared);

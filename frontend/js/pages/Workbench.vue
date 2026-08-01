@@ -72,9 +72,25 @@
           <section class="workbench-detail-header">
             <div class="workbench-detail-heading">
               <div class="workbench-detail-eyebrow">
-                {{ detail.repositoryScope.primaryRepositoryKey }}
-                <span>·</span>
-                {{ detail.repositoryScope.repositories.length }} 个仓库
+                <el-popover placement="bottom-start" trigger="click" :width="360">
+                  <template #reference>
+                    <el-button text data-test="repository-scope-popover">
+                      {{ detail.repositoryScope.primaryRepositoryKey }}
+                      <span>·</span>
+                      {{ detail.repositoryScope.repositories.length }} 个仓库
+                    </el-button>
+                  </template>
+                  <ul aria-label="冻结 Repository Scope">
+                    <li
+                      v-for="repository in detail.repositoryScope.repositories"
+                      :key="repository.repositoryKey"
+                    >
+                      <strong>{{ repository.repositoryKey }}</strong>
+                      <span>{{ repositoryRelativePathLabel(repository.relativePath) }}</span>
+                      <el-tag v-if="repository.primary" size="small" type="success">主仓</el-tag>
+                    </li>
+                  </ul>
+                </el-popover>
               </div>
               <h1>{{ detail.title }}</h1>
               <p>{{ detail.originalGoal }}</p>
@@ -109,6 +125,13 @@
             <div>
               <h2>{{ currentPhaseLabel }}</h2>
               <p>可以随时切换阶段；阶段状态仅由人工维护，不表示 Gate 或 PASS。</p>
+              <el-tag
+                data-test="phase-capability-status"
+                :type="capabilityStatusType"
+                effect="plain"
+              >
+                阶段能力：{{ capabilityStatusLabel }}
+              </el-tag>
             </div>
             <div class="workbench-phase-actions">
               <el-button
@@ -125,13 +148,26 @@
               >
                 阶段交接
               </el-button>
-              <el-button
-                plain
-                data-test="open-capability-drawer"
-                @click="openCapabilityDrawer"
+              <el-dropdown
+                trigger="click"
+                data-test="phase-advanced-menu"
+                @command="handlePhaseAdvancedCommand"
               >
-                阶段能力
-              </el-button>
+                <el-button plain aria-label="阶段高级操作">⋯</el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="open-capability">阶段能力</el-dropdown-item>
+                    <el-dropdown-item
+                      divided
+                      command="restart-conversation"
+                      data-test="restart-phase-conversation"
+                      :disabled="!canRestartConversation"
+                    >
+                      {{ restarting ? '正在重启…' : '重启会话' }}
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
               <el-button
                 v-if="selectedPhaseView?.status === 'HUMAN_COMPLETED'"
                 :loading="mutationLoading"
@@ -168,6 +204,12 @@
               :model-value="composerText"
               :run-mode="runMode"
               :run-state="runState"
+              :messages="conversationMessages"
+              :messages-loading="messagesLoading"
+              :has-older-messages="hasOlderConversationMessages"
+              :older-messages-loading="olderMessagesLoading"
+              :repository-keys="repositoryKeys"
+              :attachments="pendingAttachments"
               :connection-status="connectionStatus"
               :error="conversationError"
               :notice="conversationNotice"
@@ -180,6 +222,7 @@
               :modify-ready="selectedPhase !== 'REVIEW_REFACTOR' || reviewConfirmed"
               :mobile="isMobile"
               :document-collapsed="desktopMode === 'COLLAPSED'"
+              :terminal-document-stale="Boolean(runState?.terminal && currentDocument?.stale)"
               @update:model-value="updateComposerText"
               @update:run-mode="updateRunMode"
               @submit="submitConversation"
@@ -187,6 +230,8 @@
               @open-document="openRunDocument"
               @open-document-pane="openMobileDrawer"
               @restore-document-pane="restore"
+              @remove-attachment="removeAttachment"
+              @load-older-messages="loadOlderConversationMessages"
             >
               <template v-if="selectedPhase === 'REVIEW_REFACTOR'" #review>
                 <workbench-review-panel
@@ -252,6 +297,7 @@
               :content-loading="contentLoading"
               :download-loading="downloadLoading"
               :document-error="documentError"
+              :attachment-selected="currentDocumentAttachmentSelected"
               @collapse="collapse"
               @maximize="maximize"
               @restore="restore"
@@ -262,6 +308,7 @@
               @refresh-document="refreshDocument"
               @download-document="downloadCurrent"
               @update-scroll="updateDocumentScrollTop"
+              @attach-document="addAttachment"
             />
           </section>
 
@@ -292,6 +339,7 @@
         :content-loading="contentLoading"
         :download-loading="downloadLoading"
         :document-error="documentError"
+        :attachment-selected="currentDocumentAttachmentSelected"
         @close="mobileDrawerVisible = false"
         @select-repository="selectRepository"
         @open-directory="openDirectory"
@@ -300,6 +348,7 @@
         @refresh-document="refreshDocument"
         @download-document="downloadCurrent"
         @update-scroll="updateDocumentScrollTop"
+        @attach-document="addAttachment"
       />
     </el-drawer>
 
@@ -502,6 +551,7 @@
  * @since 2026-08-01
  */
 import { computed, onMounted, watch } from 'vue';
+import { ElMessageBox } from 'element-plus';
 import WorkbenchCapabilityDrawer from '../components/WorkbenchCapabilityDrawer.vue';
 import WorkbenchConversationPanel from '../components/WorkbenchConversationPanel.vue';
 import WorkbenchDocumentPane from '../components/WorkbenchDocumentPane.vue';
@@ -520,6 +570,22 @@ import { openWorkbenchHandoffDocument } from '../lib/workbench-handoff-integrati
 import { WORKBENCH_PHASES, phaseStatusLabel } from '../lib/workbench-state.js';
 import { useWorkbenchShell } from '../composables/useWorkbenchShell.js';
 
+function repositoryRelativePathLabel(relativePath) {
+  const normalized = typeof relativePath === 'string'
+    ? relativePath.trim().replace(/\\/g, '/')
+    : '';
+  if (!normalized || normalized === '.') return '.';
+  if (normalized.startsWith('/')
+    || normalized.startsWith('~/')
+    || /^[A-Za-z]:\//.test(normalized)
+    || normalized === '..'
+    || normalized.startsWith('../')
+    || normalized.includes('/../')) {
+    return '路径已隐藏';
+  }
+  return normalized;
+}
+
 export default {
   name: 'WorkbenchPage',
   components: {
@@ -536,6 +602,9 @@ export default {
     const workbenchId = computed(() => shell.detail.value?.id || null);
     const archived = computed(() => shell.detail.value?.status === 'ARCHIVED');
     const repositories = computed(() => shell.detail.value?.repositoryScope.repositories || []);
+    const repositoryKeys = computed(() => repositories.value.map(
+      repository => repository.repositoryKey,
+    ));
     const documentPane = useWorkbenchDocumentPane({
       userId: shell.currentUserId,
       workbenchId,
@@ -551,10 +620,29 @@ export default {
     const activeRunId = computed(
       () => shell.selectedPhaseView.value?.activeRun?.runId || null,
     );
+    const phaseStatus = computed(
+      () => shell.selectedPhaseView.value?.status ?? 'NOT_STARTED',
+    );
     const capability = useWorkbenchCapability({
       workbenchId,
       phase: shell.selectedPhase,
     });
+    const capabilityStatusLabel = computed(() => ({
+      AVAILABLE: '可用',
+      DEGRADED: '降级可用',
+      UNAVAILABLE: '不可用',
+      LOAD_FAILED: '加载失败',
+      LOADING: '加载中',
+      NOT_LOADED: '待加载',
+    }[capability.capabilitySummaryStatus.value]));
+    const capabilityStatusType = computed(() => ({
+      AVAILABLE: 'success',
+      DEGRADED: 'warning',
+      UNAVAILABLE: 'danger',
+      LOAD_FAILED: 'danger',
+      LOADING: 'info',
+      NOT_LOADED: 'info',
+    }[capability.capabilitySummaryStatus.value]));
     const runHistory = useWorkbenchRunHistory({
       workbenchId,
       phase: shell.selectedPhase,
@@ -590,14 +678,22 @@ export default {
       currentConversationId,
       activeRunId,
       expectedVersion,
+      phaseStatus,
       archived,
       handoffRequired,
       handoffSourceVersion,
       reviewConfirmationId: review.reviewModifyConfirmationId,
       onConversationEnsured: applyConversationEnsure,
+      onConversationRestarted: applyConversationRestart,
       onSubmitted: applyRunSubmission,
       onTerminal: reloadAfterTerminal,
     });
+    const currentDocumentAttachmentSelected = computed(() => (
+      conversation.isAttachmentPending(
+        documentPane.currentDocument.value?.reference?.repositoryKey,
+        documentPane.currentDocument.value?.reference?.relativePath,
+      )
+    ));
     let lastDocumentEventId = 0;
     const currentPhaseLabel = computed(() => WORKBENCH_PHASES.find(
       (item) => item.phase === shell.selectedPhase.value)?.label || '阶段');
@@ -668,6 +764,34 @@ export default {
       };
     }
 
+    function applyConversationRestart(restarted) {
+      if (!shell.detail.value) return;
+      shell.detail.value = {
+        ...shell.detail.value,
+        version: restarted.workbenchVersion,
+        phases: shell.detail.value.phases.map(item =>
+          item.currentConversation?.sessionId === restarted.previousSessionId
+            ? {
+                ...item,
+                conversationGeneration: restarted.generation,
+                currentConversation: {
+                  sessionId: restarted.sessionId,
+                  generation: restarted.generation,
+                },
+                conversationHistory: item.conversationHistory.some(
+                  historical => historical.sessionId === restarted.sessionId,
+                )
+                  ? item.conversationHistory
+                  : [...item.conversationHistory, {
+                      sessionId: restarted.sessionId,
+                      generation: restarted.generation,
+                    }],
+                activeRun: null,
+              }
+            : item),
+      };
+    }
+
     function reloadAfterTerminal() {
       const id = shell.detail.value?.id;
       if (id) void shell.selectWorkbench(id);
@@ -684,6 +808,28 @@ export default {
       if (documentPane.isMobile.value) documentPane.openMobileDrawer();
       else if (documentPane.desktopMode.value === 'COLLAPSED') documentPane.restore();
       await documentPane.openDocument({ repositoryKey, relativePath });
+    }
+
+    async function handlePhaseAdvancedCommand(command) {
+      if (command === 'open-capability') {
+        await capability.openCapabilityDrawer();
+        return;
+      }
+      if (command !== 'restart-conversation') return;
+      try {
+        await ElMessageBox.confirm(
+          '旧会话历史将只读保留，新会话不会复制任何消息',
+          '确认重启阶段会话',
+          {
+            type: 'warning',
+            confirmButtonText: '确认重启',
+            cancelButtonText: '取消',
+          },
+        );
+      } catch {
+        return;
+      }
+      await conversation.restartConversation();
     }
 
     function phaseView(phase) {
@@ -808,6 +954,10 @@ export default {
       ...review,
       ...operations,
       ...conversation,
+      repositoryKeys,
+      currentDocumentAttachmentSelected,
+      capabilityStatusLabel,
+      capabilityStatusType,
       runHistoryVisible: runHistory.visible,
       runHistoryLoadingRuns: runHistory.loadingRuns,
       runHistoryLoadingSelection: runHistory.loadingSelection,
@@ -836,6 +986,8 @@ export default {
       openHandoffDocument,
       updateComposerText,
       openRunDocument,
+      handlePhaseAdvancedCommand,
+      repositoryRelativePathLabel,
     };
   },
 };

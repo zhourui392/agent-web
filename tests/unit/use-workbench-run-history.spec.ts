@@ -25,7 +25,9 @@ function envelope(runId: string, type: string, data: Record<string, unknown>): s
 
 function api(): WorkbenchRunApiClient {
   return {
+    getConversationMessages: vi.fn(),
     ensureConversation: vi.fn(),
+    restartConversation: vi.fn(),
     submitRun: vi.fn(),
     getRun: vi.fn().mockResolvedValue({
       runId: 'run-history',

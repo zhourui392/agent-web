@@ -31,6 +31,7 @@ function effectiveProfileBody(): Record<string, unknown> {
       selected: true,
       source: 'PHASE_PROFILE',
       summary: '平台安全规则',
+      access: null,
     }],
     skills: [{
       id: 'java-tdd',
@@ -38,16 +39,18 @@ function effectiveProfileBody(): Record<string, unknown> {
       selected: true,
       source: 'PHASE_PROFILE',
       summary: 'Java TDD',
+      access: null,
     }],
     mcpServers: [{
       id: 'repository-query',
       required: false,
-      selected: false,
-      source: 'PHASE_PROFILE',
-      summary: '只读仓库查询',
+      selected: true,
+      source: 'MCP_CATALOG',
+      summary: '仓库写入工具',
+      access: 'WRITE',
     }],
     optionalSkillIds: ['java-tdd'],
-    optionalMcpServerIds: [],
+    optionalMcpServerIds: ['repository-query'],
     additionalRule: '',
     overrideVersion: 3,
     warnings: ['local-test-runner 当前不可用'],
@@ -83,7 +86,142 @@ describe('workbench capability API client', () => {
       optionalSkillIds: ['java-tdd'],
       overrideVersion: 3,
       activeRunSnapshotHash: 'b'.repeat(64),
+      rules: [expect.objectContaining({ access: null })],
+      skills: [expect.objectContaining({ access: null })],
+      mcpServers: [expect.objectContaining({ access: 'WRITE' })],
     });
+  });
+
+  it('accepts null MCP access only for unselected or explicitly unavailable items', async () => {
+    const unselected = effectiveProfileBody();
+    unselected.mcpServers = [{
+      id: 'optional-reader',
+      required: false,
+      selected: false,
+      source: 'PHASE_PROFILE',
+      summary: null,
+      access: null,
+    }];
+    unselected.optionalMcpServerIds = [];
+    const unavailable = effectiveProfileBody();
+    unavailable.status = 'DEGRADED';
+    unavailable.mcpServers = [{
+      id: 'offline-writer',
+      required: false,
+      selected: true,
+      source: 'UNAVAILABLE',
+      summary: null,
+      access: null,
+    }];
+    unavailable.optionalMcpServerIds = ['offline-writer'];
+    const readable = effectiveProfileBody();
+    readable.mcpServers = [{
+      id: 'repository-reader',
+      required: false,
+      selected: true,
+      source: 'MCP_CATALOG',
+      summary: '只读仓库查询',
+      access: 'READ',
+    }];
+    readable.optionalMcpServerIds = ['repository-reader'];
+    const fetcher = vi.fn<WorkbenchCapabilityFetch>()
+      .mockResolvedValueOnce(jsonResponse(200, unselected))
+      .mockResolvedValueOnce(jsonResponse(200, unavailable))
+      .mockResolvedValueOnce(jsonResponse(200, readable));
+    const client = createWorkbenchCapabilityApiClient(fetcher);
+
+    await expect(client.getEffectiveProfile('wb-1', 'IMPLEMENT_TEST'))
+      .resolves.toMatchObject({ mcpServers: [expect.objectContaining({ access: null })] });
+    await expect(client.getEffectiveProfile('wb-1', 'IMPLEMENT_TEST'))
+      .resolves.toMatchObject({ mcpServers: [expect.objectContaining({
+        source: 'UNAVAILABLE', access: null,
+      })] });
+    await expect(client.getEffectiveProfile('wb-1', 'IMPLEMENT_TEST'))
+      .resolves.toMatchObject({ mcpServers: [expect.objectContaining({ access: 'READ' })] });
+  });
+
+  it.each([
+    {
+      name: 'rule access is not null',
+      mutate(body: Record<string, unknown>) {
+        body.rules = [{
+          id: 'platform/workbench-safety', required: true, selected: true,
+          source: 'PHASE_PROFILE', summary: null, access: 'READ',
+        }];
+      },
+    },
+    {
+      name: 'rule access is missing',
+      mutate(body: Record<string, unknown>) {
+        body.rules = [{
+          id: 'platform/workbench-safety', required: true, selected: true,
+          source: 'PHASE_PROFILE', summary: null,
+        }];
+      },
+    },
+    {
+      name: 'skill access is not null',
+      mutate(body: Record<string, unknown>) {
+        body.skills = [{
+          id: 'java-tdd', required: false, selected: true,
+          source: 'PHASE_PROFILE', summary: null, access: 'WRITE',
+        }];
+      },
+    },
+    {
+      name: 'MCP access is missing',
+      mutate(body: Record<string, unknown>) {
+        body.mcpServers = [{
+          id: 'repository-query', required: false, selected: true,
+          source: 'MCP_CATALOG', summary: null,
+        }];
+      },
+    },
+    {
+      name: 'MCP access is unknown',
+      mutate(body: Record<string, unknown>) {
+        body.mcpServers = [{
+          id: 'repository-query', required: false, selected: true,
+          source: 'MCP_CATALOG', summary: null, access: 'ADMIN',
+        }];
+      },
+    },
+    {
+      name: 'selected available MCP has null access',
+      mutate(body: Record<string, unknown>) {
+        body.mcpServers = [{
+          id: 'repository-query', required: false, selected: true,
+          source: 'MCP_CATALOG', summary: null, access: null,
+        }];
+      },
+    },
+    {
+      name: 'unselected MCP claims WRITE access',
+      mutate(body: Record<string, unknown>) {
+        body.mcpServers = [{
+          id: 'repository-query', required: false, selected: false,
+          source: 'PHASE_PROFILE', summary: null, access: 'WRITE',
+        }];
+      },
+    },
+    {
+      name: 'unavailable MCP claims WRITE access',
+      mutate(body: Record<string, unknown>) {
+        body.mcpServers = [{
+          id: 'repository-query', required: false, selected: true,
+          source: 'UNAVAILABLE', summary: null, access: 'WRITE',
+        }];
+      },
+    },
+  ])('rejects untrusted or contradictory capability access: $name', async ({ mutate }) => {
+    const body = effectiveProfileBody();
+    mutate(body);
+    const fetcher = vi.fn<WorkbenchCapabilityFetch>()
+      .mockResolvedValue(jsonResponse(200, body));
+
+    await expect(createWorkbenchCapabilityApiClient(fetcher)
+      .getEffectiveProfile('wb-1', 'IMPLEMENT_TEST'))
+      .rejects.toMatchObject({ code: 'WORKBENCH_CAPABILITY_RESPONSE_INVALID' });
   });
 
   it('loads an override and treats the stable not-found code as default configuration', async () => {

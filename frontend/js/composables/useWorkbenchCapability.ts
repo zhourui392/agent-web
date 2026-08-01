@@ -16,6 +16,7 @@ import {
   type WorkbenchCapabilityApiClient,
   type WorkbenchCapabilityMutationResult,
   type WorkbenchCapabilityOverrideInput,
+  type WorkbenchCapabilityProfileStatus,
   type WorkbenchEffectiveCapabilityProfile,
   type WorkbenchPhaseCapabilityOverride,
 } from '../api/workbench-capability.js';
@@ -32,6 +33,12 @@ export interface WorkbenchCapabilityMutationNotice {
   effectiveFrom: 'NEXT_RUN';
   activeRunSnapshotHash: string | null;
 }
+
+export type WorkbenchCapabilitySummaryStatus =
+  | WorkbenchCapabilityProfileStatus
+  | 'LOADING'
+  | 'LOAD_FAILED'
+  | 'NOT_LOADED';
 
 export function useWorkbenchCapability(options: UseWorkbenchCapabilityOptions) {
   const apiClient = options.apiClient ?? createWorkbenchCapabilityApiClient();
@@ -58,6 +65,12 @@ export function useWorkbenchCapability(options: UseWorkbenchCapabilityOptions) {
       : `${action}，仅对下一轮运行生效；当前没有活动运行快照。`;
   });
 
+  const capabilitySummaryStatus = computed<WorkbenchCapabilitySummaryStatus>(() => {
+    if (capabilityLoading.value) return 'LOADING';
+    if (capabilityError.value) return 'LOAD_FAILED';
+    return capabilityProfile.value?.status ?? 'NOT_LOADED';
+  });
+
   const capabilityDirty = computed(() => {
     const baseline = capabilityOverride.value ?? capabilityProfile.value;
     if (!baseline) return false;
@@ -79,6 +92,33 @@ export function useWorkbenchCapability(options: UseWorkbenchCapabilityOptions) {
   async function refreshCapability(): Promise<void> {
     capabilityMutation.value = null;
     await loadCapability();
+  }
+
+  async function loadEffectiveProfile(): Promise<void> {
+    const identity = currentIdentity();
+    if (!identity) {
+      resetCapability();
+      return;
+    }
+    const generation = ++loadGeneration;
+    capabilityLoading.value = true;
+    capabilityError.value = null;
+    try {
+      const profile = await apiClient.getEffectiveProfile(identity.workbenchId, identity.phase);
+      if (generation !== loadGeneration || !sameIdentity(identity)) return;
+      capabilityProfile.value = profile;
+      capabilityOverride.value = null;
+      capabilityDraft.value = selectionCopy(profile);
+    } catch (error) {
+      if (generation === loadGeneration && sameIdentity(identity)) {
+        capabilityError.value = capabilityErrorMessage(error);
+        capabilityProfile.value = null;
+        capabilityOverride.value = null;
+        capabilityDraft.value = emptyDraft();
+      }
+    } finally {
+      if (generation === loadGeneration) capabilityLoading.value = false;
+    }
   }
 
   async function loadCapability(): Promise<void> {
@@ -208,9 +248,11 @@ export function useWorkbenchCapability(options: UseWorkbenchCapabilityOptions) {
     () => `${options.workbenchId.value ?? ''}\u0000${options.phase.value}`,
     () => {
       resetCapability();
+      if (!currentIdentity()) return;
       if (capabilityDrawerVisible.value) void loadCapability();
+      else void loadEffectiveProfile();
     },
-    { flush: 'sync' },
+    { immediate: true, flush: 'sync' },
   );
 
   return {
@@ -223,6 +265,7 @@ export function useWorkbenchCapability(options: UseWorkbenchCapabilityOptions) {
     capabilityDraft,
     capabilityMutation,
     capabilityNotice,
+    capabilitySummaryStatus,
     capabilityDirty,
     capabilityCanRestoreDefaults,
     openCapabilityDrawer,

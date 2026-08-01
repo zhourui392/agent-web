@@ -27,11 +27,21 @@ public final class PhaseCapabilityPreviewResolver {
     public PhaseCapabilityPreview resolve(
             PhaseCapabilityProfile profile, CapabilityOverride override,
             AgentType agentType) {
+        return resolve(
+                profile, profile.resolveOverride(override), agentType);
+    }
+
+    public PhaseCapabilityPreview resolve(
+            PhaseCapabilityProfile profile,
+            PhaseCapabilityOverrideResolution overrideResolution,
+            AgentType agentType) {
         PhaseCapabilityResolutionPolicy policy =
                 PhaseCapabilityResolutionPolicy.forProfilePreview(
                         policyVersion, profile.getPhase(), agentType);
         return PhaseCapabilityPreview.create(
-                profile, override,
-                bindingResolver.resolve(profile, override, policy));
+                profile, overrideResolution,
+                bindingResolver.resolve(
+                        profile,
+                        overrideResolution.getEffectiveOverride(), policy));
     }
 }

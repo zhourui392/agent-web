@@ -28,9 +28,11 @@ public final class WorkbenchRunPromptComposer {
             PhaseHandoffRevision handoffRevision,
             WorkspaceSnapshot workspaceSnapshot,
             WorkbenchPhaseHistory history,
+            List<VerifiedWorkbenchRunAttachment> verifiedAttachments,
             String userInput) {
         if (plan == null || capabilityResolution == null
-                || workspaceSnapshot == null || history == null) {
+                || workspaceSnapshot == null || history == null
+                || verifiedAttachments == null) {
             throw new IllegalArgumentException(
                     "workbench prompt preparation facts must be complete");
         }
@@ -74,6 +76,16 @@ public final class WorkbenchRunPromptComposer {
                 WorkbenchPromptPartType.WORKSPACE_CONTEXT,
                 "workspace-snapshot/" + workspaceSnapshot.getSnapshotId(),
                 workspaceContext(workspaceSnapshot)));
+        parts.add(part(
+                WorkbenchPromptPartType.ORIGINAL_GOAL,
+                "workbench/original-goal@1",
+                plan.getOriginalGoal()));
+        if (!verifiedAttachments.isEmpty()) {
+            parts.add(part(
+                    WorkbenchPromptPartType.ATTACHMENTS,
+                    "workbench/attachments@1",
+                    attachments(verifiedAttachments)));
+        }
         if (history.hasContent()) {
             parts.add(part(
                     WorkbenchPromptPartType.PHASE_HISTORY,
@@ -234,6 +246,31 @@ public final class WorkbenchRunPromptComposer {
                     .append(" head=").append(repository.getHead())
                     .append(" clean=").append(repository.isClean())
                     .append(" diffHash=").append(repository.getDiffHash());
+        }
+        return result.toString();
+    }
+
+    private static String attachments(
+            List<VerifiedWorkbenchRunAttachment> verifiedAttachments) {
+        List<VerifiedWorkbenchRunAttachment> attachments =
+                VerifiedWorkbenchRunAttachment.immutableList(
+                        verifiedAttachments);
+        StringBuilder result = new StringBuilder();
+        for (VerifiedWorkbenchRunAttachment attachment : attachments) {
+            DocumentReference reference = attachment.getDocumentReference();
+            if (result.length() > 0) {
+                result.append('\n');
+            }
+            result.append("- repositoryKey=")
+                    .append(reference.getRepositoryKey())
+                    .append(" relativePath=")
+                    .append(reference.getRelativePath())
+                    .append(" contentHash=")
+                    .append(attachment.getContentVersion())
+                    .append(" mediaType=")
+                    .append(attachment.getMediaType())
+                    .append(" size=")
+                    .append(attachment.getSize());
         }
         return result.toString();
     }

@@ -2,6 +2,7 @@ package com.example.agentweb.app.workbench.capability;
 
 import com.example.agentweb.domain.workbench.CapabilityOverride;
 import com.example.agentweb.domain.workbench.PhaseCapabilityConfiguration;
+import com.example.agentweb.domain.workbench.PhaseCapabilityOverrideResolution;
 import com.example.agentweb.domain.workbench.PhaseCapabilityPreview;
 import lombok.Getter;
 
@@ -26,8 +27,10 @@ public final class PublicPhaseCapabilityOverrideView {
 
     private PublicPhaseCapabilityOverrideView(
             PhaseCapabilityConfiguration configuration,
+            PhaseCapabilityOverrideResolution overrideResolution,
             PhaseCapabilityPreview preview) {
-        CapabilityOverride override = configuration.getOverride();
+        CapabilityOverride override =
+                overrideResolution.getEffectiveOverride();
         this.optionalSkillIds = immutable(
                 preview.getSelectedOptionalSkillIds());
         this.optionalMcpServerIds = immutable(
@@ -40,8 +43,10 @@ public final class PublicPhaseCapabilityOverrideView {
 
     public static PublicPhaseCapabilityOverrideView from(
             PhaseCapabilityConfiguration configuration,
+            PhaseCapabilityOverrideResolution overrideResolution,
             PhaseCapabilityPreview preview) {
-        return new PublicPhaseCapabilityOverrideView(configuration, preview);
+        return new PublicPhaseCapabilityOverrideView(
+                configuration, overrideResolution, preview);
     }
 
     private static List<String> immutable(List<String> values) {

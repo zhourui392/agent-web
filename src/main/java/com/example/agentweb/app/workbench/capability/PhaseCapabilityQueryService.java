@@ -6,6 +6,8 @@ import com.example.agentweb.domain.workbench.CapabilityOverride;
 import com.example.agentweb.domain.workbench.OwnerReference;
 import com.example.agentweb.domain.workbench.PhaseCapabilityConfiguration;
 import com.example.agentweb.domain.workbench.PhaseCapabilityConfigurationRepository;
+import com.example.agentweb.domain.workbench.PhaseCapabilityConfigurationState;
+import com.example.agentweb.domain.workbench.PhaseCapabilityOverrideResolution;
 import com.example.agentweb.domain.workbench.PhaseCapabilityPreview;
 import com.example.agentweb.domain.workbench.PhaseCapabilityPreviewResolver;
 import com.example.agentweb.domain.workbench.PhaseCapabilityProfile;
@@ -60,15 +62,16 @@ public class PhaseCapabilityQueryService {
             OwnerReference actor, WorkbenchId workbenchId,
             WorkbenchPhase phase) {
         Workbench workbench = requireOwnedWorkbench(actor, workbenchId);
-        Optional<PhaseCapabilityConfiguration> configuration =
-                configurationRepository.find(workbenchId, phase);
-        CapabilityOverride override = configuration.isPresent()
-                ? configuration.get().getOverride() : CapabilityOverride.empty();
-        long overrideVersion = configuration.isPresent()
-                ? configuration.get().getVersion() : 0L;
+        PhaseCapabilityConfigurationState configurationState =
+                configurationRepository.findState(workbenchId, phase);
         PhaseCapabilityProfile profile = profileCatalog.requireProfile(phase);
+        PhaseCapabilityOverrideResolution overrideResolution =
+                configurationState.resolveFor(profile);
+        CapabilityOverride override =
+                overrideResolution.getEffectiveOverride();
+        long overrideVersion = configurationState.getVersion();
         PhaseCapabilityPreview preview = previewResolver.resolve(
-                profile, override, workbench.getAgentType());
+                profile, overrideResolution, workbench.getAgentType());
         String activeBindingHash = activeRunBindingQuery
                 .findActiveBindingHash(workbenchId, phase).orElse(null);
         return EffectivePhaseCapabilityView.from(
@@ -85,11 +88,13 @@ public class PhaseCapabilityQueryService {
             return Optional.empty();
         }
         PhaseCapabilityProfile profile = profileCatalog.requireProfile(phase);
+        PhaseCapabilityOverrideResolution overrideResolution =
+                configuration.get().resolveFor(workbenchId, profile);
         PhaseCapabilityPreview preview = previewResolver.resolve(
-                profile, configuration.get().getOverride(),
+                profile, overrideResolution,
                 workbench.getAgentType());
         return Optional.of(PublicPhaseCapabilityOverrideView.from(
-                configuration.get(), preview));
+                configuration.get(), overrideResolution, preview));
     }
 
     private Workbench requireOwnedWorkbench(

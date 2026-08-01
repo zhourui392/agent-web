@@ -6,6 +6,7 @@ import com.example.agentweb.app.runtime.port.ExecutionIdentity;
 import com.example.agentweb.app.runtime.port.HistoryDelivery;
 import com.example.agentweb.app.runtime.port.PromptPayload;
 import com.example.agentweb.app.runtime.port.RuntimeLimits;
+import com.example.agentweb.app.runtime.port.RuntimeAttachmentExpectation;
 import com.example.agentweb.app.runtime.port.RuntimeSelection;
 import com.example.agentweb.app.runtime.port.RuntimeVersionPolicy;
 import com.example.agentweb.app.runtime.port.SandboxMode;
@@ -21,11 +22,15 @@ import com.example.agentweb.domain.workbench.WorkbenchRunPromptPayload;
 import com.example.agentweb.domain.workbench.WorkbenchRunPromptPayloadRepository;
 import com.example.agentweb.domain.workbench.WorkbenchRunSnapshot;
 import com.example.agentweb.domain.workbench.WorkbenchRunSnapshotRepository;
+import com.example.agentweb.domain.workbench.VerifiedWorkbenchRunAttachment;
 import com.example.agentweb.domain.workspace.RepositoryScope;
+import com.example.agentweb.domain.workspace.ResolvedRepository;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -118,7 +123,25 @@ public final class WorkbenchExecutionPlanProvider
                 new RuntimeLimits(
                         Duration.ofSeconds(runtime.getTimeoutSeconds()),
                         runtime.getOutputLimitBytes(),
-                        Collections.<String>emptySet()));
+                        Collections.<String>emptySet()),
+                attachmentExpectations(snapshot, scope));
+    }
+
+    private List<RuntimeAttachmentExpectation> attachmentExpectations(
+            WorkbenchRunSnapshot snapshot, RepositoryScope scope) {
+        List<RuntimeAttachmentExpectation> result =
+                new ArrayList<RuntimeAttachmentExpectation>();
+        for (VerifiedWorkbenchRunAttachment attachment
+                : snapshot.getVerifiedAttachments()) {
+            ResolvedRepository repository = scope.requireRepository(
+                    attachment.getDocumentReference().getRepositoryKey());
+            result.add(new RuntimeAttachmentExpectation(
+                    repository.getRepositoryKey(),
+                    repository.getRepositoryRoot(),
+                    attachment.getDocumentReference().getRelativePath(),
+                    attachment.getContentVersion(), attachment.getSize()));
+        }
+        return result;
     }
 
     private static Map<RunMode, SandboxMode> sandboxModes() {
