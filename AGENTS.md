@@ -1,6 +1,6 @@
 # AGENTS.md
 
-本文件只规定 Agent 修改代码时的决策、禁令和验收门禁。项目入口见 `README.md`，启动见 `docs/getting-started.md`，目录与测试命令见 `docs/development.md`；完整配置见 `src/main/resources/application.yml`；Workbench 细节见 `docs/workbench/README.md`。
+本文件只规定 Agent 修改代码时的决策、禁令和验收门禁。项目入口见 `README.md`，专题文档索引见 `docs/README.md`，启动见 `docs/getting-started.md`，目录与测试命令见 `docs/development.md`；完整配置见 `src/main/resources/application.yml`。
 
 ## 角色与输出
 
@@ -61,19 +61,9 @@ Application 出现以下代码，必须先把语义下沉到聚合根：
 
 完整 `@SpringBootTest` 仅用于 SSE 时序/续传、事务代理、Scheduler、Filter Chain、会话持久化等跨切边界。项目级 TDD 约定使用 `/java-tdd`，快速测试使用 `/fast-test`。
 
-## 高风险功能边界
-
-- CLI 测试必须使用 `TestCliStub`、Runtime Stub 或 E2E fixture；只有明确标记的 `live` 测试可以调用真实 CLI/登录态。
-- Workbench 的 Repository Scope 和已启动 Run Snapshot 不可变；浏览器断开不取消后台 Run。
-- Handoff/Review 采用与修改必须由用户明确操作；不能从对话内容或阶段切换推导授权。
-- `GIT_COMMIT`、`GIT_PUSH`、`LOCAL_DEPLOY`、`PRODUCTION_WRITE` 只能创建类型化 Proposal，初态为 `PROPOSED`；高影响 Executor 默认关闭。
-- Admin Workbench 只允许安全投影查询、Stop、单 Run Reconcile，不得代 Owner 对话、改 Handoff/Override 或批准 Operation。
-- NATIVE 只允许普通聊天手动选择，不能成为全局默认或进入 schedule/workflow/refinery；AgentKit 类型仅允许位于 `config.nativeagent`、`infra.nativeagent`。
-- NATIVE 只读取 `AGENT_NATIVE_API_KEY`、`AGENT_NATIVE_BASE_URL`，不得回退到 Codex/OpenAI CLI 凭据。
-
 ## 开发约定
 
-- 修改不熟悉的子系统前，先读 `README.md` 对应章节及其专题文档。
+- 修改不熟悉的子系统前，先从 `docs/README.md` 找到对应专题并完整阅读；业务规则以领域模型、接口授权和测试为准，不在本文件重复定义。
 - 新增 helper/service/adapter/validator/parser/repository/抽象前，先用 `rg` 搜索现有能力。
 - 改动保持在用户请求范围内；除非安全完成任务所必需，不做大范围整理。
 - 样板代码优先 Lombok/MapStruct；通用能力优先 Guava、Commons、Jackson、Spring Util，禁止重复造轮子。
@@ -93,9 +83,10 @@ Application 出现以下代码，必须先把语义下沉到聚合根：
 ## 构建与测试
 
 - 完整命令见 `docs/development.md#测试`；优先运行覆盖改动的最小测试。
+- CLI 测试必须使用 `TestCliStub`、Runtime Stub 或 E2E fixture；只有明确标记的 `live` 测试可以调用真实 CLI 或登录态。
 - Linux 直接运行 Maven 时使用 `JAVA_HOME=/usr/local/jdk-21`。
 - 显式运行默认排除的慢分组时必须覆盖 `test.excludedGroups`，具体分组以 `pom.xml` 为准。
-- 不主动执行 `mvn package`、`./scripts/service.sh restart` 或部署命令，除非用户明确要求。
+- 不主动执行 `git commit`、`git push`、`mvn package`、`./scripts/service.sh restart`、部署或生产写操作，除非用户明确要求相应操作。
 - push 到 `master` 前必须完成 `docs/development.md#发布前门禁` 所列的后端、`frontend/`、`tests/` 三组 CI 门禁；后两个工程的 typecheck 都必须运行。
 
 ## 完成前检查
@@ -104,6 +95,6 @@ Application 出现以下代码，必须先把语义下沉到聚合根：
 - Controller/API：覆盖参数校验、状态码与安全响应投影。
 - SQLite Repository：使用真实 SQLite 验证；文件存储使用 `@TempDir`。
 - 前端行为：运行对应 Vitest 或 Playwright spec。
-- Workbench 边界：按影响覆盖 Owner/Admin 授权、feature flag、CAS/幂等冲突、Repository Scope、symlink/`NOFOLLOW`、Hash、TTL 和清理。
-- Workbench 主流程：按影响选择 Mock Workbench、Admin Workbench、Spring + SQLite + Runtime Stub E2E；Stub 通过不等于真实 CLI 试点通过。
+- 涉及授权、并发、幂等、路径或外部副作用时，按影响覆盖越权拒绝、冲突、重试、符号链接、`NOFOLLOW`、Hash、TTL 和清理。
+- Stub、Mock 或静态检查通过只证明对应自动化边界，不能替代明确要求的真实外部依赖验收。
 - 无法运行测试时，明确说明原因、未验证项和残余风险。
