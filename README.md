@@ -2,133 +2,49 @@
 
 > 基于 Spring Boot 的 Web 服务：通过浏览器驱动本机 Claude / Codex CLI，提供流式对话、本地研发工作台、工作流、定时任务、文件与 Git 工作区管理。
 
-## 核心特性
+README 只保留项目入口信息。功能、配置、使用、开发和运维细节统一收录在 [`docs/`](docs/README.md)；Agent 修改代码时的约束见 [`AGENTS.md`](AGENTS.md)。
 
-### 对话与会话
+## 核心能力
 
-- **多 CLI 后端** — 支持 Claude CLI、Codex CLI（`codex exec --json`），通过 `CliDialect` 策略路由
-- **Web 化交互 + 实时流式** — 聊天界面直连 CLI 代理，SSE 流式推送，Codex 事件自动归一化到统一前端契约
-- **可恢复聊天流** — 页面统一通过 `ChatRun` 后台执行，和浏览器连接解耦；支持 `Last-Event-ID` 回放、刷新恢复、断网重连、多标签页订阅和显式停止
-- **会话管理** — 多会话隔离，每个会话绑定独立工作目录与 Agent 类型，支持 resume 续接、回退重开
-- **会话持久化** — SQLite 落库 + 内存 L1 缓存，服务重启不丢历史
-- **会话反馈** — 对结果打分 + 评论，作为知识精炼与召回的质量信号
-- **图片 / 文件上下文** — 聊天框粘贴 / 上传图片与文件（落到工作空间 `upload_pic/`），自动拼进消息文本供 Agent 读取
-- **文件系统浏览** — 目录浏览、文件上传 / 下载 / 删除（受 `agent.fs.roots` 白名单约束）
-- **只读对话分享** — 生成公开链接免登录查看历史；分享页不能续聊、不能启动 Agent，也不暴露工作目录
-- **定时任务** — Cron 表达式驱动的定时 Agent 任务，每次触发产出一条独立会话
-- **Git Worktree** — 按分支切换工作空间，支持嵌套工作空间布局、一键更新所有 worktree、分支名校验
-- **Slash Commands** — 自动扫描工作目录下 `.claude/commands` `.claude/skills` `.codex/skills` 的自定义命令并展开
-- **AgentRun 统一 Prompt 组装** — 各执行入口经 `app/agentrun/` 应用层管线装配 prompt：环境约束 → workspace 上下文 → 知识预召回 → 历史 RAG → 用户问题 → 输出格式，六段可开关、可降级、可观测（SHA-256 prompt hash）
-- **NATIVE 进程内诊断 Agent** — 用户可在普通聊天手动选择只读诊断运行时；以 AgentKit 0.2.1 普通 JAR 集成，复用 ChatRun、SQLite checkpoint 与可恢复 SSE，不启动 AgentKit CLI
+- **CLI Agent 对话**：支持 Claude CLI、Codex CLI、可恢复 SSE、多会话持久化、文件上下文、反馈和只读分享。
+- **工作空间管理**：在授权目录内浏览和上传文件，管理 Git worktree、分支与每用户 Git 身份。
+- **自动化与知识召回**：支持 Cron 定时任务、多步工作流，以及默认关闭的 Knowledge Refinery/RAG。
+- **Local Development Workbench**：提供多仓 Repository Scope、四阶段研发会话、不可变 Run Snapshot、人工 Handoff/Review 和后台恢复。
+- **NATIVE 诊断 Agent**：可在普通聊天中手动选择进程内只读诊断运行时，独立使用专用 Provider 配置。
+- **管理与安全**：数据库用户认证、ADMIN 管理台、会话隔离、路径白名单和默认关闭的高影响操作执行器。
 
-### Local Development Workbench（默认关闭）
-
-- **四阶段研发主流程** — `/workbench.html` 提供 `REQUIREMENT_ANALYSIS → SOLUTION_DESIGN → IMPLEMENT_TEST → REVIEW_REFACTOR` 四阶段工作台，每个阶段使用独立会话
-- **多仓 Repository Scope** — 从受信 Workspace Root 扫描 Git 仓库，由用户选择仓库集合、主仓和精确的 `READ` / `MODIFY` 边界；Scope 在 Workbench 创建后冻结
-- **可审计能力绑定** — 每阶段有默认 Phase Capability，可为下一轮配置 Override；每个 Run 使用不可变 Snapshot 冻结 Rules、Skills、MCP、Runtime、Repository Scope、Prompt 与 Handoff Reception
-- **结构化阶段交接** — Agent 只生成 Handoff Candidate，由用户采用、编辑或拒绝；正式 Handoff 固定为 Summary、Decisions、Open Questions、Pinned Files、Referenced Runs 五个字段，首次下游 Run 在提交事务内接收最新版本
-- **Review 与受控修改** — Review Candidate 支持逐项采用或忽略；只有人工保存 Review Opinion 并精确确认后才能发起 `MODIFY`，同时保留受影响测试建议与执行状态
-- **文档与附件上下文** — 只读文档 Pane 支持折叠、最大化、布局记忆和 stale/manual refresh；仓内文档引用可与浏览器上传附件联合提交，附件正文只进入 Git 忽略的受控存储
-- **后台运行与恢复** — Run 与浏览器连接解耦，支持事件续传、显式 Stop、刷新恢复和服务重启后的状态恢复/对账
-- **高影响操作默认不授权** — `GIT_COMMIT`、`GIT_PUSH`、`LOCAL_DEPLOY`、`PRODUCTION_WRITE` 使用类型化 Operation Proposal；创建 Proposal 只进入 `PROPOSED`，四类 Executor 发布开关均默认关闭
-- **Admin 安全投影** — `/admin/workbenches.html` 只提供安全裁剪后的查询、Stop 和单 Run Reconcile；管理员不能代 Owner 对话、修改 Handoff/Override 或批准 Operation
-
-Workbench 与 Harness 已解耦，但当前只完成自动化和真实 Spring + SQLite + Runtime Stub 边界验证，**尚未达到真实用户、真实 Codex/Claude CLI 试点退出标准**，因此不能据此退役 Harness。产品设计、技术方案与发布证据分别见 [MVP 产品设计](docs/local-development-workbench-mvp-design.md)、[Workbench 技术方案](docs/workbench/README.md)和[发布就绪快照](docs/workbench/release-readiness-2026-08-01.md)。
-
-### 知识精炼与召回（Knowledge Refinery，默认关闭）
-
-- **自动沉淀** — 静默会话自动评分 → embedding 入向量库
-- **RAG 召回** — 前端「RAG 召回」开关开时每条消息自动召回历史结论拼进上下文，余弦硬闸 + 融合重排（向量 / triggerSignals Jaccard / 时间衰减三维打分）
-- **召回指标分析** — 逐次召回明细、命中 chunk 统计，供阈值校准
-
-### 平台运维
-
-- **管理台**（`/admin`，数据库 ADMIN 角色鉴权）— 使用概览、对话浏览、用户账号创建、工作流管理、RAG 语料维护、运行时设置（Agent 模型、默认工作空间与目录授权），以及 Workbench 查询、Stop、Reconcile 运维
-- **工作流编排** — 定义可复用的多步 workflow（每步一个 prompt 模板），一键触发执行并按步记录结果
-- **研发交付 Harness（默认开启）** — 独立于 Workflow 的固定四阶段控制平面；M1—M3 已完成领域内核、Prompt/Skill/MCP Snapshot 和 Codex Runtime，M4 已打通 `ANALYSIS → DESIGN → IMPLEMENTATION → DEPLOYMENT`、`WAITING_INPUT`、确定性 Gate、Artifact 修订/失效、Git/TDD 证据、独立 local 部署 Approval、重启人工对账、管理页面和最终追踪报告。正式 Runtime 默认使用服务账户的本机 Codex CLI 登录态，也可切换到隔离 Key；Workbench 已与 Harness 公共能力解耦，但 Workbench 真实试点和外部门禁完成前不能删除 Harness 迁移窗口，详见 [M4 实现记录](docs/harness/m4/README.md)与[自测报告](docs/harness/m4/test-report.md)
-- **每用户 Git 身份** — 各用户配置自己的 git identity 与 SCM 凭据（密码加密存储、不回显），用于交付时归属提交与解析凭据链
+完整能力清单见[功能说明](docs/features.md)。Workbench 的自动化边界已经验证，但尚未完成真实用户、真实 Codex/Claude CLI 试点；结论与剩余门禁见[发布就绪快照](docs/workbench/release-readiness-2026-08-01.md)。
 
 ## 技术栈
 
 | 层面 | 技术 |
-|------|------|
-| 后端框架 | Spring Boot 3.3.13 / Java 21 / Maven（jakarta 命名空间） |
-| 数据库 | SQLite（用户、会话、定时任务、工作流、向量库、召回明细、Git 配置） |
-| 前端 | Vue 3 + Element Plus + Vite（源码在 `frontend/`，构建到 `frontend/dist/`）；主应用 + 管理台 MPA |
-| 通信 | RESTful API + Server-Sent Events |
-| 架构 | DDD + 六边形架构，按限界上下文分包 |
-| 代码质量 | Alibaba P3C (PMD) |
-| 支持的代理 | Claude CLI、Codex CLI |
-| 向量化 | OpenAI 兼容 Embedding（默认 OpenRouter `qwen/qwen3-embedding-8b`，dim 4096） |
-| 外部集成 | Claude CLI、Codex CLI、OpenAI 兼容 Embedding API |
+| --- | --- |
+| 后端 | Spring Boot 3.3.13、Java 21、Maven |
+| 数据库 | SQLite |
+| 前端 | Vue 3、Element Plus、Vite |
+| 通信 | REST API、Server-Sent Events |
+| 架构 | DDD + 六边形四层架构 |
+| 测试 | JUnit 5、Mockito、Vitest、Playwright |
 
 ## 快速开始
 
-### 环境要求
-
-- Java 21+
-- Maven 3.6+
-- Claude CLI / Codex CLI（任选其一，可同时配置）
-
-### 启动
+环境要求：Java 21+、Maven 3.6+，以及 Claude CLI / Codex CLI 中至少一个。
 
 Linux：
 
 ```bash
-# 自动查找 JDK 21+，编译成功后在后台启动
 ./scripts/service.sh start
-
-# 可用子命令：build、stop、restart、status、logs
 ./scripts/service.sh status
 ```
 
 Windows PowerShell：
 
 ```powershell
-# 自动查找 JDK 21+，编译成功后在后台启动
 .\scripts\service.ps1 start
-
-# 可用子命令：build、stop、restart、status、logs
 .\scripts\service.ps1 status
 ```
 
-执行 `build`、`start` 或 `restart` 时，脚本第一步会优先使用 `JAVA_BIN` 指定的 Java，再检查 `JAVA_HOME`、`PATH`、系统注册表（Windows）和常见 JDK 安装目录；找到完整的 JDK 21 或更高版本后会设置当前进程的 `JAVA_HOME` / `PATH`，执行 `mvn clean package`，并仅在编译成功后启动 `app/agent-web.jar`。若自动探测失败，可显式指定：
-
-```bash
-JAVA_BIN=/usr/local/jdk-21/bin/java ./scripts/service.sh start
-```
-
-```powershell
-$env:JAVA_BIN='C:\Program Files\Java\jdk-21\bin\java.exe'
-.\scripts\service.ps1 start
-```
-
-脚本要求 Maven 3.6+ 已加入 `PATH`。JVM 参数可通过 `JAVA_OPTS` 传入，Spring Boot 参数可追加到 `start` / `restart` 后，例如 `./scripts/service.sh start --spring.profiles.active=local`。运行日志位于 `logs/service.log`（Windows 的标准错误另写入 `logs/service-error.log`）。
-
-也可以不使用服务脚本，手工构建和前台启动：
-
-```bash
-mvn clean package
-
-# 首次公网启动必须设置一个不同于仓库种子密码的新管理员密码
-read -rsp 'New admin password: ' AGENT_BOOTSTRAP_ADMIN_PASSWORD && echo
-export AGENT_BOOTSTRAP_ADMIN_PASSWORD
-
-# 启动（二选一；生产环境建议由进程管理器注入环境变量）
-mvn spring-boot:run
-java -jar target/agent-web-0.1.0-SNAPSHOT.jar
-
-# 经 HTTPS 反向代理访问
-https://agent.mokatu.shop/
-```
-
-应用挂载在域名根路径，访问地址为 `https://agent.mokatu.shop/`。原先支持的 `/qa` 子路径部署已废弃，前后端的挂载前缀推导机制（后端 `ContextPrefix`、前端 `base.js`）已随之移除；前后端一律使用根绝对路径。
-
-登录页 `/login.html` 使用数据库用户名 + 密码认证，会话默认保留 7 天；除登录入口、静态资源与只读分享外，所有入口均要求登录。首次初始化 SQLite 时会创建 `ADMIN` 账户 `admin`，公开种子密码为 `Aa135246`。公网模式启动时，如果数据库仍保留种子密码哈希，服务会在监听端口对外提供请求前要求 `AGENT_BOOTSTRAP_ADMIN_PASSWORD`，把新密码以 BCrypt（cost 12）哈希写入数据库并注销该账户已有会话；环境变量不会写入数据库，后续启动也不会覆盖已修改的密码。
-
-管理后台复用同一登录会话，并额外要求账户角色为 `ADMIN`；不存在独立管理口令或绕过开关。`agent.chat.user-isolation-enabled` 默认开启，普通用户只能访问自己的会话。公网部署通过同机 Caddy 提供 HTTPS，公网只开放 443，应用端口 18092 仅监听 loopback；完整步骤见 [公网 HTTPS 部署](docs/public-deployment.md)。
-
-仅做本机 HTTP 开发时，可显式关闭公网门禁和 Secure Cookie，并收回 loopback 监听：
+本机前台开发：
 
 ```bash
 SERVER_ADDRESS=127.0.0.1 \
@@ -138,339 +54,20 @@ AGENT_AUTH_COOKIE_NAME=local_session \
 mvn spring-boot:run
 ```
 
-### 基本配置
+服务脚本参数、JDK 探测、首次登录和公网启动要求见[安装与启动](docs/getting-started.md)。公网部署前必须替换公开的管理员种子密码，并完成[公网 HTTPS 部署清单](docs/public-deployment.md)。
 
-机器相关路径在数据库尚未配置时，以 `src/main/resources/agent-paths.yml` 作为种子。管理员可在
-`/admin/settings.html` 维护默认工作空间、允许的工作空间根目录和仅上传额外根目录；保存后写入
-现有 `app_setting` 表并立即生效，数据库值优先于种子。`agent.fs.roots` 同时授权文件接口、会话、
-Workspace Context 和 Git worktree 操作；`agent.fs.upload-roots` 仍只额外授权上传接口：
+## 文档导航
 
-```yaml
-agent:
-  fs:
-    roots:
-      - "${AGENT_WORKSPACE_ROOT:${AGENT_WORKTREE_ALLOWED_ROOT:${user.home}/workspace}}"
-    upload-roots: []
-```
+| 目标 | 文档 |
+| --- | --- |
+| 了解完整功能 | [功能说明](docs/features.md) |
+| 安装、启动与首次登录 | [安装与启动](docs/getting-started.md) |
+| 配置路径、密钥与环境变量 | [配置指南](docs/configuration.md) |
+| 使用聊天与 Workbench | [使用指南](docs/user-guide.md) |
+| 查看 API 边界 | [API 指南](docs/api.md) |
+| 了解目录、测试和开发门禁 | [开发指南](docs/development.md) |
+| 检查安全边界 | [安全指南](docs/security.md) |
+| 部署公网 HTTPS | [公网部署](docs/public-deployment.md) |
+| 查找架构与专题设计 | [完整文档索引](docs/README.md) |
 
-工作空间配置在 `app_setting` 中以 `workspace.configuration` 单个 JSON 文档保存，避免默认目录和授权
-根目录多行更新时出现部分成功。通用配置读取按 key 使用进程内缓存：新增/更新成功后刷新对应缓存，
-删除或在管理后台“恢复配置文件默认值”后淘汰对应缓存。保存工作空间配置时，所有路径必须是已存在的
-绝对目录，且默认工作空间必须同时出现在允许根目录列表中。
-
-其他服务配置编辑 `src/main/resources/application.yml`：
-
-```yaml
-server:
-  address: 127.0.0.1               # 同机 Caddy 反代，18092 不直接对公网监听
-  port: 18092
-  forward-headers-strategy: framework
-  servlet:
-    context-path: ""                # 独立域名根路径
-
-agent:
-  default-type: CODEX               # 对话默认 CLI「首启种子」（CODEX / CLAUDE），落库后以管理后台为准
-  cli:                              # 各 CLI 方言的 exec / args / 超时 / 模式（完整见 application.yml）
-    claude: { ... }                 # 默认 --output-format stream-json 流式
-    codex:  { ... }                 # args 留空 → 真实 codex exec --json；填模板回退 legacy 文本路径
-  envs:                             # 多环境上下文，env.prompt 前置注入用户消息；prod 注入只读约束
-    - { key: test, label: 测试环境 }
-    - { key: prod, label: 生产环境 }
-  auth:
-    cookie-name: __Host-agent_session
-    cookie-secure: true             # 公网入口必须使用 HTTPS
-    session-ttl-seconds: 604800     # 用户名密码登录会话默认 7 天
-    login-max-failures: 5           # 同一来源或用户名的失败阈值
-    login-failure-window-seconds: 300
-  public-access:
-    enabled: true                   # 种子密码未替换时拒绝公网启动
-  admin:                            # 管理接口复用登录会话，并要求 ADMIN 角色
-    protected-prefixes:
-      - /api/metrics
-  refinery:                         # 知识精炼 / 向量召回，默认关
-    enabled: false
-  runtime:                          # Chat/Workbench 公共进程 Runtime，默认关
-    workbench-enabled: false
-    chat-enabled: false
-  workbench:                        # Workbench 页面/API、创建和写 Run 分级发布
-    enabled: false
-    create-enabled: false
-    write-run-enabled: false
-    high-impact:                    # 四类高影响 Executor 均默认关
-      commit-enabled: false
-      push-enabled: false
-      local-deploy-enabled: false
-      production-write-enabled: false
-  harness:                          # 迁移期研发交付 Harness，当前默认开
-    enabled: true
-```
-
-> CLI 方言参数、知识精炼（`agent.refinery.*`）、Workbench（`agent.runtime.*` / `agent.workbench.*`）、Harness（`agent.harness.*`）和 issue-log（`agent.issue-log.*`）的完整配置与内联注释见 `application.yml`。
-
-NATIVE 默认关闭，默认模型为 `gpt-5.6-sol`。开启时至少设置 `AGENT_NATIVE_ENABLED=true`、
-`AGENT_NATIVE_API_KEY` 和 `AGENT_NATIVE_BOUND_ENVIRONMENT`；需要换模型时再覆盖
-`AGENT_NATIVE_MODEL`。OpenAI-compatible 凭据与地址只使用
-`AGENT_NATIVE_API_KEY`、`AGENT_NATIVE_BASE_URL`。NATIVE 不读取 `OPENAI_API_KEY` 或
-`OPENAI_BASE_URL`，避免和 Codex CLI、官方 OpenAI 客户端串用 Provider。任何真实 key 都只通过
-进程环境、Secret Store 或下述 Git 忽略文件注入，不写入仓库配置或受版本控制的启动脚本。
-
-NATIVE 默认把宿主 `logs/` 目录作为 test-bound 只读日志源，允许 `*.log`，逻辑服务为
-`agent-web`、逻辑数据源为 `local-agent-web-logs`。日志根由
-`AGENT_NATIVE_LOCAL_LOG_ROOT` 固定，不能由用户消息或聊天 `workingDir` 改写；根目录必须是
-存在且可读的绝对目录。若改用远程 `agent.native.backends.log-query-url`，必须关闭
-`AGENT_NATIVE_LOCAL_LOGS_ENABLED`，两者同时启用会 fail-fast，避免同名 `LogQuery` 被静默覆盖。
-
-知识精炼默认关闭。开启知识精炼需经 `REFINERY_EMBED_API_KEY` 注入 embedding 鉴权，且 `agent.refinery.embedding.dimension` 须与模型维度一致（不一致启动 fail-fast）。凭证走环境变量或下述 Git 忽略配置，勿写进 `application.yml`。
-
-本机文件化的服务端敏感配置统一放在 Git 忽略的 `data/secrets.properties`，应用启动时会自动读取；外部环境变量优先级更高。普通 Codex CLI 和 Claude Code 不读取该文件中的认证配置，仍使用各自的本机默认登录态。正式 Harness Runtime 默认也是 `local-login`：Adapter 不直接读取、复制或修改认证文件，而是让系统 `codex` 按服务账户的 `HOME/CODEX_HOME` 正常使用现有登录态。需要生产多用户隔离时，显式切换为 `isolated-key`，此时 Runtime 使用临时 Home，只从 Provider Credential Reference 解析并注入单次进程。M4 在线验收脚本同样支持这两种模式。示例只列变量名，不要把真实值写入受 Git 跟踪的文件：
-
-```properties
-GIT_CRED_ENC_KEY=<32 字节密钥的 base64>
-REFINERY_EMBED_API_KEY=<embedding key>
-agent.native.api-key=<NATIVE Provider key>
-agent.native.base-url=<NATIVE OpenAI-compatible base URL>
-AGENT_BOOTSTRAP_ADMIN_PASSWORD=<仅首次公网启动使用的新管理员密码>
-```
-
-创建后应限制权限：`chmod 600 data/secrets.properties`。`AGENT_BOOTSTRAP_ADMIN_PASSWORD` 只用于首次替换种子密码，启动成功后应从文件删除。生产环境优先使用进程环境或 Secret Store。
-
-### 环境变量
-
-| 变量 | 默认值 | 用途 |
-|------|--------|------|
-| `CLAUDE_CLI_CMD` | `claude` | Claude CLI 可执行路径 |
-| `CODEX_CMD` | `codex` | Codex CLI 可执行路径 |
-| `SERVER_ADDRESS` | `127.0.0.1` | 应用监听地址；同机 Caddy 通过 loopback 访问 18092 |
-| `SERVER_FORWARD_HEADERS_STRATEGY` | `framework` | 识别代理传入的 HTTPS / 客户端地址；仅在代理受信且后端端口隔离时使用 |
-| `CODEX_HOME` | `~/.codex` | Codex 配置 / 鉴权目录 |
-| `OPENAI_API_KEY` | _(无)_ | Codex CLI/官方 OpenAI 客户端鉴权；NATIVE 不读取，避免 Provider 冲突 |
-| `OPENAI_BASE_URL` | Provider 默认值 | Codex CLI/官方 OpenAI 客户端地址；NATIVE 不读取 |
-| `AGENT_NATIVE_ENABLED` | `false` | 是否注册进程内只读诊断运行时并在 Agent Catalog 标记可用 |
-| `AGENT_NATIVE_PROVIDER` / `AGENT_NATIVE_MODEL` | `OPENAI` / `gpt-5.6-sol` | NATIVE Provider 类型和模型；可显式覆盖模型 |
-| `AGENT_NATIVE_API_KEY` / `AGENT_NATIVE_BASE_URL` | _(无)_ | NATIVE 专用凭据和 OpenAI-compatible 地址；不回退标准 OpenAI 变量 |
-| `AGENT_NATIVE_BOUND_ENVIRONMENT` | `test` | NATIVE 唯一允许的聊天环境，必须存在于 `agent.envs` |
-| `AGENT_NATIVE_LOCAL_LOGS_ENABLED` | `true` | 是否注册宿主受限本机日志 `LogQuery`；远程 LogQuery 启用时必须关闭 |
-| `AGENT_NATIVE_LOCAL_LOG_ROOT` | `${user.dir}/logs` | 本机日志 allowlist 根，必须为存在且可读的绝对目录 |
-| `AGENT_NATIVE_LOCAL_LOG_SERVICE` | `agent-web` | 宿主注入的默认逻辑服务，不从 Prompt 猜测 |
-| `AGENT_NATIVE_LOCAL_LOG_DATA_SOURCE_ID` | `local-agent-web-logs` | 对外证据使用的逻辑数据源 ID，不暴露真实路径 |
-| `AGENT_NATIVE_LOCAL_LOG_ZONE` | `UTC` | 无时区本地日志时间戳的解析时区 |
-| `AGENT_DB_PATH` | `data/agent-web.db` | SQLite 数据库路径 |
-| `AGENT_CHAT_USER_ISOLATION_ENABLED` | `true` | 对话可见性；`true`=普通用户仅见自己 + 无主老数据 |
-| `AGENT_AUTH_SESSION_TTL_SECONDS` | `604800` | 数据库登录会话有效期（秒） |
-| `AGENT_AUTH_COOKIE_NAME` | `__Host-agent_session` | 登录会话 Cookie 名；`__Host-` 前缀要求 Secure、Path=/ 且无 Domain |
-| `AGENT_AUTH_COOKIE_SECURE` | `true` | 强制会话 Cookie 使用 Secure；本机纯 HTTP 测试才可关闭 |
-| `AGENT_AUTH_LOGIN_MAX_FAILURES` | `5` | 登录失败限流阈值（同时按直连来源和用户名） |
-| `AGENT_AUTH_LOGIN_FAILURE_WINDOW_SECONDS` | `300` | 登录失败限流窗口（秒） |
-| `AGENT_PUBLIC_ACCESS_ENABLED` | `true` | 启用公网启动安全门禁；本机 loopback 开发才可关闭 |
-| `AGENT_BOOTSTRAP_ADMIN_PASSWORD` | _(无)_ | 仅在数据库仍是公开种子哈希时使用一次的新管理员密码；至少 12、至多 256 字符 |
-| `AGENT_WORKSPACE_ROOT` | `${user.home}/workspace` | 工作空间配置未落库时的主工作区种子；写入 `agent-paths.yml` 的首个 `agent.fs.roots` |
-| `AGENT_WORKTREE_ALLOWED_ROOT` | `${user.home}/workspace` | 旧部署兼容变量，仅在未设置 `AGENT_WORKSPACE_ROOT` 时作为共享主工作区种子回退 |
-| `AGENT_E2E_ADMIN_PASSWORD` | _(无)_ | Playwright 登录测试账户的密码；只用于测试进程，不写入仓库 |
-| `GIT_CRED_ENC_KEY` | _(无)_ | 用户 Git push 凭据的 AES-256-GCM 主密钥；支持环境变量或 `data/secrets.properties` |
-| `REFINERY_ENABLED` | `false` | 知识精炼子域总开关，`false` 时相关 bean 全不注册 |
-| `REFINERY_EMBED_API_KEY` | _(无)_ | embedding 鉴权（现 OpenRouter），`REFINERY_ENABLED=true` 时必填，严禁硬编码到 yml |
-| `REFINERY_EMBED_ENDPOINT` | `https://openrouter.ai/api/v1` | embedding base URL（OpenAI 兼容协议） |
-| `REFINERY_EMBED_MODEL` / `REFINERY_EMBED_DIM` | `qwen/qwen3-embedding-8b` / `4096` | embedding 模型与维度，不一致启动 fail-fast；换模型须重嵌入存量 chunk |
-| `AGENT_RUN_WORKSPACE_CONTEXT_ENABLED` | `true` | AgentRun workspace context 注入总开关，紧急止血可关（`agent.run.*`） |
-| `AGENT_RUN_WORKSPACE_KNOWLEDGE_ENABLED` | `true` | AgentRun workspace 知识预召回开关 |
-| `AGENT_RUN_RECALL_TOP_K` | `8` | AgentRun 召回 top-K |
-| `AGENT_WORKBENCH_ENABLED` | `false` | Workbench 页面/API 总开关；关闭时下级开关必须同时关闭 |
-| `AGENT_WORKBENCH_CREATE_ENABLED` / `AGENT_WORKBENCH_WRITE_RUN_ENABLED` | `false` / `false` | Workbench 创建与写 Run 分级发布开关 |
-| `AGENT_COMMON_RUNTIME_WORKBENCH_ENABLED` | `false` | Workbench 使用公共 Codex Runtime 的独立迁移开关；不改变普通 Chat 路径 |
-| `AGENT_COMMON_RUNTIME_CREDENTIAL_REFERENCE` | _(无)_ | 公共 Runtime 凭据环境变量的逻辑名；Runtime 开启时必须显式配置，真实凭据仍由进程环境/Secret Store 注入 |
-| `AGENT_WORKBENCH_HIGH_IMPACT_COMMIT_ENABLED` / `AGENT_WORKBENCH_HIGH_IMPACT_PUSH_ENABLED` | `false` / `false` | Git commit/push Executor 发布开关；Proposal 本身不构成授权 |
-| `AGENT_WORKBENCH_HIGH_IMPACT_LOCAL_DEPLOY_ENABLED` / `AGENT_WORKBENCH_HIGH_IMPACT_PRODUCTION_WRITE_ENABLED` | `false` / `false` | 本地部署/生产写 Executor 发布开关；默认 fail-closed |
-| `AGENT_WORKBENCH_RUN_TIMEOUT_SECONDS` / `AGENT_WORKBENCH_RUN_MAX_OUTPUT_BYTES` | `1800` / `8388608` | Workbench 单次 Run 超时与输出上限 |
-| `AGENT_WORKBENCH_ATTACHMENT_STORAGE_ROOT` | `data/workbench/uploads` | 浏览器上传附件的 Git 忽略受控根，不写入 Repository Scope |
-| `AGENT_WORKBENCH_ATTACHMENT_MAXIMUM_BYTES` / `AGENT_WORKBENCH_ATTACHMENT_MAXIMUM_AVAILABLE` | `10485760` / `16` | 单附件大小与每阶段会话可用附件数上限 |
-| `AGENT_HARNESS_ENABLED` | `true` | Harness 管理 API、Repository、Catalog、Artifact Store 总开关；当前默认开启，测试 profile 可覆盖关闭 |
-| `AGENT_HARNESS_ARTIFACT_ROOT` | `data/harness/artifacts` | Harness Artifact 正文受控根目录 |
-| `AGENT_CAPABILITY_RULE_ROOT` | `src/main/resources/capability/rules` | Workbench 与 Harness 共用的可信 Rule Catalog 根；不受 Harness 开关或旧 Harness 根变量影响 |
-| `AGENT_CAPABILITY_SKILL_ROOT` | `src/main/resources/capability/skills` | Workbench 与 Harness 共用的平台可信 Skill Catalog 根；不回退读取旧 Harness 变量 |
-| `AGENT_CAPABILITY_MCP_ROOT` | `src/main/resources/capability/mcp-servers` | Workbench 与 Harness 共用的管理员可信 MCP Catalog 根；不回退读取旧 Harness 变量 |
-| `AGENT_HARNESS_PROMPT_PACK_ROOT` | `src/main/resources/capability/rules` | Harness 四阶段 Prompt Pack 兼容读取根；只影响 Harness，打包部署应覆盖为管理员维护的外置目录 |
-| `AGENT_HARNESS_PLATFORM_SKILL_ROOT` | `src/main/resources/capability/skills` | Harness 的平台 Skill Catalog 兼容覆盖；只影响 Harness consumer |
-| `AGENT_HARNESS_APPROVED_USER_SKILL_ROOT` | _(无)_ | 管理员批准的用户 Skill 根；目录来源固定为 `APPROVED_USER`，Manifest 不可伪造来源 |
-| `AGENT_HARNESS_WORKSPACE_SKILL_ROOT` | _(无)_ | Workspace Skill 根；每个 Skill 仍需在 Snapshot 请求中做 Run 级显式批准 |
-| `AGENT_HARNESS_MCP_SERVER_ROOT` | `src/main/resources/capability/mcp-servers` | Harness 的 MCP Catalog 兼容覆盖；只影响 Harness consumer，且只允许 Snapshot 选中的 Server 进入隔离配置 |
-| `AGENT_HARNESS_DEPLOYMENT_TEMPLATE_ROOT` | `src/main/resources/harness/deployment-templates` | 管理员审核的 local 部署模板 Catalog；仓库默认不内置可执行模板 |
-| `AGENT_HARNESS_CODEX_COMMAND` | `CODEX_CMD`，未配置时为 `codex` | Harness 专用 Codex Runtime 命令；与普通聊天命令配置分离 |
-| `AGENT_HARNESS_RUNTIME_AUTH_MODE` | `local-login` | 正式 Runtime 认证模式；`local-login` 使用服务账户的本机 Codex 登录态，`isolated-key` 使用临时 Home 与显式凭据引用 |
-| `AGENT_HARNESS_ONLINE_AUTH_MODE` | `local-login` | 仅用于 M4 在线验收脚本；`local-login` 使用当前用户 Codex 登录态，`isolated-key` 使用显式凭据引用 |
-| `AGENT_HARNESS_CODEX_CREDENTIAL_REFERENCE` | _(无)_ | 仅 `isolated-key` 使用的环境变量逻辑名；例如值为 `HARNESS_CODEX_PROVIDER_KEY` 时，只在单次隔离进程中将该变量的值注入 `OPENAI_API_KEY` |
-| `AGENT_HARNESS_RUNTIME_TEMP_ROOT` | `data/harness/runtime` | Harness 单次执行输出/配置临时根，终态后清理；`isolated-key` 同时把它作为隔离 Home |
-| `AGENT_HARNESS_ALLOWED_MCP_SERVER_IDS` | _(无)_ | 当前环境允许挂载的 MCP Server ID 集合；空集合 fail-closed |
-| `AGENT_HARNESS_DEPLOYMENT_TIMEOUT_SECONDS` | `600` | local 部署模板每个步骤的超时上限 |
-| `AGENT_HARNESS_DEPLOYMENT_MAX_OUTPUT_BYTES` | `1048576` | local 部署模板每个步骤的输出上限 |
-| `CODEX_STREAM_IDLE_TIMEOUT_SECONDS` / `CLAUDE_STREAM_IDLE_TIMEOUT_SECONDS` | `900` | 普通流式聊天无 stdout 活动的终止期限；收到活动会续期，`0` 表示禁用 |
-| `CODEX_STREAM_MAX_RUNTIME_SECONDS` / `CLAUDE_STREAM_MAX_RUNTIME_SECONDS` | `7200` | 普通流式聊天绝对运行上限；stdout 活动不会续期，`0` 表示禁用 |
-
-## 使用指南
-
-### 对话
-
-1. 登录后在左侧边栏选择工作目录
-2. 点击「开始会话」创建 Agent 会话（可在顶栏切换 Agent 类型和分支）
-3. 在输入框输入指令，按 `Enter` 发送（`Ctrl+Enter` 换行）；支持粘贴 / 上传图片
-4. 实时查看 Agent 流式响应
-5. 历史列表展示对话，可查看 / 继续会话；**删除仅限自己创建的对话**
-6. 「分享」按钮生成只读公开链接；链接持有者可查看历史与消息中明确引用的图片，但不能续聊或启动 Agent
-
-### Local Development Workbench
-
-Workbench 默认关闭。开启创建和真实写 Run 时，需要同时发布 Workbench、创建、写 Run、公共 Runtime
-四个开关，并给 Runtime 配置一个凭据环境变量的逻辑引用；不要把实际凭据值提交到仓库：
-
-```bash
-AGENT_WORKBENCH_ENABLED=true \
-AGENT_WORKBENCH_CREATE_ENABLED=true \
-AGENT_WORKBENCH_WRITE_RUN_ENABLED=true \
-AGENT_COMMON_RUNTIME_WORKBENCH_ENABLED=true \
-AGENT_COMMON_RUNTIME_CREDENTIAL_REFERENCE=WORKBENCH_CODEX_PROVIDER_KEY \
-mvn spring-boot:run
-```
-
-登录后访问 `/workbench.html`：先输入受 `agent.fs.roots` 约束的 Workspace Root，扫描并选择 Repository
-Scope、主仓和写入边界，再按四阶段分别对话和运行。阶段完成前核对或编辑五字段 Handoff；第四阶段的
-Review Candidate 必须经人工逐项处理并确认后才能进入修改。高影响操作还需要各自独立发布开关和
-Owner 明确决定，不能从聊天文本、阶段切换或 Proposal 创建中自动获得授权。
-
-ADMIN 可在 `/admin/workbenches.html` 查询安全投影、停止 Run 或对单个 Run 执行 Reconcile。当前
-自动化真实边界使用 Runtime Stub，不代表真实 Codex/Claude CLI 试点完成；启用前应阅读
-[Workbench 发布就绪快照](docs/workbench/release-readiness-2026-08-01.md)中的剩余门禁。
-
-### 研发交付 Harness
-
-Harness 当前默认开启，测试/E2E profile 可显式覆盖关闭。试用前先阅读
-[M4 开启、恢复和限制说明](docs/harness/m4/README.md#7-开启配置与关闭)，准备管理员维护的外置 Catalog
-和仅 local 的 token 化部署模板。ADMIN 登录后访问 `/admin/harness.html`，按固定顺序执行：
-
-```text
-创建 Run 并冻结原始需求
-→ ANALYSIS / Gate / Approval
-→ DESIGN / Gate / Approval
-→ IMPLEMENTATION / Git + TDD Gate / Approval
-→ 独立 local 部署 Approval
-→ DEPLOYMENT / 技术与业务 AC / 最终 Approval
-```
-
-管理页默认以“阶段对话”作为主入口：选择阶段后直接输入目标或修改意见，服务端会持久化消息、
-自动创建或复用 Attempt、按阶段安全默认值固化 Capability Snapshot，并启动本机 Codex CLI。
-Runtime 的主 Artifact 会回到同一条对话时间线；继续发送修改会创建新的不可变 Attempt，旧
-Execution、Artifact、Gate 和 Approval 仍保留用于审计。Runtime 仍在执行或阶段处于
-`WAITING_INPUT` 时不会并发创建修订，必须等待执行结束或先回答阻断问题。手工 Snapshot、
-Runtime、Gate、部署和原始事件仍保留在页面的“高级与审计”区域。
-
-需求、Skill 或 Agent 输出不能新增命令、MCP、环境变量或文件根；部署命令只来自管理员 Catalog。
-Feature Flag 关闭不会删除历史数据。服务重启时未知 Runtime 标记 `LOST`，未知部署进入
-`RECONCILIATION_REQUIRED`，不会自动重放外部动作。
-
-## API 接口
-
-完整端点以 `interfaces/` 下各 `*Controller` 为准。`/api/auth/login`、`/api/auth/status`、只读分享和静态资源为公开入口；聊天、文件、定时任务、普通 worktree、用户 Git 配置等接口要求数据库用户会话；`/api/metrics/*`、`/api/refinery/*` 和 `/api/admin*` 等管理能力还会额外校验 `ADMIN` 角色。
-
-> 页面聊天统一先 `POST /api/chat/session/{id}/runs`（携带 `Idempotency-Key`）提交，再通过 `GET /api/chat/runs/{runId}/events` 订阅；断线后客户端指数退避重连，并使用 `Last-Event-ID` 回放未确认事件。旧 POST SSE、session status/stop 入口已移除。
-
-Workbench 核心入口按边界拆分：`POST /api/workbench/workspaces/inspect` 只检查 Workspace Root 和仓库拓扑；
-`/api/workbenches` 负责 Owner 范围内的 Workbench、阶段、会话、Run、Handoff、Capability、文档、附件和
-Operation；`/api/admin/workbenches` 只向 ADMIN 暴露安全投影以及 Stop/Reconcile 运维动作。完整方法、请求体和
-并发版本约束以 `interfaces/workbench/` 下 Controller 为准。
-
-## 项目结构
-
-```
-src/main/java/com/example/agentweb/
-├── interfaces/   REST Controller + DTO（Chat / Fs / Auth / Share / Worktree / ScheduledTask /
-│                 AdminWorkflow / GitConfig / Metrics / RecallMetrics / Refinery* / Workbench / Admin*）
-├── app/          应用编排（无业务逻辑）：agentrun（prompt 组装）、chat、scheduled-task、
-│                 workflow、git、metrics、refinery、workbench、runtime、harness；面向外部能力的端口位于
-│                 agentrun/port、auth/port、logging 等对应子域
-├── domain/       聚合根 / 值对象 / 仓储端口：chat、workflow、git、refinery、issuelog、auth、
-│                 schedule、slashcommand、worktree、workbench、workspace、capability、runtime、harness、shared
-├── infra/        CLI 进程执行（cli/ 方言策略）、SQLite 仓储、auth/（本地会话登录 + context path 派生）、
-│                 workflow/、git/、schedule/、log/、metrics/、refinery/、issuelog/、workbench/、workspace/、
-│                 capability/、runtime/、harness/、setting/
-└── config/       Web MVC / Spring 装配、运行配置 Properties（含 capability/、runtime/、workbench/、harness/）
-
-src/main/resources/
-├── application.yml              主配置（各 agent.* 节点带内联注释）
-├── schema.sql                  SQLite 建表脚本
-├── *-prompt.md                 refinery 评分与 issue-log prompt
-└── workbench/profiles/         四阶段默认 Capability Profile
-
-frontend/                       Vue 3 + Element Plus + Vite MPA 源码；构建产物为 frontend/dist/
-tests/                          前端测试工程：Vitest 纯函数单测 + Playwright E2E（自带 e2e profile）
-docs/                           产品、架构、发布和运维文档；Workbench 索引位于 docs/workbench/README.md
-```
-
-## 测试
-
-三层测试金字塔：后端 JUnit 5 + Mockito，前端 Vitest 纯函数单测，Playwright E2E 主链路。`mvn test`
-默认排除 `live`、`git-integration`、`spring-flow`、`process-integration` 四个慢分组，不等于包含真实外部
-CLI/登录态的全部测试。
-
-```bash
-mvn -B test                                                   # 默认后端快速测试集
-mvn test -Dtest=ChatFlowTest                                 # 单类
-mvn test -Dtest='*RepoTest'                                  # 仅跑 Infra 轻量集成
-mvn pmd:check                                                # 代码质量检查（Alibaba P3C）
-cd frontend && npm run typecheck && npm run lint && npm run build
-cd tests && npm run typecheck && npm test                    # Vitest
-cd tests && npm run e2e                                      # 通用 Playwright E2E
-cd tests && npx playwright test -c playwright.workbench.config.ts        # Mock Workbench
-cd tests && npx playwright test -c playwright.admin-workbench.config.ts  # Admin Workbench
-cd tests && npx playwright test -c playwright.workbench-real.config.ts   # Spring + SQLite + Runtime Stub
-```
-
-> Playwright 必须在 `tests/` 目录内运行，或从仓库根显式传 `-c tests/<config>.ts`，否则可能误把 Vitest
-> 单测当 E2E 加载。`playwright.workbench-real.config.ts` 的“real”表示真实 Spring、SQLite、进程编排和
-> Runtime Stub 边界，不会使用真实 Codex/Claude 模型或登录态。
-
-2026-08-01 发布候选记录为：默认后端集 2442 项、`ArchitectureTest` 18/18、Vitest 50 files / 523
-tests、Workbench Mock 14/14、Admin Workbench 2/2、真实边界 Stub 4/4；详细命令、慢分组和未完成的真实
-试点/运维门禁见[发布就绪快照](docs/workbench/release-readiness-2026-08-01.md)。push 到 `master` 前仍必须以
-当前工作树重新运行后端、`frontend/` 和 `tests/` 三组门禁，不能用历史记录替代。
-
-关键测试：
-- `ChatFlowTest` / `FeedbackFlowTest` — 聊天流程与会话反馈
-- `ResumeSessionTest` — 会话恢复
-- `ScheduledTaskTest` — 定时任务（`@Scheduled` 装配 + SQLite 锁退避）
-- `FsControllerTest` / `UploadPicStoreTest` — 文件系统与图片上传
-- `SlashCommandScannerTest` / `SlashCommandExpanderTest` — 自定义命令
-- `WorktreeControllerTest` / `BranchNameValidatorTest` — Worktree 与分支名校验
-- `cli/Claude|CodexCliDialectTest` / `cli/*EventNormalizer*Test` — CLI 方言与事件归一化
-- `infra/AgentCliGatewayTest` / `infra/AgentTypeResolverTest` — 网关与类型兜底
-- `app/workflow/*` / `domain/workflow/*` / `infra/workflow/*` — 多步工作流编排与持久化
-- `domain/refinery/*` / `app/refinery/*` / `infra/refinery/*` — 知识精炼评分、召回重排、embedding、向量库
-- `domain/workbench/*` / `app/workbench/*` / `infra/workbench/*` / `interfaces/workbench/*` — Workbench 不变量、编排、SQLite/文件适配与 API
-- `ArchitectureTest` — 分层约束及 Spring AOP 代理类不得 `final` 等架构守卫
-
-## 安全注意事项
-
-### 当前实现
-
-- 路径验证防止目录穿越；文件接口和 worktree 操作统一受 `agent.fs.roots` 约束
-- 数据库用户名密码登录：BCrypt 哈希、256-bit 随机会话、`HttpOnly` / `SameSite=Strict` Cookie，默认 7 天；登录失败按来源和用户名限流
-- 公网模式在 Web Server 开始接收请求前检查 `admin` 种子哈希，未提供新密码或继续使用公开种子密码时拒绝启动；公网 Cookie 默认 `Secure` + `__Host-` 前缀
-- 会话可见性默认按用户隔离；**删除仅限会话创建者**（删他人会话返回 403）；管理接口在普通会话认证后再校验 `ADMIN` 角色
-- 分享链接基于随机 Token，只读查看；公开分享不能续聊、不能启动 Agent、不能使用 owner 的 Git 身份或凭据
-- 用户路径经过真实路径白名单校验，拒绝符号链接逃逸；上传限制文件名、扩展名和大小，并禁止覆盖已有文件
-- Workbench 在 Workspace Root 白名单之上冻结 Repository Scope；所有文档、附件引用、Run 写根和 Operation Target 再按 Scope 授权，未选择的 sibling 仓库不可写
-- Workbench 上传附件在受控 Git 忽略目录保存，使用内容 Hash、大小/数量/TTL 上限和 `NOFOLLOW` 路径检查；附件不能通过文件路径声明伪造
-- Workbench Runtime Snapshot 冻结 Exec Policy、能力绑定和写根；类型化 Operation 默认仅为 Proposal，高影响 Executor 独立发布且必须由 Owner 明确决定
-- Admin Workbench 只返回安全投影，不返回消息正文、Prompt、Secret 或原始命令；管理员运维动作进入独立审计记录
-- Markdown 经 DOMPurify 白名单净化；统一发送 CSP、`nosniff`、拒绝 framing 等浏览器安全头
-- Agent 子进程使用最小环境变量集合、超时和输出上限；Codex 默认不绕过 sandbox，Claude 不使用 `--dangerously-skip-permissions`
-- 用户 SCM 凭据密码加密存储（`GitCredentialCipher`），响应不回显
-- 生产环境通过 `agent.envs[].prompt` 强制注入只读约束
-- 知识精炼入库前对结论文本做脱敏正则（`agent.refinery.privacy.redact-patterns`），防 API key / JWT / 用户路径段泄漏到向量库
-
-### 生产环境建议
-
-- 公网入口只开放 Caddy 的 HTTPS 443；Spring Boot 默认仅监听 `127.0.0.1:18092`，禁止覆盖成公网可达地址
-- 首次公网启动用 Secret、进程环境或权限为 600 的 `data/secrets.properties` 临时注入 `AGENT_BOOTSTRAP_ADMIN_PASSWORD`；成功写入 BCrypt 哈希后删除该明文配置
-- 把 `agent.fs.roots` 限制到确实允许浏览、修改和执行 worktree 操作的必要工作目录
-- 用户 Git 凭据使用 `GIT_CRED_ENC_KEY` 加密；密钥通过受控环境或 Git 忽略配置注入，不写入受版本控制的文件
-- TLS 在反向代理终止时保持 `SERVER_FORWARD_HEADERS_STRATEGY=framework`，并设置 `X-Forwarded-Proto=https`；部署样例和检查清单见 [公网 HTTPS 部署](docs/public-deployment.md)
-- Vue/Vite 已使用 runtime-only 预编译构建，CSP 不再包含 `unsafe-eval`；当前 `style-src` / `script-src` 仍保留 `unsafe-inline`，后续清理内联样式/脚本后应继续收紧
-- 不要开启 `CODEX_SANDBOX_BYPASS`，除非已经评估工作目录、CLI 登录态和子进程权限边界
+运行配置的最终依据是 [`src/main/resources/application.yml`](src/main/resources/application.yml)，机器路径种子位于 [`src/main/resources/agent-paths.yml`](src/main/resources/agent-paths.yml)。

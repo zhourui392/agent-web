@@ -22,6 +22,7 @@ export AGENT_BOOTSTRAP_ADMIN_PASSWORD='<上一步生成的密码>'
 export AGENT_WORKSPACE_ROOT='/srv/agent-workspaces'
 export SERVER_ADDRESS=127.0.0.1
 export SERVER_FORWARD_HEADERS_STRATEGY=framework
+export CODEX_SANDBOX_BYPASS=false
 ```
 
 新密码必须为 12～256 个字符，且不能继续使用公开种子密码。若数据库仍是种子哈希但未配置新密码，应用会在 Web Server 开始接收请求前失败退出。换密与注销该账户已有登录会话在同一事务内完成。启动成功后，数据库只保存 BCrypt cost 12 哈希；后续启动检测到密码已经修改，不会再次覆盖，可从进程环境中移除 `AGENT_BOOTSTRAP_ADMIN_PASSWORD`。
