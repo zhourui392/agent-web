@@ -58,10 +58,6 @@ public final class CatalogYaml {
         return value == null ? null : String.valueOf(value).trim();
     }
 
-    public boolean contains(String key) {
-        return values.containsKey(key);
-    }
-
     public boolean requiredBoolean(String key) {
         Object value = values.get(key);
         if (!(value instanceof Boolean)) {
@@ -97,20 +93,15 @@ public final class CatalogYaml {
         return result;
     }
 
-    public List<String> requiredExclusiveStringList(
-            String publicKey, String legacyKey) {
-        boolean publicDeclared = values.containsKey(publicKey);
-        boolean legacyDeclared = values.containsKey(legacyKey);
-        if (publicDeclared == legacyDeclared) {
+    public List<String> requiredStringList(String key) {
+        if (!values.containsKey(key)) {
             throw failure("CATALOG_MANIFEST_INVALID",
-                    "manifest must declare exactly one of "
-                            + publicKey + " or " + legacyKey);
+                    "manifest field must not be blank: " + key);
         }
-        String selectedKey = publicDeclared ? publicKey : legacyKey;
-        List<String> result = stringList(selectedKey);
+        List<String> result = stringList(key);
         if (result.isEmpty()) {
             throw failure("CATALOG_MANIFEST_INVALID",
-                    "manifest list must not be empty: " + selectedKey);
+                    "manifest list must not be empty: " + key);
         }
         return result;
     }

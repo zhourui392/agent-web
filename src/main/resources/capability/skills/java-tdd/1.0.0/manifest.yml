@@ -2,7 +2,7 @@ schemaVersion: "1"
 id: java-tdd
 version: 1.0.0
 description: 用红绿重构完成 Java 业务变更
-applicableUseCases: [IMPLEMENTATION, IMPLEMENT_TEST]
+applicableUseCases: [IMPLEMENT_TEST]
 techTags: [java, spring]
 explicitTriggers: [java-tdd]
 entry: SKILL.md

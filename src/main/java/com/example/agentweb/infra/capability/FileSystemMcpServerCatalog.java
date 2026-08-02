@@ -67,8 +67,7 @@ public class FileSystemMcpServerCatalog implements McpServerCatalog {
         }
         return new McpServerDefinition(yaml.requiredString("id"),
                 yaml.requiredString("version"), yaml.requiredString("description"),
-                stringSet(yaml.requiredExclusiveStringList(
-                        "applicableUseCases", "stages"), "use case"),
+                stringSet(yaml.requiredStringList("applicableUseCases"), "use case"),
                 stringSet(yaml.stringList("runtimes"), "runtime"),
                 yaml.stringList("command"), capabilities(yaml.mapList("capabilities")),
                 secrets(yaml.mapList("secrets")),

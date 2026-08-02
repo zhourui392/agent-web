@@ -2,7 +2,7 @@ schemaVersion: "1"
 id: release-verification
 version: 1.0.0
 description: 执行受控发布前检查与证据收集
-applicableUseCases: [DEPLOYMENT, REVIEW_REFACTOR]
+applicableUseCases: [REVIEW_REFACTOR]
 techTags: [release, spring]
 explicitTriggers: [release-verify]
 entry: SKILL.md

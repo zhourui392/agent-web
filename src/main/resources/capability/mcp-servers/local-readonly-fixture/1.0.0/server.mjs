@@ -1,16 +1,16 @@
 import { createInterface } from 'node:readline';
 
-const FIXTURE_VALUE = 'harness-readonly-fixture:v1';
+const FIXTURE_VALUE = 'local-readonly-fixture:v1';
 const TOOL = {
   name: 'read_fixture',
-  description: 'Return a fixed, non-sensitive Harness compatibility value.',
+  description: 'Return a fixed, non-sensitive read-only fixture value.',
   inputSchema: {
     type: 'object',
     properties: {},
     additionalProperties: false,
   },
   annotations: {
-    title: 'Read Harness fixture',
+    title: 'Read fixture value',
     readOnlyHint: true,
     destructiveHint: false,
     idempotentHint: true,
@@ -37,7 +37,7 @@ function handle(message) {
     return result(message.id, {
       protocolVersion: message.params?.protocolVersion ?? '2024-11-05',
       capabilities: { tools: { listChanged: false } },
-      serverInfo: { name: 'harness-local-readonly-fixture', version: '1.0.0' },
+      serverInfo: { name: 'local-readonly-fixture', version: '1.0.0' },
     });
   }
   if (message.method === 'ping') {

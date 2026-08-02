@@ -14,7 +14,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -95,29 +94,13 @@ public class FileSystemRuleCatalog implements RuleCatalog {
                 CapabilityCatalogFiles.readManifest(realRoot, manifestPath);
         CatalogYaml yaml = CatalogYaml.parse(manifestFile.getBytes(), manifestPath.toString());
         requireSchemaVersion(yaml);
-        boolean legacyHarnessManifest = yaml.contains("stage");
-        if (legacyHarnessManifest) {
-            yaml.requireOnlyKeys("schemaVersion", "id", "version", "stage", "resources");
-        } else {
-            yaml.requireOnlyKeys("schemaVersion", "id", "version", "source", "mandatory",
-                    "summary", "applicableUseCases", "resources");
-        }
+        yaml.requireOnlyKeys("schemaVersion", "id", "version", "source", "mandatory",
+                "summary", "applicableUseCases", "resources");
         String id = requireLogicalId(yaml.requiredString("id"));
-        String source;
-        boolean mandatory;
-        String summary;
-        Set<String> useCases;
-        if (legacyHarnessManifest) {
-            source = "PLATFORM";
-            mandatory = true;
-            summary = id;
-            useCases = Collections.singleton(requireUseCase(yaml.requiredString("stage")));
-        } else {
-            source = yaml.requiredString("source");
-            mandatory = yaml.requiredBoolean("mandatory");
-            summary = yaml.requiredString("summary");
-            useCases = requireUseCases(yaml.stringList("applicableUseCases"));
-        }
+        String source = yaml.requiredString("source");
+        boolean mandatory = yaml.requiredBoolean("mandatory");
+        String summary = yaml.requiredString("summary");
+        Set<String> useCases = requireUseCases(yaml.stringList("applicableUseCases"));
         Map<String, Object> declared = yaml.requiredMap("resources");
         Path packageDir = manifestPath.getParent();
         List<CapabilityCatalogFiles.CatalogFile> packageFiles =

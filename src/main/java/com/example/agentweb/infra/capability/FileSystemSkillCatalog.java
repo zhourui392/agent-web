@@ -77,8 +77,7 @@ public class FileSystemSkillCatalog implements SkillCatalog {
         SkillManifest manifest = new SkillManifest(
                 yaml.requiredString("id"), yaml.requiredString("version"),
                 yaml.requiredString("description"),
-                stringSet(yaml.requiredExclusiveStringList(
-                        "applicableUseCases", "stages"), "use case"),
+                stringSet(yaml.requiredStringList("applicableUseCases"), "use case"),
                 new LinkedHashSet<String>(yaml.stringList("techTags")),
                 new LinkedHashSet<String>(yaml.stringList("explicitTriggers")), entryPath, resourcePaths,
                 dependencies(yaml.mapList("dependencies")),

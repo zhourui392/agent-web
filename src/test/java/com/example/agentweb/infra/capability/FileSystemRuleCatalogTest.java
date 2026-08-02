@@ -172,18 +172,10 @@ class FileSystemRuleCatalogTest {
     }
 
     @Test
-    void builtInCommonRootShouldCoverWorkbenchPhaseAndWorkbenchRequiredRuleId() {
+    void builtInCommonRootShouldCoverWorkbenchRequiredRuleIds() {
         FileSystemRuleCatalog catalog = new FileSystemRuleCatalog(
                 Paths.get(COMMON_RULE_ROOT));
 
-        for (String phaseUseCase : Arrays.asList(
-                "ANALYSIS", "DESIGN", "IMPLEMENTATION", "DEPLOYMENT")) {
-            RuleDefinition definition = catalog.resolve(phaseUseCase);
-            assertEquals(phaseUseCase.toLowerCase(java.util.Locale.ROOT),
-                    definition.getId());
-            assertTrue(definition.supports(phaseUseCase));
-            assertEquals(4, definition.getResources().size());
-        }
         for (String ruleId : WORKBENCH_REQUIRED_RULE_IDS) {
             RuleDefinition definition = catalog.resolveById(ruleId);
             assertEquals(ruleId, definition.getId());

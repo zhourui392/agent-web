@@ -2,7 +2,7 @@ schemaVersion: "1"
 id: local-readonly-fixture
 version: 1.0.0
 description: M4 真实 Codex 兼容性验收使用的无 Secret 静态只读 MCP
-stages: [ANALYSIS]
+applicableUseCases: [REQUIREMENT_ANALYSIS]
 runtimes: [CODEX]
 command:
   - node

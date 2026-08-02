@@ -5,7 +5,7 @@ Server；部署环境必须显式选择和授权，Server 才可能进入 Runtim
 
 `local-readonly-fixture/1.0.0` 只用于目标机真实 Codex 兼容性验收。它不读取文件、
 不访问网络、不接收 Secret，只通过 stdio 暴露返回固定值的 `read_fixture`；Manifest 仅允许
-`ANALYSIS + CODEX`。启用时仍必须显式配置允许的 MCP Server ID。
+`REQUIREMENT_ANALYSIS + CODEX`。启用时仍必须显式配置允许的 MCP Server ID。
 
 其命令路径以被验收的 `agent-web` 源码根为工作目录；打包部署或外置 Catalog 不应依赖该
 Fixture，应由管理员提供经过独立评审的绝对命令或 PATH 命令。不要把 Fixture 扩展为文件读取、

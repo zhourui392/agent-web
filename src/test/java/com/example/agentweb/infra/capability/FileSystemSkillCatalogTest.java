@@ -73,7 +73,7 @@ class FileSystemSkillCatalogTest {
         Path skillDir = writeSkill(
                 tempDir, "solution-design", "references/rules.md");
         replaceManifestDeclaration(
-                skillDir, "stages: [ANALYSIS]\n",
+                skillDir, "applicableUseCases: [ANALYSIS]\n",
                 "applicableUseCases: [SOLUTION_DESIGN]\n");
 
         SkillPackage skill = new FileSystemSkillCatalog(
@@ -85,14 +85,13 @@ class FileSystemSkillCatalogTest {
     }
 
     @Test
-    void shouldRejectManifestDeclaringBothPublicUseCasesAndLegacyStages()
+    void shouldRejectLegacyStagesManifest()
             throws IOException {
         Path skillDir = writeSkill(
-                tempDir, "ambiguous", "references/rules.md");
+                tempDir, "legacy-stages", "references/rules.md");
         replaceManifestDeclaration(
-                skillDir, "stages: [ANALYSIS]\n",
-                "stages: [ANALYSIS]\n"
-                        + "applicableUseCases: [REQUIREMENT_ANALYSIS]\n");
+                skillDir, "applicableUseCases: [ANALYSIS]\n",
+                "stages: [ANALYSIS]\n");
 
         CapabilityCatalogException failure = assertThrows(
                 CapabilityCatalogException.class,
@@ -103,12 +102,12 @@ class FileSystemSkillCatalogTest {
     }
 
     @Test
-    void shouldRejectManifestMissingBothPublicUseCasesAndLegacyStages()
+    void shouldRejectManifestMissingApplicableUseCases()
             throws IOException {
         Path skillDir = writeSkill(
                 tempDir, "missing-use-cases", "references/rules.md");
         replaceManifestDeclaration(
-                skillDir, "stages: [ANALYSIS]\n", "");
+                skillDir, "applicableUseCases: [ANALYSIS]\n", "");
 
         CapabilityCatalogException failure = assertThrows(
                 CapabilityCatalogException.class,
@@ -221,7 +220,7 @@ class FileSystemSkillCatalogTest {
                 + "id: " + id + "\n"
                 + "version: 1.0.0\n"
                 + "description: " + id + " description\n"
-                + "stages: [ANALYSIS]\n"
+                + "applicableUseCases: [ANALYSIS]\n"
                 + "techTags: [java]\n"
                 + "explicitTriggers: [review]\n"
                 + "entry: SKILL.md\n"

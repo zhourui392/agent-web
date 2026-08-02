@@ -2,7 +2,7 @@ schemaVersion: "1"
 id: requirement-analysis
 version: 1.0.0
 description: 整理需求基线并定义可观察的验收条件
-applicableUseCases: [ANALYSIS, REQUIREMENT_ANALYSIS]
+applicableUseCases: [REQUIREMENT_ANALYSIS]
 techTags: []
 explicitTriggers: []
 entry: SKILL.md

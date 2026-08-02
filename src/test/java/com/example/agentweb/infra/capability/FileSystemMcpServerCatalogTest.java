@@ -47,7 +47,7 @@ class FileSystemMcpServerCatalogTest {
     @Test
     void shouldParsePublicApplicableUseCasesForWorkbenchPhase() throws Exception {
         writeManifest("reader", validManifest().replace(
-                "stages: [ANALYSIS, DESIGN]\n",
+                "applicableUseCases: [ANALYSIS, DESIGN]\n",
                 "applicableUseCases: [REVIEW_REFACTOR]\n"));
 
         McpServerDefinition definition =
@@ -58,12 +58,11 @@ class FileSystemMcpServerCatalogTest {
     }
 
     @Test
-    void shouldRejectManifestDeclaringBothPublicUseCasesAndLegacyStages()
+    void shouldRejectLegacyStagesManifest()
             throws Exception {
         writeManifest("reader", validManifest().replace(
-                "stages: [ANALYSIS, DESIGN]\n",
-                "stages: [ANALYSIS, DESIGN]\n"
-                        + "applicableUseCases: [REVIEW_REFACTOR]\n"));
+                "applicableUseCases: [ANALYSIS, DESIGN]\n",
+                "stages: [ANALYSIS, DESIGN]\n"));
 
         CapabilityCatalogException failure = assertThrows(
                 CapabilityCatalogException.class,
@@ -73,10 +72,10 @@ class FileSystemMcpServerCatalogTest {
     }
 
     @Test
-    void shouldRejectManifestMissingBothPublicUseCasesAndLegacyStages()
+    void shouldRejectManifestMissingApplicableUseCases()
             throws Exception {
         writeManifest("reader", validManifest().replace(
-                "stages: [ANALYSIS, DESIGN]\n", ""));
+                "applicableUseCases: [ANALYSIS, DESIGN]\n", ""));
 
         CapabilityCatalogException failure = assertThrows(
                 CapabilityCatalogException.class,
@@ -106,7 +105,7 @@ class FileSystemMcpServerCatalogTest {
     }
 
     @Test
-    void bundledLiveFixtureShouldRemainSecretlessAndAnalysisOnly() {
+    void bundledLiveFixtureShouldRemainSecretlessAndRequirementAnalysisOnly() {
         Path catalog = Paths.get(
                 "src", "main", "resources", "capability", "mcp-servers");
 
@@ -116,7 +115,7 @@ class FileSystemMcpServerCatalogTest {
 
         assertEquals("CODEX", fixture.getCompatibleRuntimes().iterator().next());
         assertEquals(CapabilityAccess.READ, fixture.getCapabilities().get(0).getAccess());
-        assertTrue(fixture.getApplicableUseCases().contains("ANALYSIS"));
+        assertTrue(fixture.getApplicableUseCases().contains("REQUIREMENT_ANALYSIS"));
         assertEquals(1, fixture.getApplicableUseCases().size());
         assertTrue(fixture.getSecretReferences().isEmpty());
         assertEquals("read_fixture", fixture.enabledReadToolNames().get(0));
@@ -133,7 +132,7 @@ class FileSystemMcpServerCatalogTest {
                 + "id: reader\n"
                 + "version: 1.0.0\n"
                 + "description: Fake read-only MCP\n"
-                + "stages: [ANALYSIS, DESIGN]\n"
+                + "applicableUseCases: [ANALYSIS, DESIGN]\n"
                 + "runtimes: [CODEX]\n"
                 + "command: [fake-mcp, --stdio]\n"
                 + "startupTimeoutSeconds: 10\n"

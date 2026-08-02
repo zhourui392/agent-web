@@ -2,7 +2,7 @@ schemaVersion: "1"
 id: domain-modeling-audit
 version: 1.0.0
 description: 提取不变量、聚合边界和业务变化点
-applicableUseCases: [ANALYSIS, SOLUTION_DESIGN, REVIEW_REFACTOR]
+applicableUseCases: [SOLUTION_DESIGN, REVIEW_REFACTOR]
 techTags: [java, ddd]
 explicitTriggers: [domain-audit]
 entry: SKILL.md

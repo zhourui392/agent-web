@@ -5,7 +5,6 @@ import com.example.agentweb.app.runtime.port.RuntimeObservation;
 import com.example.agentweb.app.runtime.port.RuntimeState;
 import com.example.agentweb.app.runtime.port.RuntimeTerminationReason;
 
-import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -29,13 +28,6 @@ public final class RuntimeProcessRegistry {
 
     public RuntimeHandle register(String executionId, Process process) {
         return register(executionId, process, "runtime:" + UUID.randomUUID().toString());
-    }
-
-    /**
-     * Harness 兼容窗口使用的 PID 展示 Handle；公共 Runtime 默认使用不可复用的 UUID Handle。
-     */
-    public RuntimeHandle registerWithProcessId(String executionId, Process process) {
-        return register(executionId, process, processHandleId(process));
     }
 
     private RuntimeHandle register(String executionId, Process process, String handleId) {
@@ -133,17 +125,6 @@ public final class RuntimeProcessRegistry {
             throw new IllegalStateException("runtime handle is not registered");
         }
         return entry;
-    }
-
-    private String processHandleId(Process process) {
-        try {
-            Method toHandle = Process.class.getMethod("toHandle");
-            Object processHandle = toHandle.invoke(process);
-            Method pid = Class.forName("java.lang.ProcessHandle").getMethod("pid");
-            return "pid:" + pid.invoke(processHandle);
-        } catch (Exception ex) {
-            throw new IllegalStateException("runtime process handle is unavailable", ex);
-        }
     }
 
     private static final class Entry {
