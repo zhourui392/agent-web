@@ -180,7 +180,7 @@
                 v-else
                 type="primary"
                 :loading="mutationLoading"
-                :disabled="selectedPhaseView?.status !== 'IN_PROGRESS' || detail.status === 'ARCHIVED'"
+                :disabled="!canCompleteSelectedPhase"
                 @click="completeSelectedPhase"
               >
                 人工完成
@@ -210,6 +210,8 @@
               :older-messages-loading="olderMessagesLoading"
               :repository-keys="repositoryKeys"
               :attachments="pendingAttachments"
+              :upload-items="workbenchUploadItems"
+              :upload-notice="workbenchUploadNotice"
               :connection-status="connectionStatus"
               :error="conversationError"
               :notice="conversationNotice"
@@ -220,6 +222,7 @@
               :handoff-ready="handoffReady"
               :modify-allowed="modifyAllowed"
               :modify-ready="selectedPhase !== 'REVIEW_REFACTOR' || reviewConfirmed"
+              :write-run-blocked="writeRunBlocked"
               :mobile="isMobile"
               :document-collapsed="desktopMode === 'COLLAPSED'"
               :terminal-document-stale="Boolean(runState?.terminal && currentDocument?.stale)"
@@ -231,6 +234,9 @@
               @open-document-pane="openMobileDrawer"
               @restore-document-pane="restore"
               @remove-attachment="removeAttachment"
+              @upload-files="uploadWorkbenchFiles"
+              @retry-upload="retryWorkbenchUpload"
+              @remove-upload="removeWorkbenchUpload"
               @load-older-messages="loadOlderConversationMessages"
             >
               <template v-if="selectedPhase === 'REVIEW_REFACTOR'" #review>
@@ -248,9 +254,18 @@
                   :confirmed="reviewConfirmed"
                   :can-save="reviewCanSave"
                   :can-confirm="reviewCanConfirm"
+                  :candidate="reviewCandidate"
+                  :candidate-items="reviewCandidateItems"
+                  :candidate-loading="reviewCandidateLoading"
+                  :candidate-error="reviewCandidateError"
+                  :can-generate-candidate="reviewCanGenerateCandidate"
                   @update:model-value="updateComposerText"
                   @save-opinion="saveReviewOpinion"
                   @confirm-modification="confirmReviewModification"
+                  @generate-candidate="generateReviewCandidate"
+                  @update-candidate-item="updateReviewCandidateItem"
+                  @accept-candidate-item="acceptReviewCandidateItem"
+                  @ignore-candidate-item="ignoreReviewCandidateItem"
                 />
               </template>
               <template #operations>
@@ -261,8 +276,18 @@
                   :error="operationError"
                   :notice="operationNotice"
                   :read-only="operationReadOnly"
+                  :repositories="repositories"
+                  :source-runs="operationSourceRuns"
+                  :workbench-id="workbenchId"
+                  :phase="selectedPhase"
+                  :proposal-source-loading="operationSourceRunsLoading"
+                  :proposing="operationProposing"
+                  :proposal-created-token="operationProposalCreatedToken"
+                  :proposal-disabled-reason="operationProposalDisabledReason"
                   @refresh="loadOperations"
                   @decide="decideOperation"
+                  @prepare-proposal="prepareOperationProposal"
+                  @propose="proposeOperation"
                 />
               </template>
             </workbench-conversation-panel>
@@ -404,6 +429,9 @@
       :loading="handoffLoading"
       :saving="handoffSaving"
       :accepting="handoffAccepting"
+      :candidate-generating="handoffCandidateGenerating"
+      :candidate="handoffCandidate"
+      :candidate-pending="handoffCandidatePending"
       :error="handoffError"
       :notice="handoffNotice"
       :dirty="handoffDirty"
@@ -418,6 +446,10 @@
       @accept-latest="acceptLatestSource"
       @keep-current="keepCurrentSource"
       @open-document="openHandoffDocument"
+      @generate-candidate="generateHandoffCandidate"
+      @apply-candidate-field="applyHandoffCandidateField"
+      @ignore-candidate-field="ignoreHandoffCandidateField"
+      @dismiss-candidate="dismissHandoffCandidate"
     />
 
     <el-dialog
@@ -566,6 +598,7 @@ import { useWorkbenchHandoff } from '../composables/useWorkbenchHandoff.js';
 import { useWorkbenchOperations } from '../composables/useWorkbenchOperations.js';
 import { useWorkbenchReview } from '../composables/useWorkbenchReview.js';
 import { useWorkbenchRunHistory } from '../composables/useWorkbenchRunHistory.js';
+import { useWorkbenchUploadedAttachments } from '../composables/useWorkbenchUploadedAttachments.js';
 import { openWorkbenchHandoffDocument } from '../lib/workbench-handoff-integration.js';
 import { WORKBENCH_PHASES, phaseStatusLabel } from '../lib/workbench-state.js';
 import { useWorkbenchShell } from '../composables/useWorkbenchShell.js';
@@ -620,9 +653,18 @@ export default {
     const activeRunId = computed(
       () => shell.selectedPhaseView.value?.activeRun?.runId || null,
     );
+    const activeWriteRunId = computed(
+      () => shell.detail.value?.activeWriteRunId || null,
+    );
     const phaseStatus = computed(
       () => shell.selectedPhaseView.value?.status ?? 'NOT_STARTED',
     );
+    const canCompleteSelectedPhase = computed(() =>
+      shell.detail.value?.status !== 'ARCHIVED'
+      && ['NOT_STARTED', 'IN_PROGRESS'].includes(
+        shell.selectedPhaseView.value?.status ?? '',
+      )
+      && shell.selectedPhaseView.value?.activeRun == null);
     const capability = useWorkbenchCapability({
       workbenchId,
       phase: shell.selectedPhase,
@@ -650,6 +692,7 @@ export default {
     const handoff = useWorkbenchHandoff({
       workbenchId,
       phase: shell.selectedPhase,
+      conversationGeneration,
       archived,
     });
     const review = useWorkbenchReview({
@@ -662,13 +705,16 @@ export default {
       workbenchId,
       phase: shell.selectedPhase,
       archived,
+      repositories,
     });
     const expectedVersion = computed(() => shell.detail.value?.version ?? null);
     const handoffRequired = computed(
       () => shell.selectedPhase.value !== 'REQUIREMENT_ANALYSIS',
     );
     const handoffSourceVersion = computed(
-      () => handoff.handoffSource.value?.reception?.sourceVersion ?? null,
+      () => handoff.handoffSource.value?.reception?.sourceVersion ??
+        handoff.handoffSource.value?.latestSource?.version ??
+        null,
     );
     const conversation = useWorkbenchConversation({
       ownerId: shell.currentUserId,
@@ -677,6 +723,7 @@ export default {
       conversationGeneration,
       currentConversationId,
       activeRunId,
+      activeWriteRunId,
       expectedVersion,
       phaseStatus,
       archived,
@@ -687,6 +734,17 @@ export default {
       onConversationRestarted: applyConversationRestart,
       onSubmitted: applyRunSubmission,
       onTerminal: reloadAfterTerminal,
+    });
+    const uploadedAttachments = useWorkbenchUploadedAttachments({
+      workbenchId,
+      phase: shell.selectedPhase,
+      conversationGeneration,
+      archived,
+      combinedAttachmentCount: computed(
+        () => conversation.pendingAttachments.value.length,
+      ),
+      onAvailable: attachment => conversation.addAttachment(attachment),
+      onReleased: attachmentId => conversation.removeUploadedAttachment(attachmentId),
     });
     const currentDocumentAttachmentSelected = computed(() => (
       conversation.isAttachmentPending(
@@ -725,8 +783,13 @@ export default {
       };
     }
 
-    function applyRunSubmission(submission, mode) {
+    function applyRunSubmission(submission, mode, attachments) {
       if (!shell.detail.value) return;
+      uploadedAttachments.markSubmitted(
+        (attachments || [])
+          .filter(attachment => attachment.type === 'UPLOADED_CONVERSATION')
+          .map(attachment => attachment.attachmentId),
+      );
       const phase = shell.selectedPhase.value;
       const reviewProof = mode === 'MODIFY_WORKSPACE' && phase === 'REVIEW_REFACTOR'
         ? {
@@ -804,10 +867,24 @@ export default {
       }
     }
 
-    async function openRunDocument(repositoryKey, relativePath) {
+    async function openRunDocument(reference) {
       if (documentPane.isMobile.value) documentPane.openMobileDrawer();
       else if (documentPane.desktopMode.value === 'COLLAPSED') documentPane.restore();
-      await documentPane.openDocument({ repositoryKey, relativePath });
+      await documentPane.openDocument(reference);
+    }
+
+    async function uploadWorkbenchFiles(files) {
+      for (const file of Array.from(files || [])) {
+        await uploadedAttachments.upload(file);
+      }
+    }
+
+    async function retryWorkbenchUpload(clientId) {
+      await uploadedAttachments.retry(clientId);
+    }
+
+    async function removeWorkbenchUpload(clientId) {
+      await uploadedAttachments.remove(clientId);
     }
 
     async function handlePhaseAdvancedCommand(command) {
@@ -954,6 +1031,11 @@ export default {
       ...review,
       ...operations,
       ...conversation,
+      workbenchUploadItems: uploadedAttachments.items,
+      workbenchUploadNotice: uploadedAttachments.notice,
+      workbenchId,
+      archived,
+      repositories,
       repositoryKeys,
       currentDocumentAttachmentSelected,
       capabilityStatusLabel,
@@ -978,6 +1060,7 @@ export default {
       loadMoreHistoricalEvents: runHistory.loadMoreEvents,
       WORKBENCH_PHASES,
       currentPhaseLabel,
+      canCompleteSelectedPhase,
       phaseStatusLabel,
       phaseView,
       workbenchStatusLabel,
@@ -986,6 +1069,9 @@ export default {
       openHandoffDocument,
       updateComposerText,
       openRunDocument,
+      uploadWorkbenchFiles,
+      retryWorkbenchUpload,
+      removeWorkbenchUpload,
       handlePhaseAdvancedCommand,
       repositoryRelativePathLabel,
     };

@@ -17,6 +17,7 @@ const MAX_DECISIONS = 50;
 const MAX_OPEN_QUESTIONS = 50;
 const MAX_PINNED_FILES = 100;
 const MAX_REFERENCED_RUNS = 50;
+const MAX_CANDIDATE_SOURCE_MESSAGES = 50;
 const MAX_SERIALIZED_CONTENT_BYTES = 256 * 1024;
 const MAX_RESPONSE_CHARS = 1024 * 1024;
 const SHA_256 = /^[a-f0-9]{64}$/;
@@ -116,6 +117,15 @@ export interface AcceptHandoffReceptionInput {
   sourceHash: string;
 }
 
+export const HANDOFF_CANDIDATE_STRATEGY = 'DETERMINISTIC_PUBLIC_MESSAGES_V1' as const;
+
+export interface PhaseHandoffCandidateView extends HandoffEditableContent {
+  baseHandoffVersion: number;
+  conversationGeneration: number;
+  sourceMessageCount: number;
+  strategy: typeof HANDOFF_CANDIDATE_STRATEGY;
+}
+
 export interface WorkbenchHandoffApiClient {
   getHandoff(workbenchId: string, phase: WorkbenchPhase): Promise<PhaseHandoffView | null>;
   putHandoff(
@@ -130,6 +140,10 @@ export interface WorkbenchHandoffApiClient {
     targetPhase: WorkbenchPhase,
     input: AcceptHandoffReceptionInput,
   ): Promise<HandoffReceptionView>;
+  generateHandoffCandidate(
+    workbenchId: string,
+    phase: WorkbenchPhase,
+  ): Promise<PhaseHandoffCandidateView>;
 }
 
 export class WorkbenchHandoffApiError extends Error {
@@ -244,6 +258,23 @@ export function createWorkbenchHandoffApiClient(injectedFetch?: WorkbenchHandoff
       }
       return projected;
     },
+
+    async generateHandoffCandidate(workbenchId, phase) {
+      const response = await safeFetch(execute, candidateUrl(workbenchId, phase), {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: '{}',
+      });
+      const body = await readBody(response);
+      if (!response.ok) throw responseError(response.status, body);
+      const projected = candidateProjection(body);
+      if (!projected) throw invalidResponse(response.status);
+      return projected;
+    },
   };
 }
 
@@ -259,10 +290,14 @@ function receptionUrl(workbenchId: string, phase: WorkbenchPhase): string {
   return phaseUrl(workbenchId, phase, 'handoff-receptions');
 }
 
+function candidateUrl(workbenchId: string, phase: WorkbenchPhase): string {
+  return phaseUrl(workbenchId, phase, 'handoff-candidates');
+}
+
 function phaseUrl(
   workbenchId: string,
   phase: WorkbenchPhase,
-  resource: 'handoff' | 'handoff-source' | 'handoff-receptions',
+  resource: 'handoff' | 'handoff-source' | 'handoff-receptions' | 'handoff-candidates',
 ): string {
   const id = pathSegment(workbenchId);
   if (!isWorkbenchPhase(phase)) throw invalidRequest();
@@ -317,6 +352,31 @@ function editableContentProjection(value: unknown): HandoffEditableContent | nul
     return null;
   }
   return { summary, decisions, openQuestions, pinnedFiles, referencedRuns };
+}
+
+function candidateProjection(value: unknown): PhaseHandoffCandidateView | null {
+  const body = record(value);
+  if (!body || body.strategy !== HANDOFF_CANDIDATE_STRATEGY) return null;
+  const editable = editableContentProjection(body);
+  const baseHandoffVersion = nonNegativeInteger(body.baseHandoffVersion);
+  const conversationGeneration = nonNegativeInteger(body.conversationGeneration);
+  const sourceMessageCount = nonNegativeInteger(body.sourceMessageCount);
+  if (
+    !editable ||
+    baseHandoffVersion == null ||
+    conversationGeneration == null ||
+    sourceMessageCount == null ||
+    sourceMessageCount > MAX_CANDIDATE_SOURCE_MESSAGES
+  ) {
+    return null;
+  }
+  return {
+    baseHandoffVersion,
+    conversationGeneration,
+    sourceMessageCount,
+    strategy: HANDOFF_CANDIDATE_STRATEGY,
+    ...editable,
+  };
 }
 
 function decisionList(value: unknown): HandoffDecision[] | null {

@@ -17,6 +17,7 @@ import com.example.agentweb.app.workbench.WorkspaceSnapshotIdGenerator;
 import com.example.agentweb.app.workbench.document.DocumentContentView;
 import com.example.agentweb.app.workbench.document.port.ScopedDocumentGateway;
 import com.example.agentweb.app.workbench.port.WorkspaceSnapshotGateway;
+import com.example.agentweb.app.workbench.port.WorkspaceDevelopmentContextGateway;
 import com.example.agentweb.app.workbench.port.WorkbenchTelemetry;
 import com.example.agentweb.domain.capability.ResolvedCapabilityBinding;
 import com.example.agentweb.domain.chat.ChatSession;
@@ -33,6 +34,8 @@ import com.example.agentweb.domain.workbench.PhaseCapabilityOverrideResolution;
 import com.example.agentweb.domain.workbench.PhaseCapabilityProfile;
 import com.example.agentweb.domain.workbench.PhaseCapabilityProfileCatalog;
 import com.example.agentweb.domain.workbench.PhaseConversationProvisioning;
+import com.example.agentweb.domain.workbench.PhaseHandoff;
+import com.example.agentweb.domain.workbench.PhaseHandoffRepository;
 import com.example.agentweb.domain.workbench.PhaseHandoffRevision;
 import com.example.agentweb.domain.workbench.PhaseHandoffRevisionRepository;
 import com.example.agentweb.domain.workbench.ReviewModifyConfirmation;
@@ -41,7 +44,12 @@ import com.example.agentweb.domain.workbench.ReviewOpinion;
 import com.example.agentweb.domain.workbench.ReviewOpinionRepository;
 import com.example.agentweb.domain.workbench.ResolvedCapabilityResolution;
 import com.example.agentweb.domain.workbench.RuntimeEnforcementSnapshot;
+import com.example.agentweb.domain.workbench.UploadedAttachmentBinding;
+import com.example.agentweb.domain.workbench.UploadedConversationAttachment;
+import com.example.agentweb.domain.workbench.UploadedConversationAttachmentRepository;
+import com.example.agentweb.domain.workbench.VerifiedUploadedConversationAttachment;
 import com.example.agentweb.domain.workbench.VerifiedWorkbenchRunAttachment;
+import com.example.agentweb.domain.workbench.VerifiedWorkbenchRunAttachmentSet;
 import com.example.agentweb.domain.workbench.Workbench;
 import com.example.agentweb.domain.workbench.WorkbenchDomainException;
 import com.example.agentweb.domain.workbench.WorkbenchErrorCode;
@@ -51,6 +59,8 @@ import com.example.agentweb.domain.workbench.WorkbenchRunPromptComposer;
 import com.example.agentweb.domain.workbench.WorkbenchRunPromptPayload;
 import com.example.agentweb.domain.workbench.WorkbenchRunSnapshot;
 import com.example.agentweb.domain.workbench.WorkbenchRepository;
+import com.example.agentweb.domain.workbench.WorkbenchRunAttachmentReference;
+import com.example.agentweb.domain.workbench.WorkspaceDevelopmentContext;
 import com.example.agentweb.domain.workspace.RepositoryScope;
 import com.example.agentweb.domain.workspace.SnapshotPurpose;
 import com.example.agentweb.domain.workspace.WorkspaceSnapshot;
@@ -83,8 +93,11 @@ public class WorkbenchRunPreparationService {
     private final PhaseCapabilityBindingResolver capabilityBindingResolver;
     private final WorkspaceSnapshotIdGenerator workspaceSnapshotIdGenerator;
     private final WorkspaceSnapshotGateway workspaceSnapshotGateway;
+    private final WorkspaceDevelopmentContextGateway developmentContextGateway;
     private final ScopedDocumentGateway documentGateway;
+    private final UploadedConversationAttachmentRepository attachmentRepository;
     private final RuntimePreflightGateway runtimePreflightGateway;
+    private final PhaseHandoffRepository handoffRepository;
     private final PhaseHandoffRevisionRepository handoffRevisionRepository;
     private final HandoffReceptionRepository receptionRepository;
     private final ReviewModifyConfirmationRepository confirmationRepository;
@@ -104,8 +117,11 @@ public class WorkbenchRunPreparationService {
             PhaseCapabilityBindingResolver capabilityBindingResolver,
             WorkspaceSnapshotIdGenerator workspaceSnapshotIdGenerator,
             WorkspaceSnapshotGateway workspaceSnapshotGateway,
+            WorkspaceDevelopmentContextGateway developmentContextGateway,
             ScopedDocumentGateway documentGateway,
+            UploadedConversationAttachmentRepository attachmentRepository,
             RuntimePreflightGateway runtimePreflightGateway,
+            PhaseHandoffRepository handoffRepository,
             PhaseHandoffRevisionRepository handoffRevisionRepository,
             HandoffReceptionRepository receptionRepository,
             ReviewModifyConfirmationRepository confirmationRepository,
@@ -132,10 +148,16 @@ public class WorkbenchRunPreparationService {
                 workspaceSnapshotIdGenerator, "workspaceSnapshotIdGenerator");
         this.workspaceSnapshotGateway = Objects.requireNonNull(
                 workspaceSnapshotGateway, "workspaceSnapshotGateway");
+        this.developmentContextGateway = Objects.requireNonNull(
+                developmentContextGateway, "developmentContextGateway");
         this.documentGateway = Objects.requireNonNull(
                 documentGateway, "documentGateway");
+        this.attachmentRepository = Objects.requireNonNull(
+                attachmentRepository, "attachmentRepository");
         this.runtimePreflightGateway = Objects.requireNonNull(
                 runtimePreflightGateway, "runtimePreflightGateway");
+        this.handoffRepository = Objects.requireNonNull(
+                handoffRepository, "handoffRepository");
         this.handoffRevisionRepository = Objects.requireNonNull(
                 handoffRevisionRepository, "handoffRevisionRepository");
         this.receptionRepository = Objects.requireNonNull(
@@ -173,14 +195,20 @@ public class WorkbenchRunPreparationService {
                 historyQuery.load(conversation),
                 "workbench phase history");
         history.requireCurrent(conversation);
+        WorkspaceDevelopmentContext developmentContext = Objects.requireNonNull(
+                developmentContextGateway.inspect(plan.getRepositoryScope()),
+                "workspace development context");
+        plan.requireDevelopmentContext(developmentContext);
 
         ReviewModifyConfirmation reviewConfirmation = resolveReview(
                 plan, actor, command.getMessage(), preparedAt);
-        HandoffPreparation handoff = resolveHandoff(plan);
-        CapabilityPreparation capability = resolveCapabilityWithTelemetry(plan);
-        List<VerifiedWorkbenchRunAttachment> verifiedAttachments =
+        HandoffPreparation handoff = resolveHandoff(
+                plan, actor, preparedAt);
+        CapabilityPreparation capability = resolveCapabilityWithTelemetry(
+                plan, developmentContext);
+        VerifiedWorkbenchRunAttachmentSet verifiedAttachments =
                 verifyAttachments(
-                        plan.getRepositoryScope(), command.getAttachments());
+                        plan, command.getAttachments(), preparedAt);
 
         String snapshotId = workspaceSnapshotIdGenerator.nextId();
         WorkspaceSnapshot workspaceSnapshot = workspaceSnapshotGateway.capture(
@@ -219,8 +247,8 @@ public class WorkbenchRunPreparationService {
         com.example.agentweb.domain.workbench.PreparedWorkbenchPrompt prompt =
                 WorkbenchRunPromptComposer.compose(
                         plan, capability.resolution, handoff.revision,
-                        workspaceSnapshot, history, verifiedAttachments,
-                        command.getMessage());
+                        developmentContext, workspaceSnapshot, history,
+                        verifiedAttachments, command.getMessage());
         ChatRunId runId = runIdGenerator.nextId();
         WorkbenchRunPromptPayload promptPayload = prompt.freezePayload(
                 runId.getValue(), preparedAt);
@@ -232,7 +260,8 @@ public class WorkbenchRunPreparationService {
                 capability.binding, capability.overrideVersion,
                 handoff.snapshotReference, prompt.snapshots(),
                 prompt.getPromptHash(), runtimeEnforcement,
-                verifiedAttachments,
+                verifiedAttachments.getRepositoryDocuments(),
+                verifiedAttachments.getUploadedAttachments(),
                 reviewConfirmation, preparedAt);
         return PreparedWorkbenchRun.of(
                 command, runSnapshot, workspaceSnapshot, promptPayload,
@@ -240,25 +269,70 @@ public class WorkbenchRunPreparationService {
                 verifiedAttachments);
     }
 
-    private List<VerifiedWorkbenchRunAttachment> verifyAttachments(
-            RepositoryScope repositoryScope,
-            List<WorkbenchRunAttachmentReference> attachments) {
-        List<VerifiedWorkbenchRunAttachment> verified =
-                new ArrayList<VerifiedWorkbenchRunAttachment>(
-                        attachments.size());
+    private VerifiedWorkbenchRunAttachmentSet verifyAttachments(
+            WorkbenchRunPreparationPlan plan,
+            List<WorkbenchRunAttachmentReference> attachments,
+            Instant observedAt) {
+        AttachmentVerifier verifier = new AttachmentVerifier(
+                plan.getRepositoryScope(),
+                plan.uploadedAttachmentBinding(), observedAt);
         for (WorkbenchRunAttachmentReference attachment : attachments) {
+            attachment.resolve(verifier);
+        }
+        return verifier.result();
+    }
+
+    private final class AttachmentVerifier
+            implements WorkbenchRunAttachmentReference.Resolver<Void> {
+
+        private final RepositoryScope repositoryScope;
+        private final UploadedAttachmentBinding uploadedBinding;
+        private final Instant observedAt;
+        private final List<VerifiedWorkbenchRunAttachment> repositoryDocuments =
+                new ArrayList<VerifiedWorkbenchRunAttachment>();
+        private final List<VerifiedUploadedConversationAttachment> uploads =
+                new ArrayList<VerifiedUploadedConversationAttachment>();
+
+        private AttachmentVerifier(
+                RepositoryScope repositoryScope,
+                UploadedAttachmentBinding uploadedBinding,
+                Instant observedAt) {
+            this.repositoryScope = repositoryScope;
+            this.uploadedBinding = uploadedBinding;
+            this.observedAt = observedAt;
+        }
+
+        @Override
+        public Void repositoryDocument(
+                com.example.agentweb.domain.workbench.DocumentReference reference,
+                String contentHash) {
             DocumentContentView observed = Objects.requireNonNull(
-                    documentGateway.readContent(
-                            repositoryScope,
-                            attachment.getDocumentReference()),
+                    documentGateway.readContent(repositoryScope, reference),
                     "observed workbench run attachment");
-            verified.add(VerifiedWorkbenchRunAttachment.verify(
-                    attachment.getDocumentReference(),
-                    attachment.getContentHash(), observed.getReference(),
+            repositoryDocuments.add(VerifiedWorkbenchRunAttachment.verify(
+                    reference, contentHash, observed.getReference(),
                     observed.getContentVersion(), observed.getMediaType(),
                     observed.getSize(), observed.isDeleted()));
+            return null;
         }
-        return VerifiedWorkbenchRunAttachment.immutableList(verified);
+
+        @Override
+        public Void uploadedConversation(
+                String attachmentId, String contentHash) {
+            UploadedConversationAttachment attachment = attachmentRepository
+                    .findById(attachmentId)
+                    .orElseThrow(() -> new WorkbenchDomainException(
+                            WorkbenchErrorCode.ATTACHMENT_UNAVAILABLE,
+                            "uploaded attachment is unavailable"));
+            uploads.add(attachment.verifyForRun(
+                    uploadedBinding, contentHash, observedAt));
+            return null;
+        }
+
+        private VerifiedWorkbenchRunAttachmentSet result() {
+            return VerifiedWorkbenchRunAttachmentSet.of(
+                    repositoryDocuments, uploads);
+        }
     }
 
     private Workbench requireOwnedWorkbench(
@@ -314,16 +388,22 @@ public class WorkbenchRunPreparationService {
     }
 
     private HandoffPreparation resolveHandoff(
-            WorkbenchRunPreparationPlan plan) {
+            WorkbenchRunPreparationPlan plan, OwnerReference actor,
+            Instant preparedAt) {
         if (!plan.requiresHandoff()) {
             return HandoffPreparation.none(
                     plan.handoffSnapshotReference(null));
         }
-        HandoffReception reception = plan.requireAcceptedHandoff(
-                receptionRepository.find(
-                                plan.getWorkbenchId(), plan.getPhase(),
+        HandoffReception existing = receptionRepository.find(
+                        plan.getWorkbenchId(), plan.getPhase(),
+                        plan.getHandoffSourcePhase())
+                .orElse(null);
+        PhaseHandoff latest = handoffRepository.find(
+                                plan.getWorkbenchId(),
                                 plan.getHandoffSourcePhase())
-                        .orElse(null));
+                        .orElse(null);
+        HandoffReception reception = plan.resolveHandoffReception(
+                existing, latest, actor, preparedAt);
         PhaseHandoffRevision revision = handoffRevisionRepository.findExact(
                         plan.getWorkbenchId(),
                         reception.getSourcePhase(),
@@ -338,7 +418,8 @@ public class WorkbenchRunPreparationService {
     }
 
     private CapabilityPreparation resolveCapability(
-            WorkbenchRunPreparationPlan plan) {
+            WorkbenchRunPreparationPlan plan,
+            WorkspaceDevelopmentContext developmentContext) {
         PhaseCapabilityProfile profile = profileCatalog.requireProfile(
                 plan.getPhase());
         plan.requireProfile(profile);
@@ -355,17 +436,19 @@ public class WorkbenchRunPreparationService {
                 plan.capabilityPolicy(
                         settings.getCapabilityPolicyVersion(),
                         settings.getRuntimeCompatibility(),
-                        settings.getAllowedSkillTrustSources()));
+                        settings.getAllowedSkillTrustSources(),
+                        developmentContext));
         return new CapabilityPreparation(
                 resolution,
                 plan.capabilityOverrideVersion(configuration));
     }
 
     private CapabilityPreparation resolveCapabilityWithTelemetry(
-            WorkbenchRunPreparationPlan plan) {
+            WorkbenchRunPreparationPlan plan,
+            WorkspaceDevelopmentContext developmentContext) {
         CapabilityPreparation capability;
         try {
-            capability = resolveCapability(plan);
+            capability = resolveCapability(plan, developmentContext);
         } catch (RuntimeException failure) {
             telemetry.capabilityResolution("FAILED");
             throw failure;

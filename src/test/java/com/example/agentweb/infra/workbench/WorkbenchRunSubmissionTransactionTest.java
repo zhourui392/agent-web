@@ -25,6 +25,7 @@ import com.example.agentweb.domain.workbench.PhaseHandoff;
 import com.example.agentweb.domain.workbench.PromptPartSnapshot;
 import com.example.agentweb.domain.workbench.RunMode;
 import com.example.agentweb.domain.workbench.RuntimeEnforcementSnapshot;
+import com.example.agentweb.domain.workbench.UploadedAttachmentPolicy;
 import com.example.agentweb.domain.workbench.Workbench;
 import com.example.agentweb.domain.workbench.WorkbenchDomainException;
 import com.example.agentweb.domain.workbench.WorkbenchErrorCode;
@@ -56,6 +57,7 @@ import org.sqlite.SQLiteDataSource;
 
 import java.nio.file.Path;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Collections;
@@ -239,6 +241,60 @@ class WorkbenchRunSubmissionTransactionTest {
     }
 
     @Test
+    void firstDownstreamSubmissionShouldCommitReceptionWithRunFacts() {
+        PreparedWorkbenchRun prepared = preparedRun(
+                "initial-design-run", WorkbenchPhase.SOLUTION_DESIGN);
+
+        WorkbenchRunSubmissionResult result = committer(
+                workbenchRepository, workspaceSnapshotRepository,
+                snapshotRepository, promptRepository, receptionRepository)
+                .commit(OWNER, prepared);
+
+        assertFalse(result.isReplayed());
+        HandoffReception reception = receptionRepository.find(
+                        WorkbenchId.of(WORKBENCH_ID),
+                        WorkbenchPhase.SOLUTION_DESIGN,
+                        WorkbenchPhase.REQUIREMENT_ANALYSIS)
+                .orElseThrow(AssertionError::new);
+        assertEquals(requirementHandoff.getVersion(),
+                reception.getSourceVersion());
+        assertEquals(requirementHandoff.getContentHash(),
+                reception.getSourceHash());
+        assertEquals(Integer.valueOf(1), count(
+                "SELECT COUNT(*) FROM chat_run WHERE id=?",
+                prepared.getSnapshot().getRunId()));
+        assertEquals(Integer.valueOf(1), count(
+                "SELECT COUNT(*) FROM workbench_run_snapshot WHERE run_id=?",
+                prepared.getSnapshot().getRunId()));
+        assertEquals(Integer.valueOf(1), count(
+                "SELECT COUNT(*) FROM workbench_handoff_reception"));
+    }
+
+    @Test
+    void firstDownstreamSubmissionShouldRejectHandoffChangedAfterPreparation() {
+        PreparedWorkbenchRun prepared = preparedRun(
+                "stale-initial-design-run",
+                WorkbenchPhase.SOLUTION_DESIGN);
+        requirementHandoff.update(
+                0L, "用户预览后更新的需求交接",
+                Collections.emptyList(), Collections.emptyList(),
+                Collections.emptyList(), Collections.emptyList(),
+                workspace.scope(), OWNER, NOW.plusSeconds(16));
+        new SqlitePhaseHandoffRepository(jdbc).update(requirementHandoff);
+
+        WorkbenchDomainException failure = assertThrows(
+                WorkbenchDomainException.class, () -> committer(
+                        workbenchRepository, workspaceSnapshotRepository,
+                        snapshotRepository, promptRepository,
+                        receptionRepository).commit(OWNER, prepared));
+
+        assertEquals(WorkbenchErrorCode.VERSION_CONFLICT,
+                failure.getCode());
+        assertSubmissionRolledBack(
+                prepared, WorkbenchPhase.SOLUTION_DESIGN);
+    }
+
+    @Test
     void workspaceSnapshotConflictShouldRollbackEverySubmissionFactAndNotLaunch() {
         PreparedWorkbenchRun prepared = preparedRun(
                 "workspace-snapshot-failure-run",
@@ -360,7 +416,11 @@ class WorkbenchRunSubmissionTransactionTest {
                 eventHub, new AfterCommitExecutor());
         return new WorkbenchRunSubmissionCommitter(
                 workbenches, workspaceSnapshots, snapshots, prompts,
-                receptions,
+                new SqlitePhaseHandoffRepository(jdbc), receptions,
+                new SqliteUploadedConversationAttachmentRepository(jdbc),
+                UploadedAttachmentPolicy.standard(
+                        10 * 1024 * 1024L, 16,
+                        Duration.ofHours(24), Duration.ofHours(2)),
                 sessionRepository, runRepository, eventAppender, launcher,
                 new RepositoryChatRunActivityGuard(runRepository),
                 runQueryService, streamSettings,

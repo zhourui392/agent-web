@@ -316,15 +316,21 @@
 
     <div v-if="recentDocuments.length" class="workbench-recent-documents">
       <h4>本阶段最近查看</h4>
-      <button
-        v-for="reference in recentDocuments"
-        :key="`${reference.repositoryKey}:${reference.relativePath}`"
-        type="button"
-        @click="$emit('open-document', reference)"
+      <section
+        v-for="group in recentDocumentGroups"
+        :key="group.repositoryKey"
+        class="workbench-recent-document-group"
       >
-        <strong>{{ reference.repositoryKey }}</strong>
-        <span>{{ reference.relativePath }}</span>
-      </button>
+        <strong>{{ group.repositoryKey }}</strong>
+        <button
+          v-for="reference in group.documents"
+          :key="`${reference.repositoryKey}:${reference.relativePath}`"
+          type="button"
+          @click="$emit('open-document', reference)"
+        >
+          <span>{{ reference.relativePath }}</span>
+        </button>
+      </section>
     </div>
 
     <div class="workbench-repository-scope">
@@ -359,6 +365,7 @@ import {
   workbenchDocumentLanguageLabel,
   workbenchInlineImagePreviewSource,
 } from '../lib/workbench-document-renderer.js';
+import { groupDocumentReferencesByRepository } from '../lib/workbench-document-state.js';
 
 const props = defineProps({
   repositories: { type: Array, required: true },
@@ -395,6 +402,9 @@ const emit = defineEmits([
 
 const viewerBody = ref(null);
 const markdownViewMode = ref('PREVIEW');
+const recentDocumentGroups = computed(() => groupDocumentReferencesByRepository(
+  props.recentDocuments,
+));
 
 const renderMode = computed(() => props.loadedContent
   ? workbenchDocumentDisplayMode(props.loadedContent.kind, props.loadedContent.content)

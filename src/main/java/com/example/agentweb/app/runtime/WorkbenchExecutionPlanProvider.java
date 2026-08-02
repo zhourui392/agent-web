@@ -23,6 +23,7 @@ import com.example.agentweb.domain.workbench.WorkbenchRunPromptPayloadRepository
 import com.example.agentweb.domain.workbench.WorkbenchRunSnapshot;
 import com.example.agentweb.domain.workbench.WorkbenchRunSnapshotRepository;
 import com.example.agentweb.domain.workbench.VerifiedWorkbenchRunAttachment;
+import com.example.agentweb.domain.workbench.VerifiedUploadedConversationAttachment;
 import com.example.agentweb.domain.workspace.RepositoryScope;
 import com.example.agentweb.domain.workspace.ResolvedRepository;
 
@@ -140,6 +141,13 @@ public final class WorkbenchExecutionPlanProvider
                     repository.getRepositoryRoot(),
                     attachment.getDocumentReference().getRelativePath(),
                     attachment.getContentVersion(), attachment.getSize()));
+        }
+        for (VerifiedUploadedConversationAttachment attachment
+                : snapshot.getVerifiedUploadedAttachments()) {
+            result.add(RuntimeAttachmentExpectation.uploadedConversation(
+                    attachment.getAttachmentId(), attachment.getStorageKey(),
+                    attachment.getRuntimeFileName(),
+                    attachment.getContentHash(), attachment.getSize()));
         }
         return result;
     }

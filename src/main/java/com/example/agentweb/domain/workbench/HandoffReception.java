@@ -76,4 +76,40 @@ public final class HandoffReception {
                     "handoff source version or hash is stale");
         }
     }
+
+    /**
+     * 决定提交事务是否需要首次插入当前 Reception，并在插入前重验 latest。
+     *
+     * <p>若同一接收键已存在相同来源事实，则说明并发请求已经完成接收，当前提交无需
+     * 覆盖人工信息；若来源不同则以版本冲突拒绝。首次插入必须仍绑定当前上游聚合。</p>
+     */
+    public boolean requiresPersistenceAgainst(
+            HandoffReception persisted, PhaseHandoff latestHandoff) {
+        if (persisted != null) {
+            requireSameSource(persisted);
+            return false;
+        }
+        if (latestHandoff == null
+                || !workbenchId.equals(latestHandoff.getWorkbenchId())
+                || sourcePhase != latestHandoff.getSourcePhase()) {
+            throw WorkbenchDomainException.runBindingCorrupted();
+        }
+        requireLatest(
+                latestHandoff.getVersion(), latestHandoff.getContentHash());
+        return true;
+    }
+
+    private void requireSameSource(HandoffReception persisted) {
+        if (!workbenchId.equals(persisted.workbenchId)
+                || targetPhase != persisted.targetPhase
+                || sourcePhase != persisted.sourcePhase) {
+            throw WorkbenchDomainException.runBindingCorrupted();
+        }
+        if (sourceVersion != persisted.sourceVersion
+                || !sourceHash.equals(persisted.sourceHash)) {
+            throw new WorkbenchDomainException(
+                    WorkbenchErrorCode.VERSION_CONFLICT,
+                    "handoff reception already binds a different source");
+        }
+    }
 }

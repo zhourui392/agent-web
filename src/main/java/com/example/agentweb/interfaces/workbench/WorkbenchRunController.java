@@ -2,7 +2,7 @@ package com.example.agentweb.interfaces.workbench;
 
 import com.example.agentweb.app.workbench.run.SubmitWorkbenchRunCommand;
 import com.example.agentweb.app.workbench.run.WorkbenchRunAppService;
-import com.example.agentweb.app.workbench.run.WorkbenchRunAttachmentReference;
+import com.example.agentweb.domain.workbench.WorkbenchRunAttachmentReference;
 import com.example.agentweb.app.workbench.run.WorkbenchRunCursorExpiredException;
 import com.example.agentweb.app.workbench.run.WorkbenchRunEvent;
 import com.example.agentweb.app.workbench.run.WorkbenchRunEventPage;

@@ -5,6 +5,7 @@ import com.example.agentweb.app.workbench.handoff.HandoffApplicationErrorCode;
 import com.example.agentweb.app.workbench.handoff.HandoffApplicationException;
 import com.example.agentweb.app.workbench.handoff.HandoffReceptionProjection;
 import com.example.agentweb.app.workbench.handoff.HandoffSourcePreview;
+import com.example.agentweb.app.workbench.handoff.PhaseHandoffCandidateAppService;
 import com.example.agentweb.app.workbench.handoff.PhaseHandoffContentCommand;
 import com.example.agentweb.app.workbench.handoff.PhaseHandoffContentInput;
 import com.example.agentweb.app.workbench.handoff.PhaseHandoffOwnerService;
@@ -14,6 +15,8 @@ import com.example.agentweb.domain.workbench.OwnerReference;
 import com.example.agentweb.domain.workbench.WorkbenchId;
 import com.example.agentweb.domain.workbench.WorkbenchPhase;
 import com.example.agentweb.interfaces.workbench.dto.AcceptHandoffReceptionRequest;
+import com.example.agentweb.interfaces.workbench.dto.GeneratePhaseHandoffCandidateRequest;
+import com.example.agentweb.interfaces.workbench.dto.PhaseHandoffCandidateResponse;
 import com.example.agentweb.interfaces.workbench.dto.PhaseHandoffRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -50,12 +53,15 @@ import java.util.Map;
 public class PhaseHandoffController {
 
     private final PhaseHandoffOwnerService service;
+    private final PhaseHandoffCandidateAppService candidateService;
     private final CurrentUserProvider currentUserProvider;
 
     public PhaseHandoffController(
             PhaseHandoffOwnerService service,
+            PhaseHandoffCandidateAppService candidateService,
             CurrentUserProvider currentUserProvider) {
         this.service = service;
+        this.candidateService = candidateService;
         this.currentUserProvider = currentUserProvider;
     }
 
@@ -109,6 +115,20 @@ public class PhaseHandoffController {
         return service.accept(currentOwner(), command);
     }
 
+    @PostMapping(
+            path = "/handoff-candidates",
+            consumes = MediaType.APPLICATION_JSON_VALUE)
+    public PhaseHandoffCandidateResponse candidate(
+            @PathVariable("workbenchId") String workbenchId,
+            @PathVariable("phase") String sourcePhase,
+            @Valid @RequestBody
+                    GeneratePhaseHandoffCandidateRequest ignoredRequest) {
+        return PhaseHandoffCandidateResponse.from(
+                candidateService.generate(
+                        currentOwner(), parseWorkbenchId(workbenchId),
+                        parsePhase(sourcePhase)));
+    }
+
     @ExceptionHandler(HandoffApplicationException.class)
     public ResponseEntity<Map<String, Object>> handleApplicationFailure(
             HandoffApplicationException failure) {
@@ -130,6 +150,10 @@ public class PhaseHandoffController {
                 == HandoffApplicationErrorCode.RUN_REFERENCE_INVALID) {
             status = HttpStatus.UNPROCESSABLE_ENTITY;
             code = "WORKBENCH_RUN_REFERENCE_INVALID";
+        } else if (failure.getCode()
+                == HandoffApplicationErrorCode.CANDIDATE_SOURCE_UNAVAILABLE) {
+            status = HttpStatus.CONFLICT;
+            code = "WORKBENCH_HANDOFF_CANDIDATE_SOURCE_UNAVAILABLE";
         } else {
             status = HttpStatus.CONFLICT;
             code = "WORKBENCH_HANDOFF_SOURCE_CHANGED";

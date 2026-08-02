@@ -4,6 +4,7 @@ import com.example.agentweb.domain.workbench.DocumentReference;
 import com.example.agentweb.domain.workbench.RunMode;
 import com.example.agentweb.domain.workbench.WorkbenchId;
 import com.example.agentweb.domain.workbench.WorkbenchPhase;
+import com.example.agentweb.domain.workbench.WorkbenchRunAttachmentReference;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;

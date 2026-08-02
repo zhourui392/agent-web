@@ -232,6 +232,7 @@ agent:
       - /api/admin-workflows
       - /api/admin-workflow-executions
       - /api/admin-settings
+      - /api/admin/workbenches
       - /api/refinery
       - /api/harness
 
@@ -284,6 +285,16 @@ agent:
       max-log-preview-bytes: ${AGENT_WORKBENCH_DOCUMENT_MAX_LOG_PREVIEW_BYTES:2097152}
       max-image-bytes: ${AGENT_WORKBENCH_DOCUMENT_MAX_IMAGE_BYTES:10485760}
       max-download-bytes: ${AGENT_WORKBENCH_DOCUMENT_MAX_DOWNLOAD_BYTES:52428800}
+    attachment:
+      # 上传正文只进入 Git 忽略的 data 子目录，不写入任何 Repository Scope。
+      storage-root: ${AGENT_WORKBENCH_ATTACHMENT_STORAGE_ROOT:data/workbench/uploads}
+      maximum-bytes: ${AGENT_WORKBENCH_ATTACHMENT_MAXIMUM_BYTES:10485760}
+      maximum-available-per-conversation: ${AGENT_WORKBENCH_ATTACHMENT_MAXIMUM_AVAILABLE:16}
+      available-ttl-seconds: ${AGENT_WORKBENCH_ATTACHMENT_TTL_SECONDS:86400}
+      # 覆盖 Runtime 超时并留出终态清理余量；终态会提前标为可清理。
+      bound-retention-seconds: ${AGENT_WORKBENCH_ATTACHMENT_BOUND_RETENTION_SECONDS:7200}
+      cleanup-batch-size: ${AGENT_WORKBENCH_ATTACHMENT_CLEANUP_BATCH_SIZE:100}
+      cleanup-delay-millis: ${AGENT_WORKBENCH_ATTACHMENT_CLEANUP_DELAY_MILLIS:60000}
 
   # 研发交付 Harness，默认开启。关闭时不注册管理 API、Repository、Store 或执行入口；公共 Catalog 仍可用。
   harness:
@@ -432,8 +443,8 @@ spring:
       add-mappings: false
   servlet:
     multipart:
-      max-file-size: 6MB
-      max-request-size: 7MB
+      max-file-size: 11MB
+      max-request-size: 12MB
 
 # 日志级别（具体 pattern / appender / 文件滚动配置在 logback-spring.xml）
 # 生产部署可通过 LOGGING_LEVEL_COM_EXAMPLE_AGENTWEB=INFO 覆盖

@@ -1,13 +1,17 @@
 package com.example.agentweb.interfaces.workbench;
 
 import com.example.agentweb.app.workbench.operation.HighImpactOperationOwnerService;
+import com.example.agentweb.app.workbench.operation.HighImpactOperationProposalService;
 import com.example.agentweb.app.workbench.operation.HighImpactOperationProjection;
 import com.example.agentweb.app.workbench.operation.OperationApplicationErrorCode;
 import com.example.agentweb.app.workbench.operation.OperationApplicationException;
+import com.example.agentweb.app.workbench.operation.ProposeHighImpactOperationCommand;
 import com.example.agentweb.domain.auth.CurrentUserProvider;
 import com.example.agentweb.domain.workbench.HighImpactOperationDecision;
 import com.example.agentweb.domain.workbench.OwnerReference;
 import com.example.agentweb.domain.workbench.WorkbenchId;
+import com.example.agentweb.domain.workbench.WorkbenchPhase;
+import com.example.agentweb.interfaces.workbench.dto.CreateHighImpactOperationRequest;
 import com.example.agentweb.interfaces.workbench.dto.HighImpactOperationDecisionRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -24,6 +28,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.net.URI;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -42,13 +47,40 @@ import java.util.Map;
 public class HighImpactOperationController {
 
     private final HighImpactOperationOwnerService service;
+    private final HighImpactOperationProposalService proposalService;
     private final CurrentUserProvider currentUserProvider;
 
     public HighImpactOperationController(
             HighImpactOperationOwnerService service,
+            HighImpactOperationProposalService proposalService,
             CurrentUserProvider currentUserProvider) {
         this.service = service;
+        this.proposalService = proposalService;
         this.currentUserProvider = currentUserProvider;
+    }
+
+    @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<HighImpactOperationProjection> propose(
+            @PathVariable("workbenchId") String workbenchId,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @Valid @RequestBody CreateHighImpactOperationRequest request) {
+        WorkbenchId parsedWorkbenchId = parseWorkbenchId(workbenchId);
+        ProposeHighImpactOperationCommand command;
+        try {
+            command = new ProposeHighImpactOperationCommand(
+                    idempotencyKey, request.getSourceRunId(),
+                    parsePhase(request.getPhase()),
+                    request.getTarget().toApplicationTarget().toDomainTarget(),
+                    request.getSafeSummary());
+        } catch (IllegalArgumentException failure) {
+            throw new WorkbenchOperationRequestException();
+        }
+        HighImpactOperationProjection created = proposalService.propose(
+                currentOwner(), parsedWorkbenchId, command);
+        return ResponseEntity.created(URI.create(
+                        "/api/workbenches/" + parsedWorkbenchId.getValue()
+                                + "/operations/" + created.getOperationId()))
+                .body(created);
     }
 
     @GetMapping("/{operationId}")
@@ -95,6 +127,10 @@ public class HighImpactOperationController {
                 == OperationApplicationErrorCode.OPERATION_NOT_FOUND) {
             status = HttpStatus.NOT_FOUND;
             code = "WORKBENCH_OPERATION_NOT_FOUND";
+        } else if (failure.getCode()
+                == OperationApplicationErrorCode.SOURCE_RUN_NOT_FOUND) {
+            status = HttpStatus.NOT_FOUND;
+            code = "WORKBENCH_OPERATION_SOURCE_RUN_NOT_FOUND";
         } else {
             status = HttpStatus.NOT_FOUND;
             code = "WORKBENCH_NOT_FOUND";
@@ -161,6 +197,15 @@ public class HighImpactOperationController {
     private HighImpactOperationDecision parseDecision(String value) {
         try {
             return HighImpactOperationDecision.valueOf(
+                    value.trim().toUpperCase(Locale.ROOT));
+        } catch (RuntimeException failure) {
+            throw new WorkbenchOperationRequestException();
+        }
+    }
+
+    private WorkbenchPhase parsePhase(String value) {
+        try {
+            return WorkbenchPhase.valueOf(
                     value.trim().toUpperCase(Locale.ROOT));
         } catch (RuntimeException failure) {
             throw new WorkbenchOperationRequestException();

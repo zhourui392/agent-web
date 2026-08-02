@@ -12,6 +12,7 @@ import com.example.agentweb.interfaces.workbench.architecturefixture.WorkbenchRe
 import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
+import com.tngtech.archunit.core.domain.JavaModifier;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.junit.AnalyzeClasses;
@@ -19,16 +20,21 @@ import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
 import com.tngtech.archunit.lang.EvaluationResult;
 import org.junit.jupiter.api.Test;
+import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAnyPackage;
 import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideOutsideOfPackage;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -43,6 +49,9 @@ public class ArchitectureTest {
     private static final Set<String> WORKBENCH_INTERFACE_DOMAIN_TYPES =
             Collections.unmodifiableSet(new HashSet<String>(Arrays.asList(
                     "com.example.agentweb.domain.auth.CurrentUserProvider",
+                    "com.example.agentweb.domain.auth.LoginUser",
+                    "com.example.agentweb.domain.auth.UserContext",
+                    "com.example.agentweb.domain.chatrun.ChatRunStatus",
                     "com.example.agentweb.app.runtime.port.RuntimePreflightException",
                     "com.example.agentweb.domain.capability.CapabilityCatalogException",
                     "com.example.agentweb.domain.capability.CapabilityResolutionException",
@@ -53,6 +62,9 @@ public class ArchitectureTest {
                     "com.example.agentweb.domain.workbench.HighImpactOperationDecision",
                     "com.example.agentweb.domain.workbench.WorkbenchId",
                     "com.example.agentweb.domain.workbench.OwnerReference",
+                    "com.example.agentweb.domain.workbench.WorkbenchRunAttachmentReference",
+                    "com.example.agentweb.domain.workbench.WorkbenchRunAttachmentType",
+                    "com.example.agentweb.domain.workbench.WorkbenchAdministrator",
                     "com.example.agentweb.domain.workbench.WorkbenchPhase",
                     "com.example.agentweb.domain.workbench.WorkbenchPhaseStatus",
                     "com.example.agentweb.domain.workbench.WorkbenchStatus")));
@@ -178,6 +190,13 @@ public class ArchitectureTest {
             .that().resideInAPackage("com.example.agentweb.interfaces.workbench..")
             .should().onlyDependOnClassesThat(WORKBENCH_INTERFACE_ALLOWED_DEPENDENCY);
 
+    @ArchTest
+    static final ArchRule A18_WORKBENCH_RUN_ATTACHMENT_UNION_IS_DOMAIN = classes()
+            .that().haveSimpleName("WorkbenchRunAttachmentReference")
+            .or().haveSimpleName("WorkbenchRunAttachmentType")
+            .should().resideInAPackage(
+                    "com.example.agentweb.domain.workbench");
+
     @Test
     void neutralPackagesShouldRejectDeliberateHarnessLeaks() {
         assertRejects(A9_WORKSPACE_DOMAIN_SEPARATE_FROM_HARNESS,
@@ -209,6 +228,27 @@ public class ArchitectureTest {
         assertRejects(A3_PROVIDER_PACKAGE_BOUNDARY, ProviderCliLeak.class);
         assertRejects(A7_AGENTKIT_NOT_EXPOSED_TO_CORE_OR_INTERFACES,
                 ProviderSdkLeak.class);
+    }
+
+    @Test
+    void springProxiedClassesShouldNotBeFinal() {
+        JavaClasses mainClasses = new ClassFileImporter()
+                .withImportOption(new ImportOption.DoNotIncludeTests())
+                .importPackages("com.example.agentweb");
+        List<String> violations = new ArrayList<String>();
+        for (JavaClass javaClass : mainClasses) {
+            boolean transactional = javaClass.isAnnotatedWith(
+                    Transactional.class)
+                    || javaClass.getMethods().stream().anyMatch(method ->
+                    method.isAnnotatedWith(Transactional.class));
+            boolean repository = javaClass.isAnnotatedWith(Repository.class);
+            if ((transactional || repository)
+                    && javaClass.getModifiers().contains(JavaModifier.FINAL)) {
+                violations.add(javaClass.getName());
+            }
+        }
+        assertFalse(violations.size() > 0,
+                () -> "Spring proxied classes must not be final: " + violations);
     }
 
     private static void assertRejects(ArchRule rule, Class<?> violatingClass) {

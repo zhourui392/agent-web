@@ -105,6 +105,13 @@ public final class WorkbenchRunPreparationPlan {
         return reviewConfirmationId != null;
     }
 
+    public UploadedAttachmentBinding uploadedAttachmentBinding() {
+        return new UploadedAttachmentBinding(
+                conversation.getOwner(), workbenchId, phase,
+                conversation.requireCurrentConversationId(),
+                conversation.getCurrentConversationGeneration());
+    }
+
     public HandoffReception requireAcceptedHandoff(
             HandoffReception reception) {
         if (!requiresHandoff()) {
@@ -123,6 +130,34 @@ public final class WorkbenchRunPreparationPlan {
             throw WorkbenchDomainException.runBindingCorrupted();
         }
         return reception;
+    }
+
+    /**
+     * 解析本次 Run 应冻结的接收事实。
+     *
+     * <p>已有接收记录时继续使用历史精确版本；首次进入下游阶段时，才从用户预览的
+     * latest Handoff 创建接收记录。Application 不参与 initial/existing 的业务判断。</p>
+     */
+    public HandoffReception resolveHandoffReception(
+            HandoffReception existingReception, PhaseHandoff latestHandoff,
+            OwnerReference actor, Instant acceptedAt) {
+        if (!requiresHandoff()) {
+            if (existingReception != null || latestHandoff != null) {
+                throw WorkbenchDomainException.runBindingCorrupted();
+            }
+            return null;
+        }
+        if (existingReception != null) {
+            return requireAcceptedHandoff(existingReception);
+        }
+        if (latestHandoff == null) {
+            throw new WorkbenchDomainException(
+                    WorkbenchErrorCode.PHASE_TRANSITION_INVALID,
+                    "upstream handoff is unavailable for initial reception");
+        }
+        HandoffReception initial = latestHandoff.acceptInto(
+                phase, handoffSourceVersion.longValue(), actor, acceptedAt);
+        return requireAcceptedHandoff(initial);
     }
 
     public PhaseHandoffRevision requireExactHandoffRevision(
@@ -184,6 +219,17 @@ public final class WorkbenchRunPreparationPlan {
                 allowedSkillTrustSources);
     }
 
+    public PhaseCapabilityResolutionPolicy capabilityPolicy(
+            String policyVersion, String runtimeCompatibility,
+            Set<SkillTrustSource> allowedSkillTrustSources,
+            WorkspaceDevelopmentContext developmentContext) {
+        requireDevelopmentContext(developmentContext);
+        return PhaseCapabilityResolutionPolicy.forRun(
+                policyVersion, runMode, agentType.name(),
+                runtimeCompatibility, allowedSkillTrustSources,
+                developmentContext);
+    }
+
     public PhaseCapabilityOverrideResolution resolveCapabilityOverride(
             PhaseCapabilityProfile profile,
             PhaseCapabilityConfiguration configuration) {
@@ -204,6 +250,14 @@ public final class WorkbenchRunPreparationPlan {
         if (profile == null || profile.getPhase() != phase) {
             throw WorkbenchDomainException.runBindingCorrupted();
         }
+    }
+
+    public void requireDevelopmentContext(
+            WorkspaceDevelopmentContext developmentContext) {
+        if (developmentContext == null) {
+            throw WorkbenchDomainException.runBindingCorrupted();
+        }
+        developmentContext.requireScope(repositoryScope);
     }
 
     private static Long requireHandoffVersion(

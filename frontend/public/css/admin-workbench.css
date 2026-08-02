@@ -1,0 +1,112 @@
+/*
+ * 独立 Admin Workbench 运维页；仅承载安全投影与 Stop/Reconcile 操作布局。
+ *
+ * @author alex
+ * @since 2026-08-01
+ */
+.admin-workbench-view { max-width: 1480px; }
+.admin-workbench-boundary,
+.admin-workbench-alert { margin-bottom: 14px; }
+.admin-workbench-layout {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.admin-workbench-list-card {
+  position: sticky;
+  top: 76px;
+  max-height: calc(100vh - 96px);
+  overflow: auto;
+}
+.admin-workbench-card-header,
+.admin-workbench-summary-heading,
+.admin-workbench-run-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.admin-workbench-card-title { color: #303133; font-size: 15px; font-weight: 700; }
+.admin-workbench-card-subtitle { margin-top: 3px; color: #909399; font-size: 12px; }
+.admin-workbench-status-filter { width: 112px; }
+.admin-workbench-list { min-height: 180px; }
+.admin-workbench-list-item {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 9px;
+  padding: 11px 12px;
+  text-align: left;
+  color: #303133;
+  background: #fff;
+  border: 1px solid #e4e7ed;
+  border-radius: 7px;
+  cursor: pointer;
+}
+.admin-workbench-list-item:hover { border-color: #a0cfff; background: #f5faff; }
+.admin-workbench-list-item.selected {
+  border-color: #409eff;
+  background: #ecf5ff;
+  box-shadow: 0 0 0 2px rgba(64, 158, 255, 0.08);
+}
+.admin-workbench-list-title { font-size: 14px; font-weight: 650; word-break: break-word; }
+.admin-workbench-list-meta { color: #909399; font-size: 11px; word-break: break-all; }
+.admin-workbench-list-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: #909399;
+  font-size: 11px;
+}
+.admin-workbench-load-more { width: 100%; }
+.admin-workbench-detail-column { min-width: 0; }
+.admin-workbench-summary-card { min-height: 250px; margin-bottom: 16px; }
+.admin-workbench-summary-heading { align-items: flex-start; margin-bottom: 16px; }
+.admin-workbench-summary-heading h2 { margin: 0 0 5px; color: #303133; font-size: 20px; }
+.admin-workbench-inline-id { margin-left: 6px; color: #909399; font: 11px 'Consolas','Monaco',monospace; }
+.admin-workbench-descriptions { margin-bottom: 18px; }
+.admin-workbench-safe-section { margin-top: 18px; }
+.admin-workbench-safe-section h3 { margin: 0 0 10px; color: #303133; font-size: 14px; }
+.admin-workbench-repository-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.admin-workbench-phase-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(140px, 1fr));
+  gap: 9px;
+}
+.admin-workbench-phase {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 10px;
+  background: #fafafa;
+  border: 1px solid #ebeef5;
+  border-radius: 6px;
+}
+.admin-workbench-phase-name { color: #303133; font-size: 13px; font-weight: 600; }
+.admin-workbench-phase-run { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.admin-workbench-runs-card { min-width: 0; }
+.admin-workbench-runs-card .el-table__row { cursor: pointer; }
+.admin-workbench-run-more { display: flex; justify-content: center; padding-top: 10px; }
+.admin-workbench-run-detail { min-height: 220px; }
+.admin-workbench-run-heading { margin-bottom: 14px; }
+.admin-workbench-action-note { margin-top: 16px; }
+.admin-workbench-actions { display: flex; gap: 10px; margin-top: 16px; }
+.admin-workbench-actions .el-button + .el-button { margin-left: 0; }
+.admin-workbench-action-result { margin-top: 16px; }
+
+@media (max-width: 1180px) {
+  .admin-workbench-layout { grid-template-columns: 270px minmax(0, 1fr); }
+  .admin-workbench-phase-grid { grid-template-columns: repeat(2, minmax(150px, 1fr)); }
+}
+
+@media (max-width: 820px) {
+  .admin-workbench-layout { grid-template-columns: 1fr; }
+  .admin-workbench-list-card { position: static; max-height: none; }
+  .admin-workbench-phase-grid { grid-template-columns: 1fr; }
+  .admin-workbench-card-header { align-items: flex-start; }
+}

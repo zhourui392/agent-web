@@ -21,6 +21,7 @@ const CONVERSATION_CONTENT_MAX_LENGTH = 1_000_000;
 const TIMESTAMP_MAX_LENGTH = 128;
 const ATTACHMENT_REPOSITORY_KEY_MAX_LENGTH = 512;
 const ATTACHMENT_RELATIVE_PATH_MAX_LENGTH = 4_096;
+const ATTACHMENT_ID_MAX_LENGTH = 128;
 const ATTACHMENT_MAX_COUNT = 8;
 const RUN_REPOSITORY_KEY_MAX_LENGTH = 512;
 const RUN_REPOSITORY_RELATIVE_PATH_MAX_LENGTH = 4_096;
@@ -102,6 +103,10 @@ const SAFE_SERVER_ERROR_CODES = new Set([
   'WORKSPACE_REPOSITORY_NOT_FOUND',
   'WORKBENCH_REPOSITORY_SCOPE_INVALID',
   'REPOSITORY_SCOPE_VIOLATION',
+  'WORKBENCH_ATTACHMENT_INVALID',
+  'WORKBENCH_ATTACHMENT_TOO_LARGE',
+  'WORKBENCH_ATTACHMENT_LIMIT_EXCEEDED',
+  'WORKBENCH_ATTACHMENT_UNAVAILABLE',
   'WORKBENCH_RUN_CURSOR_EXPIRED',
   'CURSOR_EXPIRED',
   'WORKBENCH_RUN_INVALID',
@@ -114,11 +119,22 @@ const SAFE_SERVER_ERROR_CODES = new Set([
 
 export type WorkbenchRunFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
-export interface WorkbenchRunAttachment {
+export interface WorkbenchRepositoryDocumentAttachment {
+  type?: 'REPOSITORY_DOCUMENT';
   repositoryKey: string;
   relativePath: string;
   contentHash: string;
 }
+
+export interface WorkbenchUploadedConversationAttachment {
+  type: 'UPLOADED_CONVERSATION';
+  attachmentId: string;
+  contentHash: string;
+}
+
+export type WorkbenchRunAttachment =
+  | WorkbenchRepositoryDocumentAttachment
+  | WorkbenchUploadedConversationAttachment;
 
 export interface SubmitWorkbenchRunRequest {
   message: string;
@@ -884,6 +900,36 @@ export function normalizeWorkbenchRunAttachments(value: unknown): WorkbenchRunAt
     if (!isRecord(candidate)) {
       throw new Error('workbench run attachment is invalid');
     }
+    const type = candidate.type === undefined
+      ? 'REPOSITORY_DOCUMENT'
+      : boundedString(candidate.type, 64);
+    if (type === 'UPLOADED_CONVERSATION') {
+      if (candidate.repositoryKey !== undefined || candidate.relativePath !== undefined) {
+        throw new Error('uploaded workbench run attachment must not include repository paths');
+      }
+      const attachmentId = boundedString(candidate.attachmentId, ATTACHMENT_ID_MAX_LENGTH);
+      if (!attachmentId || attachmentId === '.' || attachmentId === '..') {
+        throw new Error('uploaded workbench run attachment id is invalid');
+      }
+      if (typeof candidate.contentHash !== 'string'
+        || !LOWERCASE_SHA_256.test(candidate.contentHash)) {
+        throw new Error('workbench run attachment content hash is invalid');
+      }
+      const reference = `UPLOADED_CONVERSATION\u0000${attachmentId}`;
+      if (references.has(reference)) {
+        throw new Error('workbench run attachment references must be unique');
+      }
+      references.add(reference);
+      normalized.push({
+        type: 'UPLOADED_CONVERSATION',
+        attachmentId,
+        contentHash: candidate.contentHash,
+      });
+      continue;
+    }
+    if (type !== 'REPOSITORY_DOCUMENT' || candidate.attachmentId !== undefined) {
+      throw new Error('workbench run attachment type is invalid');
+    }
     const repositoryKey = normalizedAttachmentPath(
       candidate.repositoryKey,
       'repository key',
@@ -898,7 +944,7 @@ export function normalizeWorkbenchRunAttachments(value: unknown): WorkbenchRunAt
       || !LOWERCASE_SHA_256.test(candidate.contentHash)) {
       throw new Error('workbench run attachment content hash is invalid');
     }
-    const reference = `${repositoryKey}\u0000${relativePath}`;
+    const reference = `REPOSITORY_DOCUMENT\u0000${repositoryKey}\u0000${relativePath}`;
     if (references.has(reference)) {
       throw new Error('workbench run attachment references must be unique');
     }

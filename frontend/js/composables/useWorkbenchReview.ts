@@ -9,6 +9,8 @@ import {
   WorkbenchReviewApiError,
   createWorkbenchReviewApiClient,
   type WorkbenchReviewApiClient,
+  type WorkbenchReviewCandidate,
+  type WorkbenchReviewCandidateItem,
   type WorkbenchReviewConfirmation,
 } from '../api/workbench-review.js';
 import {
@@ -28,6 +30,7 @@ export interface UseWorkbenchReviewOptions {
   ownerId: Ref<string>;
   workbenchId: Ref<string | null>;
   phase: Ref<WorkbenchPhase>;
+  conversationGeneration?: Ref<number>;
   archived?: Ref<boolean>;
   apiClient?: WorkbenchReviewApiClient;
 }
@@ -37,6 +40,18 @@ interface ReviewIdentity {
   workbenchId: string;
   phase: 'REVIEW_REFACTOR';
 }
+
+interface ReviewCandidateIdentity extends ReviewIdentity {
+  conversationGeneration: number;
+}
+
+export type ReviewCandidateDecision = 'PENDING' | 'ACCEPTED' | 'IGNORED';
+
+export interface ReviewCandidateDraftItem extends WorkbenchReviewCandidateItem {
+  decision: ReviewCandidateDecision;
+}
+
+export type ReviewCandidateEditableField = 'finding' | 'impact' | 'suggestedChange';
 
 export function useWorkbenchReview(options: UseWorkbenchReviewOptions) {
   const apiClient = options.apiClient ?? createWorkbenchReviewApiClient();
@@ -48,11 +63,16 @@ export function useWorkbenchReview(options: UseWorkbenchReviewOptions) {
   const reviewConfirming = ref(false);
   const reviewError = ref<string | null>(null);
   const reviewNotice = ref<string | null>(null);
+  const reviewCandidate = shallowRef<WorkbenchReviewCandidate | null>(null);
+  const reviewCandidateItems = ref<ReviewCandidateDraftItem[]>([]);
+  const reviewCandidateLoading = ref(false);
+  const reviewCandidateError = ref<string | null>(null);
   const serverReadOnly = ref(false);
   let loadedConfirmation: WorkbenchReviewConfirmation | null = null;
   let scopeGeneration = 0;
   let mutationGeneration = 0;
   let hashGeneration = 0;
+  let candidateRequestGeneration = 0;
 
   const reviewEnabled = computed(() => options.phase.value === 'REVIEW_REFACTOR');
   const reviewOpinion = computed(() => state.value?.opinion ?? null);
@@ -82,6 +102,14 @@ export function useWorkbenchReview(options: UseWorkbenchReviewOptions) {
     reviewDraftMatchesOpinion.value &&
     !reviewConfirmed.value,
   );
+  const reviewCanGenerateCandidate = computed(() =>
+    reviewEnabled.value &&
+    !reviewReadOnly.value &&
+    !reviewLoading.value &&
+    !reviewSaving.value &&
+    !reviewConfirming.value &&
+    !reviewCandidateLoading.value,
+  );
 
   function currentIdentity(): ReviewIdentity | null {
     const ownerId = options.ownerId.value?.trim();
@@ -100,6 +128,31 @@ export function useWorkbenchReview(options: UseWorkbenchReviewOptions) {
     );
   }
 
+  function currentCandidateIdentity(): ReviewCandidateIdentity | null {
+    const identity = currentIdentity();
+    const generation = options.conversationGeneration?.value ?? 0;
+    return identity && Number.isSafeInteger(generation) && generation >= 0
+      ? { ...identity, conversationGeneration: generation }
+      : null;
+  }
+
+  function sameCandidateIdentity(identity: ReviewCandidateIdentity): boolean {
+    const current = currentCandidateIdentity();
+    return Boolean(
+      current &&
+      sameIdentity(identity) &&
+      current.conversationGeneration === identity.conversationGeneration,
+    );
+  }
+
+  function clearReviewCandidate(): void {
+    candidateRequestGeneration++;
+    reviewCandidate.value = null;
+    reviewCandidateItems.value = [];
+    reviewCandidateLoading.value = false;
+    reviewCandidateError.value = null;
+  }
+
   function resetScope(): void {
     scopeGeneration++;
     mutationGeneration++;
@@ -114,6 +167,7 @@ export function useWorkbenchReview(options: UseWorkbenchReviewOptions) {
     reviewNotice.value = null;
     serverReadOnly.value = isArchived();
     loadedConfirmation = null;
+    clearReviewCandidate();
   }
 
   async function loadReview(): Promise<void> {
@@ -135,6 +189,7 @@ export function useWorkbenchReview(options: UseWorkbenchReviewOptions) {
     reviewNotice.value = null;
     serverReadOnly.value = isArchived();
     loadedConfirmation = null;
+    clearReviewCandidate();
     try {
       const [opinion, confirmation] = await Promise.all([
         apiClient.getOpinion(identity.workbenchId),
@@ -223,6 +278,7 @@ export function useWorkbenchReview(options: UseWorkbenchReviewOptions) {
       reviewDraftHash.value = hash;
       loadedConfirmation = null;
       serverReadOnly.value = serverReadOnly.value || saved.readOnly;
+      clearReviewCandidate();
       reviewNotice.value = `Review Opinion 已保存为 v${saved.version}；确认后才可启动重构写入。`;
     } catch (error) {
       if (!isCurrentMutation(identity, scope, generation)) return;
@@ -307,6 +363,98 @@ export function useWorkbenchReview(options: UseWorkbenchReviewOptions) {
     }
   }
 
+  async function generateReviewCandidate(): Promise<void> {
+    const identity = currentCandidateIdentity();
+    if (!identity || !reviewCanGenerateCandidate.value) return;
+    const requestGeneration = ++candidateRequestGeneration;
+    reviewCandidateLoading.value = true;
+    reviewCandidateError.value = null;
+    try {
+      const generated = await apiClient.generateCandidate(identity.workbenchId);
+      if (
+        requestGeneration !== candidateRequestGeneration ||
+        !sameCandidateIdentity(identity)
+      ) return;
+      const expectedOpinionVersion = reviewOpinion.value?.version ?? 0;
+      if (
+        generated.conversationGeneration !== identity.conversationGeneration ||
+        generated.baseOpinionVersion !== expectedOpinionVersion
+      ) {
+        throw new WorkbenchReviewApiError(
+          409,
+          'WORKBENCH_REVIEW_VERSION_CONFLICT',
+        );
+      }
+      reviewCandidate.value = generated;
+      reviewCandidateItems.value = generated.items.map(item => ({
+        ...item,
+        affectedFiles: item.affectedFiles.map(file => ({ ...file })),
+        suggestedTests: [...item.suggestedTests],
+        decision: 'PENDING' as const,
+      }));
+    } catch (error) {
+      if (
+        requestGeneration === candidateRequestGeneration &&
+        sameCandidateIdentity(identity)
+      ) {
+        reviewCandidateError.value = reviewCandidateErrorMessage(error);
+      }
+    } finally {
+      if (requestGeneration === candidateRequestGeneration) {
+        reviewCandidateLoading.value = false;
+      }
+    }
+  }
+
+  function updateReviewCandidateItem(
+    itemId: string,
+    field: ReviewCandidateEditableField,
+    value: string,
+  ): void {
+    if (
+      reviewReadOnly.value ||
+      typeof itemId !== 'string' ||
+      typeof value !== 'string' ||
+      !['finding', 'impact', 'suggestedChange'].includes(field)
+    ) return;
+    const maximum = field === 'finding' ? 2000 : 4000;
+    if (value.length > maximum) return;
+    reviewCandidateItems.value = reviewCandidateItems.value.map(item =>
+      item.itemId === itemId && item.decision === 'PENDING'
+        ? { ...item, [field]: value }
+        : item,
+    );
+  }
+
+  function acceptReviewCandidateItem(itemId: string): void {
+    if (reviewReadOnly.value) return;
+    const item = reviewCandidateItems.value.find(candidate =>
+      candidate.itemId === itemId && candidate.decision === 'PENDING');
+    if (!item || !item.finding.trim()) return;
+    const section = formatCandidateItem(item);
+    const current = reviewText.value.trim();
+    const next = current ? `${current}\n\n${section}` : section;
+    if (next.length > 16000) {
+      reviewCandidateError.value = '采用该候选后 Review Opinion 将超过长度限制，请先精简内容。';
+      return;
+    }
+    updateReviewText(next);
+    reviewCandidateItems.value = reviewCandidateItems.value.map(candidate =>
+      candidate.itemId === itemId
+        ? { ...candidate, decision: 'ACCEPTED' as const }
+        : candidate,
+    );
+  }
+
+  function ignoreReviewCandidateItem(itemId: string): void {
+    if (reviewReadOnly.value) return;
+    reviewCandidateItems.value = reviewCandidateItems.value.map(item =>
+      item.itemId === itemId && item.decision === 'PENDING'
+        ? { ...item, decision: 'IGNORED' as const }
+        : item,
+    );
+  }
+
   function restoreExactLoadedConfirmation(): void {
     if (
       !state.value ||
@@ -345,6 +493,17 @@ export function useWorkbenchReview(options: UseWorkbenchReviewOptions) {
     { immediate: true, flush: 'sync' },
   );
 
+  watch(
+    () => [
+      options.ownerId.value,
+      options.workbenchId.value ?? '',
+      options.phase.value,
+      options.conversationGeneration?.value ?? 0,
+    ].join('\u0000'),
+    () => clearReviewCandidate(),
+    { immediate: true, flush: 'sync' },
+  );
+
   return {
     reviewEnabled,
     reviewText,
@@ -356,16 +515,25 @@ export function useWorkbenchReview(options: UseWorkbenchReviewOptions) {
     reviewConfirming,
     reviewError,
     reviewNotice,
+    reviewCandidate,
+    reviewCandidateItems,
+    reviewCandidateLoading,
+    reviewCandidateError,
     reviewReadOnly,
     reviewDraftMatchesOpinion,
     reviewModifyConfirmationId,
     reviewConfirmed,
     reviewCanSave,
     reviewCanConfirm,
+    reviewCanGenerateCandidate,
     loadReview,
     updateReviewText,
     saveReviewOpinion,
     confirmReviewModification,
+    generateReviewCandidate,
+    updateReviewCandidateItem,
+    acceptReviewCandidateItem,
+    ignoreReviewCandidateItem,
   };
 }
 
@@ -410,4 +578,43 @@ function reviewErrorMessage(error: unknown): string {
     default:
       return 'Review 请求失败，请稍后重试。';
   }
+}
+
+function reviewCandidateErrorMessage(error: unknown): string {
+  if (!(error instanceof WorkbenchReviewApiError)) {
+    return 'Review Candidate 生成失败，人工草稿未改变，请稍后重试。';
+  }
+  switch (error.code) {
+    case 'WORKBENCH_ARCHIVED':
+      return 'Workbench 已归档，不能生成新的 Review Candidate。';
+    case 'WORKBENCH_REVIEW_CANDIDATE_SOURCE_UNAVAILABLE':
+      return '当前 Review 会话尚无可用公开消息，请先完成只读讨论。';
+    case 'WORKBENCH_CONVERSATION_CONFLICT':
+    case 'WORKBENCH_REVIEW_VERSION_CONFLICT':
+      return '当前 Review 会话或 Opinion 已变化，请重新加载后再生成候选。';
+    case 'WORKBENCH_PHASE_MESSAGE_TOO_LARGE':
+      return '当前 Review 消息过大，无法安全生成候选，请先精简对话。';
+    case 'WORKBENCH_NOT_FOUND':
+      return 'Workbench 不存在或无权访问。';
+    default:
+      return 'Review Candidate 生成失败，人工草稿未改变，请稍后重试。';
+  }
+}
+
+function formatCandidateItem(item: ReviewCandidateDraftItem): string {
+  const lines = [
+    '### Review Candidate',
+    `Review: ${item.finding.trim()}`,
+  ];
+  if (item.impact.trim()) lines.push(`Impact: ${item.impact.trim()}`);
+  if (item.suggestedChange.trim()) {
+    lines.push(`Suggested Change: ${item.suggestedChange.trim()}`);
+  }
+  for (const file of item.affectedFiles) {
+    lines.push(`Affected File: ${file.repositoryKey}::${file.relativePath}`);
+  }
+  for (const test of item.suggestedTests) {
+    lines.push(`Required Test: ${test}`);
+  }
+  return lines.join('\n');
 }

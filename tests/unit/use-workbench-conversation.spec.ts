@@ -68,6 +68,48 @@ function stream(): UseWorkbenchRunStream {
 }
 
 describe('useWorkbenchConversation', () => {
+  it('blocks a second MODIFY run from another Phase while still allowing a read-only Run', async () => {
+    const api = runApi();
+    const activeWriteRunId = ref<string | null>('write-run-in-another-phase');
+    const conversation = useWorkbenchConversation({
+      ownerId: ref('owner-1'),
+      workbenchId: ref('wb-1'),
+      phase: ref('IMPLEMENT_TEST'),
+      conversationGeneration: ref(1),
+      currentConversationId: ref('session-1'),
+      activeRunId: ref(null),
+      activeWriteRunId,
+      expectedVersion: ref(7),
+      phaseStatus: ref('IN_PROGRESS'),
+      handoffRequired: ref(false),
+      handoffSourceVersion: ref(null),
+      reviewConfirmationId: ref(null),
+      apiClient: api,
+      stream: stream(),
+    });
+    conversation.updateComposerText('先继续只读分析');
+
+    expect(conversation.runMode.value).toBe('MODIFY_WORKSPACE');
+    expect(conversation.writeRunBlocked.value).toBe(true);
+    expect(conversation.conversationCanSubmit.value).toBe(false);
+
+    await conversation.submitConversation();
+
+    expect(api.submitRun).not.toHaveBeenCalled();
+    expect(conversation.conversationError.value)
+      .toBe('当前 Workbench 已有活动写 Run；可切换为只读讨论，或等待写 Run 进入终态。');
+
+    conversation.updateRunMode('DISCUSS_READ_ONLY');
+    expect(conversation.writeRunBlocked.value).toBe(false);
+    expect(conversation.conversationCanSubmit.value).toBe(true);
+
+    await conversation.submitConversation();
+
+    expect(api.submitRun).toHaveBeenCalledWith(expect.objectContaining({
+      request: expect.objectContaining({ runMode: 'DISCUSS_READ_ONLY' }),
+    }));
+  });
+
   it('loads the complete persisted messages for the current owner Workbench Phase identity', async () => {
     const api = runApi({
       getConversationMessages: vi.fn().mockResolvedValue({
@@ -706,6 +748,111 @@ describe('useWorkbenchConversation', () => {
       },
     }));
     expect(conversation.pendingAttachments.value).toEqual([]);
+  });
+
+  it('keeps uploaded attachment preview metadata locally but submits only id and content hash', async () => {
+    const api = runApi();
+    const submitted = vi.fn();
+    const conversation = useWorkbenchConversation({
+      ownerId: ref('owner-1'),
+      workbenchId: ref('wb-1'),
+      phase: ref('REQUIREMENT_ANALYSIS'),
+      conversationGeneration: ref(1),
+      currentConversationId: ref('session-1'),
+      activeRunId: ref(null),
+      expectedVersion: ref(7),
+      phaseStatus: ref('IN_PROGRESS'),
+      handoffRequired: ref(false),
+      handoffSourceVersion: ref(null),
+      reviewConfirmationId: ref(null),
+      apiClient: api,
+      stream: stream(),
+      onSubmitted: submitted,
+    });
+    const uploaded = {
+      type: 'UPLOADED_CONVERSATION' as const,
+      attachmentId: 'attachment-1',
+      contentHash: 'c'.repeat(64),
+      displayName: 'architecture.png',
+      mediaType: 'image/png',
+      size: 128,
+      previewUrl: 'blob:local-preview',
+    };
+
+    expect(conversation.addAttachment(uploaded)).toBe(true);
+    conversation.updateComposerText('结合图片分析需求');
+    expect(conversation.pendingAttachments.value).toEqual([uploaded]);
+
+    await conversation.submitConversation();
+
+    const wireAttachment = {
+      type: 'UPLOADED_CONVERSATION',
+      attachmentId: 'attachment-1',
+      contentHash: 'c'.repeat(64),
+    };
+    expect(api.submitRun).toHaveBeenCalledWith(expect.objectContaining({
+      request: {
+        message: '结合图片分析需求',
+        runMode: 'DISCUSS_READ_ONLY',
+        attachments: [wireAttachment],
+      },
+    }));
+    expect(submitted).toHaveBeenCalledWith(
+      expect.objectContaining({ runId: 'run-1' }),
+      'DISCUSS_READ_ONLY',
+      [wireAttachment],
+    );
+    expect(JSON.stringify(vi.mocked(api.submitRun).mock.calls[0][0]))
+      .not.toMatch(/blob:|displayName|mediaType|size|repositoryKey|relativePath/);
+    expect(conversation.pendingAttachments.value).toEqual([]);
+  });
+
+  it('enforces one combined attachment limit and distinct uploaded logical identities', () => {
+    const conversation = useWorkbenchConversation({
+      ownerId: ref('owner-1'),
+      workbenchId: ref('wb-1'),
+      phase: ref('REQUIREMENT_ANALYSIS'),
+      conversationGeneration: ref(1),
+      currentConversationId: ref('session-1'),
+      activeRunId: ref(null),
+      expectedVersion: ref(7),
+      phaseStatus: ref('IN_PROGRESS'),
+      handoffRequired: ref(false),
+      handoffSourceVersion: ref(null),
+      reviewConfirmationId: ref(null),
+      apiClient: runApi(),
+      stream: stream(),
+    });
+    for (let index = 0; index < 7; index += 1) {
+      expect(conversation.addAttachment({
+        repositoryKey: 'agent-web',
+        relativePath: `docs/${index}.md`,
+        contentHash: 'a'.repeat(64),
+      })).toBe(true);
+    }
+    const uploaded = {
+      type: 'UPLOADED_CONVERSATION' as const,
+      attachmentId: 'attachment-1',
+      contentHash: 'b'.repeat(64),
+      displayName: 'notes.txt',
+      mediaType: 'text/plain',
+      size: 10,
+      previewUrl: null,
+    };
+    expect(conversation.addAttachment(uploaded)).toBe(true);
+    expect(conversation.addAttachment({ ...uploaded, contentHash: 'c'.repeat(64) })).toBe(false);
+    expect(conversation.addAttachment({
+      repositoryKey: 'agent-web',
+      relativePath: 'docs/ninth.md',
+      contentHash: 'd'.repeat(64),
+    })).toBe(false);
+    expect(conversation.pendingAttachments.value).toHaveLength(8);
+
+    conversation.removeUploadedAttachment('attachment-1');
+
+    expect(conversation.pendingAttachments.value).toHaveLength(7);
+    expect(conversation.pendingAttachments.value)
+      .not.toEqual(expect.arrayContaining([expect.objectContaining({ attachmentId: 'attachment-1' })]));
   });
 
   it('retains attachments on failure, reuses the same key, and changes the key after attachment change', async () => {

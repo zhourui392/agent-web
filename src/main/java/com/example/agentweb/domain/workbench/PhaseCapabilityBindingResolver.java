@@ -236,6 +236,12 @@ public final class PhaseCapabilityBindingResolver {
                         "RUNTIME_INCOMPATIBLE", rejected);
                 continue;
             }
+            if (!policy.allowsSkillForWorkspace(manifest)) {
+                rejectOrThrow(
+                        reference.getId(), reference.isRequired(),
+                        "OPTIONAL_SKILL_TECHNOLOGY_MISMATCH", rejected);
+                continue;
+            }
             candidates.put(reference.getId(),
                     new SkillCandidate(reference, skillPackage));
         }

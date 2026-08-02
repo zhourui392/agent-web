@@ -21,6 +21,10 @@ import com.example.agentweb.domain.workbench.PushTarget;
 import com.example.agentweb.domain.workbench.RunMode;
 import com.example.agentweb.domain.workbench.RuntimeEnforcementSnapshot;
 import com.example.agentweb.domain.workbench.VerifiedWorkbenchRunAttachment;
+import com.example.agentweb.domain.workbench.VerifiedUploadedConversationAttachment;
+import com.example.agentweb.domain.workbench.UploadedAttachmentBinding;
+import com.example.agentweb.domain.workbench.OwnerReference;
+import com.example.agentweb.domain.workbench.WorkbenchId;
 import com.example.agentweb.domain.workbench.WorkbenchId;
 import com.example.agentweb.domain.workbench.WorkbenchPhase;
 import com.example.agentweb.domain.workbench.WorkbenchRunReference;
@@ -272,9 +276,19 @@ final class WorkbenchJsonCodec {
 
     String writeVerifiedAttachments(
             List<VerifiedWorkbenchRunAttachment> attachments) {
+        return writeVerifiedAttachments(
+                attachments,
+                java.util.Collections
+                        .<VerifiedUploadedConversationAttachment>emptyList());
+    }
+
+    String writeVerifiedAttachments(
+            List<VerifiedWorkbenchRunAttachment> attachments,
+            List<VerifiedUploadedConversationAttachment> uploadedAttachments) {
         ArrayNode result = mapper.createArrayNode();
         for (VerifiedWorkbenchRunAttachment attachment : attachments) {
             ObjectNode node = result.addObject();
+            node.put("type", "REPOSITORY_DOCUMENT");
             node.put("repositoryKey", attachment.getDocumentReference()
                     .getRepositoryKey());
             node.put("relativePath", attachment.getDocumentReference()
@@ -282,6 +296,29 @@ final class WorkbenchJsonCodec {
             node.put("contentVersion", attachment.getContentVersion());
             node.put("mediaType", attachment.getMediaType());
             node.put("size", attachment.getSize());
+        }
+        for (VerifiedUploadedConversationAttachment attachment
+                : uploadedAttachments) {
+            ObjectNode node = result.addObject();
+            node.put("type", "UPLOADED_CONVERSATION");
+            node.put("attachmentId", attachment.getAttachmentId());
+            node.put("ownerId", attachment.getBinding().getOwner().getOwnerId());
+            node.put("ownerName", attachment.getBinding().getOwner().getOwnerName());
+            node.put("workbenchId",
+                    attachment.getBinding().getWorkbenchId().getValue());
+            node.put("phase", attachment.getBinding().getPhase().name());
+            node.put("conversationId",
+                    attachment.getBinding().getConversationId());
+            node.put("conversationGeneration",
+                    attachment.getBinding().getConversationGeneration());
+            node.put("displayName", attachment.getDisplayName());
+            node.put("mediaType", attachment.getMediaType());
+            node.put("size", attachment.getSize());
+            node.put("contentHash", attachment.getContentHash());
+            node.put("storageKey", attachment.getStorageKey());
+            node.put("runtimeFileName", attachment.getRuntimeFileName());
+            node.put("expiresAt", attachment.getExpiresAt().toEpochMilli());
+            node.put("attachmentVersion", attachment.getAttachmentVersion());
         }
         return write(result);
     }
@@ -292,6 +329,9 @@ final class WorkbenchJsonCodec {
                 new ArrayList<VerifiedWorkbenchRunAttachment>();
         for (JsonNode node : array(json, "verified attachments")) {
             requireObject(node, "verified attachment");
+            if (!"REPOSITORY_DOCUMENT".equals(attachmentType(node))) {
+                continue;
+            }
             result.add(VerifiedWorkbenchRunAttachment.restore(
                     DocumentReference.of(
                             text(node, "repositoryKey"),
@@ -300,6 +340,48 @@ final class WorkbenchJsonCodec {
                     text(node, "mediaType"), longValue(node, "size")));
         }
         return result;
+    }
+
+    List<VerifiedUploadedConversationAttachment>
+            readVerifiedUploadedAttachments(String json) {
+        List<VerifiedUploadedConversationAttachment> result =
+                new ArrayList<VerifiedUploadedConversationAttachment>();
+        for (JsonNode node : array(json, "verified attachments")) {
+            requireObject(node, "verified attachment");
+            if (!"UPLOADED_CONVERSATION".equals(attachmentType(node))) {
+                continue;
+            }
+            result.add(VerifiedUploadedConversationAttachment.restore(
+                    text(node, "attachmentId"),
+                    new UploadedAttachmentBinding(
+                            OwnerReference.of(
+                                    text(node, "ownerId"),
+                                    text(node, "ownerName")),
+                            WorkbenchId.of(text(node, "workbenchId")),
+                            WorkbenchPhase.valueOf(text(node, "phase")),
+                            text(node, "conversationId"),
+                            integer(node, "conversationGeneration")),
+                    text(node, "displayName"), text(node, "mediaType"),
+                    longValue(node, "size"), text(node, "contentHash"),
+                    text(node, "storageKey"), text(node, "runtimeFileName"),
+                    java.time.Instant.ofEpochMilli(longValue(node, "expiresAt")),
+                    longValue(node, "attachmentVersion")));
+        }
+        return result;
+    }
+
+    private String attachmentType(JsonNode node) {
+        JsonNode type = node.get("type");
+        if (type == null || type.isNull()) {
+            return "REPOSITORY_DOCUMENT";
+        }
+        if (!type.isTextual()
+                || !("REPOSITORY_DOCUMENT".equals(type.textValue())
+                || "UPLOADED_CONVERSATION".equals(type.textValue()))) {
+            throw new IllegalArgumentException(
+                    "verified attachment type is invalid");
+        }
+        return type.textValue();
     }
 
     String writeRuntimeEnforcement(RuntimeEnforcementSnapshot runtime) {

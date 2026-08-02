@@ -54,6 +54,7 @@ public final class HighImpactOperation {
                 target.requestedPayloadHash(), "operation requested payload hash");
         this.safeSummary = WorkbenchText.requireUntrustedText(
                 safeSummary, "operation safe summary", 2000);
+        HighImpactOperationSecretPolicy.requireSafePreview(this.safeSummary);
         this.status = HighImpactOperationStatus.PROPOSED;
         this.proposedBy = proposedBy;
         this.proposedAt = DomainText.requireTime(proposedAt, "operation proposed at");

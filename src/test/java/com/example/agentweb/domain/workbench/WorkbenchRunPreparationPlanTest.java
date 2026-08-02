@@ -6,6 +6,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -84,15 +85,75 @@ class WorkbenchRunPreparationPlanTest {
     }
 
     @Test
-    void downstreamPreparationShouldRequireExplicitAcceptedReception() {
+    void downstreamPreparationShouldCreateInitialReceptionFromExactLatestHandoff() {
         WorkbenchRunPreparationPlan plan = workbench.planRunPreparation(
                 WorkbenchPhase.SOLUTION_DESIGN,
                 RunMode.DISCUSS_READ_ONLY, Long.valueOf(0L), null,
                 OWNER, workbench.getVersion());
+        PhaseHandoff latest = PhaseHandoff.create(
+                workbench.getId(), WorkbenchPhase.REQUIREMENT_ANALYSIS,
+                "人工确认的需求交接",
+                Collections.emptyList(), Collections.emptyList(),
+                Collections.emptyList(), Collections.emptyList(),
+                workbench.getRepositoryScope(), OWNER, NOW.plusSeconds(5));
+
+        HandoffReception reception = plan.resolveHandoffReception(
+                null, latest, OWNER, NOW.plusSeconds(6));
+
+        assertEquals(workbench.getId(), reception.getWorkbenchId());
+        assertEquals(WorkbenchPhase.SOLUTION_DESIGN,
+                reception.getTargetPhase());
+        assertEquals(WorkbenchPhase.REQUIREMENT_ANALYSIS,
+                reception.getSourcePhase());
+        assertEquals(0L, reception.getSourceVersion());
+        assertEquals(latest.getContentHash(), reception.getSourceHash());
+        assertEquals(OWNER, reception.getAcceptedBy());
+        assertEquals(NOW.plusSeconds(6), reception.getAcceptedAt());
+    }
+
+    @Test
+    void initialReceptionShouldRejectSourceChangedAfterClientPreview() {
+        WorkbenchRunPreparationPlan plan = workbench.planRunPreparation(
+                WorkbenchPhase.SOLUTION_DESIGN,
+                RunMode.DISCUSS_READ_ONLY, Long.valueOf(0L), null,
+                OWNER, workbench.getVersion());
+        PhaseHandoff latest = PhaseHandoff.create(
+                workbench.getId(), WorkbenchPhase.REQUIREMENT_ANALYSIS,
+                "初始交接",
+                Collections.emptyList(), Collections.emptyList(),
+                Collections.emptyList(), Collections.emptyList(),
+                workbench.getRepositoryScope(), OWNER, NOW.plusSeconds(5));
+        latest.update(
+                0L, "预览后更新的交接",
+                Collections.emptyList(), Collections.emptyList(),
+                Collections.emptyList(), Collections.emptyList(),
+                workbench.getRepositoryScope(), OWNER, NOW.plusSeconds(6));
 
         assertCode(
-                WorkbenchErrorCode.PHASE_TRANSITION_INVALID,
-                () -> plan.requireAcceptedHandoff(null));
+                WorkbenchErrorCode.VERSION_CONFLICT,
+                () -> plan.resolveHandoffReception(
+                        null, latest, OWNER, NOW.plusSeconds(7)));
+    }
+
+    @Test
+    void existingReceptionShouldKeepHistoricalSourceWhenLatestChanges() {
+        WorkbenchRunPreparationPlan plan = workbench.planRunPreparation(
+                WorkbenchPhase.SOLUTION_DESIGN,
+                RunMode.DISCUSS_READ_ONLY, Long.valueOf(0L), null,
+                OWNER, workbench.getVersion());
+        HandoffReception accepted = HandoffReception.accept(
+                workbench.getId(), WorkbenchPhase.SOLUTION_DESIGN,
+                WorkbenchPhase.REQUIREMENT_ANALYSIS, 0L, repeat('a'),
+                OWNER, NOW.plusSeconds(5));
+        PhaseHandoff latest = PhaseHandoff.create(
+                workbench.getId(), WorkbenchPhase.REQUIREMENT_ANALYSIS,
+                "更新后的上游交接",
+                Collections.emptyList(), Collections.emptyList(),
+                Collections.emptyList(), Collections.emptyList(),
+                workbench.getRepositoryScope(), OWNER, NOW.plusSeconds(6));
+
+        assertSame(accepted, plan.resolveHandoffReception(
+                accepted, latest, OWNER, NOW.plusSeconds(7)));
     }
 
     @Test

@@ -41,6 +41,26 @@ public final class RuntimeCommandPolicy {
             "surefire:test");
     private static final Set<String> BUILD_TOKENS = set(
             "package", "install", "build", "assemble", "compile");
+    private static final List<List<String>> OPAQUE_SHELL_WRAPPER_PREFIXES =
+            immutablePrefixes(
+                    prefix("bash", "-lc"),
+                    prefix("bash", "-c"),
+                    prefix("sh", "-lc"),
+                    prefix("sh", "-c"),
+                    prefix("zsh", "-lc"),
+                    prefix("zsh", "-c"),
+                    prefix("dash", "-c"),
+                    prefix("ksh", "-c"),
+                    prefix("cmd"),
+                    prefix("cmd.exe"),
+                    prefix("powershell"),
+                    prefix("powershell.exe"),
+                    prefix("pwsh"),
+                    prefix("pwsh.exe"),
+                    prefix("bash.exe", "-lc"),
+                    prefix("bash.exe", "-c"),
+                    prefix("sh.exe", "-lc"),
+                    prefix("sh.exe", "-c"));
 
     private final List<RuntimeCommandPrefix> forbiddenPrefixes;
 
@@ -86,6 +106,17 @@ public final class RuntimeCommandPolicy {
 
     public List<RuntimeCommandPrefix> getForbiddenPrefixes() {
         return forbiddenPrefixes;
+    }
+
+    /**
+     * 返回 Codex 无法安全拆分脚本时必须整体拒绝的 Shell 包装前缀。
+     *
+     * <p>线性、可安全解析的脚本会由 Codex 拆为独立命令再逐条匹配；使用变量、重定向、
+     * 通配符、替换或控制流的脚本保留包装器形态，因此必须 fail closed，避免高影响操作
+     * 藏在不可解释脚本中绕过类型化 Operation。</p>
+     */
+    public List<List<String>> getOpaqueShellWrapperPrefixes() {
+        return OPAQUE_SHELL_WRAPPER_PREFIXES;
     }
 
     public RuntimeCommandAssessment assess(String rawCommand) {
@@ -296,5 +327,16 @@ public final class RuntimeCommandPolicy {
     private static Set<String> set(String... values) {
         return Collections.unmodifiableSet(
                 new LinkedHashSet<String>(Arrays.asList(values)));
+    }
+
+    private static List<String> prefix(String... values) {
+        return Collections.unmodifiableList(Arrays.asList(values));
+    }
+
+    @SafeVarargs
+    private static List<List<String>> immutablePrefixes(
+            List<String>... values) {
+        return Collections.unmodifiableList(
+                Arrays.asList(values));
     }
 }

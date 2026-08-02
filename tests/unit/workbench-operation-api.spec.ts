@@ -9,6 +9,7 @@ import {
   WorkbenchOperationApiError,
   createWorkbenchOperationApiClient,
   type WorkbenchOperationFetch,
+  type WorkbenchOperationProposalInput,
 } from '../../frontend/js/api/workbench-operation.js';
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -54,6 +55,155 @@ function authorizedOperation(): Record<string, unknown> {
 }
 
 describe('workbench high-impact operation API client', () => {
+  it('proposes each strict typed target with an exact idempotent POST and accepts only 201 PROPOSED', async () => {
+    const fetcher = vi.fn<WorkbenchOperationFetch>().mockImplementation(async (_input, init) => {
+      const request = JSON.parse(String(init?.body)) as WorkbenchOperationProposalInput;
+      const { type, ...details } = request.target;
+      const repositoryKeys = type === 'PRODUCTION_WRITE'
+        ? []
+        : type === 'LOCAL_DEPLOY'
+          ? request.target.repositoryTargets
+          : [request.target.repositoryKey];
+      const responseDetails = type === 'GIT_PUSH'
+        ? { ...details, repositoryKey: undefined, forceAllowed: false }
+        : type === 'LOCAL_DEPLOY'
+          ? { ...details, repositoryTargets: undefined }
+          : type === 'GIT_COMMIT'
+            ? { ...details, repositoryKey: undefined }
+            : details;
+      const proposed = {
+        ...authorizedOperation(),
+        sourceRunId: request.sourceRunId,
+        phase: request.phase,
+        type,
+        target: { type, repositoryKeys, details: responseDetails },
+        status: 'PROPOSED',
+        version: 0,
+      };
+      return jsonResponse(201, proposed);
+    });
+    const client = createWorkbenchOperationApiClient(fetcher);
+    const targets: WorkbenchOperationProposalInput['target'][] = [{
+      type: 'GIT_COMMIT', repositoryKey: 'agent-web', branch: 'master',
+      expectedHead: 'a'.repeat(40), expectedStateHash: 'b'.repeat(64),
+      includedPaths: ['README.md'], messageHash: 'c'.repeat(64), safeMessagePreview: 'feat: proposal',
+    }, {
+      type: 'GIT_PUSH', repositoryKey: 'agent-web', remoteName: 'origin', localBranch: 'master',
+      remoteRef: 'refs/heads/master', expectedLocalHead: 'a'.repeat(40),
+    }, {
+      type: 'LOCAL_DEPLOY', templateId: 'service', templateVersion: '1', templateHash: 'b'.repeat(64),
+      repositoryTargets: ['agent-web'], environment: 'LOCAL',
+      expectedWorkspaceStateHash: 'c'.repeat(64), rollbackSummary: '恢复旧进程',
+    }, {
+      type: 'PRODUCTION_WRITE', environment: 'production', resourceReference: 'database/orders',
+      expectedProductionStateHash: 'd'.repeat(64),
+    }];
+
+    for (const target of targets) {
+      await expect(client.propose('wb-1', 'stable-key', {
+        sourceRunId: 'run-1', phase: 'IMPLEMENT_TEST',
+        safeSummary: '已人工核对目标与风险', target,
+      })).resolves.toMatchObject({ status: 'PROPOSED', version: 0 });
+    }
+
+    for (const call of fetcher.mock.calls) {
+      expect(call[0]).toBe('/api/workbenches/wb-1/operations');
+      expect(call[1]).toEqual(expect.objectContaining({
+        method: 'POST', credentials: 'same-origin',
+        headers: {
+          Accept: 'application/json', 'Content-Type': 'application/json',
+          'Idempotency-Key': 'stable-key',
+        },
+      }));
+      const body = JSON.parse(String(call[1]?.body)) as Record<string, unknown>;
+      expect(Object.keys(body).sort()).toEqual(['phase', 'safeSummary', 'sourceRunId', 'target']);
+      expect(JSON.stringify(body)).not.toMatch(/command|shell|args|CUSTOM/);
+    }
+  });
+
+  it('rejects unknown, shell-like, malformed path/ref and non-LOCAL proposal fields before fetch', async () => {
+    const fetcher = vi.fn<WorkbenchOperationFetch>();
+    const client = createWorkbenchOperationApiClient(fetcher);
+    const base = { sourceRunId: 'run-1', phase: 'IMPLEMENT_TEST', safeSummary: '人工预览' };
+    const invalid: unknown[] = [{
+      ...base,
+      target: { type: 'GIT_COMMIT', repositoryKey: 'agent-web', branch: 'master',
+        expectedHead: 'a'.repeat(40), expectedStateHash: 'b'.repeat(64),
+        includedPaths: ['/home/user/secret'], messageHash: 'c'.repeat(64), safeMessagePreview: 'feat' },
+    }, {
+      ...base,
+      target: { type: 'GIT_PUSH', repositoryKey: 'agent-web', remoteName: 'origin',
+        localBranch: 'master', remoteRef: ':delete', expectedLocalHead: 'a'.repeat(40) },
+    }, {
+      ...base,
+      target: { type: 'LOCAL_DEPLOY', templateId: 'x', templateVersion: '1',
+        templateHash: 'b'.repeat(64), repositoryTargets: ['agent-web'], environment: 'PRODUCTION',
+        expectedWorkspaceStateHash: 'c'.repeat(64), rollbackSummary: 'rollback' },
+    }, { ...base, target: { type: 'CUSTOM', command: 'git push' } }, {
+      ...base,
+      command: 'git commit',
+      target: { type: 'PRODUCTION_WRITE', environment: 'production',
+        resourceReference: 'database/orders', expectedProductionStateHash: 'd'.repeat(64) },
+    }, {
+      ...base,
+      target: { type: 'GIT_PUSH', repositoryKey: 'outside/repository', remoteName: 'origin',
+        localBranch: 'master', remoteRef: 'refs/heads/master', expectedLocalHead: 'A'.repeat(40) },
+    }, {
+      ...base,
+      target: { type: 'GIT_COMMIT', repositoryKey: 'agent-web', branch: 'master',
+        expectedHead: 'a'.repeat(40), expectedStateHash: 'b'.repeat(64), includedPaths: ['README.md'],
+        messageHash: 'c'.repeat(64), safeMessagePreview: 'feat', shell: 'git commit -am all' },
+    }];
+
+    for (const input of invalid) {
+      await expect(client.propose('wb-1', 'key-1', input as WorkbenchOperationProposalInput))
+        .rejects.toMatchObject({ code: 'WORKBENCH_OPERATION_REQUEST_INVALID' });
+    }
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('rejects a successful proposal projection unless the response status is exactly 201', async () => {
+    const proposed = { ...authorizedOperation(), status: 'PROPOSED', version: 0 };
+    const client = createWorkbenchOperationApiClient(
+      vi.fn<WorkbenchOperationFetch>().mockResolvedValue(jsonResponse(200, proposed)),
+    );
+
+    await expect(client.propose('wb-1', 'key-1', {
+      sourceRunId: 'run-1',
+      phase: 'IMPLEMENT_TEST',
+      safeSummary: '人工核对 Push 目标',
+      target: {
+        type: 'GIT_PUSH', repositoryKey: 'agent-web', remoteName: 'origin', localBranch: 'master',
+        remoteRef: 'refs/heads/master', expectedLocalHead: 'a'.repeat(40),
+      },
+    })).rejects.toMatchObject({ code: 'WORKBENCH_OPERATION_RESPONSE_INVALID' });
+  });
+
+  it('preserves safe source-Run and idempotency conflict codes from proposal failures', async () => {
+    const fetcher = vi.fn<WorkbenchOperationFetch>()
+      .mockResolvedValueOnce(jsonResponse(404, { code: 'WORKBENCH_OPERATION_SOURCE_RUN_NOT_FOUND' }))
+      .mockResolvedValueOnce(jsonResponse(409, { code: 'IDEMPOTENCY_CONFLICT' }));
+    const client = createWorkbenchOperationApiClient(fetcher);
+    const input: WorkbenchOperationProposalInput = {
+      sourceRunId: 'run-1',
+      phase: 'IMPLEMENT_TEST',
+      safeSummary: '人工核对生产目标',
+      target: {
+        type: 'PRODUCTION_WRITE', environment: 'production',
+        resourceReference: 'database/orders', expectedProductionStateHash: 'd'.repeat(64),
+      },
+    };
+
+    await expect(client.propose('wb-1', 'key-1', input)).rejects.toMatchObject({
+      status: 404,
+      code: 'WORKBENCH_OPERATION_SOURCE_RUN_NOT_FOUND',
+    });
+    await expect(client.propose('wb-1', 'key-1', input)).rejects.toMatchObject({
+      status: 409,
+      code: 'IDEMPOTENCY_CONFLICT',
+    });
+  });
+
   it('lists and loads owner-scoped typed operation projections', async () => {
     const fetcher = vi.fn<WorkbenchOperationFetch>()
       .mockResolvedValueOnce(jsonResponse(200, [authorizedOperation()]))

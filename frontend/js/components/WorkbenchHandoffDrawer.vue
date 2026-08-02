@@ -69,6 +69,173 @@
         <el-empty v-else description="当前阶段没有默认上游 Handoff" :image-size="56" />
       </section>
 
+      <section class="handoff-section handoff-candidate-generate">
+        <div>
+          <h3>Agent Candidate</h3>
+          <small>只根据当前阶段的公开消息生成建议，不会自动保存或覆盖人工 Handoff。</small>
+        </div>
+        <el-button
+          type="primary"
+          plain
+          :loading="candidateGenerating"
+          :disabled="readOnly || loading || saving || candidateGenerating"
+          data-test="handoff-generate-candidate"
+          @click="emit('generate-candidate')"
+        >
+          {{ candidate ? '重新生成候选' : '生成候选' }}
+        </el-button>
+      </section>
+
+      <section v-if="candidate" class="handoff-candidate" data-test="handoff-candidate">
+        <div class="handoff-section-heading">
+          <div>
+            <h3>待确认候选</h3>
+            <small>
+              基于 Handoff v{{ candidate.baseHandoffVersion }} · 对话代次
+              {{ candidate.conversationGeneration }} · {{ candidate.sourceMessageCount }} 条公开消息
+            </small>
+          </div>
+          <el-button :disabled="candidateGenerating" @click="emit('dismiss-candidate')">忽略全部</el-button>
+        </div>
+        <el-alert
+          v-if="current && current.version !== candidate.baseHandoffVersion"
+          title="人工 Handoff 已在候选生成后变化，请逐项复核后再采用。"
+          type="warning"
+          :closable="false"
+          show-icon
+        />
+
+        <article class="handoff-candidate-field" data-test="handoff-candidate-summary">
+          <div class="handoff-candidate-field-heading">
+            <strong>Summary</strong>
+            <el-tag v-if="!candidatePending.summary" type="info" size="small">已处理</el-tag>
+          </div>
+          <blockquote>{{ candidate.summary || '（空）' }}</blockquote>
+          <div v-if="candidatePending.summary" class="handoff-candidate-actions">
+            <el-button
+              :disabled="candidateActionsDisabled"
+              @click="emit('apply-candidate-field', 'summary', 'replace')"
+            >采用</el-button>
+            <el-button
+              :disabled="candidateActionsDisabled"
+              @click="emit('apply-candidate-field', 'summary', 'append')"
+            >追加</el-button>
+            <el-button
+              :disabled="candidateActionsDisabled"
+              @click="emit('ignore-candidate-field', 'summary')"
+            >忽略</el-button>
+          </div>
+        </article>
+
+        <article class="handoff-candidate-field" data-test="handoff-candidate-decisions">
+          <div class="handoff-candidate-field-heading">
+            <strong>Decisions（{{ candidate.decisions.length }}）</strong>
+            <el-tag v-if="!candidatePending.decisions" type="info" size="small">已处理</el-tag>
+          </div>
+          <ul v-if="candidate.decisions.length">
+            <li v-for="(decision, index) in candidate.decisions" :key="`candidate-decision-${index}`">
+              {{ decision.text }}<small v-if="decision.rationale"> — {{ decision.rationale }}</small>
+            </li>
+          </ul>
+          <p v-else>（空）</p>
+          <div v-if="candidatePending.decisions" class="handoff-candidate-actions">
+            <el-button
+              :disabled="candidateActionsDisabled"
+              @click="emit('apply-candidate-field', 'decisions', 'replace')"
+            >采用</el-button>
+            <el-button
+              :disabled="candidateActionsDisabled"
+              @click="emit('apply-candidate-field', 'decisions', 'append')"
+            >追加</el-button>
+            <el-button
+              :disabled="candidateActionsDisabled"
+              @click="emit('ignore-candidate-field', 'decisions')"
+            >忽略</el-button>
+          </div>
+        </article>
+
+        <article class="handoff-candidate-field" data-test="handoff-candidate-open-questions">
+          <div class="handoff-candidate-field-heading">
+            <strong>Open Questions（{{ candidate.openQuestions.length }}）</strong>
+            <el-tag v-if="!candidatePending.openQuestions" type="info" size="small">已处理</el-tag>
+          </div>
+          <ul v-if="candidate.openQuestions.length">
+            <li v-for="(question, index) in candidate.openQuestions" :key="`candidate-question-${index}`">
+              {{ question.text }}<small v-if="question.ownerHint"> — {{ question.ownerHint }}</small>
+            </li>
+          </ul>
+          <p v-else>（空）</p>
+          <div v-if="candidatePending.openQuestions" class="handoff-candidate-actions">
+            <el-button
+              :disabled="candidateActionsDisabled"
+              @click="emit('apply-candidate-field', 'openQuestions', 'replace')"
+            >采用</el-button>
+            <el-button
+              :disabled="candidateActionsDisabled"
+              @click="emit('apply-candidate-field', 'openQuestions', 'append')"
+            >追加</el-button>
+            <el-button
+              :disabled="candidateActionsDisabled"
+              @click="emit('ignore-candidate-field', 'openQuestions')"
+            >忽略</el-button>
+          </div>
+        </article>
+
+        <article class="handoff-candidate-field" data-test="handoff-candidate-pinned-files">
+          <div class="handoff-candidate-field-heading">
+            <strong>Pinned Files（{{ candidate.pinnedFiles.length }}）</strong>
+            <el-tag v-if="!candidatePending.pinnedFiles" type="info" size="small">已处理</el-tag>
+          </div>
+          <ul v-if="candidate.pinnedFiles.length">
+            <li v-for="(file, index) in candidate.pinnedFiles" :key="fileKey(file, index)">
+              {{ file.repositoryKey }}/{{ file.relativePath }}
+            </li>
+          </ul>
+          <p v-else>（空）</p>
+          <div v-if="candidatePending.pinnedFiles" class="handoff-candidate-actions">
+            <el-button
+              :disabled="candidateActionsDisabled"
+              @click="emit('apply-candidate-field', 'pinnedFiles', 'replace')"
+            >采用</el-button>
+            <el-button
+              :disabled="candidateActionsDisabled"
+              @click="emit('apply-candidate-field', 'pinnedFiles', 'append')"
+            >追加</el-button>
+            <el-button
+              :disabled="candidateActionsDisabled"
+              @click="emit('ignore-candidate-field', 'pinnedFiles')"
+            >忽略</el-button>
+          </div>
+        </article>
+
+        <article class="handoff-candidate-field" data-test="handoff-candidate-referenced-runs">
+          <div class="handoff-candidate-field-heading">
+            <strong>Referenced Runs（{{ candidate.referencedRuns.length }}）</strong>
+            <el-tag v-if="!candidatePending.referencedRuns" type="info" size="small">已处理</el-tag>
+          </div>
+          <ul v-if="candidate.referencedRuns.length">
+            <li v-for="run in candidate.referencedRuns" :key="run.runId">
+              {{ run.runId }} · {{ run.phase }}<small v-if="run.safeSummary"> — {{ run.safeSummary }}</small>
+            </li>
+          </ul>
+          <p v-else>（空）</p>
+          <div v-if="candidatePending.referencedRuns" class="handoff-candidate-actions">
+            <el-button
+              :disabled="candidateActionsDisabled"
+              @click="emit('apply-candidate-field', 'referencedRuns', 'replace')"
+            >采用</el-button>
+            <el-button
+              :disabled="candidateActionsDisabled"
+              @click="emit('apply-candidate-field', 'referencedRuns', 'append')"
+            >追加</el-button>
+            <el-button
+              :disabled="candidateActionsDisabled"
+              @click="emit('ignore-candidate-field', 'referencedRuns')"
+            >忽略</el-button>
+          </div>
+        </article>
+      </section>
+
       <section class="handoff-section" data-test="handoff-summary">
         <div class="handoff-section-heading">
           <h3>Summary</h3>
@@ -207,6 +374,8 @@
  * @author alex
  * @since 2026-08-01
  */
+import { computed } from 'vue';
+
 const props = defineProps({
   visible: { type: Boolean, required: true },
   current: { type: Object, default: null },
@@ -216,6 +385,9 @@ const props = defineProps({
   loading: { type: Boolean, required: true },
   saving: { type: Boolean, required: true },
   accepting: { type: Boolean, required: true },
+  candidateGenerating: { type: Boolean, required: true },
+  candidate: { type: Object, default: null },
+  candidatePending: { type: Object, required: true },
   error: { type: String, default: null },
   notice: { type: String, default: null },
   dirty: { type: Boolean, required: true },
@@ -233,7 +405,15 @@ const emit = defineEmits([
   'accept-latest',
   'keep-current',
   'open-document',
+  'generate-candidate',
+  'apply-candidate-field',
+  'ignore-candidate-field',
+  'dismiss-candidate',
 ]);
+
+const candidateActionsDisabled = computed(
+  () => props.readOnly || props.saving || props.candidateGenerating,
+);
 
 function updateSummary(value) {
   if (typeof value === 'string') updateDraft({ summary: value });
@@ -386,12 +566,44 @@ function countDiff(label, added, removed) {
 
 .handoff-section,
 .handoff-source,
+.handoff-candidate,
 .handoff-conflict {
   display: grid;
   gap: 12px;
   border: 1px solid var(--el-border-color-lighter);
   border-radius: 10px;
   padding: 14px;
+}
+
+.handoff-candidate-generate,
+.handoff-candidate-field-heading,
+.handoff-candidate-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.handoff-candidate-generate > div {
+  display: grid;
+  gap: 4px;
+}
+
+.handoff-candidate-field {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 8px;
+  background: var(--el-fill-color-light);
+}
+
+.handoff-candidate-field ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.handoff-candidate-actions {
+  justify-content: flex-end;
 }
 
 .handoff-conflict {
@@ -433,8 +645,11 @@ blockquote {
 
 @media (max-width: 720px) {
   .handoff-row,
-  .handoff-conflict {
+  .handoff-conflict,
+  .handoff-candidate-generate {
     grid-template-columns: 1fr;
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 </style>

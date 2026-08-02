@@ -71,14 +71,13 @@ public final class AgentExecutionPlan {
         }
         Set<String> unique = new HashSet<String>();
         for (RuntimeAttachmentExpectation attachment : attachments) {
-            if (!workspaceLayout.getReadableRoots().contains(
+            if (attachment.isRepositoryDocument()
+                    && !workspaceLayout.getReadableRoots().contains(
                     attachment.getRepositoryRoot())) {
                 throw new IllegalArgumentException(
                         "runtime attachment repository must be readable");
             }
-            String identity = attachment.getRepositoryRoot()
-                    + "\n" + attachment.getRelativePath();
-            if (!unique.add(identity)) {
+            if (!unique.add(attachment.logicalIdentity())) {
                 throw new IllegalArgumentException(
                         "runtime attachment expectations must be unique");
             }

@@ -22,9 +22,19 @@ import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.shared.CanonicalHashing;
 import com.example.agentweb.domain.workbench.HandoffReceptionRepository;
 import com.example.agentweb.domain.workbench.OwnerReference;
+import com.example.agentweb.domain.workbench.PhaseHandoffRepository;
 import com.example.agentweb.domain.workbench.PromptPartSnapshot;
 import com.example.agentweb.domain.workbench.RunMode;
 import com.example.agentweb.domain.workbench.RuntimeEnforcementSnapshot;
+import com.example.agentweb.domain.workbench.UploadedAttachmentPolicy;
+import com.example.agentweb.domain.workbench.UploadedAttachmentBinding;
+import com.example.agentweb.domain.workbench.UploadedAttachmentContentSignature;
+import com.example.agentweb.domain.workbench.UploadedConversationAttachment;
+import com.example.agentweb.domain.workbench.UploadedConversationAttachmentStatus;
+import com.example.agentweb.domain.workbench.UploadedConversationAttachmentRepository;
+import com.example.agentweb.domain.workbench.VerifiedUploadedConversationAttachment;
+import com.example.agentweb.domain.workbench.VerifiedWorkbenchRunAttachmentSet;
+import com.example.agentweb.domain.workbench.WorkbenchRunAttachmentReference;
 import com.example.agentweb.domain.workbench.Workbench;
 import com.example.agentweb.domain.workbench.WorkbenchDomainException;
 import com.example.agentweb.domain.workbench.WorkbenchErrorCode;
@@ -54,6 +64,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Collections;
@@ -95,7 +106,10 @@ class WorkbenchRunSubmissionCommitterTest {
     private WorkspaceSnapshotRepository workspaceSnapshotRepository;
     private WorkbenchRunSnapshotRepository snapshotRepository;
     private WorkbenchRunPromptPayloadRepository promptRepository;
+    private PhaseHandoffRepository handoffRepository;
     private HandoffReceptionRepository receptionRepository;
+    private UploadedConversationAttachmentRepository attachmentRepository;
+    private UploadedAttachmentPolicy attachmentPolicy;
     private SessionRepository sessionRepository;
     private ChatRunRepository runRepository;
     private ChatRunEventAppender eventAppender;
@@ -119,7 +133,13 @@ class WorkbenchRunSubmissionCommitterTest {
                 WorkspaceSnapshotRepository.class);
         snapshotRepository = mock(WorkbenchRunSnapshotRepository.class);
         promptRepository = mock(WorkbenchRunPromptPayloadRepository.class);
+        handoffRepository = mock(PhaseHandoffRepository.class);
         receptionRepository = mock(HandoffReceptionRepository.class);
+        attachmentRepository = mock(
+                UploadedConversationAttachmentRepository.class);
+        attachmentPolicy = UploadedAttachmentPolicy.standard(
+                10 * 1024 * 1024L, 16,
+                Duration.ofHours(24), Duration.ofHours(2));
         sessionRepository = mock(SessionRepository.class);
         runRepository = mock(ChatRunRepository.class);
         eventAppender = mock(ChatRunEventAppender.class);
@@ -131,7 +151,9 @@ class WorkbenchRunSubmissionCommitterTest {
         committer = new WorkbenchRunSubmissionCommitter(
                 workbenchRepository, workspaceSnapshotRepository,
                 snapshotRepository, promptRepository,
-                receptionRepository, sessionRepository, runRepository,
+                handoffRepository, receptionRepository,
+                attachmentRepository, attachmentPolicy,
+                sessionRepository, runRepository,
                 eventAppender, launcher, activityGuard, runQueryService,
                 streamSettings, executor,
                 Clock.fixed(NOW.plusSeconds(3), ZoneOffset.UTC));
@@ -312,6 +334,75 @@ class WorkbenchRunSubmissionCommitterTest {
         verify(workbenchRepository, never()).update(any());
         verify(eventAppender, never()).afterCommit(any());
         verifyNoInteractions(launcher);
+    }
+
+    @Test
+    void firstCommitShouldBindExactUploadedAttachmentInsideTransaction() {
+        UploadedAttachmentBinding uploadBinding =
+                new UploadedAttachmentBinding(
+                        OWNER, WORKBENCH_ID,
+                        WorkbenchPhase.REQUIREMENT_ANALYSIS,
+                        SESSION_ID, 0);
+        UploadedConversationAttachment attachment =
+                UploadedConversationAttachment.upload(
+                        "attachment-1", uploadBinding,
+                        "browser-design.md", "text/markdown",
+                        UploadedAttachmentContentSignature.TEXT,
+                        64L, repeat('7'), repeat('8'),
+                        attachmentPolicy, NOW.plusSeconds(1));
+        VerifiedUploadedConversationAttachment verified =
+                attachment.verifyForRun(
+                        uploadBinding, repeat('7'), NOW.plusSeconds(2));
+        SubmitWorkbenchRunCommand uploadedCommand =
+                new SubmitWorkbenchRunCommand(
+                        WORKBENCH_ID,
+                        WorkbenchPhase.REQUIREMENT_ANALYSIS,
+                        workbench.getVersion(), "upload-submission-key",
+                        command.getMessage(), RunMode.DISCUSS_READ_ONLY,
+                        null, null, Collections.singletonList(
+                        WorkbenchRunAttachmentReference.uploadedConversation(
+                                "attachment-1", repeat('7'))));
+        WorkbenchRunSnapshot uploadedSnapshot = WorkbenchRunSnapshot.create(
+                RUN_ID, WORKBENCH_ID,
+                WorkbenchPhase.REQUIREMENT_ANALYSIS,
+                uploadedCommand.getIdempotencyKey(),
+                uploadedCommand.getRequestHash(),
+                RunMode.DISCUSS_READ_ONLY, workbench.getRepositoryScope(),
+                workspaceSnapshot.reference(), capabilityBinding(),
+                null, null,
+                Collections.singletonList(PromptPartSnapshot.of(
+                        "USER_INPUT", "owner",
+                        CanonicalHashing.sha256(uploadedCommand.getMessage()),
+                        uploadedCommand.getMessage().length())),
+                promptPayload.getPromptHash(),
+                RuntimeEnforcementSnapshot.readOnly(
+                        "CODEX", "0.42.0",
+                        workbench.getRepositoryScope().getScopeHash(),
+                        workbench.getRepositoryScope()
+                                .getPrimaryRepositoryKey(),
+                        1800L, 8388608L),
+                Collections.emptyList(),
+                Collections.singletonList(verified),
+                null, NOW.plusSeconds(2));
+        PreparedWorkbenchRun uploadedPrepared = PreparedWorkbenchRun.of(
+                uploadedCommand, uploadedSnapshot, workspaceSnapshot,
+                promptPayload, null, null,
+                VerifiedWorkbenchRunAttachmentSet.of(
+                        Collections.emptyList(),
+                        Collections.singletonList(verified)));
+        when(snapshotRepository.findByWorkbenchPhaseAndIdempotencyKey(
+                WORKBENCH_ID, WorkbenchPhase.REQUIREMENT_ANALYSIS,
+                uploadedCommand.getIdempotencyKey()))
+                .thenReturn(Optional.empty());
+        when(attachmentRepository.findById("attachment-1"))
+                .thenReturn(Optional.of(attachment));
+
+        committer.commit(OWNER, uploadedPrepared);
+
+        assertEquals(UploadedConversationAttachmentStatus.BOUND,
+                attachment.getStatus());
+        assertEquals(RUN_ID, attachment.getBoundRunId());
+        verify(attachmentRepository).update(attachment, 0L);
     }
 
     @Test

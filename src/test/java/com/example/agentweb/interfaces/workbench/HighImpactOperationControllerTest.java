@@ -1,9 +1,11 @@
 package com.example.agentweb.interfaces.workbench;
 
 import com.example.agentweb.app.workbench.operation.HighImpactOperationOwnerService;
+import com.example.agentweb.app.workbench.operation.HighImpactOperationProposalService;
 import com.example.agentweb.app.workbench.operation.HighImpactOperationProjection;
 import com.example.agentweb.app.workbench.operation.OperationApplicationErrorCode;
 import com.example.agentweb.app.workbench.operation.OperationApplicationException;
+import com.example.agentweb.app.workbench.operation.ProposeHighImpactOperationCommand;
 import com.example.agentweb.domain.auth.CurrentUserProvider;
 import com.example.agentweb.domain.workbench.CommitTarget;
 import com.example.agentweb.domain.workbench.DocumentReference;
@@ -68,6 +70,9 @@ class HighImpactOperationControllerTest {
     private HighImpactOperationOwnerService service;
 
     @MockBean
+    private HighImpactOperationProposalService proposalService;
+
+    @MockBean
     private CurrentUserProvider currentUserProvider;
 
     @BeforeEach
@@ -121,6 +126,110 @@ class HighImpactOperationControllerTest {
         verify(service).list(
                 OwnerReference.of(OWNER_ID, OWNER_NAME),
                 WorkbenchId.of(WORKBENCH_ID));
+    }
+
+    @Test
+    void proposalShouldAcceptOnlyFourStrictTypedTargets() throws Exception {
+        when(proposalService.propose(any(), any(), any()))
+                .thenReturn(authorizedProjection());
+        String[] targets = new String[] {
+                "{\"type\":\"GIT_COMMIT\",\"repositoryKey\":\"agent-web\","
+                        + "\"branch\":\"master\",\"expectedHead\":\"" + repeat('a', 40)
+                        + "\",\"expectedStateHash\":\"" + repeat('b', 64)
+                        + "\",\"includedPaths\":[\"README.md\"],"
+                        + "\"messageHash\":\"" + repeat('c', 64)
+                        + "\",\"safeMessagePreview\":\"feat: proposal\"}",
+                "{\"type\":\"GIT_PUSH\",\"repositoryKey\":\"agent-web\","
+                        + "\"remoteName\":\"origin\",\"localBranch\":\"master\","
+                        + "\"remoteRef\":\"refs/heads/master\","
+                        + "\"expectedLocalHead\":\"" + repeat('a', 40) + "\"}",
+                "{\"type\":\"LOCAL_DEPLOY\",\"templateId\":\"service\","
+                        + "\"templateVersion\":\"1\",\"templateHash\":\""
+                        + repeat('b', 64) + "\",\"repositoryTargets\":[\"agent-web\"],"
+                        + "\"environment\":\"LOCAL\","
+                        + "\"expectedWorkspaceStateHash\":\"" + repeat('c', 64)
+                        + "\",\"rollbackSummary\":\"恢复旧进程\"}",
+                "{\"type\":\"PRODUCTION_WRITE\",\"environment\":\"production\","
+                        + "\"resourceReference\":\"database/orders\","
+                        + "\"expectedProductionStateHash\":\"" + repeat('d', 64) + "\"}"
+        };
+        String[] types = new String[] {
+                "GIT_COMMIT", "GIT_PUSH", "LOCAL_DEPLOY", "PRODUCTION_WRITE"
+        };
+        for (int index = 0; index < targets.length; index++) {
+            mvc.perform(post(LIST_ROUTE, WORKBENCH_ID)
+                            .header("Idempotency-Key", "proposal-" + index)
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(proposalJson(targets[index])))
+                    .andExpect(status().isCreated())
+                    .andExpect(jsonPath("$.operationId").value("operation-1"))
+                    .andExpect(jsonPath("$.status").value("AUTHORIZED"))
+                    .andExpect(jsonPath("$.executionAvailable").value(false));
+        }
+        ArgumentCaptor<ProposeHighImpactOperationCommand> commands =
+                ArgumentCaptor.forClass(ProposeHighImpactOperationCommand.class);
+        verify(proposalService, org.mockito.Mockito.times(4)).propose(
+                eq(OwnerReference.of(OWNER_ID, OWNER_NAME)),
+                eq(WorkbenchId.of(WORKBENCH_ID)), commands.capture());
+        for (int index = 0; index < types.length; index++) {
+            assertEquals(types[index],
+                    commands.getAllValues().get(index).getTarget().getType().name());
+        }
+    }
+
+    @Test
+    void proposalShouldRejectUnknownCustomAndNaturalLanguageCommandFields()
+            throws Exception {
+        String commit = "{\"type\":\"GIT_COMMIT\",\"repositoryKey\":\"agent-web\","
+                + "\"branch\":\"master\",\"expectedHead\":\"" + repeat('a', 40)
+                + "\",\"expectedStateHash\":\"" + repeat('b', 64)
+                + "\",\"includedPaths\":[\"README.md\"],"
+                + "\"messageHash\":\"" + repeat('c', 64)
+                + "\",\"safeMessagePreview\":\"feat: proposal\"";
+        String[] invalidBodies = new String[] {
+                proposalJson(commit + ",\"command\":\"git commit -am all\"}"),
+                proposalJson(commit + ",\"shell\":\"git commit\"}"),
+                proposalJson(commit + "}").replace(
+                        "\"safeSummary\":\"人工核对预览\"",
+                        "\"safeSummary\":\"人工核对预览\",\"actor\":\"admin\""),
+                proposalJson("{\"type\":\"CUSTOM\",\"command\":\"git push\"}"),
+                proposalJson("{\"type\":\"please git push origin master\"}")
+        };
+        for (String body : invalidBodies) {
+            mvc.perform(post(LIST_ROUTE, WORKBENCH_ID)
+                            .header("Idempotency-Key", "invalid-key")
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content(body))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code")
+                            .value("WORKBENCH_OPERATION_REQUEST_INVALID"));
+        }
+        verify(proposalService, never()).propose(any(), any(), any());
+    }
+
+    @Test
+    void proposalShouldRequireIdempotencyKeyAndHideMissingOwnerOrSourceRun()
+            throws Exception {
+        String target = "{\"type\":\"PRODUCTION_WRITE\","
+                + "\"environment\":\"production\","
+                + "\"resourceReference\":\"database/orders\","
+                + "\"expectedProductionStateHash\":\"" + repeat('d', 64) + "\"}";
+        mvc.perform(post(LIST_ROUTE, WORKBENCH_ID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(proposalJson(target)))
+                .andExpect(status().isBadRequest());
+
+        when(proposalService.propose(any(), any(), any()))
+                .thenThrow(new OperationApplicationException(
+                        OperationApplicationErrorCode.SOURCE_RUN_NOT_FOUND,
+                        "source workbench run was not found"));
+        mvc.perform(post(LIST_ROUTE, WORKBENCH_ID)
+                        .header("Idempotency-Key", "missing-run")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(proposalJson(target)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code")
+                        .value("WORKBENCH_OPERATION_SOURCE_RUN_NOT_FOUND"));
     }
 
     @Test
@@ -225,6 +334,11 @@ class HighImpactOperationControllerTest {
                 proposedAt.plusSeconds(10), proposedAt.plusSeconds(910),
                 null, null, null, proposedAt.plusSeconds(10), 3L);
         return HighImpactOperationProjection.from(operation);
+    }
+
+    private String proposalJson(String target) {
+        return "{\"sourceRunId\":\"run-1\",\"phase\":\"IMPLEMENT_TEST\","
+                + "\"safeSummary\":\"人工核对预览\",\"target\":" + target + "}";
     }
 
     private String repeat(char value, int count) {

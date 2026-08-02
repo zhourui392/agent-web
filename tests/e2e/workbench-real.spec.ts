@@ -27,6 +27,11 @@ type RunSubmission = {
   runId: string;
 };
 
+type RunDetail = {
+  runId: string;
+  status: string;
+};
+
 type RunEventPage = {
   events: Array<{
     eventType: string;
@@ -186,6 +191,61 @@ test('真实单仓 Run 经 SQLite/SSE 完成刷新恢复和 Stop 明确终态', 
   await page.getByTestId('workbench-run-stop').click();
   await expect(page.getByText('停止请求已记录，页面会持续等待并展示明确终态。')).toBeVisible();
   await expect(page.getByText('本轮运行已取消')).toBeVisible({ timeout: 15_000 });
+});
+
+test('关闭浏览器页面不取消后台 Run，重新打开后恢复同一终态与历史', async ({
+  page,
+  context,
+  request,
+}) => {
+  const root = createWorkspace(['detached-run-service']);
+  const inspection = await inspectWorkspace(request, root);
+  const title = '真实浏览器关闭恢复试点';
+  const workbench = await createWorkbench(
+    request,
+    root,
+    inspection,
+    ['detached-run-service'],
+    title,
+  );
+  await openWorkbench(page, workbench, title);
+
+  const submittedResponse = page.waitForResponse(response =>
+    response.request().method() === 'POST'
+      && response.url().endsWith('/phases/REQUIREMENT_ANALYSIS/runs'));
+  await page.getByTestId('workbench-run-composer')
+    .fill('[E2E_RELOAD] 验证浏览器页面生命周期与后台 Run 解耦');
+  await page.getByTestId('workbench-run-submit').click();
+  const submissionHttp = await submittedResponse;
+  expect(submissionHttp.status()).toBe(202);
+  const submission = await submissionHttp.json() as RunSubmission;
+  await expect(page.getByText('真实 Runtime 已读取本轮冻结的 Workbench 执行计划。'))
+    .toBeVisible();
+
+  await page.close();
+
+  const runUrl = `/api/workbenches/${encodeURIComponent(workbench.workbenchId)}`
+    + `/runs/${encodeURIComponent(submission.runId)}`;
+  await expect.poll(async () => {
+    const response = await request.get(runUrl);
+    if (!response.ok()) return `HTTP_${response.status()}`;
+    const detail = await response.json() as RunDetail;
+    return detail.runId === submission.runId ? detail.status : 'RUN_ID_MISMATCH';
+  }, {
+    message: '浏览器页面关闭后，后台 Run 应继续执行到成功终态',
+    timeout: 15_000,
+  }).toBe('SUCCEEDED');
+
+  const reopened = await context.newPage();
+  await openWorkbench(reopened, workbench, title);
+  await expect(reopened.getByText('Workbench 真实后端运行完成。')).toBeVisible();
+  await reopened.getByTestId('open-run-history').click();
+  const history = reopened.getByTestId('workbench-run-history-list');
+  await expect(history).toContainText(submission.runId);
+  await expect(history).toContainText('成功');
+  const timeline = reopened.getByTestId('workbench-run-history-timeline');
+  await expect(timeline).toContainText('Workbench 真实后端运行完成。');
+  await expect(timeline).toContainText('成功');
 });
 
 test('真实多仓 Scope 保留主仓并排除未选择 sibling', async ({ page, request }) => {

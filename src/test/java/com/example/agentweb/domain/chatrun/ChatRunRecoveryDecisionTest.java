@@ -5,6 +5,8 @@ import org.junit.jupiter.api.Test;
 import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * ChatRun 重启恢复决策测试。
@@ -67,6 +69,20 @@ class ChatRunRecoveryDecisionTest {
                 run.decideRecovery(ChatRunRecoveryLiveness.TERMINATED));
         assertEquals(ChatRunRecoveryDecision.IGNORE_TERMINAL,
                 run.decideRecovery(ChatRunRecoveryLiveness.UNAVAILABLE));
+    }
+
+    @Test
+    void decisionShouldExposeWhetherRecoveryAppliesPersistentSideEffects() {
+        assertFalse(ChatRunRecoveryDecision.RETAIN_ACTIVE
+                .isRecoveryApplied());
+        assertFalse(ChatRunRecoveryDecision.IGNORE_TERMINAL
+                .isRecoveryApplied());
+        assertTrue(ChatRunRecoveryDecision.FINALIZE_TERMINATION
+                .isRecoveryApplied());
+        assertTrue(ChatRunRecoveryDecision.STOP_AND_INTERRUPT
+                .isRecoveryApplied());
+        assertTrue(ChatRunRecoveryDecision.INTERRUPT
+                .isRecoveryApplied());
     }
 
     private static ChatRun pending(String runId) {

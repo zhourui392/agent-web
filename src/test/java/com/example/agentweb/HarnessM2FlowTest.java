@@ -50,7 +50,7 @@ class HarnessM2FlowTest {
 
     private static final Path ROOT = createTempRoot();
     private static final Path WORKSPACE = createDirectory(ROOT.resolve("workspace"));
-    private static final Path PROMPT_ROOT = copyCatalog("prompt-packs");
+    private static final Path PROMPT_ROOT = copyCatalog("rules");
     private static final Path SKILL_ROOT = copyCatalog("skills");
     private static final Path CODEX_STUB = createCodexStub();
 
@@ -77,7 +77,8 @@ class HarnessM2FlowTest {
         registry.add("agent.harness.artifact-root",
                 () -> ROOT.resolve("artifacts").toAbsolutePath().toString());
         registry.add("agent.harness.prompt-pack-root", () -> PROMPT_ROOT.toString());
-        registry.add("agent.harness.platform-skill-root", () -> SKILL_ROOT.toString());
+        registry.add("agent.capability.platform-skill-root",
+                () -> SKILL_ROOT.toString());
         registry.add("agent.harness.runtime.codex-command", () -> CODEX_STUB.toString());
         registry.add("agent.public-access.enabled", () -> "false");
     }
@@ -175,7 +176,8 @@ class HarnessM2FlowTest {
     }
 
     private static Path copyCatalog(String name) {
-        Path source = java.nio.file.Paths.get("src/main/resources/harness", name).toAbsolutePath();
+        Path source = java.nio.file.Paths.get(
+                "src/main/resources/capability", name).toAbsolutePath();
         Path target = createDirectory(ROOT.resolve(name));
         try (Stream<Path> paths = Files.walk(source)) {
             paths.forEach(path -> copy(source, target, path));

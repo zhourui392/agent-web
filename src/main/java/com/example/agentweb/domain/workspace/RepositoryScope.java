@@ -129,6 +129,14 @@ public final class RepositoryScope {
     }
 
     /**
+     * 返回全部授权仓库的稳定逻辑 key 顺序，不暴露真实根路径。
+     */
+    public List<String> repositoryKeys() {
+        return Collections.unmodifiableList(
+                new ArrayList<String>(repositoriesByKey.keySet()));
+    }
+
+    /**
      * 将结构化仓库 key 映射为已授权真实根；任一 key 越界时整体拒绝。
      */
     public List<String> requireRepositoryRoots(List<String> repositoryKeys) {

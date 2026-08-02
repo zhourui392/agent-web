@@ -18,6 +18,7 @@ import com.example.agentweb.app.runtime.port.CredentialReference;
 import com.example.agentweb.app.runtime.port.RuntimeLimits;
 import com.example.agentweb.app.runtime.port.RuntimePreflightGateway;
 import com.example.agentweb.app.runtime.port.SandboxMode;
+import com.example.agentweb.app.workbench.attachment.port.UploadedConversationAttachmentStorage;
 import com.example.agentweb.domain.capability.McpServerCatalog;
 import com.example.agentweb.domain.capability.ResolvedCapabilityBinding;
 import com.example.agentweb.domain.capability.SkillCatalog;
@@ -40,6 +41,7 @@ import com.example.agentweb.infra.runtime.RuntimeProcessRegistry;
 import com.example.agentweb.infra.runtime.RuntimeSecretResolver;
 import com.example.agentweb.infra.runtime.RuntimeWorkspaceMaterializer;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -79,9 +81,17 @@ public class CommonRuntimeConfiguration {
 
     @Bean
     public RuntimeWorkspaceMaterializer commonRuntimeWorkspaceMaterializer(
-            CommonRuntimeProperties properties) {
+            CommonRuntimeProperties properties,
+            ObjectProvider<UploadedConversationAttachmentStorage>
+                    attachmentStorageProvider) {
+        UploadedConversationAttachmentStorage attachmentStorage =
+                attachmentStorageProvider.getIfAvailable();
+        if (attachmentStorage == null) {
+            return new RuntimeWorkspaceMaterializer(
+                    Paths.get(properties.getTempRoot()));
+        }
         return new RuntimeWorkspaceMaterializer(
-                Paths.get(properties.getTempRoot()));
+                Paths.get(properties.getTempRoot()), attachmentStorage);
     }
 
     @Bean

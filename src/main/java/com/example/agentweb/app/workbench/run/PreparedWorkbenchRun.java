@@ -3,6 +3,8 @@ package com.example.agentweb.app.workbench.run;
 import com.example.agentweb.domain.workbench.HandoffReception;
 import com.example.agentweb.domain.workbench.ReviewModifyConfirmation;
 import com.example.agentweb.domain.workbench.VerifiedWorkbenchRunAttachment;
+import com.example.agentweb.domain.workbench.VerifiedUploadedConversationAttachment;
+import com.example.agentweb.domain.workbench.VerifiedWorkbenchRunAttachmentSet;
 import com.example.agentweb.domain.workbench.WorkbenchRunPromptPayload;
 import com.example.agentweb.domain.workbench.WorkbenchRunSnapshot;
 import com.example.agentweb.domain.workspace.WorkspaceSnapshot;
@@ -27,6 +29,8 @@ public final class PreparedWorkbenchRun {
     private final ReviewModifyConfirmation reviewConfirmation;
     private final HandoffReception handoffReception;
     private final List<VerifiedWorkbenchRunAttachment> verifiedAttachments;
+    private final List<VerifiedUploadedConversationAttachment>
+            verifiedUploadedAttachments;
 
     private PreparedWorkbenchRun(
             SubmitWorkbenchRunCommand command,
@@ -35,7 +39,7 @@ public final class PreparedWorkbenchRun {
             WorkbenchRunPromptPayload promptPayload,
             ReviewModifyConfirmation reviewConfirmation,
             HandoffReception handoffReception,
-            List<VerifiedWorkbenchRunAttachment> verifiedAttachments) {
+            VerifiedWorkbenchRunAttachmentSet verifiedAttachments) {
         if (command == null || snapshot == null || workspaceSnapshot == null
                 || promptPayload == null) {
             throw new IllegalArgumentException(
@@ -48,15 +52,16 @@ public final class PreparedWorkbenchRun {
         snapshot.requirePromptPayload(promptPayload);
         snapshot.requireReviewConfirmation(reviewConfirmation);
         snapshot.requireHandoffReception(handoffReception);
+        snapshot.requireVerifiedAttachments(verifiedAttachments);
         this.command = command;
         this.snapshot = snapshot;
         this.workspaceSnapshot = workspaceSnapshot;
         this.promptPayload = promptPayload;
         this.reviewConfirmation = reviewConfirmation;
         this.handoffReception = handoffReception;
-        this.verifiedAttachments =
-                VerifiedWorkbenchRunAttachment.immutableList(
-                        verifiedAttachments);
+        this.verifiedAttachments = verifiedAttachments.getRepositoryDocuments();
+        this.verifiedUploadedAttachments =
+                verifiedAttachments.getUploadedAttachments();
     }
 
     public static PreparedWorkbenchRun of(
@@ -69,7 +74,7 @@ public final class PreparedWorkbenchRun {
         return new PreparedWorkbenchRun(
                 command, snapshot, workspaceSnapshot, promptPayload,
                 reviewConfirmation, handoffReception,
-                Collections.<VerifiedWorkbenchRunAttachment>emptyList());
+                VerifiedWorkbenchRunAttachmentSet.empty());
     }
 
     public static PreparedWorkbenchRun of(
@@ -80,6 +85,22 @@ public final class PreparedWorkbenchRun {
             ReviewModifyConfirmation reviewConfirmation,
             HandoffReception handoffReception,
             List<VerifiedWorkbenchRunAttachment> verifiedAttachments) {
+        return new PreparedWorkbenchRun(
+                command, snapshot, workspaceSnapshot, promptPayload,
+                reviewConfirmation, handoffReception,
+                VerifiedWorkbenchRunAttachmentSet.of(
+                        verifiedAttachments,
+                        Collections.<VerifiedUploadedConversationAttachment>emptyList()));
+    }
+
+    public static PreparedWorkbenchRun of(
+            SubmitWorkbenchRunCommand command,
+            WorkbenchRunSnapshot snapshot,
+            WorkspaceSnapshot workspaceSnapshot,
+            WorkbenchRunPromptPayload promptPayload,
+            ReviewModifyConfirmation reviewConfirmation,
+            HandoffReception handoffReception,
+            VerifiedWorkbenchRunAttachmentSet verifiedAttachments) {
         return new PreparedWorkbenchRun(
                 command, snapshot, workspaceSnapshot, promptPayload,
                 reviewConfirmation, handoffReception, verifiedAttachments);

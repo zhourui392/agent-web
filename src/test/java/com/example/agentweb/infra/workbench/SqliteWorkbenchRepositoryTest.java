@@ -102,6 +102,39 @@ class SqliteWorkbenchRepositoryTest {
     }
 
     @Test
+    void notStartedReviewShouldRoundTripManualCompletionAndReopenWithoutInventingConversation() {
+        Workbench source = WorkbenchPersistenceFixtures.newWorkbench(
+                workspace, "workbench-idle-review");
+        repository.add(source);
+        Workbench completed = repository.findById(source.getId())
+                .orElseThrow(AssertionError::new);
+
+        completed.completePhase(
+                WorkbenchPhase.REVIEW_REFACTOR, OWNER, NOW.plusSeconds(1));
+        repository.update(completed);
+
+        Workbench restoredCompleted = repository.findById(source.getId())
+                .orElseThrow(AssertionError::new);
+        assertEquals(WorkbenchPhaseStatus.HUMAN_COMPLETED,
+                restoredCompleted.phase(WorkbenchPhase.REVIEW_REFACTOR)
+                        .getStatus());
+        assertNull(restoredCompleted.phase(WorkbenchPhase.REVIEW_REFACTOR)
+                .currentConversation());
+
+        restoredCompleted.reopenPhase(
+                WorkbenchPhase.REVIEW_REFACTOR, OWNER, NOW.plusSeconds(2));
+        repository.update(restoredCompleted);
+
+        Workbench restoredReopened = repository.findById(source.getId())
+                .orElseThrow(AssertionError::new);
+        assertEquals(WorkbenchPhaseStatus.NOT_STARTED,
+                restoredReopened.phase(WorkbenchPhase.REVIEW_REFACTOR)
+                        .getStatus());
+        assertNull(restoredReopened.phase(WorkbenchPhase.REVIEW_REFACTOR)
+                .currentConversation());
+    }
+
+    @Test
     void updateAndFindShouldRestoreActiveReviewModifyProofWithoutFabricatingOpinion() {
         Workbench initial = WorkbenchPersistenceFixtures.newWorkbench(
                 workspace, "workbench-review-active");

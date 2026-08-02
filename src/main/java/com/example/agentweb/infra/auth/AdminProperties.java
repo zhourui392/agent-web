@@ -28,6 +28,7 @@ public class AdminProperties {
             "/api/admin-workflows",
             "/api/admin-workflow-executions",
             "/api/admin-settings",
+            "/api/admin/workbenches",
             "/api/refinery",
             "/api/harness"
     ));

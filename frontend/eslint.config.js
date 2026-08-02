@@ -25,6 +25,7 @@ export default [
       'js/admin/pages/Refinery.vue',
       'js/admin/pages/Workflows.vue',
       'js/admin/pages/Recall.vue',
+      'js/admin/pages/Workbenches.vue',
       'js/admin/composables/useHarness.ts',
       'js/admin/components/ToolInvocationDetailDrawer.vue',
     ],

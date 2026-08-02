@@ -14,6 +14,7 @@ import com.example.agentweb.app.workbench.document.DocumentFailureCode;
 import com.example.agentweb.app.workbench.document.DocumentKind;
 import com.example.agentweb.app.workbench.document.DocumentOperationException;
 import com.example.agentweb.app.workbench.document.port.ScopedDocumentGateway;
+import com.example.agentweb.app.workbench.port.WorkspaceDevelopmentContextGateway;
 import com.example.agentweb.app.workbench.port.WorkspaceSnapshotGateway;
 import com.example.agentweb.app.workbench.port.WorkbenchTelemetry;
 import com.example.agentweb.domain.capability.ResolvedCapabilityBinding;
@@ -39,6 +40,7 @@ import com.example.agentweb.domain.workbench.PhaseCapabilityReference;
 import com.example.agentweb.domain.workbench.PhaseCapabilityResolutionPolicy;
 import com.example.agentweb.domain.workbench.PhaseCapabilityType;
 import com.example.agentweb.domain.workbench.PhaseHandoff;
+import com.example.agentweb.domain.workbench.PhaseHandoffRepository;
 import com.example.agentweb.domain.workbench.PhaseHandoffRevision;
 import com.example.agentweb.domain.workbench.PhaseHandoffRevisionRepository;
 import com.example.agentweb.domain.workbench.PromptPartSnapshot;
@@ -48,6 +50,8 @@ import com.example.agentweb.domain.workbench.ReviewModifyConfirmationRepository;
 import com.example.agentweb.domain.workbench.ReviewModifyConfirmation;
 import com.example.agentweb.domain.workbench.ReviewOpinion;
 import com.example.agentweb.domain.workbench.ReviewOpinionRepository;
+import com.example.agentweb.domain.workbench.RepositoryDevelopmentContextClassifier;
+import com.example.agentweb.domain.workbench.RepositoryDevelopmentMarker;
 import com.example.agentweb.domain.workbench.RunMode;
 import com.example.agentweb.domain.workbench.Workbench;
 import com.example.agentweb.domain.workbench.WorkbenchDomainException;
@@ -58,6 +62,13 @@ import com.example.agentweb.domain.workbench.WorkbenchPhaseHistory;
 import com.example.agentweb.domain.workbench.WorkbenchPromptHistoryDelivery;
 import com.example.agentweb.domain.workbench.WorkbenchPromptPartType;
 import com.example.agentweb.domain.workbench.WorkbenchRepository;
+import com.example.agentweb.domain.workbench.WorkbenchRunAttachmentReference;
+import com.example.agentweb.domain.workbench.WorkspaceDevelopmentContext;
+import com.example.agentweb.domain.workbench.UploadedConversationAttachmentRepository;
+import com.example.agentweb.domain.workbench.UploadedAttachmentBinding;
+import com.example.agentweb.domain.workbench.UploadedAttachmentContentSignature;
+import com.example.agentweb.domain.workbench.UploadedAttachmentPolicy;
+import com.example.agentweb.domain.workbench.UploadedConversationAttachment;
 import com.example.agentweb.domain.workspace.RepositoryBaseline;
 import com.example.agentweb.domain.workspace.RepositoryScope;
 import com.example.agentweb.domain.workspace.RepositorySelection;
@@ -77,6 +88,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
 
@@ -127,9 +139,12 @@ class WorkbenchRunPreparationServiceTest {
     private PhaseCapabilityBindingResolver capabilityBindingResolver;
     private WorkspaceSnapshotIdGenerator snapshotIdGenerator;
     private WorkspaceSnapshotGateway snapshotGateway;
+    private WorkspaceDevelopmentContextGateway developmentContextGateway;
     private ScopedDocumentGateway documentGateway;
+    private UploadedConversationAttachmentRepository attachmentRepository;
     private RuntimePreflightGateway preflightGateway;
     private PhaseHandoffRevisionRepository revisionRepository;
+    private PhaseHandoffRepository handoffRepository;
     private HandoffReceptionRepository receptionRepository;
     private ReviewModifyConfirmationRepository confirmationRepository;
     private ReviewOpinionRepository opinionRepository;
@@ -140,6 +155,7 @@ class WorkbenchRunPreparationServiceTest {
     private Workbench workbench;
     private ResolvedCapabilityBinding binding;
     private WorkspaceSnapshot runStartSnapshot;
+    private WorkspaceDevelopmentContext developmentContext;
     private SubmitWorkbenchRunCommand command;
 
     @BeforeEach
@@ -155,9 +171,14 @@ class WorkbenchRunPreparationServiceTest {
                 PhaseCapabilityBindingResolver.class);
         snapshotIdGenerator = mock(WorkspaceSnapshotIdGenerator.class);
         snapshotGateway = mock(WorkspaceSnapshotGateway.class);
+        developmentContextGateway = mock(
+                WorkspaceDevelopmentContextGateway.class);
         documentGateway = mock(ScopedDocumentGateway.class);
+        attachmentRepository = mock(
+                UploadedConversationAttachmentRepository.class);
         preflightGateway = mock(RuntimePreflightGateway.class);
         revisionRepository = mock(PhaseHandoffRevisionRepository.class);
+        handoffRepository = mock(PhaseHandoffRepository.class);
         receptionRepository = mock(HandoffReceptionRepository.class);
         confirmationRepository = mock(
                 ReviewModifyConfirmationRepository.class);
@@ -168,8 +189,9 @@ class WorkbenchRunPreparationServiceTest {
                 availability, workbenchRepository, sessionRepository, historyQuery,
                 profileCatalog, configurationRepository,
                 capabilityBindingResolver, snapshotIdGenerator,
-                snapshotGateway, documentGateway, preflightGateway,
-                revisionRepository, receptionRepository,
+                snapshotGateway, developmentContextGateway,
+                documentGateway, attachmentRepository, preflightGateway,
+                handoffRepository, revisionRepository, receptionRepository,
                 confirmationRepository, opinionRepository, runIdGenerator,
                 telemetry,
                 new WorkbenchRunPreparationSettings(
@@ -187,6 +209,13 @@ class WorkbenchRunPreparationServiceTest {
         runStartSnapshot = snapshot(
                 "run-start-snapshot", SnapshotPurpose.of(
                         "WORKBENCH_RUN_START"));
+        developmentContext = WorkspaceDevelopmentContext.create(
+                scope.getScopeHash(), scope.getPrimaryRepositoryKey(),
+                Collections.singletonList(
+                        new RepositoryDevelopmentContextClassifier().classify(
+                                "agent-web", EnumSet.of(
+                                        RepositoryDevelopmentMarker.POM_XML,
+                                        RepositoryDevelopmentMarker.README_MARKDOWN))));
         command = command(
                 WorkbenchPhase.REQUIREMENT_ANALYSIS,
                 RunMode.DISCUSS_READ_ONLY, null);
@@ -206,7 +235,8 @@ class WorkbenchRunPreparationServiceTest {
                 workbenchRepository, sessionRepository, historyQuery,
                 profileCatalog, configurationRepository,
                 capabilityBindingResolver, snapshotIdGenerator,
-                snapshotGateway, documentGateway, preflightGateway,
+                snapshotGateway, developmentContextGateway,
+                documentGateway, preflightGateway,
                 revisionRepository, receptionRepository,
                 confirmationRepository, opinionRepository,
                 runIdGenerator);
@@ -243,6 +273,13 @@ class WorkbenchRunPreparationServiceTest {
                 .contains("历史😀"));
         assertTrue(prepared.getPromptPayload().getFinalPrompt()
                 .contains("## ORIGINAL_GOAL\n" + workbench.getOriginalGoal()));
+        assertTrue(prepared.getPromptPayload().getFinalPrompt()
+                .contains("Development context hash: "
+                        + developmentContext.getContextHash()));
+        assertTrue(prepared.getPromptPayload().getFinalPrompt()
+                .contains("technologies=JAVA buildTools=MAVEN"));
+        assertTrue(prepared.getPromptPayload().getFinalPrompt()
+                .contains("instruction=OVERVIEW:README.md"));
         assertTrue(prepared.getPromptPayload().getFinalPrompt()
                 .contains(command.getMessage()));
         assertTrue(prepared.getPromptPayload().getFinalPrompt()
@@ -290,6 +327,7 @@ class WorkbenchRunPreparationServiceTest {
                 < prompt.indexOf("## USER_INPUT\n"));
         assertFalse(prepared.getSnapshot().getPromptParts().isEmpty());
         verify(historyQuery).load(any());
+        verify(developmentContextGateway).inspect(same(scope));
         ArgumentCaptor<SnapshotPurpose> purpose =
                 ArgumentCaptor.forClass(SnapshotPurpose.class);
         verify(snapshotGateway).capture(
@@ -365,6 +403,46 @@ class WorkbenchRunPreparationServiceTest {
         assertThrows(UnsupportedOperationException.class,
                 () -> prepared.getVerifiedAttachments().clear());
         verify(documentGateway).readContent(same(scope), eq(reference));
+    }
+
+    @Test
+    void prepareShouldVerifyUploadedAttachmentWithoutReadingRepositoryPath() {
+        UploadedConversationAttachment uploaded =
+                UploadedConversationAttachment.upload(
+                        "attachment-1",
+                        new UploadedAttachmentBinding(
+                                OWNER, WORKBENCH_ID,
+                                WorkbenchPhase.REQUIREMENT_ANALYSIS,
+                                SESSION_ID, 0),
+                        "browser-design.md", "text/markdown",
+                        UploadedAttachmentContentSignature.TEXT,
+                        64L, repeat('7'), repeat('8'),
+                        UploadedAttachmentPolicy.standard(
+                                1024L, 16, Duration.ofHours(24),
+                                Duration.ofHours(2)), NOW.plusSeconds(1));
+        when(attachmentRepository.findById("attachment-1"))
+                .thenReturn(Optional.of(uploaded));
+        command = command(Collections.singletonList(
+                WorkbenchRunAttachmentReference.uploadedConversation(
+                        "attachment-1", repeat('7'))));
+
+        PreparedWorkbenchRun prepared = service.prepare(OWNER, command);
+
+        assertEquals(1, prepared.getVerifiedUploadedAttachments().size());
+        assertEquals("attachment-1",
+                prepared.getVerifiedUploadedAttachments().get(0)
+                        .getAttachmentId());
+        assertEquals(prepared.getVerifiedUploadedAttachments(),
+                prepared.getSnapshot().getVerifiedUploadedAttachments());
+        String attachmentContent = promptPartContent(
+                prepared.getPromptPayload().getFinalPrompt(),
+                WorkbenchPromptPartType.ATTACHMENTS);
+        assertTrue(attachmentContent.contains("type=UPLOADED_CONVERSATION"));
+        assertTrue(attachmentContent.contains(
+                "$AGENT_WORKBENCH_ATTACHMENT_DIR/attachment-"));
+        assertFalse(attachmentContent.contains(repeat('8')));
+        assertFalse(attachmentContent.contains("repositoryKey="));
+        verifyNoInteractions(documentGateway);
     }
 
     @Test
@@ -628,18 +706,59 @@ class WorkbenchRunPreparationServiceTest {
     }
 
     @Test
-    void prepareShouldRejectMissingExplicitReceptionBeforeHandoffOrRuntimeReads() {
-        configureSolutionPhase();
+    void prepareShouldCreateInitialReceptionFromCurrentExactHandoff() {
+        PhaseHandoff latest = configureSolutionPhase();
+        PhaseHandoffRevision revision = PhaseHandoffRevision.capture(latest);
         when(receptionRepository.find(
                 WORKBENCH_ID, WorkbenchPhase.SOLUTION_DESIGN,
                 WorkbenchPhase.REQUIREMENT_ANALYSIS))
                 .thenReturn(Optional.empty());
+        when(handoffRepository.find(
+                WORKBENCH_ID, WorkbenchPhase.REQUIREMENT_ANALYSIS))
+                .thenReturn(Optional.of(latest));
+        when(revisionRepository.findExact(
+                WORKBENCH_ID, WorkbenchPhase.REQUIREMENT_ANALYSIS,
+                latest.getVersion(), latest.getContentHash()))
+                .thenReturn(Optional.of(revision));
+
+        PreparedWorkbenchRun prepared = service.prepare(OWNER, command);
+
+        HandoffReception reception = prepared.getHandoffReception();
+        assertEquals(WORKBENCH_ID, reception.getWorkbenchId());
+        assertEquals(WorkbenchPhase.SOLUTION_DESIGN,
+                reception.getTargetPhase());
+        assertEquals(0L, reception.getSourceVersion());
+        assertEquals(latest.getContentHash(), reception.getSourceHash());
+        assertEquals(reception.getSourceVersion(), prepared.getSnapshot()
+                .getHandoffSource().getSourceVersion());
+        assertEquals(reception.getSourceHash(), prepared.getSnapshot()
+                .getHandoffSource().getSourceHash());
+        assertTrue(prepared.getPromptPayload().getFinalPrompt()
+                .contains("人工确认的需求交接😀"));
+        verify(receptionRepository, never()).save(any());
+    }
+
+    @Test
+    void prepareShouldRejectInitialReceptionWhenLatestVersionChanged() {
+        PhaseHandoff latest = configureSolutionPhase();
+        latest.update(
+                0L, "预览后变化的需求交接",
+                Collections.emptyList(), Collections.emptyList(),
+                Collections.emptyList(), Collections.emptyList(),
+                scope, OWNER, NOW.plusSeconds(2));
+        when(receptionRepository.find(
+                WORKBENCH_ID, WorkbenchPhase.SOLUTION_DESIGN,
+                WorkbenchPhase.REQUIREMENT_ANALYSIS))
+                .thenReturn(Optional.empty());
+        when(handoffRepository.find(
+                WORKBENCH_ID, WorkbenchPhase.REQUIREMENT_ANALYSIS))
+                .thenReturn(Optional.of(latest));
 
         WorkbenchDomainException failure = assertThrows(
                 WorkbenchDomainException.class,
                 () -> service.prepare(OWNER, command));
 
-        assertEquals(WorkbenchErrorCode.PHASE_TRANSITION_INVALID,
+        assertEquals(WorkbenchErrorCode.VERSION_CONFLICT,
                 failure.getCode());
         verifyNoInteractions(revisionRepository);
         verify(snapshotGateway, never()).capture(any(), any(), any());
@@ -732,6 +851,8 @@ class WorkbenchRunPreparationServiceTest {
                 .thenReturn("run-start-snapshot");
         when(snapshotGateway.capture(any(), any(), any()))
                 .thenReturn(runStartSnapshot);
+        when(developmentContextGateway.inspect(same(scope)))
+                .thenReturn(developmentContext);
         when(preflightGateway.inspect(any())).thenReturn(
                 new RuntimePreflightReport(
                         AgentType.CODEX, "0.42.0",

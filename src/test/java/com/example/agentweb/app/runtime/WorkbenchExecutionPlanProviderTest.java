@@ -18,6 +18,8 @@ import com.example.agentweb.domain.workbench.OwnerReference;
 import com.example.agentweb.domain.workbench.PromptPartSnapshot;
 import com.example.agentweb.domain.workbench.RunMode;
 import com.example.agentweb.domain.workbench.RuntimeEnforcementSnapshot;
+import com.example.agentweb.domain.workbench.UploadedAttachmentBinding;
+import com.example.agentweb.domain.workbench.VerifiedUploadedConversationAttachment;
 import com.example.agentweb.domain.workbench.VerifiedWorkbenchRunAttachment;
 import com.example.agentweb.domain.workbench.Workbench;
 import com.example.agentweb.domain.workbench.WorkbenchId;
@@ -163,13 +165,24 @@ class WorkbenchExecutionPlanProviderTest {
     }
 
     @Test
-    void shouldProjectPersistedSafeAttachmentFactsToPrivateRuntimePlan() {
+    void shouldProjectRepositoryAndUploadedFactsToPrivateRuntimePlan() {
         DocumentReference reference = DocumentReference.of(
                 "service-b", "docs/design.md");
         VerifiedWorkbenchRunAttachment attachment =
                 VerifiedWorkbenchRunAttachment.verify(
                         reference, repeat('9'), reference, repeat('9'),
                         "text/markdown", 128L, false);
+        VerifiedUploadedConversationAttachment uploaded =
+                VerifiedUploadedConversationAttachment.restore(
+                        "attachment-1",
+                        new UploadedAttachmentBinding(
+                                OwnerReference.of("owner-1", "Alex"),
+                                WORKBENCH_ID, WorkbenchPhase.IMPLEMENT_TEST,
+                                "phase-session-1", 1),
+                        "browser-design.md", "text/markdown", 64L,
+                        repeat('7'), repeat('8'),
+                        "attachment-1234567890abcdefabcd.md",
+                        NOW.plusSeconds(3600), 0L);
         snapshot = WorkbenchRunSnapshot.create(
                 RUN_ID, WORKBENCH_ID, WorkbenchPhase.IMPLEMENT_TEST,
                 "submit-1", repeat('1'), RunMode.MODIFY_WORKSPACE,
@@ -183,12 +196,14 @@ class WorkbenchExecutionPlanProviderTest {
                         "CODEX", "0.145.0", scope.getScopeHash(),
                         "service-a", Arrays.asList("service-a", "service-b"),
                         1800L, 8_388_608L),
-                Collections.singletonList(attachment), null, NOW.plusSeconds(1));
+                Collections.singletonList(attachment),
+                Collections.singletonList(uploaded),
+                null, NOW.plusSeconds(1));
         persistAll();
 
         AgentExecutionPlan plan = provider.prepare(run);
 
-        assertEquals(1, plan.getAttachmentExpectations().size());
+        assertEquals(2, plan.getAttachmentExpectations().size());
         assertEquals("service-b", plan.getAttachmentExpectations().get(0)
                 .getRepositoryKey());
         assertEquals("/workspace/service-b", plan.getAttachmentExpectations().get(0)
@@ -198,6 +213,18 @@ class WorkbenchExecutionPlanProviderTest {
         assertEquals(repeat('9'), plan.getAttachmentExpectations().get(0)
                 .getContentHash());
         assertEquals(128L, plan.getAttachmentExpectations().get(0).getSize());
+        assertEquals(
+                com.example.agentweb.app.runtime.port.RuntimeAttachmentExpectation
+                        .Type.UPLOADED_CONVERSATION,
+                plan.getAttachmentExpectations().get(1).getType());
+        assertEquals("attachment-1", plan.getAttachmentExpectations().get(1)
+                .getAttachmentId());
+        assertEquals(repeat('8'), plan.getAttachmentExpectations().get(1)
+                .getStorageKey());
+        assertEquals("attachment-1234567890abcdefabcd.md",
+                plan.getAttachmentExpectations().get(1).getRuntimeFileName());
+        assertEquals(null, plan.getAttachmentExpectations().get(1)
+                .getRepositoryRoot());
         assertThrows(UnsupportedOperationException.class,
                 () -> plan.getAttachmentExpectations().clear());
     }

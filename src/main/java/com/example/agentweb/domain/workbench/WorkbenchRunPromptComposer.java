@@ -26,12 +26,14 @@ public final class WorkbenchRunPromptComposer {
             WorkbenchRunPreparationPlan plan,
             ResolvedCapabilityResolution capabilityResolution,
             PhaseHandoffRevision handoffRevision,
+            WorkspaceDevelopmentContext developmentContext,
             WorkspaceSnapshot workspaceSnapshot,
             WorkbenchPhaseHistory history,
-            List<VerifiedWorkbenchRunAttachment> verifiedAttachments,
+            VerifiedWorkbenchRunAttachmentSet verifiedAttachments,
             String userInput) {
         if (plan == null || capabilityResolution == null
-                || workspaceSnapshot == null || history == null
+                || developmentContext == null || workspaceSnapshot == null
+                || history == null
                 || verifiedAttachments == null) {
             throw new IllegalArgumentException(
                     "workbench prompt preparation facts must be complete");
@@ -39,6 +41,7 @@ public final class WorkbenchRunPromptComposer {
         ResolvedCapabilityBinding capabilityBinding =
                 capabilityResolution.getBinding();
         history.requireCurrent(plan.getConversation());
+        plan.requireDevelopmentContext(developmentContext);
         List<WorkbenchPromptPart> parts =
                 new ArrayList<WorkbenchPromptPart>();
         parts.add(part(
@@ -74,8 +77,10 @@ public final class WorkbenchRunPromptComposer {
         }
         parts.add(part(
                 WorkbenchPromptPartType.WORKSPACE_CONTEXT,
-                "workspace-snapshot/" + workspaceSnapshot.getSnapshotId(),
-                workspaceContext(workspaceSnapshot)));
+                "workspace-snapshot/" + workspaceSnapshot.getSnapshotId()
+                        + "/development-context/"
+                        + developmentContext.getContextHash(),
+                workspaceContext(workspaceSnapshot, developmentContext)));
         parts.add(part(
                 WorkbenchPromptPartType.ORIGINAL_GOAL,
                 "workbench/original-goal@1",
@@ -231,7 +236,9 @@ public final class WorkbenchRunPromptComposer {
         return result.toString();
     }
 
-    private static String workspaceContext(WorkspaceSnapshot snapshot) {
+    private static String workspaceContext(
+            WorkspaceSnapshot snapshot,
+            WorkspaceDevelopmentContext developmentContext) {
         StringBuilder result = new StringBuilder();
         result.append("Snapshot: ").append(snapshot.getSnapshotId())
                 .append("\nPurpose: ")
@@ -247,14 +254,47 @@ public final class WorkbenchRunPromptComposer {
                     .append(" clean=").append(repository.isClean())
                     .append(" diffHash=").append(repository.getDiffHash());
         }
+        result.append("\nDevelopment context hash: ")
+                .append(developmentContext.getContextHash())
+                .append("\nPrimary development repository: ")
+                .append(developmentContext.getPrimaryRepositoryKey());
+        for (RepositoryDevelopmentContext repository
+                : developmentContext.getRepositories()) {
+            result.append("\n- ")
+                    .append(repository.getRepositoryKey())
+                    .append(" technologies=")
+                    .append(enumNames(repository.getTechnologyTypes()))
+                    .append(" buildTools=")
+                    .append(enumNames(repository.getBuildTools()));
+            for (RepositoryInstructionReference instruction
+                    : repository.getInstructionReferences()) {
+                result.append("\n  instruction=")
+                        .append(instruction.getType().name())
+                        .append(':')
+                        .append(instruction.getRelativePath());
+            }
+        }
+        return result.toString();
+    }
+
+    private static String enumNames(List<? extends Enum<?>> values) {
+        if (values.isEmpty()) {
+            return "NONE";
+        }
+        StringBuilder result = new StringBuilder();
+        for (Enum<?> value : values) {
+            if (result.length() > 0) {
+                result.append(',');
+            }
+            result.append(value.name());
+        }
         return result.toString();
     }
 
     private static String attachments(
-            List<VerifiedWorkbenchRunAttachment> verifiedAttachments) {
+            VerifiedWorkbenchRunAttachmentSet verifiedAttachments) {
         List<VerifiedWorkbenchRunAttachment> attachments =
-                VerifiedWorkbenchRunAttachment.immutableList(
-                        verifiedAttachments);
+                verifiedAttachments.getRepositoryDocuments();
         StringBuilder result = new StringBuilder();
         for (VerifiedWorkbenchRunAttachment attachment : attachments) {
             DocumentReference reference = attachment.getDocumentReference();
@@ -267,6 +307,24 @@ public final class WorkbenchRunPromptComposer {
                     .append(reference.getRelativePath())
                     .append(" contentHash=")
                     .append(attachment.getContentVersion())
+                    .append(" mediaType=")
+                    .append(attachment.getMediaType())
+                    .append(" size=")
+                    .append(attachment.getSize());
+        }
+        for (VerifiedUploadedConversationAttachment attachment
+                : verifiedAttachments.getUploadedAttachments()) {
+            if (result.length() > 0) {
+                result.append('\n');
+            }
+            result.append("- type=UPLOADED_CONVERSATION attachmentId=")
+                    .append(attachment.getAttachmentId())
+                    .append(" displayName=")
+                    .append(attachment.getDisplayName())
+                    .append(" runtimeReference=")
+                    .append(attachment.runtimeReference())
+                    .append(" contentHash=")
+                    .append(attachment.getContentHash())
                     .append(" mediaType=")
                     .append(attachment.getMediaType())
                     .append(" size=")

@@ -349,6 +349,14 @@ describe("Workbench Run API client", () => {
               relativePath: "src/main/App.java",
               contentHash: "b".repeat(64),
             },
+            {
+              type: "UPLOADED_CONVERSATION",
+              attachmentId: "attachment-1",
+              contentHash: "c".repeat(64),
+              displayName: "architecture.png",
+              previewUrl: "blob:local-only",
+              size: 128,
+            },
           ] as never,
         },
       }),
@@ -378,6 +386,11 @@ describe("Workbench Run API client", () => {
               repositoryKey: "shared-lib",
               relativePath: "src/main/App.java",
               contentHash: "b".repeat(64),
+            },
+            {
+              type: "UPLOADED_CONVERSATION",
+              attachmentId: "attachment-1",
+              contentHash: "c".repeat(64),
             },
           ],
         }),
@@ -465,6 +478,46 @@ describe("Workbench Run API client", () => {
           contentHash: "b".repeat(64),
         },
       ],
+    },
+    {
+      name: "uploaded attachment with repository path",
+      attachments: [{
+        type: "UPLOADED_CONVERSATION",
+        attachmentId: "attachment-1",
+        repositoryKey: "agent-web",
+        relativePath: "README.md",
+        contentHash: "a".repeat(64),
+      }],
+    },
+    {
+      name: "repository attachment with uploaded id",
+      attachments: [{
+        type: "REPOSITORY_DOCUMENT",
+        repositoryKey: "agent-web",
+        relativePath: "README.md",
+        attachmentId: "attachment-1",
+        contentHash: "a".repeat(64),
+      }],
+    },
+    {
+      name: "unknown attachment union type",
+      attachments: [{
+        type: "CUSTOM",
+        attachmentId: "attachment-1",
+        contentHash: "a".repeat(64),
+      }],
+    },
+    {
+      name: "duplicate uploaded attachment id",
+      attachments: [{
+        type: "UPLOADED_CONVERSATION",
+        attachmentId: "attachment-1",
+        contentHash: "a".repeat(64),
+      }, {
+        type: "UPLOADED_CONVERSATION",
+        attachmentId: "attachment-1",
+        contentHash: "b".repeat(64),
+      }],
     },
   ])("rejects malformed Run attachments before fetch: $name", async ({ attachments }) => {
     const { client, fetchMock } = clientWith(jsonResponse(202, acceptedSubmission()));

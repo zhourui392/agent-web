@@ -55,6 +55,24 @@ public final class HighImpactOperationPolicy {
                 safeSummary, actor, proposedAt);
     }
 
+    /**
+     * 从精确持久化 Run Snapshot 建立提案，避免 Application 自行比较聚合元数据。
+     */
+    public HighImpactOperation propose(
+            Workbench workbench, String operationId,
+            WorkbenchRunSnapshot sourceRun, WorkbenchPhase expectedPhase,
+            HighImpactOperationTarget target, String safeSummary,
+            OwnerReference actor, Instant proposedAt) {
+        if (workbench == null || sourceRun == null) {
+            throw new IllegalArgumentException(
+                    "operation proposal workbench and source run are required");
+        }
+        return propose(
+                workbench, operationId,
+                sourceRun.operationSourceReference(workbench.getId(), expectedPhase),
+                target, safeSummary, actor, proposedAt);
+    }
+
     public void decide(Workbench workbench, HighImpactOperation operation,
                        OwnerReference actor, HighImpactOperationDecision decision,
                        String reason, Instant decidedAt) {

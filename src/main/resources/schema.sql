@@ -1171,6 +1171,103 @@ CREATE INDEX IF NOT EXISTS idx_workbench_operation_workbench
 CREATE INDEX IF NOT EXISTS idx_workbench_operation_status
     ON workbench_high_impact_operation(status, updated_at);
 
+CREATE TABLE IF NOT EXISTS workbench_high_impact_operation_proposal (
+    owner_id        TEXT    NOT NULL,
+    owner_name      TEXT    NOT NULL,
+    workbench_id    TEXT    NOT NULL,
+    idempotency_key TEXT    NOT NULL,
+    request_hash    TEXT    NOT NULL,
+    operation_id    TEXT    NOT NULL,
+    created_at      INTEGER NOT NULL,
+    PRIMARY KEY(owner_id, workbench_id, idempotency_key),
+    UNIQUE(operation_id),
+    FOREIGN KEY(workbench_id) REFERENCES workbench(id) ON DELETE RESTRICT,
+    FOREIGN KEY(operation_id) REFERENCES workbench_high_impact_operation(operation_id)
+        ON DELETE RESTRICT,
+    CHECK (length(owner_id) BETWEEN 1 AND 128),
+    CHECK (length(owner_name) BETWEEN 1 AND 256),
+    CHECK (length(idempotency_key) BETWEEN 1 AND 128),
+    CHECK (length(request_hash) = 64
+        AND request_hash NOT GLOB '*[^0-9a-f]*')
+);
+
+-- Admin 对异常 Workbench Run 的停止/对账动作只追加审计，不借用 Owner 身份。
+CREATE TABLE IF NOT EXISTS workbench_admin_audit (
+    audit_id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    workbench_id        TEXT    NOT NULL,
+    run_id              TEXT    NOT NULL,
+    action              TEXT    NOT NULL,
+    outcome             TEXT    NOT NULL,
+    administrator_id    TEXT    NOT NULL,
+    administrator_name  TEXT    NOT NULL,
+    occurred_at          INTEGER NOT NULL,
+    FOREIGN KEY(workbench_id) REFERENCES workbench(id) ON DELETE RESTRICT,
+    CHECK (length(run_id) BETWEEN 1 AND 128),
+    CHECK (action IN ('STOP', 'RECONCILE')),
+    CHECK (length(outcome) BETWEEN 1 AND 64
+        AND outcome GLOB '[A-Z]*' AND outcome NOT GLOB '*[^A-Z0-9_]*'),
+    CHECK (length(administrator_id) BETWEEN 1 AND 128),
+    CHECK (length(administrator_name) BETWEEN 1 AND 256),
+    CHECK (occurred_at >= 0)
+);
+
+CREATE INDEX IF NOT EXISTS idx_workbench_admin_audit_workbench
+    ON workbench_admin_audit(workbench_id, occurred_at DESC, audit_id DESC);
+
+-- 浏览器上传附件只保存逻辑身份和不可逆摘要；storage_key 是服务端生成的不透明键。
+CREATE TABLE IF NOT EXISTS workbench_uploaded_attachment (
+    attachment_id           TEXT    PRIMARY KEY,
+    owner_id                TEXT    NOT NULL,
+    owner_name              TEXT    NOT NULL,
+    workbench_id            TEXT    NOT NULL,
+    phase                   TEXT    NOT NULL,
+    conversation_id         TEXT    NOT NULL,
+    conversation_generation INTEGER NOT NULL,
+    display_name            TEXT    NOT NULL,
+    media_type              TEXT    NOT NULL,
+    size_bytes              INTEGER NOT NULL,
+    sha256                  TEXT    NOT NULL,
+    storage_key             TEXT    NOT NULL UNIQUE,
+    status                  TEXT    NOT NULL,
+    bound_run_id            TEXT,
+    created_at              INTEGER NOT NULL,
+    expires_at              INTEGER NOT NULL,
+    updated_at              INTEGER NOT NULL,
+    version                 INTEGER NOT NULL,
+    FOREIGN KEY(workbench_id, phase)
+        REFERENCES workbench_phase(workbench_id, phase) ON DELETE RESTRICT,
+    CHECK (length(attachment_id) BETWEEN 1 AND 128),
+    CHECK (length(owner_id) BETWEEN 1 AND 128),
+    CHECK (length(owner_name) BETWEEN 1 AND 256),
+    CHECK (phase IN ('REQUIREMENT_ANALYSIS', 'SOLUTION_DESIGN',
+        'IMPLEMENT_TEST', 'REVIEW_REFACTOR')),
+    CHECK (length(conversation_id) BETWEEN 1 AND 128),
+    CHECK (conversation_generation >= 0),
+    CHECK (length(display_name) BETWEEN 1 AND 255),
+    CHECK (instr(display_name, '/') = 0
+        AND instr(display_name, char(92)) = 0),
+    CHECK (length(media_type) BETWEEN 1 AND 160),
+    CHECK (size_bytes BETWEEN 1 AND 2147483647),
+    CHECK (length(sha256) = 64 AND sha256 NOT GLOB '*[^0-9a-f]*'),
+    CHECK (length(storage_key) = 64
+        AND storage_key NOT GLOB '*[^0-9a-f]*'),
+    CHECK (status IN ('AVAILABLE', 'BOUND', 'RELEASE_PENDING')),
+    CHECK ((status = 'AVAILABLE' AND bound_run_id IS NULL)
+        OR (status IN ('BOUND', 'RELEASE_PENDING') AND bound_run_id IS NOT NULL)),
+    CHECK (expires_at >= created_at),
+    CHECK (updated_at >= created_at),
+    CHECK (version >= 0)
+);
+
+CREATE INDEX IF NOT EXISTS idx_workbench_uploaded_attachment_quota
+    ON workbench_uploaded_attachment(
+        owner_id, workbench_id, phase, conversation_id,
+        conversation_generation, status, expires_at
+    );
+
+CREATE INDEX IF NOT EXISTS idx_workbench_uploaded_attachment_cleanup
+    ON workbench_uploaded_attachment(status, expires_at, attachment_id);
+
 CREATE TABLE IF NOT EXISTS workbench_creation_request (
     owner_id        TEXT    NOT NULL,
     owner_name      TEXT    NOT NULL,

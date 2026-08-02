@@ -7,6 +7,7 @@ import com.example.agentweb.app.workbench.WorkspaceOperationException;
 import com.example.agentweb.app.workbench.query.PhaseConversationMessageTooLargeException;
 import com.example.agentweb.app.workbench.capability.PhaseCapabilityApplicationErrorCode;
 import com.example.agentweb.app.workbench.capability.PhaseCapabilityApplicationException;
+import com.example.agentweb.app.workbench.attachment.UploadedAttachmentStorageException;
 import com.example.agentweb.app.workbench.document.DocumentFailureCode;
 import com.example.agentweb.app.workbench.document.DocumentOperationException;
 import com.example.agentweb.app.workbench.run.WorkbenchRunCursorExpiredException;
@@ -121,6 +122,14 @@ public class WorkbenchExceptionHandler {
                 "WORKBENCH_" + exception.getCode().name(), exception.getMessage());
     }
 
+    @ExceptionHandler(UploadedAttachmentStorageException.class)
+    public ResponseEntity<Map<String, Object>> handleUploadedAttachmentStorage(
+            UploadedAttachmentStorageException exception) {
+        return error(HttpStatus.SERVICE_UNAVAILABLE,
+                "WORKBENCH_ATTACHMENT_STORAGE_UNAVAILABLE",
+                "uploaded attachment storage is unavailable");
+    }
+
     @ExceptionHandler(DocumentOperationException.class)
     public ResponseEntity<Map<String, Object>> handleDocumentOperation(
             DocumentOperationException exception) {
@@ -210,6 +219,14 @@ public class WorkbenchExceptionHandler {
         statuses.put(WorkbenchErrorCode.HANDOFF_SECRET_DETECTED,
                 HttpStatus.UNPROCESSABLE_ENTITY);
         statuses.put(WorkbenchErrorCode.VERSION_CONFLICT, HttpStatus.CONFLICT);
+        statuses.put(WorkbenchErrorCode.ATTACHMENT_INVALID,
+                HttpStatus.BAD_REQUEST);
+        statuses.put(WorkbenchErrorCode.ATTACHMENT_TOO_LARGE,
+                HttpStatus.PAYLOAD_TOO_LARGE);
+        statuses.put(WorkbenchErrorCode.ATTACHMENT_LIMIT_EXCEEDED,
+                HttpStatus.CONFLICT);
+        statuses.put(WorkbenchErrorCode.ATTACHMENT_UNAVAILABLE,
+                HttpStatus.GONE);
         statuses.put(WorkbenchErrorCode.OPERATION_TRANSITION_INVALID,
                 HttpStatus.CONFLICT);
         statuses.put(WorkbenchErrorCode.OPERATION_TARGET_CHANGED,

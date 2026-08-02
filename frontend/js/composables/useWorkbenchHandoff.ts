@@ -9,6 +9,7 @@ import {
   WorkbenchHandoffApiError,
   createWorkbenchHandoffApiClient,
   type HandoffEditableContent,
+  type PhaseHandoffCandidateView,
   type WorkbenchHandoffApiClient,
 } from '../api/workbench-handoff.js';
 import {
@@ -36,6 +37,18 @@ interface HandoffIdentity {
   phase: WorkbenchPhase;
 }
 
+export type HandoffCandidateField = keyof HandoffEditableContent;
+export type HandoffCandidateApplyMode = 'replace' | 'append';
+
+type HandoffCandidatePending = Record<HandoffCandidateField, boolean>;
+
+const HANDOFF_FIELD_LIMITS: Record<Exclude<HandoffCandidateField, 'summary'>, number> = {
+  decisions: 50,
+  openQuestions: 50,
+  pinnedFiles: 100,
+  referencedRuns: 50,
+};
+
 export function useWorkbenchHandoff(options: UseWorkbenchHandoffOptions) {
   const apiClient = options.apiClient ?? createWorkbenchHandoffApiClient();
   const state = shallowRef(createWorkbenchHandoffState());
@@ -43,10 +56,14 @@ export function useWorkbenchHandoff(options: UseWorkbenchHandoffOptions) {
   const handoffLoading = ref(false);
   const handoffSaving = ref(false);
   const handoffAccepting = ref(false);
+  const handoffCandidateGenerating = ref(false);
+  const handoffCandidate = shallowRef<PhaseHandoffCandidateView | null>(null);
+  const handoffCandidatePending = shallowRef<HandoffCandidatePending>(candidatePending(false));
   const handoffError = ref<string | null>(null);
   const handoffNotice = ref<string | null>(null);
   let scopeGeneration = 0;
   let mutationGeneration = 0;
+  let candidateGeneration = 0;
 
   const handoffCurrent = computed(() => state.value.current);
   const handoffDraft = computed(() => state.value.draft);
@@ -65,6 +82,12 @@ export function useWorkbenchHandoff(options: UseWorkbenchHandoffOptions) {
       !handoffAccepting.value &&
       !handoffSaving.value,
   );
+  const handoffCanGenerateCandidate = computed(
+    () =>
+      !state.value.readOnly &&
+      !handoffLoading.value &&
+      !handoffCandidateGenerating.value,
+  );
 
   function openHandoffDrawer(): void {
     handoffDrawerVisible.value = true;
@@ -82,9 +105,13 @@ export function useWorkbenchHandoff(options: UseWorkbenchHandoffOptions) {
     }
     const generation = ++scopeGeneration;
     mutationGeneration++;
+    candidateGeneration++;
     handoffLoading.value = true;
     handoffSaving.value = false;
     handoffAccepting.value = false;
+    handoffCandidateGenerating.value = false;
+    handoffCandidate.value = null;
+    handoffCandidatePending.value = candidatePending(false);
     handoffError.value = null;
     handoffNotice.value = null;
     state.value = createWorkbenchHandoffState(null, null, isArchived());
@@ -142,6 +169,8 @@ export function useWorkbenchHandoff(options: UseWorkbenchHandoffOptions) {
       const saved = await apiClient.putHandoff(identity.workbenchId, identity.phase, expectedVersion, submitted);
       if (!isCurrentMutation(identity, scope, generation)) return;
       state.value = applyWorkbenchHandoffSave(state.value, saved);
+      handoffCandidate.value = null;
+      handoffCandidatePending.value = candidatePending(false);
       handoffNotice.value = `交接内容已保存为版本 ${saved.version}。`;
     } catch (error) {
       if (!isCurrentMutation(identity, scope, generation)) return;
@@ -197,6 +226,85 @@ export function useWorkbenchHandoff(options: UseWorkbenchHandoffOptions) {
     handoffNotice.value = '已用服务端当前版本替换本地草稿。';
   }
 
+  async function generateHandoffCandidate(): Promise<void> {
+    const identity = currentIdentity();
+    if (!identity || state.value.readOnly || handoffLoading.value || handoffCandidateGenerating.value) return;
+    const generation = ++candidateGeneration;
+    const scope = scopeGeneration;
+    handoffCandidateGenerating.value = true;
+    handoffError.value = null;
+    handoffNotice.value = null;
+    try {
+      const generated = await apiClient.generateHandoffCandidate(identity.workbenchId, identity.phase);
+      if (!isCurrentCandidateGeneration(identity, scope, generation)) return;
+      handoffCandidate.value = generated;
+      handoffCandidatePending.value = candidatePending(true);
+      handoffNotice.value = `已基于 ${generated.sourceMessageCount} 条公开消息生成候选；请逐项确认后再保存。`;
+    } catch (error) {
+      if (isCurrentCandidateGeneration(identity, scope, generation)) {
+        handoffError.value = handoffErrorMessage(error);
+      }
+    } finally {
+      if (isCurrentCandidateGeneration(identity, scope, generation)) {
+        handoffCandidateGenerating.value = false;
+      }
+    }
+  }
+
+  function applyHandoffCandidateField(
+    field: HandoffCandidateField,
+    mode: HandoffCandidateApplyMode,
+  ): void {
+    const candidate = handoffCandidate.value;
+    if (
+      !candidate ||
+      state.value.readOnly ||
+      !handoffCandidatePending.value[field] ||
+      (mode !== 'replace' && mode !== 'append')
+    ) {
+      return;
+    }
+    const draft = copyHandoffContent(state.value.draft);
+    if (field === 'summary') {
+      const summary = mode === 'replace' ? candidate.summary : appendSummary(draft.summary, candidate.summary);
+      if (summary.length > 8000) {
+        handoffError.value = '追加候选后 Summary 超过 8000 字符，请先精简人工草稿。';
+        return;
+      }
+      draft.summary = summary;
+    } else {
+      const items = mode === 'replace'
+        ? candidate[field].map((item) => ({ ...item }))
+        : appendUniqueCandidateItems(field, draft[field], candidate[field]);
+      if (items.length > HANDOFF_FIELD_LIMITS[field]) {
+        handoffError.value = `追加候选后 ${candidateFieldLabel(field)} 超过条数上限，请先精简人工草稿。`;
+        return;
+      }
+      assignCandidateItems(draft, field, items);
+    }
+    state.value = applyWorkbenchHandoffDraft(state.value, draft);
+    handoffCandidatePending.value = {
+      ...handoffCandidatePending.value,
+      [field]: false,
+    };
+    handoffError.value = null;
+    handoffNotice.value = `${candidateFieldLabel(field)} 候选已${mode === 'replace' ? '采用' : '追加'}到草稿，仍需点击保存。`;
+  }
+
+  function ignoreHandoffCandidateField(field: HandoffCandidateField): void {
+    if (!handoffCandidate.value || !handoffCandidatePending.value[field]) return;
+    handoffCandidatePending.value = {
+      ...handoffCandidatePending.value,
+      [field]: false,
+    };
+    handoffNotice.value = `已忽略 ${candidateFieldLabel(field)} 候选，人工草稿未改变。`;
+  }
+
+  function dismissHandoffCandidate(): void {
+    handoffCandidate.value = null;
+    handoffCandidatePending.value = candidatePending(false);
+  }
+
   function currentIdentity(): HandoffIdentity | null {
     const workbenchId = options.workbenchId.value;
     return workbenchId ? { workbenchId, phase: options.phase.value } : null;
@@ -210,6 +318,10 @@ export function useWorkbenchHandoff(options: UseWorkbenchHandoffOptions) {
     return scope === scopeGeneration && generation === mutationGeneration && sameIdentity(identity);
   }
 
+  function isCurrentCandidateGeneration(identity: HandoffIdentity, scope: number, generation: number): boolean {
+    return scope === scopeGeneration && generation === candidateGeneration && sameIdentity(identity);
+  }
+
   function isArchived(): boolean {
     return options.archived?.value ?? false;
   }
@@ -217,10 +329,14 @@ export function useWorkbenchHandoff(options: UseWorkbenchHandoffOptions) {
   function resetScope(): void {
     scopeGeneration++;
     mutationGeneration++;
+    candidateGeneration++;
     state.value = createWorkbenchHandoffState(null, null, isArchived());
     handoffLoading.value = false;
     handoffSaving.value = false;
     handoffAccepting.value = false;
+    handoffCandidateGenerating.value = false;
+    handoffCandidate.value = null;
+    handoffCandidatePending.value = candidatePending(false);
     handoffError.value = null;
     handoffNotice.value = null;
     handoffDrawerVisible.value = false;
@@ -249,10 +365,14 @@ export function useWorkbenchHandoff(options: UseWorkbenchHandoffOptions) {
     handoffLoading,
     handoffSaving,
     handoffAccepting,
+    handoffCandidateGenerating,
+    handoffCandidate,
+    handoffCandidatePending,
     handoffError,
     handoffNotice,
     handoffCanSave,
     handoffCanAccept,
+    handoffCanGenerateCandidate,
     openHandoffDrawer,
     closeHandoffDrawer,
     loadHandoff,
@@ -262,7 +382,91 @@ export function useWorkbenchHandoff(options: UseWorkbenchHandoffOptions) {
     acceptLatestSource,
     keepCurrentSource,
     adoptRemoteCurrent,
+    generateHandoffCandidate,
+    applyHandoffCandidateField,
+    ignoreHandoffCandidateField,
+    dismissHandoffCandidate,
   };
+}
+
+function candidatePending(value: boolean): HandoffCandidatePending {
+  return {
+    summary: value,
+    decisions: value,
+    openQuestions: value,
+    pinnedFiles: value,
+    referencedRuns: value,
+  };
+}
+
+function appendSummary(current: string, candidate: string): string {
+  return [current, candidate].filter((value) => value.length > 0).join('\n\n');
+}
+
+function appendUniqueCandidateItems(
+  field: Exclude<HandoffCandidateField, 'summary'>,
+  current: HandoffEditableContent[typeof field],
+  candidate: HandoffEditableContent[typeof field],
+): Array<Record<string, unknown>> {
+  const result = current.map((item) => ({ ...item })) as Array<Record<string, unknown>>;
+  const seen = new Set(result.map((item) => candidateItemKey(field, item)));
+  for (const item of candidate) {
+    const copied = { ...item } as Record<string, unknown>;
+    if (seen.add(candidateItemKey(field, copied))) result.push(copied);
+  }
+  return result;
+}
+
+function candidateItemKey(
+  field: Exclude<HandoffCandidateField, 'summary'>,
+  item: Record<string, unknown>,
+): string {
+  switch (field) {
+    case 'decisions':
+      return `${String(item.text)}\u0000${String(item.rationale ?? '')}`;
+    case 'openQuestions':
+      return `${String(item.text)}\u0000${String(item.ownerHint ?? '')}`;
+    case 'pinnedFiles':
+      return `${String(item.repositoryKey)}\u0000${String(item.relativePath)}`;
+    case 'referencedRuns':
+      return String(item.runId);
+  }
+}
+
+function assignCandidateItems(
+  draft: HandoffEditableContent,
+  field: Exclude<HandoffCandidateField, 'summary'>,
+  items: Array<Record<string, unknown>>,
+): void {
+  switch (field) {
+    case 'decisions':
+      draft.decisions = items as unknown as HandoffEditableContent['decisions'];
+      break;
+    case 'openQuestions':
+      draft.openQuestions = items as unknown as HandoffEditableContent['openQuestions'];
+      break;
+    case 'pinnedFiles':
+      draft.pinnedFiles = items as unknown as HandoffEditableContent['pinnedFiles'];
+      break;
+    case 'referencedRuns':
+      draft.referencedRuns = items as unknown as HandoffEditableContent['referencedRuns'];
+      break;
+  }
+}
+
+function candidateFieldLabel(field: HandoffCandidateField): string {
+  switch (field) {
+    case 'summary':
+      return 'Summary';
+    case 'decisions':
+      return 'Decisions';
+    case 'openQuestions':
+      return 'Open Questions';
+    case 'pinnedFiles':
+      return 'Pinned Files';
+    case 'referencedRuns':
+      return 'Referenced Runs';
+  }
 }
 
 function isVersionConflict(error: unknown): error is WorkbenchHandoffApiError {

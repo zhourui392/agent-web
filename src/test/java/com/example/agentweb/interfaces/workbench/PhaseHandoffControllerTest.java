@@ -8,14 +8,21 @@ import com.example.agentweb.app.workbench.handoff.HandoffDiffSummary;
 import com.example.agentweb.app.workbench.handoff.HandoffReceptionProjection;
 import com.example.agentweb.app.workbench.handoff.HandoffSourcePreview;
 import com.example.agentweb.app.workbench.handoff.PhaseHandoffContentCommand;
+import com.example.agentweb.app.workbench.handoff.PhaseHandoffCandidateAppService;
+import com.example.agentweb.app.workbench.handoff.PhaseHandoffCandidateProjection;
 import com.example.agentweb.app.workbench.handoff.PhaseHandoffOwnerService;
 import com.example.agentweb.app.workbench.handoff.PhaseHandoffProjection;
+import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.workbench.Decision;
 import com.example.agentweb.domain.workbench.DocumentReference;
+import com.example.agentweb.domain.workbench.HandoffCandidateConversation;
+import com.example.agentweb.domain.workbench.HandoffCandidateMessage;
 import com.example.agentweb.domain.workbench.HandoffReception;
 import com.example.agentweb.domain.workbench.OpenQuestion;
 import com.example.agentweb.domain.workbench.OwnerReference;
 import com.example.agentweb.domain.workbench.PhaseHandoff;
+import com.example.agentweb.domain.workbench.PhaseHandoffCandidateGenerator;
+import com.example.agentweb.domain.workbench.Workbench;
 import com.example.agentweb.domain.workbench.WorkbenchDomainException;
 import com.example.agentweb.domain.workbench.WorkbenchErrorCode;
 import com.example.agentweb.domain.workbench.WorkbenchId;
@@ -24,6 +31,8 @@ import com.example.agentweb.domain.workbench.WorkbenchRunReference;
 import com.example.agentweb.domain.workspace.RepositoryScope;
 import com.example.agentweb.domain.workspace.RepositorySelection;
 import com.example.agentweb.domain.workspace.ResolvedRepository;
+import com.example.agentweb.domain.workspace.WorkspaceSnapshotReference;
+import com.example.agentweb.domain.workspace.WorkspaceTopology;
 import com.example.agentweb.interfaces.GlobalExceptionHandler;
 import com.example.agentweb.domain.auth.CurrentUserProvider;
 import org.junit.jupiter.api.BeforeEach;
@@ -73,12 +82,17 @@ class PhaseHandoffControllerTest {
             "/api/workbenches/{id}/phases/{phase}/handoff-source";
     private static final String RECEPTION_ROUTE =
             "/api/workbenches/{id}/phases/{phase}/handoff-receptions";
+    private static final String CANDIDATE_ROUTE =
+            "/api/workbenches/{id}/phases/{phase}/handoff-candidates";
 
     @Autowired
     private MockMvc mvc;
 
     @MockBean
     private PhaseHandoffOwnerService service;
+
+    @MockBean
+    private PhaseHandoffCandidateAppService candidateService;
 
     @MockBean
     private CurrentUserProvider currentUserProvider;
@@ -354,6 +368,70 @@ class PhaseHandoffControllerTest {
     }
 
     @Test
+    void candidateShouldUseCurrentOwnerAndReturnOnlySafeEphemeralProjection()
+            throws Exception {
+        when(candidateService.generate(any(), any(), any()))
+                .thenReturn(candidateProjection());
+
+        mvc.perform(post(CANDIDATE_ROUTE, WORKBENCH_ID, "solution_design")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sourcePhase")
+                        .value("SOLUTION_DESIGN"))
+                .andExpect(jsonPath("$.baseHandoffVersion").value(0))
+                .andExpect(jsonPath("$.conversationGeneration").value(0))
+                .andExpect(jsonPath("$.sourceMessageCount").value(1))
+                .andExpect(jsonPath("$.strategy").value(
+                        "DETERMINISTIC_PUBLIC_MESSAGES_V1"))
+                .andExpect(jsonPath("$.summary").value(
+                        "结论\nDecision: 使用 DDD"))
+                .andExpect(jsonPath("$.decisions[0].text")
+                        .value("使用 DDD"))
+                .andExpect(jsonPath("$.openQuestions").isArray())
+                .andExpect(jsonPath("$.pinnedFiles").isArray())
+                .andExpect(jsonPath("$.referencedRuns[0].runId")
+                        .value("run-design-1"))
+                .andExpect(jsonPath("$.referencedRuns[0].phase")
+                        .value("SOLUTION_DESIGN"))
+                .andExpect(jsonPath("$.referencedRuns[0].safeSummary")
+                        .value("Run run-design-1 (SOLUTION_DESIGN)"))
+                .andExpect(jsonPath("$.owner").doesNotExist())
+                .andExpect(jsonPath("$.workbenchId").doesNotExist())
+                .andExpect(jsonPath("$.conversationId").doesNotExist())
+                .andExpect(content().string(not(containsString(OWNER_ID))))
+                .andExpect(content().string(not(containsString("/workspace"))));
+
+        verify(candidateService).generate(
+                OwnerReference.of(OWNER_ID, OWNER_NAME),
+                WorkbenchId.of(WORKBENCH_ID),
+                WorkbenchPhase.SOLUTION_DESIGN);
+    }
+
+    @Test
+    void candidateShouldRejectUnknownBodyAndUseStableUnavailableContract()
+            throws Exception {
+        mvc.perform(post(CANDIDATE_ROUTE, WORKBENCH_ID, "solution_design")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"autoSave\":true}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(
+                        "WORKBENCH_HANDOFF_REQUEST_INVALID"));
+        verify(candidateService, never()).generate(any(), any(), any());
+
+        when(candidateService.generate(any(), any(), any()))
+                .thenThrow(new HandoffApplicationException(
+                        HandoffApplicationErrorCode.CANDIDATE_SOURCE_UNAVAILABLE,
+                        "current phase public conversation is unavailable"));
+        mvc.perform(post(CANDIDATE_ROUTE, WORKBENCH_ID, "solution_design")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value(
+                        "WORKBENCH_HANDOFF_CANDIDATE_SOURCE_UNAVAILABLE"));
+    }
+
+    @Test
     void secretDetectionShouldUseStableCodeWithoutEchoingSecret()
             throws Exception {
         String secret = "password=correct-horse-battery-staple";
@@ -453,6 +531,42 @@ class PhaseHandoffControllerTest {
                             .plusSeconds(current + 1L));
         }
         return handoff;
+    }
+
+    private static PhaseHandoffCandidateProjection candidateProjection() {
+        RepositorySelection selection = RepositorySelection.of(
+                "agent-web", Collections.singletonList("agent-web"));
+        RepositoryScope scope = RepositoryScope.create(
+                "/workspace", selection,
+                Collections.singletonList(
+                        ResolvedRepository.fromVerifiedFacts(
+                                "agent-web", "/workspace/agent-web",
+                                repeat('1'), false)),
+                50);
+        OwnerReference owner = OwnerReference.of(OWNER_ID, OWNER_NAME);
+        Workbench workbench = Workbench.create(
+                WorkbenchId.of(WORKBENCH_ID), owner,
+                "Workbench", "实现工作台", AgentType.CODEX, "test",
+                scope, new WorkspaceSnapshotReference(
+                        "snapshot-1",
+                        WorkspaceTopology.of("/workspace", selection)
+                                .getTopologyHash(),
+                        repeat('a'), 1),
+                Instant.parse("2026-08-01T15:00:00Z"));
+        workbench.bindConversation(
+                WorkbenchPhase.SOLUTION_DESIGN, "conversation-1", owner,
+                Instant.parse("2026-08-01T15:00:01Z"));
+        return PhaseHandoffCandidateProjection.from(
+                new PhaseHandoffCandidateGenerator().generate(
+                        owner, workbench, WorkbenchPhase.SOLUTION_DESIGN,
+                        java.util.Optional.<PhaseHandoff>empty(),
+                        HandoffCandidateConversation.capture(
+                                "conversation-1", 0,
+                                Collections.singletonList(
+                                        HandoffCandidateMessage.publicMessage(
+                                                1L, "assistant",
+                                                "结论\nDecision: 使用 DDD",
+                                                "run-design-1")))));
     }
 
     private static String repeat(char value) {

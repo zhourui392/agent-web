@@ -2,6 +2,7 @@ package com.example.agentweb.app.workbench.capability;
 
 import com.example.agentweb.app.workbench.WorkbenchNotFoundException;
 import com.example.agentweb.app.workbench.capability.port.ActiveRunCapabilityBindingQuery;
+import com.example.agentweb.app.workbench.port.WorkspaceDevelopmentContextGateway;
 import com.example.agentweb.domain.workbench.CapabilityOverride;
 import com.example.agentweb.domain.workbench.OwnerReference;
 import com.example.agentweb.domain.workbench.PhaseCapabilityConfiguration;
@@ -18,6 +19,7 @@ import com.example.agentweb.domain.workbench.WorkbenchErrorCode;
 import com.example.agentweb.domain.workbench.WorkbenchId;
 import com.example.agentweb.domain.workbench.WorkbenchPhase;
 import com.example.agentweb.domain.workbench.WorkbenchRepository;
+import com.example.agentweb.domain.workbench.WorkspaceDevelopmentContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -39,13 +41,15 @@ public class PhaseCapabilityQueryService {
     private final PhaseCapabilityProfileCatalog profileCatalog;
     private final PhaseCapabilityPreviewResolver previewResolver;
     private final ActiveRunCapabilityBindingQuery activeRunBindingQuery;
+    private final WorkspaceDevelopmentContextGateway developmentContextGateway;
 
     public PhaseCapabilityQueryService(
             WorkbenchRepository workbenchRepository,
             PhaseCapabilityConfigurationRepository configurationRepository,
             PhaseCapabilityProfileCatalog profileCatalog,
             PhaseCapabilityPreviewResolver previewResolver,
-            ActiveRunCapabilityBindingQuery activeRunBindingQuery) {
+            ActiveRunCapabilityBindingQuery activeRunBindingQuery,
+            WorkspaceDevelopmentContextGateway developmentContextGateway) {
         this.workbenchRepository = Objects.requireNonNull(
                 workbenchRepository, "workbenchRepository");
         this.configurationRepository = Objects.requireNonNull(
@@ -56,6 +60,8 @@ public class PhaseCapabilityQueryService {
                 previewResolver, "previewResolver");
         this.activeRunBindingQuery = Objects.requireNonNull(
                 activeRunBindingQuery, "activeRunBindingQuery");
+        this.developmentContextGateway = Objects.requireNonNull(
+                developmentContextGateway, "developmentContextGateway");
     }
 
     public EffectivePhaseCapabilityView getEffectiveProfile(
@@ -70,8 +76,11 @@ public class PhaseCapabilityQueryService {
         CapabilityOverride override =
                 overrideResolution.getEffectiveOverride();
         long overrideVersion = configurationState.getVersion();
+        WorkspaceDevelopmentContext developmentContext =
+                inspectDevelopmentContext(workbench);
         PhaseCapabilityPreview preview = previewResolver.resolve(
-                profile, overrideResolution, workbench.getAgentType());
+                profile, overrideResolution, workbench.getAgentType(),
+                developmentContext);
         String activeBindingHash = activeRunBindingQuery
                 .findActiveBindingHash(workbenchId, phase).orElse(null);
         return EffectivePhaseCapabilityView.from(
@@ -90,9 +99,11 @@ public class PhaseCapabilityQueryService {
         PhaseCapabilityProfile profile = profileCatalog.requireProfile(phase);
         PhaseCapabilityOverrideResolution overrideResolution =
                 configuration.get().resolveFor(workbenchId, profile);
+        WorkspaceDevelopmentContext developmentContext =
+                inspectDevelopmentContext(workbench);
         PhaseCapabilityPreview preview = previewResolver.resolve(
                 profile, overrideResolution,
-                workbench.getAgentType());
+                workbench.getAgentType(), developmentContext);
         return Optional.of(PublicPhaseCapabilityOverrideView.from(
                 configuration.get(), overrideResolution, preview));
     }
@@ -112,5 +123,16 @@ public class PhaseCapabilityQueryService {
             }
             throw failure;
         }
+    }
+
+    private WorkspaceDevelopmentContext inspectDevelopmentContext(
+            Workbench workbench) {
+        WorkspaceDevelopmentContext developmentContext =
+                Objects.requireNonNull(
+                        developmentContextGateway.inspect(
+                                workbench.getRepositoryScope()),
+                        "workspace development context");
+        developmentContext.requireScope(workbench.getRepositoryScope());
+        return developmentContext;
     }
 }

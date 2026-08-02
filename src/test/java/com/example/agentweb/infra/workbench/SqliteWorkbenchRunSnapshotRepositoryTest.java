@@ -5,6 +5,8 @@ import com.example.agentweb.domain.workbench.DocumentReference;
 import com.example.agentweb.domain.workbench.ReviewModifyConfirmation;
 import com.example.agentweb.domain.workbench.ReviewOpinion;
 import com.example.agentweb.domain.workbench.VerifiedWorkbenchRunAttachment;
+import com.example.agentweb.domain.workbench.UploadedAttachmentBinding;
+import com.example.agentweb.domain.workbench.VerifiedUploadedConversationAttachment;
 import com.example.agentweb.domain.workbench.Workbench;
 import com.example.agentweb.domain.workbench.WorkbenchPhase;
 import com.example.agentweb.domain.workbench.WorkbenchRunSnapshot;
@@ -134,6 +136,18 @@ class SqliteWorkbenchRunSnapshotRepositoryTest {
                         reference, WorkbenchPersistenceFixtures.HASH_A,
                         reference, WorkbenchPersistenceFixtures.HASH_A,
                         "text/markdown", 128L, false);
+        VerifiedUploadedConversationAttachment uploaded =
+                VerifiedUploadedConversationAttachment.restore(
+                        "attachment-1",
+                        new UploadedAttachmentBinding(
+                                WorkbenchPersistenceFixtures.OWNER,
+                                workbench.getId(), base.getPhase(),
+                                "review-conversation", 2),
+                        "browser-design.md", "text/markdown", 64L,
+                        WorkbenchPersistenceFixtures.HASH_B,
+                        WorkbenchPersistenceFixtures.HASH_C,
+                        "attachment-1234567890abcdefabcd.md",
+                        base.getCreatedAt().plusSeconds(3600), 0L);
         WorkbenchRunSnapshot source = WorkbenchRunSnapshot.create(
                 base.getRunId(), base.getWorkbenchId(), base.getPhase(),
                 base.getSubmissionIdempotencyKey(),
@@ -143,7 +157,8 @@ class SqliteWorkbenchRunSnapshotRepositoryTest {
                 base.getCapabilityBinding(), base.getOverrideVersion(),
                 base.getHandoffSource(), base.getPromptParts(),
                 base.getPromptHash(), base.getRuntimeEnforcement(),
-                Collections.singletonList(attachment), confirmation,
+                Collections.singletonList(attachment),
+                Collections.singletonList(uploaded), confirmation,
                 base.getCreatedAt());
 
         snapshotRepository.add(source);
@@ -153,10 +168,14 @@ class SqliteWorkbenchRunSnapshotRepositoryTest {
                 .orElseThrow(AssertionError::new);
         assertEquals(Collections.singletonList(attachment),
                 restored.getVerifiedAttachments());
+        assertEquals(Collections.singletonList(uploaded),
+                restored.getVerifiedUploadedAttachments());
         String persisted = jdbc.queryForObject(
                 "SELECT attachments_json FROM workbench_run_snapshot WHERE run_id=?",
                 String.class, source.getRunId());
         assertFalse(persisted.contains(workspace.scope().getWorkspaceRoot()));
+        assertEquals(true, persisted.contains("REPOSITORY_DOCUMENT"));
+        assertEquals(true, persisted.contains("UPLOADED_CONVERSATION"));
 
         jdbc.update("UPDATE workbench_run_snapshot SET attachments_json=? WHERE run_id=?",
                 "[{\"repositoryKey\":\"agent-web\","

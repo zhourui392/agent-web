@@ -86,7 +86,8 @@ class HarnessM3FlowTest {
         registry.add("agent.harness.enabled", () -> "true");
         registry.add("agent.harness.artifact-root",
                 () -> ROOT.resolve("artifacts").toAbsolutePath().toString());
-        registry.add("agent.harness.mcp-server-root", () -> MCP_ROOT.toString());
+        registry.add("agent.capability.mcp-server-root",
+                () -> MCP_ROOT.toString());
         registry.add("agent.harness.runtime.codex-command", () -> CODEX_STUB.toString());
         registry.add("agent.harness.runtime.auth-mode", () -> "isolated-key");
         registry.add("agent.harness.runtime.provider-credential-reference",

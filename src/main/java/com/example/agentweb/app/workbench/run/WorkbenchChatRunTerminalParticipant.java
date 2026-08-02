@@ -12,6 +12,9 @@ import com.example.agentweb.domain.workbench.WorkbenchDomainException;
 import com.example.agentweb.domain.workbench.WorkbenchRepository;
 import com.example.agentweb.domain.workbench.WorkbenchRunSnapshot;
 import com.example.agentweb.domain.workbench.WorkbenchRunSnapshotRepository;
+import com.example.agentweb.domain.workbench.UploadedConversationAttachment;
+import com.example.agentweb.domain.workbench.UploadedConversationAttachmentRepository;
+import com.example.agentweb.domain.workbench.VerifiedUploadedConversationAttachment;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -29,6 +32,7 @@ public final class WorkbenchChatRunTerminalParticipant
 
     private final WorkbenchRunSnapshotRepository snapshotRepository;
     private final WorkbenchRepository workbenchRepository;
+    private final UploadedConversationAttachmentRepository attachmentRepository;
     private final ChatRunRepository runRepository;
     private final ChatRunEventAppender eventAppender;
     private final WorkbenchTelemetry telemetry;
@@ -36,11 +40,13 @@ public final class WorkbenchChatRunTerminalParticipant
     public WorkbenchChatRunTerminalParticipant(
             WorkbenchRunSnapshotRepository snapshotRepository,
             WorkbenchRepository workbenchRepository,
+            UploadedConversationAttachmentRepository attachmentRepository,
             ChatRunRepository runRepository,
             ChatRunEventAppender eventAppender,
             WorkbenchTelemetry telemetry) {
         this.snapshotRepository = snapshotRepository;
         this.workbenchRepository = workbenchRepository;
+        this.attachmentRepository = attachmentRepository;
         this.runRepository = runRepository;
         this.eventAppender = eventAppender;
         this.telemetry = telemetry;
@@ -63,6 +69,7 @@ public final class WorkbenchChatRunTerminalParticipant
         Workbench workbench = workbenchRepository.findById(snapshot.getWorkbenchId())
                 .orElseThrow(WorkbenchDomainException::runBindingCorrupted);
         snapshot.finishRequiredRun(workbench, runId.getValue(), terminalAt);
+        releaseUploadedAttachments(snapshot, runId.getValue(), terminalAt);
         workbenchRepository.update(workbench);
         eventAppender.afterCommit(new Runnable() {
             @Override
@@ -70,6 +77,19 @@ public final class WorkbenchChatRunTerminalParticipant
                 recordPersistedTerminal(runId, snapshot, workbench);
             }
         });
+    }
+
+    private void releaseUploadedAttachments(
+            WorkbenchRunSnapshot snapshot, String runId, Instant terminalAt) {
+        for (VerifiedUploadedConversationAttachment verified
+                : snapshot.getVerifiedUploadedAttachments()) {
+            UploadedConversationAttachment attachment = attachmentRepository
+                    .findById(verified.getAttachmentId())
+                    .orElseThrow(WorkbenchDomainException::runBindingCorrupted);
+            long expectedVersion = attachment.getVersion();
+            attachment.releaseAfterTerminal(runId, terminalAt);
+            attachmentRepository.update(attachment, expectedVersion);
+        }
     }
 
     private void recordPersistedTerminal(

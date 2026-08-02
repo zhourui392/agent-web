@@ -51,6 +51,7 @@ class RuntimeCommandFactoryTest {
         assertEquals("codex", tokens.get(0));
         assertOrdered(tokens, "--ask-for-approval", "never", "exec",
                 "--ignore-user-config", "--ephemeral", "--json");
+        assertOption(tokens, "-c", "allow_login_shell=false");
         assertFalse(tokens.contains("--ignore-rules"));
         assertOption(tokens, "--sandbox", "read-only");
         assertOption(tokens, "-C", primary.toRealPath().toString());

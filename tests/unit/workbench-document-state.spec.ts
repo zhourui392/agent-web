@@ -10,15 +10,18 @@ import {
   applyWorkbenchDocumentFileChanged,
   applyWorkbenchDocumentFileEvent,
   applyWorkbenchDocumentNotModified,
+  authorizedDocumentReference,
   collapseWorkbenchDocumentLayout,
   conversationUsesFullWidth,
   createLoadedWorkbenchDocument,
   createWorkbenchDocumentLayout,
   createWorkbenchDocumentStateStore,
   enterWorkbenchMobileDrawer,
+  extractAuthorizedAgentDocumentReferences,
   exitWorkbenchMobileDrawer,
   maximizeWorkbenchDocumentLayout,
   normalizeDocumentReference,
+  groupDocumentReferencesByRepository,
   refreshWorkbenchDocument,
   rememberRecentDocument,
   resetWorkbenchDocumentLayout,
@@ -110,6 +113,80 @@ describe('workbench document layout', () => {
 });
 
 describe('document reference and recent documents', () => {
+  it('accepts a structured reference only when its repository is in the frozen scope', () => {
+    expect(authorizedDocumentReference(README, ['agent-web', 'shared-lib']))
+      .toEqual(README);
+    expect(authorizedDocumentReference({
+      repositoryKey: 'unselected',
+      relativePath: 'README.md',
+    }, ['agent-web', 'shared-lib'])).toBeNull();
+    expect(authorizedDocumentReference({
+      repositoryKey: 'agent-web',
+      relativePath: '/etc/passwd',
+    }, ['agent-web'])).toBeNull();
+  });
+
+  it('extracts only deduplicated scoped repository paths from explicit backtick references', () => {
+    expect(extractAuthorizedAgentDocumentReferences([
+      '请查看 `agent-web/docs/design.md`，并对照 `shared-lib/src/main.ts`。',
+      '重复引用 `agent-web/docs/design.md`。',
+      '普通文本 agent-web/docs/plain.md 不提升为入口。',
+      '无仓库前缀的 `README.md`、越权的 `foreign/README.md`、',
+      '绝对路径 `/etc/passwd` 和遍历路径 `agent-web/../secret.txt` 均忽略。',
+    ].join('\n'), ['agent-web', 'shared-lib'])).toEqual([
+      { repositoryKey: 'agent-web', relativePath: 'docs/design.md' },
+      { repositoryKey: 'shared-lib', relativePath: 'src/main.ts' },
+    ]);
+  });
+
+  it('fails closed when a backtick path matches more than one selected repository key', () => {
+    expect(extractAuthorizedAgentDocumentReferences(
+      '歧义引用 `services/api/docs/design.md`，明确引用 `shared-lib/README.md`。',
+      ['services', 'services/api', 'shared-lib'],
+    )).toEqual([
+      { repositoryKey: 'shared-lib', relativePath: 'README.md' },
+    ]);
+  });
+
+  it('bounds the number of agent-text document candidates', () => {
+    const content = Array.from(
+      { length: WORKBENCH_DOCUMENT_LIMITS.agentTextDocumentReferences + 10 },
+      (_, index) => `\`agent-web/docs/${index}.md\``,
+    ).join(' ');
+
+    const references = extractAuthorizedAgentDocumentReferences(content, ['agent-web']);
+
+    expect(references).toHaveLength(WORKBENCH_DOCUMENT_LIMITS.agentTextDocumentReferences);
+    expect(references[references.length - 1]).toEqual({
+      repositoryKey: 'agent-web',
+      relativePath: `docs/${WORKBENCH_DOCUMENT_LIMITS.agentTextDocumentReferences - 1}.md`,
+    });
+  });
+
+  it('groups recent references by repository without merging same-named files', () => {
+    expect(groupDocumentReferencesByRepository([
+      { repositoryKey: 'shared-lib', relativePath: 'README.md' },
+      { repositoryKey: 'agent-web', relativePath: 'docs/design.md' },
+      { repositoryKey: 'shared-lib', relativePath: 'src/App.java' },
+      { repositoryKey: 'agent-web', relativePath: 'README.md' },
+    ])).toEqual([
+      {
+        repositoryKey: 'shared-lib',
+        documents: [
+          { repositoryKey: 'shared-lib', relativePath: 'README.md' },
+          { repositoryKey: 'shared-lib', relativePath: 'src/App.java' },
+        ],
+      },
+      {
+        repositoryKey: 'agent-web',
+        documents: [
+          { repositoryKey: 'agent-web', relativePath: 'docs/design.md' },
+          { repositoryKey: 'agent-web', relativePath: 'README.md' },
+        ],
+      },
+    ]);
+  });
+
   it('accepts only repository-scoped POSIX relative document paths', () => {
     expect(normalizeDocumentReference(README)).toEqual(README);
     expect(normalizeDocumentReference({

@@ -121,6 +121,25 @@ public final class PhaseHandoff {
         version++;
     }
 
+    /**
+     * 将当前精确版本作为下游阶段首次接收的来源事实。
+     *
+     * <p>调用方传入的版本来自用户预览；若预览后 Handoff 已更新，必须以并发冲突拒绝，
+     * 不能把用户未确认的新内容静默注入 Run。</p>
+     */
+    public HandoffReception acceptInto(
+            WorkbenchPhase targetPhase, long expectedSourceVersion,
+            OwnerReference actor, Instant acceptedAt) {
+        if (expectedSourceVersion != version) {
+            throw new WorkbenchDomainException(
+                    WorkbenchErrorCode.VERSION_CONFLICT,
+                    "handoff source changed after downstream preview");
+        }
+        return HandoffReception.accept(
+                workbenchId, targetPhase, sourcePhase, version, contentHash,
+                actor, acceptedAt);
+    }
+
     private void apply(HandoffContent content) {
         this.summary = content.summary;
         this.decisions = content.decisions;

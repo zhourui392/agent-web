@@ -101,6 +101,7 @@ public final class RuntimeCommandFactory {
         if (ignoreRules) {
             command.add("--ignore-rules");
         }
+        addOverride(command, "allow_login_shell=false");
         Collections.addAll(command, "--ephemeral", "--json");
         return command;
     }

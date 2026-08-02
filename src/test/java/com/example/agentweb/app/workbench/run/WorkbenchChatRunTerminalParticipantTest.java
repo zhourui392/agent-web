@@ -17,6 +17,13 @@ import com.example.agentweb.domain.workbench.OwnerReference;
 import com.example.agentweb.domain.workbench.PromptPartSnapshot;
 import com.example.agentweb.domain.workbench.RunMode;
 import com.example.agentweb.domain.workbench.RuntimeEnforcementSnapshot;
+import com.example.agentweb.domain.workbench.UploadedAttachmentBinding;
+import com.example.agentweb.domain.workbench.UploadedAttachmentContentSignature;
+import com.example.agentweb.domain.workbench.UploadedAttachmentPolicy;
+import com.example.agentweb.domain.workbench.UploadedConversationAttachment;
+import com.example.agentweb.domain.workbench.UploadedConversationAttachmentStatus;
+import com.example.agentweb.domain.workbench.UploadedConversationAttachmentRepository;
+import com.example.agentweb.domain.workbench.VerifiedUploadedConversationAttachment;
 import com.example.agentweb.domain.workbench.Workbench;
 import com.example.agentweb.domain.workbench.WorkbenchDomainException;
 import com.example.agentweb.domain.workbench.WorkbenchErrorCode;
@@ -67,6 +74,7 @@ class WorkbenchChatRunTerminalParticipantTest {
 
     private WorkbenchRunSnapshotRepository snapshotRepository;
     private WorkbenchRepository workbenchRepository;
+    private UploadedConversationAttachmentRepository attachmentRepository;
     private ChatRunRepository runRepository;
     private ChatRunEventAppender eventAppender;
     private WorkbenchTelemetry telemetry;
@@ -76,11 +84,14 @@ class WorkbenchChatRunTerminalParticipantTest {
     void setUp() {
         snapshotRepository = mock(WorkbenchRunSnapshotRepository.class);
         workbenchRepository = mock(WorkbenchRepository.class);
+        attachmentRepository = mock(
+                UploadedConversationAttachmentRepository.class);
         runRepository = mock(ChatRunRepository.class);
         eventAppender = mock(ChatRunEventAppender.class);
         telemetry = mock(WorkbenchTelemetry.class);
         participant = new WorkbenchChatRunTerminalParticipant(
                 snapshotRepository, workbenchRepository,
+                attachmentRepository,
                 runRepository, eventAppender, telemetry);
     }
 
@@ -131,6 +142,40 @@ class WorkbenchChatRunTerminalParticipantTest {
 
         verifyNoInteractions(workbenchRepository);
         verifyNoInteractions(runRepository, eventAppender, telemetry);
+    }
+
+    @Test
+    void terminalRunShouldReleaseBoundUploadedAttachmentForCleanup() {
+        Workbench workbench = preparedWorkbench(WORKBENCH_ID, "run-1");
+        UploadedAttachmentPolicy policy = UploadedAttachmentPolicy.standard(
+                1024L, 16, Duration.ofHours(24), Duration.ofHours(2));
+        UploadedAttachmentBinding binding = new UploadedAttachmentBinding(
+                OWNER, WORKBENCH_ID, WorkbenchPhase.IMPLEMENT_TEST,
+                "conversation-implement", 0);
+        UploadedConversationAttachment attachment =
+                UploadedConversationAttachment.upload(
+                        "attachment-1", binding, "design.md",
+                        "text/markdown",
+                        UploadedAttachmentContentSignature.TEXT,
+                        64L, repeat('7'), repeat('8'), policy, NOW);
+        VerifiedUploadedConversationAttachment verified =
+                attachment.verifyForRun(binding, repeat('7'), NOW.plusSeconds(1));
+        attachment.bindToRun(verified, "run-1", NOW.plusSeconds(2), policy);
+        WorkbenchRunSnapshot snapshot = snapshot(
+                WORKBENCH_ID, "run-1", verified);
+        when(snapshotRepository.findByRunId("run-1"))
+                .thenReturn(Optional.of(snapshot));
+        when(workbenchRepository.findById(WORKBENCH_ID))
+                .thenReturn(Optional.of(workbench));
+        when(attachmentRepository.findById("attachment-1"))
+                .thenReturn(Optional.of(attachment));
+
+        participant.onFirstTerminal(
+                ChatRunId.of("run-1"), NOW.plusSeconds(3));
+
+        assertEquals(UploadedConversationAttachmentStatus.RELEASE_PENDING,
+                attachment.getStatus());
+        verify(attachmentRepository).update(attachment, 1L);
     }
 
     @Test
@@ -240,6 +285,12 @@ class WorkbenchChatRunTerminalParticipantTest {
 
     private static WorkbenchRunSnapshot snapshot(
             WorkbenchId workbenchId, String runId) {
+        return snapshot(workbenchId, runId, null);
+    }
+
+    private static WorkbenchRunSnapshot snapshot(
+            WorkbenchId workbenchId, String runId,
+            VerifiedUploadedConversationAttachment uploaded) {
         RepositoryScope scope = repositoryScope();
         return WorkbenchRunSnapshot.create(
                 runId, workbenchId, WorkbenchPhase.IMPLEMENT_TEST,
@@ -253,6 +304,9 @@ class WorkbenchChatRunTerminalParticipantTest {
                 RuntimeEnforcementSnapshot.modify(
                         "CODEX", "0.42", scope.getScopeHash(), "agent-web",
                         Collections.singletonList("agent-web"), 1800L, 8388608L),
+                Collections.emptyList(),
+                uploaded == null ? Collections.emptyList()
+                        : Collections.singletonList(uploaded),
                 null, NOW.plusSeconds(2));
     }
 

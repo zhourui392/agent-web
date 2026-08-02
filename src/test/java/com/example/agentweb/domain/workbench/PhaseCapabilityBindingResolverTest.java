@@ -90,6 +90,71 @@ class PhaseCapabilityBindingResolverTest {
     }
 
     @Test
+    void shouldUseRepositoryTechnologyFactsToNarrowOptionalSkills() {
+        PhaseCapabilityProfile profile = profile(
+                optional("java-specialist", PhaseCapabilityType.SKILL),
+                optional("general-analysis", PhaseCapabilityType.SKILL));
+        PhaseCapabilityBindingResolver resolver = resolver(
+                rules(), skills(
+                        skillWithTags("java-specialist", strings("java")),
+                        skillWithTags(
+                                "general-analysis",
+                                Collections.<String>emptySet())),
+                mcpServers());
+        WorkspaceDevelopmentContext pythonContext =
+                WorkspaceDevelopmentContext.create(
+                        repeat('a'), "agent-web",
+                        Collections.singletonList(
+                                new RepositoryDevelopmentContextClassifier()
+                                        .classify("agent-web", stringsOfMarkers(
+                                                RepositoryDevelopmentMarker
+                                                        .PYPROJECT_TOML))));
+
+        ResolvedCapabilityBinding binding = resolver.resolve(
+                profile, CapabilityOverride.empty(),
+                PhaseCapabilityResolutionPolicy.forRun(
+                        POLICY_VERSION, RunMode.DISCUSS_READ_ONLY,
+                        CODEX, CODEX_COMPATIBILITY,
+                        Collections.singleton(SkillTrustSource.PLATFORM),
+                        pythonContext));
+
+        assertEquals(Collections.singletonList("general-analysis"),
+                skillIds(binding));
+        assertEquals("OPTIONAL_SKILL_TECHNOLOGY_MISMATCH",
+                rejectionReason(binding, "java-specialist"));
+    }
+
+    @Test
+    void shouldKeepPlatformDefaultSkillWhenRepositoryHasNoTechnologyMarker() {
+        PhaseCapabilityProfile profile = profile(
+                optional("java-specialist", PhaseCapabilityType.SKILL));
+        PhaseCapabilityBindingResolver resolver = resolver(
+                rules(), skills(skillWithTags(
+                        "java-specialist", strings("java"))),
+                mcpServers());
+        WorkspaceDevelopmentContext unknownContext =
+                WorkspaceDevelopmentContext.create(
+                        repeat('a'), "agent-web",
+                        Collections.singletonList(
+                                new RepositoryDevelopmentContextClassifier()
+                                        .classify("agent-web", stringsOfMarkers(
+                                                RepositoryDevelopmentMarker
+                                                        .README_MARKDOWN))));
+
+        ResolvedCapabilityBinding binding = resolver.resolve(
+                profile, CapabilityOverride.empty(),
+                PhaseCapabilityResolutionPolicy.forRun(
+                        POLICY_VERSION, RunMode.DISCUSS_READ_ONLY,
+                        CODEX, CODEX_COMPATIBILITY,
+                        Collections.singleton(SkillTrustSource.PLATFORM),
+                        unknownContext));
+
+        assertEquals(Collections.singletonList("java-specialist"),
+                skillIds(binding));
+        assertTrue(binding.getRejected().isEmpty());
+    }
+
+    @Test
     void shouldHonorExplicitEmptyOptionalMcpSelectionWithoutRemovingRequiredMcp() {
         // Given
         PhaseCapabilityProfile profile = profile(
@@ -1045,6 +1110,23 @@ class PhaseCapabilityBindingResolverTest {
                 Collections.<String>emptySet());
     }
 
+    private static SkillPackage skillWithTags(
+            String id, Set<String> technologyTags) {
+        SkillManifest manifest = new SkillManifest(
+                id, "1.0.0", "Skill " + id, strings(USE_CASE),
+                technologyTags, Collections.<String>emptySet(),
+                "SKILL.md", Collections.<String>emptySet(),
+                Collections.<SkillDependency>emptyList(),
+                Collections.<String>emptySet(), strings(CODEX),
+                SkillTrustSource.PLATFORM,
+                Collections.<CapabilityRequest>emptyList());
+        return new SkillPackage(
+                manifest,
+                CanonicalHashing.sha256("skill-package:" + id + ":1.0.0"),
+                "# Skill " + id,
+                Collections.<String, String>emptyMap());
+    }
+
     private static SkillPackage skill(
             String id, String version, SkillTrustSource trustSource,
             Set<String> runtimes, List<SkillDependency> dependencies,
@@ -1101,6 +1183,18 @@ class PhaseCapabilityBindingResolverTest {
 
     private static Set<String> strings(String... values) {
         return new LinkedHashSet<String>(Arrays.asList(values));
+    }
+
+    private static Set<RepositoryDevelopmentMarker> stringsOfMarkers(
+            RepositoryDevelopmentMarker... values) {
+        return new LinkedHashSet<RepositoryDevelopmentMarker>(
+                Arrays.asList(values));
+    }
+
+    private static String repeat(char value) {
+        char[] content = new char[64];
+        Arrays.fill(content, value);
+        return new String(content);
     }
 
     private static void assertRequiredUnavailable(

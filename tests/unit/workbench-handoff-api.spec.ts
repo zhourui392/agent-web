@@ -7,6 +7,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createWorkbenchHandoffApiClient,
+  type PhaseHandoffCandidateView,
   type PhaseHandoffView,
   type WorkbenchHandoffFetch,
 } from "../../frontend/js/api/workbench-handoff.js";
@@ -48,6 +49,73 @@ function jsonResponse(status: number, body: unknown): Response {
 }
 
 describe("workbench handoff API", () => {
+  it("generates a browser-only candidate from the phase-scoped endpoint and projects only safe fields", async () => {
+    const candidate = {
+      baseHandoffVersion: 3,
+      conversationGeneration: 2,
+      sourceMessageCount: 17,
+      strategy: "DETERMINISTIC_PUBLIC_MESSAGES_V1",
+      summary: "候选摘要",
+      decisions: [{ text: "候选决定", rationale: null }],
+      openQuestions: [{ text: "候选问题", ownerHint: "产品" }],
+      pinnedFiles: [
+        { repositoryKey: "agent-web", relativePath: "docs/design.md" },
+      ],
+      referencedRuns: [
+        {
+          runId: "run-1",
+          phase: "REQUIREMENT_ANALYSIS",
+          safeSummary: "安全摘要",
+        },
+      ],
+      ownerId: "owner-secret",
+      rawToolOutput: "token=secret",
+      absolutePath: "/home/alex/private",
+    };
+    const fetcher = vi
+      .fn<WorkbenchHandoffFetch>()
+      .mockResolvedValue(jsonResponse(200, candidate));
+
+    const result = await createWorkbenchHandoffApiClient(
+      fetcher,
+    ).generateHandoffCandidate("wb/一", "REQUIREMENT_ANALYSIS");
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/workbenches/wb%2F%E4%B8%80/phases/REQUIREMENT_ANALYSIS/handoff-candidates",
+      expect.objectContaining({
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: "{}",
+      }),
+    );
+    expect(result).toEqual<PhaseHandoffCandidateView>({
+      baseHandoffVersion: 3,
+      conversationGeneration: 2,
+      sourceMessageCount: 17,
+      strategy: "DETERMINISTIC_PUBLIC_MESSAGES_V1",
+      summary: "候选摘要",
+      decisions: [{ text: "候选决定", rationale: null }],
+      openQuestions: [{ text: "候选问题", ownerHint: "产品" }],
+      pinnedFiles: [
+        { repositoryKey: "agent-web", relativePath: "docs/design.md" },
+      ],
+      referencedRuns: [
+        {
+          runId: "run-1",
+          phase: "REQUIREMENT_ANALYSIS",
+          safeSummary: "安全摘要",
+        },
+      ],
+    });
+    expect(JSON.stringify(result)).not.toMatch(
+      /ownerId|rawToolOutput|absolutePath|private|token|secret/i,
+    );
+  });
+
   it("accepts the initial handoff and reception projections at version zero", async () => {
     const initialFetch = vi
       .fn<WorkbenchHandoffFetch>()
@@ -397,6 +465,47 @@ describe("workbench handoff API", () => {
         status: 200,
         code: "WORKBENCH_HANDOFF_RESPONSE_INVALID",
         message: "Workbench handoff request failed",
+      });
+    }
+  });
+
+  it("fails closed on malformed candidate metadata or unsafe candidate content", async () => {
+    const base = {
+      baseHandoffVersion: 3,
+      conversationGeneration: 2,
+      sourceMessageCount: 17,
+      strategy: "DETERMINISTIC_PUBLIC_MESSAGES_V1",
+      summary: "候选摘要",
+      decisions: [],
+      openQuestions: [],
+      pinnedFiles: [],
+      referencedRuns: [],
+    };
+    const malformed = [
+      { ...base, baseHandoffVersion: -1 },
+      { ...base, conversationGeneration: 1.5 },
+      { ...base, sourceMessageCount: 51 },
+      { ...base, strategy: "UNTRUSTED_AGENT" },
+      { ...base, summary: "bad\u0000value" },
+      {
+        ...base,
+        pinnedFiles: [
+          { repositoryKey: "agent-web", relativePath: "../../secret" },
+        ],
+      },
+    ];
+
+    for (const body of malformed) {
+      const client = createWorkbenchHandoffApiClient(
+        vi
+          .fn<WorkbenchHandoffFetch>()
+          .mockResolvedValue(jsonResponse(200, body)),
+      );
+      await expect(
+        client.generateHandoffCandidate("wb-1", "REQUIREMENT_ANALYSIS"),
+      ).rejects.toMatchObject({
+        status: 200,
+        code: "WORKBENCH_HANDOFF_RESPONSE_INVALID",
       });
     }
   });

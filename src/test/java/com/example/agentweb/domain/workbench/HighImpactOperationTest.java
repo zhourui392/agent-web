@@ -100,6 +100,37 @@ class HighImpactOperationTest {
     }
 
     @Test
+    void proposalShouldRejectArchivedScopeEscapeAndCredentialSummary() {
+        Workbench workbench = newWorkbench();
+        CommitTarget outside = CommitTarget.create(
+                "outside", "master", gitHead('a'), repeat('b'),
+                Collections.singletonList(
+                        DocumentReference.of("outside", "README.md")),
+                repeat('c'), "feat: outside");
+        assertThrows(IllegalArgumentException.class,
+                () -> POLICY.propose(
+                        workbench, "operation-outside",
+                        WorkbenchRunReference.of(
+                                "run-1", workbench.getId(),
+                                WorkbenchPhase.IMPLEMENT_TEST, "开发完成"),
+                        outside, "人工预览", OWNER, NOW));
+        assertThrows(IllegalArgumentException.class,
+                () -> POLICY.propose(
+                        workbench, "operation-secret",
+                        WorkbenchRunReference.of(
+                                "run-1", workbench.getId(),
+                                WorkbenchPhase.IMPLEMENT_TEST, "开发完成"),
+                        commitTarget(), "api_key=sk-super-secret-value",
+                        OWNER, NOW));
+
+        workbench.archive(OWNER, NOW.minusSeconds(1));
+        WorkbenchDomainException archived = assertThrows(
+                WorkbenchDomainException.class,
+                () -> proposeCommit(workbench));
+        assertEquals(WorkbenchErrorCode.ARCHIVED, archived.getCode());
+    }
+
+    @Test
     void decisionShouldRequireTheExactPersistedOperationVersion() {
         HighImpactOperation operation = proposeCommit(newWorkbench());
 

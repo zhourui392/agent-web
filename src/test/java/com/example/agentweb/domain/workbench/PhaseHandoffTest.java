@@ -227,6 +227,60 @@ class PhaseHandoffTest {
     }
 
     @Test
+    void initialReceptionShouldRequireCurrentLatestBeforeTransactionalInsert() {
+        PhaseHandoff latest = newHandoff(
+                Collections.<DocumentReference>emptyList(),
+                Collections.<WorkbenchRunReference>emptyList());
+        HandoffReception candidate = latest.acceptInto(
+                WorkbenchPhase.SOLUTION_DESIGN, 0L, OWNER,
+                NOW.plusSeconds(1));
+
+        assertTrue(candidate.requiresPersistenceAgainst(null, latest));
+
+        latest.update(
+                0L, "预览后发生变化",
+                Collections.<Decision>emptyList(),
+                Collections.<OpenQuestion>emptyList(),
+                Collections.<DocumentReference>emptyList(),
+                Collections.<WorkbenchRunReference>emptyList(),
+                scope(), OWNER, NOW.plusSeconds(2));
+        WorkbenchDomainException conflict = assertThrows(
+                WorkbenchDomainException.class,
+                () -> candidate.requiresPersistenceAgainst(null, latest));
+        assertEquals(WorkbenchErrorCode.VERSION_CONFLICT,
+                conflict.getCode());
+    }
+
+    @Test
+    void transactionalReceptionShouldKeepMatchingPersistedHistory() {
+        HandoffReception candidate = HandoffReception.accept(
+                WORKBENCH_ID, WorkbenchPhase.SOLUTION_DESIGN,
+                WorkbenchPhase.REQUIREMENT_ANALYSIS, 2L, repeat('d'),
+                OWNER, NOW);
+        HandoffReception persisted = HandoffReception.accept(
+                WORKBENCH_ID, WorkbenchPhase.SOLUTION_DESIGN,
+                WorkbenchPhase.REQUIREMENT_ANALYSIS, 2L, repeat('d'),
+                OwnerReference.of("user-2", "Other"), NOW.minusSeconds(1));
+        PhaseHandoff unrelatedLatest = newHandoff(
+                Collections.<DocumentReference>emptyList(),
+                Collections.<WorkbenchRunReference>emptyList());
+
+        assertFalse(candidate.requiresPersistenceAgainst(
+                persisted, unrelatedLatest));
+
+        HandoffReception different = HandoffReception.accept(
+                WORKBENCH_ID, WorkbenchPhase.SOLUTION_DESIGN,
+                WorkbenchPhase.REQUIREMENT_ANALYSIS, 3L, repeat('e'),
+                OWNER, NOW);
+        WorkbenchDomainException conflict = assertThrows(
+                WorkbenchDomainException.class,
+                () -> candidate.requiresPersistenceAgainst(
+                        different, unrelatedLatest));
+        assertEquals(WorkbenchErrorCode.VERSION_CONFLICT,
+                conflict.getCode());
+    }
+
+    @Test
     void handoffShouldRejectCommonSecretLikeMaterialWithoutEchoingIt() {
         String[] secretLikeValues = {
                 "api_key=sk-live-Abcdef1234567890",

@@ -1,6 +1,8 @@
 package com.example.agentweb.infra.runtime;
 
 import com.example.agentweb.app.runtime.port.AgentExecutionPlan;
+import com.example.agentweb.app.runtime.port.RuntimeAttachmentExpectation;
+import com.example.agentweb.app.workbench.attachment.port.UploadedConversationAttachmentStorage;
 import com.example.agentweb.domain.shared.CanonicalHashing;
 import com.example.agentweb.domain.runtime.RuntimeCommandPolicy;
 import lombok.Getter;
@@ -26,22 +28,43 @@ public final class RuntimeWorkspaceMaterializer {
 
     private static final java.util.Set<PosixFilePermission> DIRECTORY_PERMISSIONS =
             PosixFilePermissions.fromString("rwx------");
+    private static final java.util.Set<PosixFilePermission>
+            ATTACHMENT_DIRECTORY_PERMISSIONS =
+            PosixFilePermissions.fromString("r-x------");
 
     private final Path temporaryRoot;
     private final RuntimeExecPolicyMaterializer execPolicyMaterializer;
+    private final UploadedConversationAttachmentStorage attachmentStorage;
 
     public RuntimeWorkspaceMaterializer(Path temporaryRoot) {
         this(temporaryRoot, new RuntimeExecPolicyMaterializer(
-                RuntimeCommandPolicy.platformDefault()));
+                RuntimeCommandPolicy.platformDefault()), null);
+    }
+
+    public RuntimeWorkspaceMaterializer(
+            Path temporaryRoot,
+            UploadedConversationAttachmentStorage attachmentStorage) {
+        this(temporaryRoot, new RuntimeExecPolicyMaterializer(
+                        RuntimeCommandPolicy.platformDefault()),
+                Objects.requireNonNull(
+                        attachmentStorage, "attachmentStorage"));
     }
 
     RuntimeWorkspaceMaterializer(
             Path temporaryRoot,
             RuntimeExecPolicyMaterializer execPolicyMaterializer) {
+        this(temporaryRoot, execPolicyMaterializer, null);
+    }
+
+    RuntimeWorkspaceMaterializer(
+            Path temporaryRoot,
+            RuntimeExecPolicyMaterializer execPolicyMaterializer,
+            UploadedConversationAttachmentStorage attachmentStorage) {
         this.temporaryRoot = Objects.requireNonNull(temporaryRoot, "temporaryRoot")
                 .toAbsolutePath().normalize();
         this.execPolicyMaterializer = Objects.requireNonNull(
                 execPolicyMaterializer, "execPolicyMaterializer");
+        this.attachmentStorage = attachmentStorage;
     }
 
     public MaterializedWorkspace materialize(AgentExecutionPlan plan) {
@@ -66,6 +89,7 @@ public final class RuntimeWorkspaceMaterializer {
                 + CanonicalHashing.sha256(plan.getExecutionIdentity().getExecutionId())
                 .substring(0, 24));
         Path isolatedHome = executionRoot.resolve("home");
+        Path attachmentRoot = executionRoot.resolve("attachments");
         try {
             Files.createDirectories(temporaryRoot);
             secureDirectory(temporaryRoot);
@@ -73,12 +97,36 @@ public final class RuntimeWorkspaceMaterializer {
             secureDirectory(executionRoot);
             Files.createDirectory(isolatedHome);
             secureDirectory(isolatedHome);
+            Files.createDirectory(attachmentRoot);
+            secureDirectory(attachmentRoot);
             execPolicyMaterializer.materialize(isolatedHome);
-            return new MaterializedWorkspace(executionRoot, isolatedHome, primary,
-                    readable, writable);
-        } catch (IOException ex) {
+            copyUploadedAttachments(plan, attachmentRoot);
+            secureAttachmentDirectory(attachmentRoot);
+            return new MaterializedWorkspace(
+                    executionRoot, isolatedHome, attachmentRoot,
+                    primary, readable, writable);
+        } catch (IOException | RuntimeException ex) {
             new RuntimeCleanup().cleanup(executionRoot, null);
-            throw new IllegalStateException("runtime workspace could not be materialized", ex);
+            throw new IllegalStateException(
+                    "runtime workspace could not be materialized");
+        }
+    }
+
+    private void copyUploadedAttachments(
+            AgentExecutionPlan plan, Path attachmentRoot) {
+        for (RuntimeAttachmentExpectation expectation
+                : plan.getAttachmentExpectations()) {
+            if (!expectation.isUploadedConversation()) {
+                continue;
+            }
+            if (attachmentStorage == null) {
+                throw new IllegalStateException(
+                        "uploaded attachment storage is unavailable");
+            }
+            attachmentStorage.copyVerified(
+                    expectation.getStorageKey(),
+                    attachmentRoot.resolve(expectation.getRuntimeFileName()),
+                    expectation.getContentHash(), expectation.getSize());
         }
     }
 
@@ -128,6 +176,15 @@ public final class RuntimeWorkspaceMaterializer {
         }
     }
 
+    private void secureAttachmentDirectory(Path path) throws IOException {
+        try {
+            Files.setPosixFilePermissions(
+                    path, ATTACHMENT_DIRECTORY_PERMISSIONS);
+        } catch (UnsupportedOperationException ignored) {
+            // Windows 权限由运行服务账户和 Codex Sandbox 共同承担。
+        }
+    }
+
     /**
      * 一次 Runtime 启动所绑定的不可变真实目录布局。
      */
@@ -136,15 +193,19 @@ public final class RuntimeWorkspaceMaterializer {
 
         private final Path executionRoot;
         private final Path isolatedHome;
+        private final Path attachmentRoot;
         private final Path primaryRepositoryRoot;
         private final List<Path> readableRoots;
         private final List<Path> writableRoots;
 
-        private MaterializedWorkspace(Path executionRoot, Path isolatedHome,
+        private MaterializedWorkspace(
+                                      Path executionRoot, Path isolatedHome,
+                                      Path attachmentRoot,
                                       Path primaryRepositoryRoot,
                                       List<Path> readableRoots, List<Path> writableRoots) {
             this.executionRoot = executionRoot;
             this.isolatedHome = isolatedHome;
+            this.attachmentRoot = attachmentRoot;
             this.primaryRepositoryRoot = primaryRepositoryRoot;
             this.readableRoots = Collections.unmodifiableList(
                     new ArrayList<Path>(readableRoots));

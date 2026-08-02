@@ -225,6 +225,24 @@ class ChatRunRecoveryServiceTest {
         verify(lifecycleService).interrupt(run.getId(), RESTART_MESSAGE);
     }
 
+    @Test
+    void explicitSingleRunReconciliationShouldNotScanOtherActiveRuns() {
+        ChatRun run = running("run-explicit-reconcile");
+        when(runRepository.findById(run.getId()))
+                .thenReturn(Optional.of(run));
+        when(handleStore.find(run.getId()))
+                .thenReturn(Optional.<RuntimeHandle>empty());
+
+        ChatRunRecoveryDecision decision =
+                service.reconcileOne(run.getId());
+
+        assertEquals(ChatRunRecoveryDecision.INTERRUPT, decision);
+        verifyNoInteractions(queryService);
+        verify(lifecycleService).interrupt(run.getId(), RESTART_MESSAGE);
+        verify(recoveryObserver).reconciled(
+                run, ChatRunRecoveryDecision.INTERRUPT);
+    }
+
     private void active(ChatRun run) {
         when(queryService.findActiveRunIds()).thenReturn(
                 Collections.singletonList(run.getId().getValue()));

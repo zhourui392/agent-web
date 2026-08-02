@@ -16,9 +16,17 @@ import com.example.agentweb.domain.chatrun.ChatRunId;
 import com.example.agentweb.domain.chatrun.ChatRunRepository;
 import com.example.agentweb.domain.chatrun.ExecutionContextReference;
 import com.example.agentweb.domain.chatrun.RunOrigin;
+import com.example.agentweb.domain.workbench.HandoffReception;
 import com.example.agentweb.domain.workbench.HandoffReceptionRepository;
 import com.example.agentweb.domain.workbench.OwnerReference;
+import com.example.agentweb.domain.workbench.PhaseHandoff;
+import com.example.agentweb.domain.workbench.PhaseHandoffRepository;
 import com.example.agentweb.domain.workbench.PhaseConversationProvisioning;
+import com.example.agentweb.domain.workbench.UploadedAttachmentBinding;
+import com.example.agentweb.domain.workbench.UploadedAttachmentPolicy;
+import com.example.agentweb.domain.workbench.UploadedConversationAttachment;
+import com.example.agentweb.domain.workbench.UploadedConversationAttachmentRepository;
+import com.example.agentweb.domain.workbench.VerifiedUploadedConversationAttachment;
 import com.example.agentweb.domain.workbench.Workbench;
 import com.example.agentweb.domain.workbench.WorkbenchDomainException;
 import com.example.agentweb.domain.workbench.WorkbenchErrorCode;
@@ -50,7 +58,10 @@ public class WorkbenchRunSubmissionCommitter {
     private final WorkspaceSnapshotRepository workspaceSnapshotRepository;
     private final WorkbenchRunSnapshotRepository snapshotRepository;
     private final WorkbenchRunPromptPayloadRepository promptRepository;
+    private final PhaseHandoffRepository handoffRepository;
     private final HandoffReceptionRepository receptionRepository;
+    private final UploadedConversationAttachmentRepository attachmentRepository;
+    private final UploadedAttachmentPolicy attachmentPolicy;
     private final SessionRepository sessionRepository;
     private final ChatRunRepository runRepository;
     private final ChatRunEventAppender eventAppender;
@@ -66,7 +77,10 @@ public class WorkbenchRunSubmissionCommitter {
             WorkspaceSnapshotRepository workspaceSnapshotRepository,
             WorkbenchRunSnapshotRepository snapshotRepository,
             WorkbenchRunPromptPayloadRepository promptRepository,
+            PhaseHandoffRepository handoffRepository,
             HandoffReceptionRepository receptionRepository,
+            UploadedConversationAttachmentRepository attachmentRepository,
+            UploadedAttachmentPolicy attachmentPolicy,
             SessionRepository sessionRepository,
             ChatRunRepository runRepository,
             ChatRunEventAppender eventAppender,
@@ -84,8 +98,14 @@ public class WorkbenchRunSubmissionCommitter {
                 snapshotRepository, "snapshotRepository");
         this.promptRepository = Objects.requireNonNull(
                 promptRepository, "promptRepository");
+        this.handoffRepository = Objects.requireNonNull(
+                handoffRepository, "handoffRepository");
         this.receptionRepository = Objects.requireNonNull(
                 receptionRepository, "receptionRepository");
+        this.attachmentRepository = Objects.requireNonNull(
+                attachmentRepository, "attachmentRepository");
+        this.attachmentPolicy = Objects.requireNonNull(
+                attachmentPolicy, "attachmentPolicy");
         this.sessionRepository = Objects.requireNonNull(
                 sessionRepository, "sessionRepository");
         this.runRepository = Objects.requireNonNull(
@@ -147,6 +167,8 @@ public class WorkbenchRunSubmissionCommitter {
         if (existing.isPresent()) {
             return replay(workbench, actor, command, existing.get());
         }
+        boolean persistHandoffReception = requireCurrentHandoffReception(
+                prepared);
         requireCapacity();
         PhaseConversationProvisioning provisioning = obscureOwner(() ->
                 workbench.planConversationEnsure(
@@ -170,6 +192,8 @@ public class WorkbenchRunSubmissionCommitter {
                 ExecutionContextReference.of(
                         provisioning.getContextId(), candidate.getRunId()),
                 now);
+        bindUploadedAttachments(
+                prepared, provisioning, candidate.getRunId(), now);
         eventAppender.appendToNewRun(
                 run, Collections.singletonList(
                         new ChatRunEventDraft(
@@ -180,7 +204,7 @@ public class WorkbenchRunSubmissionCommitter {
         workspaceSnapshotRepository.add(prepared.getWorkspaceSnapshot());
         snapshotRepository.add(candidate);
         promptRepository.add(prepared.getPromptPayload());
-        if (prepared.getHandoffReception() != null) {
+        if (persistHandoffReception) {
             receptionRepository.save(prepared.getHandoffReception());
         }
         workbenchRepository.update(workbench);
@@ -192,6 +216,46 @@ public class WorkbenchRunSubmissionCommitter {
         });
         return WorkbenchRunSubmissionResult.from(
                 run, candidate, workbench, false);
+    }
+
+    private void bindUploadedAttachments(
+            PreparedWorkbenchRun prepared,
+            PhaseConversationProvisioning provisioning,
+            String runId, Instant now) {
+        UploadedAttachmentBinding currentBinding =
+                new UploadedAttachmentBinding(
+                        provisioning.getOwner(), provisioning.getWorkbenchId(),
+                        provisioning.getPhase(),
+                        provisioning.requireCurrentConversationId(),
+                        provisioning.getCurrentConversationGeneration());
+        for (VerifiedUploadedConversationAttachment verified
+                : prepared.getVerifiedUploadedAttachments()) {
+            verified.requireBinding(currentBinding);
+            UploadedConversationAttachment attachment = attachmentRepository
+                    .findById(verified.getAttachmentId())
+                    .orElseThrow(WorkbenchDomainException::runBindingCorrupted);
+            long expectedVersion = attachment.getVersion();
+            attachment.bindToRun(
+                    verified, runId, now, attachmentPolicy);
+            attachmentRepository.update(attachment, expectedVersion);
+        }
+    }
+
+    private boolean requireCurrentHandoffReception(
+            PreparedWorkbenchRun prepared) {
+        HandoffReception candidate = prepared.getHandoffReception();
+        if (candidate == null) {
+            return false;
+        }
+        HandoffReception persisted = receptionRepository.find(
+                                candidate.getWorkbenchId(),
+                                candidate.getTargetPhase(),
+                                candidate.getSourcePhase())
+                        .orElse(null);
+        PhaseHandoff latest = handoffRepository.find(
+                        candidate.getWorkbenchId(), candidate.getSourcePhase())
+                .orElse(null);
+        return candidate.requiresPersistenceAgainst(persisted, latest);
     }
 
     private WorkbenchRunSubmissionResult replay(

@@ -19,11 +19,13 @@ type FixtureOptions = {
   archived?: boolean;
   activeRun?: { phase: Phase; runId: string; runMode?: 'DISCUSS_READ_ONLY' | 'MODIFY_WORKSPACE' };
   operation?: ReturnType<typeof proposedOperation>;
+  noRuns?: boolean;
   onApiRequest?: (request: Request) => void;
   onSse?: (route: Route, request: Request) => Promise<void>;
   documentTreeRepositoryKey?: string;
   documentTreeFailure?: boolean;
   documentContent?: string;
+  uploadFailures?: number;
 };
 
 function phaseLabel(phase: Phase): string {
@@ -252,8 +254,14 @@ function frame(id: number, event: string, data: string): string {
   return `id: ${id}\nevent: ${event}\ndata: ${data}\n\n`;
 }
 
+function multipartFileName(request: Request): string {
+  const body = request.postDataBuffer()?.toString('utf8') ?? '';
+  const match = /filename="([^"\r\n]+)"/.exec(body);
+  return match?.[1]?.trim() || 'attachment.txt';
+}
+
 async function installWorkbenchFixture(page: Page, options: FixtureOptions = {}): Promise<void> {
-  let operation = options.operation ?? null;
+  let operation: Record<string, unknown> | null = options.operation ?? null;
   let opinion: null | {
     phase: 'REVIEW_REFACTOR';
     version: number;
@@ -271,6 +279,8 @@ async function installWorkbenchFixture(page: Page, options: FixtureOptions = {})
     readOnly: boolean;
   } = null;
   let runSequence = 0;
+  let attachmentSequence = 0;
+  let remainingUploadFailures = options.uploadFailures ?? 0;
   const submittedRunPhases = new Map<string, Phase>();
   const ensuredConversations = new Map<Phase, {
     sessionId: string;
@@ -350,8 +360,90 @@ async function installWorkbenchFixture(page: Page, options: FixtureOptions = {})
       });
       return;
     }
+    if (url.pathname.endsWith('/complete') && method === 'POST') {
+      const phase = phaseFromUrl(url) ?? 'REQUIREMENT_ANALYSIS';
+      await json(route, {
+        workbenchId: WORKBENCH_ID,
+        phase,
+        phaseStatus: 'HUMAN_COMPLETED',
+        conversationId: null,
+        conversationGeneration: 0,
+        workbenchVersion: 8,
+        changed: true,
+      });
+      return;
+    }
     if (url.pathname === `/api/workbenches/${WORKBENCH_ID}/operations` && method === 'GET') {
       await json(route, operation ? [operation] : []);
+      return;
+    }
+    if (url.pathname === `/api/workbenches/${WORKBENCH_ID}/operations` && method === 'POST') {
+      const body = request.postDataJSON() as {
+        sourceRunId: string;
+        phase: Phase;
+        safeSummary: string;
+        target: Record<string, unknown> & { type: string };
+      };
+      const { type, ...requestDetails } = body.target;
+      const repositoryKeys = type === 'PRODUCTION_WRITE'
+        ? []
+        : type === 'LOCAL_DEPLOY'
+          ? body.target.repositoryTargets as string[]
+          : [body.target.repositoryKey as string];
+      const details = { ...requestDetails };
+      delete details.repositoryKey;
+      delete details.repositoryTargets;
+      if (type === 'GIT_PUSH') details.forceAllowed = false;
+      operation = {
+        operationId: 'operation-proposed-e2e',
+        sourceRunId: body.sourceRunId,
+        phase: body.phase,
+        type,
+        target: { type, repositoryKeys, details },
+        requestedPayloadHash: createHash('sha256').update(JSON.stringify(body)).digest('hex'),
+        safeSummary: body.safeSummary,
+        status: 'PROPOSED',
+        proposedAt: NOW,
+        decisionReason: null,
+        decidedAt: null,
+        authorizationExpiresAt: null,
+        preflightHash: null,
+        executionReference: null,
+        failureCode: null,
+        updatedAt: NOW,
+        version: 0,
+        executionAvailable: false,
+        executionMode: 'MANUAL_OR_DEFERRED',
+      };
+      await json(route, operation, 201);
+      return;
+    }
+    if (url.pathname.endsWith('/review-candidates') && method === 'POST') {
+      await json(route, {
+        phase: 'REVIEW_REFACTOR',
+        baseOpinionVersion: opinion?.version ?? 0,
+        conversationGeneration: 0,
+        sourceMessageCount: 2,
+        strategy: 'DETERMINISTIC_PUBLIC_REVIEW_MESSAGES_V1',
+        items: [{
+          itemId: HASH,
+          finding: 'Application 层代替聚合做业务判断',
+          impact: '规则会随入口漂移',
+          suggestedChange: '下沉领域策略',
+          affectedFiles: [{
+            repositoryKey: 'service-a',
+            relativePath: 'src/main/java/OrderService.java',
+          }],
+          suggestedTests: ['运行 Order 聚合单测'],
+        }, {
+          itemId: SECOND_HASH,
+          finding: '扩大了无关重构范围',
+          impact: '增加回归风险',
+          suggestedChange: '限制在订单子域',
+          affectedFiles: [],
+          suggestedTests: [],
+        }],
+      });
       return;
     }
     if (url.pathname.endsWith('/review-opinion') && method === 'GET') {
@@ -402,7 +494,7 @@ async function installWorkbenchFixture(page: Page, options: FixtureOptions = {})
         decisionReason: body.reason,
         decidedAt: NOW,
         updatedAt: NOW + 1,
-        version: operation.version + 1,
+        version: typeof operation.version === 'number' ? operation.version + 1 : 1,
       };
       await json(route, operation);
       return;
@@ -436,7 +528,7 @@ async function installWorkbenchFixture(page: Page, options: FixtureOptions = {})
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        headers: { ETag: '"document-v1"' },
+        headers: { ETag: `"${HASH}"` },
         body: JSON.stringify({
           reference: {
             repositoryKey: url.searchParams.get('repositoryKey'),
@@ -447,7 +539,7 @@ async function installWorkbenchFixture(page: Page, options: FixtureOptions = {})
           encoding: 'UTF-8',
           size: new TextEncoder().encode(content).byteLength,
           lastModified: NOW,
-          contentVersion: 'document-v1',
+          contentVersion: HASH,
           content,
           truncated: false,
           deleted: false,
@@ -455,10 +547,35 @@ async function installWorkbenchFixture(page: Page, options: FixtureOptions = {})
       });
       return;
     }
+    if (/\/phases\/[^/]+\/attachments$/.test(url.pathname) && method === 'POST') {
+      attachmentSequence++;
+      if (remainingUploadFailures > 0) {
+        remainingUploadFailures--;
+        await json(route, {
+          code: 'WORKBENCH_ATTACHMENT_STORAGE_UNAVAILABLE',
+          message: 'token=server-secret /home/private/should-never-render',
+        }, 503);
+        return;
+      }
+      const displayName = multipartFileName(request);
+      await json(route, {
+        attachmentId: `uploaded-e2e-${attachmentSequence}`,
+        displayName,
+        mediaType: displayName.toLowerCase().endsWith('.png') ? 'image/png' : 'text/plain',
+        size: Math.max(1, request.postDataBuffer()?.byteLength ?? 1),
+        sha256: SECOND_HASH,
+        expiresAt: new Date(NOW + 3_600_000).toISOString(),
+      }, 201);
+      return;
+    }
+    if (/\/phases\/[^/]+\/attachments\/[^/]+$/.test(url.pathname) && method === 'DELETE') {
+      await route.fulfill({ status: 204 });
+      return;
+    }
     if (url.pathname === `/api/workbenches/${WORKBENCH_ID}/runs` && method === 'GET') {
       const phase = (url.searchParams.get('phase') as Phase | null) ?? 'REQUIREMENT_ANALYSIS';
       await json(route, {
-        items: [{
+        items: options.noRuns ? [] : [{
           runId: 'run-history-e2e',
           workbenchId: WORKBENCH_ID,
           phase,
@@ -787,6 +904,69 @@ test('四阶段可任意导航，对话模式按阶段收敛且 Owner 缺失时 
   await ownerlessPage.close();
 });
 
+test('全局写 Run 只阻止第二个修改任务，未开始阶段仍可人工完成且结构化文件引用可打开', async ({ page }) => {
+  const submitted: Array<Record<string, unknown>> = [];
+  await installWorkbenchFixture(page, {
+    activeRun: {
+      phase: 'SOLUTION_DESIGN',
+      runId: 'write-run-other-phase',
+      runMode: 'MODIFY_WORKSPACE',
+    },
+    onApiRequest(request) {
+      const url = new URL(request.url());
+      if (url.pathname.endsWith('/phases/IMPLEMENT_TEST/runs')
+        && request.method() === 'POST') {
+        submitted.push(request.postDataJSON() as Record<string, unknown>);
+      }
+    },
+    async onSse(route, request) {
+      const runId = new URL(request.url()).pathname.split('/').at(-2) ?? 'run-unknown';
+      await route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        body: frame(1, 'file_changed', sseEnvelope('IMPLEMENT_TEST', runId, {
+          repositoryKey: 'service-b',
+          path: 'reports/test.log',
+          changeType: 'MODIFIED',
+          contentVersion: 'document-v2',
+        })) + frame(2, 'terminal', sseEnvelope('IMPLEMENT_TEST', runId, {
+          status: 'SUCCEEDED', failureCode: null, publicMessage: 'fixture complete',
+        })),
+      });
+    },
+  });
+  await gotoWorkbench(page);
+
+  const complete = page.getByRole('button', { name: '人工完成', exact: true });
+  await expect(complete).toBeEnabled();
+  await complete.click();
+  await expect(page.getByRole('button', { name: '重新打开', exact: true })).toBeVisible();
+
+  await page.getByRole('button', { name: /开发部署测试/ }).click();
+  await page.getByRole('button', { name: /README\.md/ }).click();
+  await page.getByTestId('workbench-run-composer').fill('仅继续分析，不启动第二个写任务');
+  await expect(page.getByTestId('workbench-write-run-blocked')).toContainText('可切换为只读讨论');
+  await expect(page.getByTestId('workbench-run-submit')).toBeDisabled();
+
+  await page.locator('.workbench-composer-mode').getByText('只读讨论', { exact: true }).click();
+  await expect(page.getByTestId('workbench-run-submit')).toBeEnabled();
+  await page.getByTestId('workbench-run-submit').click();
+  await expect.poll(() => submitted.length).toBe(1);
+  expect(submitted[0]).toEqual({
+    message: '仅继续分析，不启动第二个写任务',
+    runMode: 'DISCUSS_READ_ONLY',
+    handoffSourceVersion: 1,
+  });
+
+  const fileReference = page.getByTestId('workbench-structured-document-reference');
+  await expect(fileReference).toContainText('service-b/reports/test.log');
+  await fileReference.click();
+  await expect(page.locator('.workbench-document-viewer-heading'))
+    .toContainText('reports/test.log');
+  await expect(page.locator('.workbench-recent-document-group > strong'))
+    .toContainText(['service-b', 'service-a']);
+});
+
 test('完成态 Run 刷新后可分页恢复，并追溯本轮实际 Rules、Skills、MCP', async ({ page }) => {
   await installWorkbenchFixture(page);
   await gotoWorkbench(page);
@@ -945,6 +1125,267 @@ test('Review exact proof 绑定 MODIFY，请求变更立即失效；批准操作
   await reviewInput.fill(`${opinionText}。补充范围`);
   await expect(page.getByText('未授权修改')).toBeVisible();
   await expect(page.getByTestId('workbench-run-submit')).toBeDisabled();
+});
+
+test('显式提交类型化 Commit 提案，只创建 PROPOSED；授权仍走独立 decision', async ({ page }) => {
+  const requests: Array<{
+    path: string;
+    method: string;
+    body: Record<string, unknown> | null;
+    idempotencyKey?: string;
+    ifMatch?: string;
+  }> = [];
+  await installWorkbenchFixture(page, {
+    onApiRequest(request) {
+      const path = new URL(request.url()).pathname;
+      if (path.includes('/operations')) {
+        requests.push({
+          path,
+          method: request.method(),
+          body: request.postData() ? request.postDataJSON() as Record<string, unknown> : null,
+          idempotencyKey: request.headers()['idempotency-key'],
+          ifMatch: request.headers()['if-match'],
+        });
+      }
+    },
+  });
+  await page.addInitScript(() => {
+    localStorage.setItem('agent-web:workbench-shell:owner-e2e:wb-e2e', JSON.stringify({
+      selectedPhase: 'IMPLEMENT_TEST',
+    }));
+  });
+  await gotoWorkbench(page);
+
+  const proposalPosts = () => requests.filter(request =>
+    request.method === 'POST' && request.path === `/api/workbenches/${WORKBENCH_ID}/operations`);
+  await page.getByTestId('open-operation-proposal').click();
+  await expect(page.getByTestId('operation-proposal-form')).toBeVisible();
+  await expect(page.getByTestId('operation-selected-source-run')).toContainText('run-history-e2e');
+  expect(proposalPosts()).toHaveLength(0);
+
+  await page.getByTestId('operation-safe-summary').fill('提交 service-a 已核对的 README 变更');
+  await page.getByTestId('operation-branch').fill('feature/workbench');
+  await page.getByTestId('operation-expected-head').fill('c'.repeat(40));
+  await page.getByTestId('operation-state-hash').fill(HASH);
+  await page.getByTestId('operation-included-paths').fill('README.md');
+  const messagePreview = '  feat: cafe\u0301\n\n  add proposal  ';
+  await page.getByTestId('operation-message-preview').fill(messagePreview);
+  expect(proposalPosts()).toHaveLength(0);
+  await expect(page.getByText('Hash 不由用户填写。')).toBeVisible();
+
+  const submit = page.getByTestId('submit-operation-proposal');
+  await expect(submit).toBeEnabled();
+  await submit.click();
+  await expect.poll(() => proposalPosts().length).toBe(1);
+  await expect(page.getByTestId('operation-proposal-form')).toHaveCount(0);
+  await expect(page.getByTestId('high-impact-operation')).toContainText('待决策');
+  await expect(page.getByText('仅创建待决策提案；尚未授权，也不会自动执行。')).toBeVisible();
+
+  const proposal = proposalPosts()[0]!;
+  const proposalBody = proposal.body!;
+  const target = proposalBody.target as Record<string, unknown>;
+  const normalizedPreview = 'feat: caf\u00e9\n\n  add proposal';
+  expect(proposal.idempotencyKey).toBeTruthy();
+  expect(Object.keys(proposalBody).sort()).toEqual(['phase', 'safeSummary', 'sourceRunId', 'target']);
+  expect(proposalBody).toMatchObject({
+    sourceRunId: 'run-history-e2e',
+    phase: 'IMPLEMENT_TEST',
+    safeSummary: '提交 service-a 已核对的 README 变更',
+  });
+  expect(target).toEqual({
+    type: 'GIT_COMMIT',
+    repositoryKey: 'service-a',
+    branch: 'feature/workbench',
+    expectedHead: 'c'.repeat(40),
+    expectedStateHash: HASH,
+    includedPaths: ['README.md'],
+    messageHash: createHash('sha256').update(normalizedPreview).digest('hex'),
+    safeMessagePreview: normalizedPreview,
+  });
+  expect(JSON.stringify(proposalBody)).not.toMatch(/command|shell|args|CUSTOM/);
+  expect(requests.some(request => request.path.endsWith('/execute'))).toBe(false);
+
+  await page.getByPlaceholder('说明已核对的目标、风险或拒绝原因（必填）').fill('已独立核对仓库、分支和状态 Hash');
+  await page.getByRole('button', { name: '批准授权' }).click();
+  await expect(page.getByTestId('high-impact-operation')).toContainText('已授权待处理');
+  expect(proposalPosts()).toHaveLength(1);
+  const decisions = requests.filter(request => request.path.endsWith('/decision'));
+  expect(decisions).toHaveLength(1);
+  expect(decisions[0]?.ifMatch).toBe('0');
+  expect(decisions[0]?.body).toEqual({
+    decision: 'APPROVE',
+    reason: '已独立核对仓库、分支和状态 Hash',
+  });
+  expect(requests.some(request => request.path.endsWith('/execute'))).toBe(false);
+});
+
+test('归档或当前阶段没有真实 Run 时不能提交高影响操作提案', async ({ page }) => {
+  await installWorkbenchFixture(page, { archived: true });
+  await gotoWorkbench(page);
+  await expect(page.getByTestId('open-operation-proposal')).toBeDisabled();
+  await expect(page.getByTestId('workbench-run-composer')).toBeDisabled();
+  await expect(page.getByText('已归档，仅可恢复查看历史。')).toBeVisible();
+  await expect(page.getByTestId('workbench-upload-image-button')).toHaveCount(0);
+  await expect(page.getByTestId('workbench-upload-file-button')).toHaveCount(0);
+});
+
+test('当前阶段没有真实 Run 时提案表单保持禁用且不猜测来源', async ({ page }) => {
+  const proposalPosts: Request[] = [];
+  await installWorkbenchFixture(page, {
+    noRuns: true,
+    onApiRequest(request) {
+      if (new URL(request.url()).pathname.endsWith('/operations') && request.method() === 'POST') {
+        proposalPosts.push(request);
+      }
+    },
+  });
+  await gotoWorkbench(page);
+  await page.getByTestId('open-operation-proposal').click();
+  await expect(page.getByTestId('operation-proposal-disabled-reason')).toContainText('真实 Run');
+  await expect(page.getByTestId('submit-operation-proposal')).toBeDisabled();
+  expect(proposalPosts).toHaveLength(0);
+});
+
+test('仓内文档和浏览器上传附件联合提交时只发送逻辑引用', async ({ page }) => {
+  const requests: Request[] = [];
+  let runBody: Record<string, unknown> | null = null;
+  await installWorkbenchFixture(page, {
+    onApiRequest(request) {
+      const path = new URL(request.url()).pathname;
+      if (path.includes('/attachments')) requests.push(request);
+      if (path.endsWith('/phases/REQUIREMENT_ANALYSIS/runs') && request.method() === 'POST') {
+        runBody = request.postDataJSON() as Record<string, unknown>;
+      }
+    },
+  });
+  await gotoWorkbench(page);
+
+  await page.getByRole('button', { name: /README\.md/ }).click();
+  await expect(page.getByTestId('workbench-attach-document')).toBeEnabled();
+  await page.getByTestId('workbench-attach-document').click();
+  await expect(page.getByTestId('workbench-pending-attachments'))
+    .toContainText('service-a/README.md');
+
+  await page.getByTestId('workbench-upload-image-input').setInputFiles({
+    name: 'architecture.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from('safe png fixture'),
+  });
+  const uploaded = page.getByTestId('workbench-upload-item');
+  await expect(uploaded).toContainText('architecture.png');
+  await expect(uploaded).toContainText('待发送');
+  await expect(page.getByTestId('workbench-upload-preview')).toBeVisible();
+  await expect(page.getByTestId('workbench-upload-items')).toContainText('浏览器上传');
+
+  await page.getByTestId('workbench-run-composer').fill('结合设计图和 README 分析需求');
+  await page.getByTestId('workbench-run-submit').click();
+  await expect.poll(() => runBody).not.toBeNull();
+
+  expect(runBody).toEqual({
+    message: '结合设计图和 README 分析需求',
+    runMode: 'DISCUSS_READ_ONLY',
+    attachments: [{
+      repositoryKey: 'service-a',
+      relativePath: 'README.md',
+      contentHash: HASH,
+    }, {
+      type: 'UPLOADED_CONVERSATION',
+      attachmentId: 'uploaded-e2e-1',
+      contentHash: SECOND_HASH,
+    }],
+  });
+  const upload = requests.find(request => request.method() === 'POST')!;
+  expect(new URL(upload.url()).pathname)
+    .toBe(`/api/workbenches/${WORKBENCH_ID}/phases/REQUIREMENT_ANALYSIS/attachments`);
+  expect(new URL(upload.url()).searchParams.get('conversationGeneration')).toBe('0');
+  expect(upload.headers()['content-type']).toMatch(/^multipart\/form-data; boundary=/);
+  expect(JSON.stringify(runBody)).not.toMatch(
+    /architecture\.png|image\/png|blob:|storageKey|absolutePath|repositoryRoot/,
+  );
+  expect(requests.some(request => request.method() === 'DELETE')).toBe(false);
+  await expect(page.getByTestId('workbench-upload-item')).toHaveCount(0);
+});
+
+test('浏览器附件上传失败保留文本并可重试和精确取消', async ({ page }) => {
+  const requests: Request[] = [];
+  await installWorkbenchFixture(page, {
+    uploadFailures: 1,
+    onApiRequest(request) {
+      if (new URL(request.url()).pathname.includes('/attachments')) requests.push(request);
+    },
+  });
+  await gotoWorkbench(page);
+  const composer = page.getByTestId('workbench-run-composer');
+  await composer.fill('失败时不能丢失这段文本');
+
+  await page.getByTestId('workbench-upload-file-input').setInputFiles({
+    name: 'notes.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('safe notes'),
+  });
+  await expect(page.getByTestId('workbench-upload-item')).toContainText('上传失败');
+  await expect(page.getByTestId('workbench-upload-notice')).toHaveCount(0);
+  await expect(composer).toHaveValue('失败时不能丢失这段文本');
+
+  await page.getByTestId('workbench-upload-retry').click();
+  await expect(page.getByTestId('workbench-upload-item')).toContainText('待发送');
+  await page.getByTestId('workbench-upload-remove').click();
+  await expect(page.getByTestId('workbench-upload-item')).toHaveCount(0);
+  await expect(composer).toHaveValue('失败时不能丢失这段文本');
+
+  const uploadRequests = requests.filter(request => request.method() === 'POST');
+  const deleteRequest = requests.find(request => request.method() === 'DELETE')!;
+  expect(uploadRequests).toHaveLength(2);
+  expect(new URL(deleteRequest.url()).pathname).toBe(
+    `/api/workbenches/${WORKBENCH_ID}/phases/REQUIREMENT_ANALYSIS/attachments/uploaded-e2e-2`,
+  );
+  expect(new URL(deleteRequest.url()).searchParams.get('conversationGeneration')).toBe('0');
+  expect(requests.every(request => !new URL(request.url()).pathname.startsWith('/api/fs'))).toBe(true);
+});
+
+test('Review Candidate 逐条编辑、采用或忽略，只在显式保存和确认后产生证明', async ({ page }) => {
+  const reviewRequests: Array<{ path: string; method: string; body: unknown }> = [];
+  await installWorkbenchFixture(page, {
+    onApiRequest(request) {
+      const path = new URL(request.url()).pathname;
+      if (path.includes('/review-')) {
+        reviewRequests.push({
+          path,
+          method: request.method(),
+          body: request.postData() ? request.postDataJSON() : null,
+        });
+      }
+    },
+  });
+  await page.addInitScript(() => {
+    localStorage.setItem('agent-web:workbench-shell:owner-e2e:wb-e2e', JSON.stringify({
+      selectedPhase: 'REVIEW_REFACTOR',
+    }));
+  });
+  await gotoWorkbench(page);
+
+  await page.getByTestId('review-generate-candidate').click();
+  const items = page.getByTestId('review-candidate-item');
+  await expect(items).toHaveCount(2);
+  await items.nth(0).locator('textarea').nth(2).fill('下沉到 Order 聚合根');
+  await items.nth(0).getByRole('button', { name: '采用到人工草稿' }).click();
+  await items.nth(1).getByRole('button', { name: '忽略' }).click();
+
+  const reviewInput = page.getByPlaceholder('写下需要 Agent 解释或执行的 Review 意见、重构目标及回归测试要求');
+  await expect(reviewInput).toHaveValue(/Application 层代替聚合做业务判断/);
+  await expect(reviewInput).toHaveValue(/下沉到 Order 聚合根/);
+  await expect(reviewInput).toHaveValue(/service-a::src\/main\/java\/OrderService.java/);
+  expect(reviewRequests.filter(request => request.method === 'PUT')).toEqual([]);
+  expect(reviewRequests.filter(request =>
+    request.method === 'POST' && request.path.endsWith('/review-confirmation'))).toEqual([]);
+  expect(reviewRequests.find(request => request.path.endsWith('/review-candidates'))?.body).toEqual({});
+
+  await page.getByTestId('review-save-opinion').click();
+  await expect(page.getByText(/Review Opinion 已保存为 v1/)).toBeVisible();
+  await expect(page.getByTestId('review-candidate-list')).toHaveCount(0);
+  await expect(page.getByText('未授权修改')).toBeVisible();
+  await page.getByTestId('review-confirm-modification').click();
+  await expect(page.getByText('已精确确认')).toBeVisible();
 });
 
 test('Markdown 只渲染净化 HTML，scope mismatch 与服务端秘密均使用安全提示', async ({ page }) => {

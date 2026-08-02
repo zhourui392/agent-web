@@ -187,6 +187,34 @@ public final class Workbench {
     }
 
     /**
+     * 将浏览器上传精确绑定到当前 Owner、Workbench、Phase 与会话代际。
+     */
+    public UploadedAttachmentBinding planUploadedAttachment(
+            WorkbenchPhase phase, int conversationGeneration,
+            OwnerReference actor) {
+        requireOperableBy(actor);
+        if (conversationGeneration < 0) {
+            throw new WorkbenchDomainException(
+                    WorkbenchErrorCode.ATTACHMENT_INVALID,
+                    "uploaded attachment conversation generation is invalid");
+        }
+        PhaseConversationReference current = phase(phase).currentConversation();
+        if (current == null) {
+            throw new WorkbenchDomainException(
+                    WorkbenchErrorCode.CONVERSATION_CONFLICT,
+                    "phase conversation must exist before uploading an attachment");
+        }
+        if (current.getGeneration() != conversationGeneration) {
+            throw new WorkbenchDomainException(
+                    WorkbenchErrorCode.VERSION_CONFLICT,
+                    "uploaded attachment conversation generation is stale");
+        }
+        return new UploadedAttachmentBinding(
+                owner, id, phase, current.getConversationId(),
+                current.getGeneration());
+    }
+
+    /**
      * 在任何外部准备动作前冻结本次 Run 的领域要求。
      */
     public WorkbenchRunPreparationPlan planRunPreparation(

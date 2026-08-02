@@ -22,6 +22,8 @@ export const WORKBENCH_DOCUMENT_LIMITS = {
   maximumWidthPercent: 70,
   defaultWidthPercent: 35,
   recentDocuments: 20,
+  agentTextDocumentReferences: 20,
+  agentTextChars: 32 * 1024,
   relativePathChars: 4096,
 } as const;
 
@@ -40,6 +42,11 @@ export interface WorkbenchDocumentStorageIdentity {
 export interface DocumentReference {
   repositoryKey: string;
   relativePath: string;
+}
+
+export interface DocumentReferenceGroup {
+  repositoryKey: string;
+  documents: ReadonlyArray<DocumentReference>;
 }
 
 export type WorkbenchDesktopDocumentLayoutMode =
@@ -210,6 +217,85 @@ export function normalizeDocumentReference(value: unknown): DocumentReference | 
   if (!isPosixRelativePath(repositoryKey, WORKBENCH_DOCUMENT_LIMITS.relativePathChars)
     || !isPosixRelativePath(relativePath, WORKBENCH_DOCUMENT_LIMITS.relativePathChars)) return null;
   return { repositoryKey, relativePath };
+}
+
+/**
+ * 只把已结构化且属于冻结 Repository Scope 的引用提升为可打开入口。
+ */
+export function authorizedDocumentReference(
+  value: unknown,
+  repositoryKeys: ReadonlyArray<string>,
+): DocumentReference | null {
+  const normalized = normalizeDocumentReference(value);
+  if (!normalized || !Array.isArray(repositoryKeys)) return null;
+  return repositoryKeys.includes(normalized.repositoryKey) ? normalized : null;
+}
+
+/**
+ * 从 Agent 文本的反引号代码片段中提取 best-effort 文档入口。
+ *
+ * <p>候选必须完整写出一个已选 repositoryKey 和 POSIX relativePath；仓库前缀存在歧义时
+ * fail closed，不猜最短或最长仓库。返回结果有界且按首次出现去重。</p>
+ */
+export function extractAuthorizedAgentDocumentReferences(
+  content: unknown,
+  repositoryKeys: ReadonlyArray<string>,
+): ReadonlyArray<DocumentReference> {
+  if (typeof content !== 'string' || !Array.isArray(repositoryKeys)) return [];
+  const selectedRepositoryKeys = Array.from(new Set(repositoryKeys.filter(repositoryKey =>
+    normalizeDocumentReference({ repositoryKey, relativePath: 'placeholder' }) != null,
+  )));
+  if (!selectedRepositoryKeys.length) return [];
+
+  const references: DocumentReference[] = [];
+  const seen = new Set<string>();
+  const inlineCode = /`([^`\r\n]+)`/g;
+  const boundedContent = content.slice(0, WORKBENCH_DOCUMENT_LIMITS.agentTextChars);
+  let match: RegExpExecArray | null;
+  while ((match = inlineCode.exec(boundedContent)) != null) {
+    const candidate = match[1].trim();
+    const matchedRepositoryKeys = selectedRepositoryKeys.filter(repositoryKey =>
+      candidate.startsWith(`${repositoryKey}/`),
+    );
+    if (matchedRepositoryKeys.length !== 1) continue;
+    const repositoryKey = matchedRepositoryKeys[0];
+    const reference = authorizedDocumentReference({
+      repositoryKey,
+      relativePath: candidate.slice(repositoryKey.length + 1),
+    }, selectedRepositoryKeys);
+    if (!reference) continue;
+    const identity = `${reference.repositoryKey}\u0000${reference.relativePath}`;
+    if (seen.has(identity)) continue;
+    seen.add(identity);
+    references.push(reference);
+    if (references.length >= WORKBENCH_DOCUMENT_LIMITS.agentTextDocumentReferences) break;
+  }
+  return references;
+}
+
+/**
+ * 保留最近访问顺序，同时显式按 repositoryKey 分组，避免同名路径混淆。
+ */
+export function groupDocumentReferencesByRepository(
+  references: ReadonlyArray<DocumentReference>,
+): ReadonlyArray<DocumentReferenceGroup> {
+  if (!Array.isArray(references)) return [];
+  const groups = new Map<string, DocumentReference[]>();
+  const seen = new Set<string>();
+  for (const candidate of references) {
+    const reference = normalizeDocumentReference(candidate);
+    if (!reference) continue;
+    const key = `${reference.repositoryKey}\u0000${reference.relativePath}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const documents = groups.get(reference.repositoryKey);
+    if (documents) documents.push(reference);
+    else groups.set(reference.repositoryKey, [reference]);
+  }
+  return Array.from(groups, ([repositoryKey, documents]) => ({
+    repositoryKey,
+    documents,
+  }));
 }
 
 export function sameDocumentReference(

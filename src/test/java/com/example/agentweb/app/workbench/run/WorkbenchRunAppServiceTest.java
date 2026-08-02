@@ -65,11 +65,15 @@ class WorkbenchRunAppServiceTest {
         replayService = mock(AuthorizedChatRunEventReplayService.class);
         safeLogger = mock(SafeWorkbenchRunLogger.class);
         telemetry = mock(WorkbenchTelemetry.class);
+        WorkbenchRunCancellationCoordinator cancellationCoordinator =
+                new WorkbenchRunCancellationCoordinator(
+                        eventAppender, terminalFinalizer, handleStore,
+                        executionGateway, safeLogger,
+                        Clock.fixed(WorkbenchRunTestFixtures.NOW,
+                                ZoneOffset.UTC));
         service = new WorkbenchRunAppService(
                 preparationService, submissionCommitter, accessResolver,
-                eventAppender, terminalFinalizer, handleStore,
-                executionGateway, replayService, safeLogger,
-                telemetry,
+                cancellationCoordinator, replayService, telemetry,
                 Clock.fixed(WorkbenchRunTestFixtures.NOW, ZoneOffset.UTC));
     }
 

@@ -9,6 +9,7 @@ import * as frontendVueRuntime from "../../frontend/node_modules/vue/index.mjs";
 import { describe, expect, it, vi } from "vitest";
 import {
   WorkbenchHandoffApiError,
+  type PhaseHandoffCandidateView,
   type HandoffSourceView,
   type PhaseHandoffView,
   type WorkbenchHandoffApiClient,
@@ -18,6 +19,31 @@ import { useWorkbenchHandoff } from "../../frontend/js/composables/useWorkbenchH
 const { nextTick, ref } = frontendVueRuntime as typeof import("vue");
 const HASH_V1 = "a".repeat(64);
 const HASH_V2 = "b".repeat(64);
+
+function candidate(
+  overrides: Partial<PhaseHandoffCandidateView> = {},
+): PhaseHandoffCandidateView {
+  return {
+    baseHandoffVersion: 3,
+    conversationGeneration: 2,
+    sourceMessageCount: 17,
+    strategy: "DETERMINISTIC_PUBLIC_MESSAGES_V1",
+    summary: "候选摘要",
+    decisions: [{ text: "候选决定", rationale: null }],
+    openQuestions: [{ text: "候选问题", ownerHint: "产品" }],
+    pinnedFiles: [
+      { repositoryKey: "agent-web", relativePath: "docs/candidate.md" },
+    ],
+    referencedRuns: [
+      {
+        runId: "run-candidate",
+        phase: "REQUIREMENT_ANALYSIS",
+        safeSummary: "候选 Run",
+      },
+    ],
+    ...overrides,
+  };
+}
 
 function view(overrides: Partial<PhaseHandoffView> = {}): PhaseHandoffView {
   return {
@@ -56,6 +82,7 @@ function api(
       .fn()
       .mockResolvedValue(view({ version: 4, contentHash: HASH_V2 })),
     getHandoffSource: vi.fn().mockResolvedValue(source()),
+    generateHandoffCandidate: vi.fn().mockResolvedValue(candidate()),
     acceptHandoffReception: vi.fn().mockResolvedValue({
       sourcePhase: "REQUIREMENT_ANALYSIS",
       sourceVersion: 3,
@@ -67,6 +94,182 @@ function api(
 }
 
 describe("useWorkbenchHandoff", () => {
+  it("keeps a generated candidate in browser memory without mutating or saving the handoff", async () => {
+    const client = api();
+    const handoff = useWorkbenchHandoff({
+      workbenchId: ref("wb-1"),
+      phase: ref("REQUIREMENT_ANALYSIS"),
+      apiClient: client,
+    });
+    await vi.waitFor(() => expect(handoff.handoffLoading.value).toBe(false));
+
+    await handoff.generateHandoffCandidate();
+
+    expect(client.generateHandoffCandidate).toHaveBeenCalledWith(
+      "wb-1",
+      "REQUIREMENT_ANALYSIS",
+    );
+    expect(client.putHandoff).not.toHaveBeenCalled();
+    expect(handoff.handoffCandidate.value).toEqual(candidate());
+    expect(handoff.handoffDraft.value.summary).toBe("初始摘要");
+    expect(handoff.handoffDirty.value).toBe(false);
+    expect(handoff.handoffCandidatePending.value).toEqual({
+      summary: true,
+      decisions: true,
+      openQuestions: true,
+      pinnedFiles: true,
+      referencedRuns: true,
+    });
+  });
+
+  it("preserves the manual draft and previous browser candidate when regeneration fails", async () => {
+    const generateHandoffCandidate = vi
+      .fn()
+      .mockResolvedValueOnce(candidate())
+      .mockRejectedValueOnce(
+        new WorkbenchHandoffApiError(
+          500,
+          "WORKBENCH_HANDOFF_CANDIDATE_GENERATION_FAILED",
+        ),
+      );
+    const client = api({ generateHandoffCandidate });
+    const handoff = useWorkbenchHandoff({
+      workbenchId: ref("wb-1"),
+      phase: ref("REQUIREMENT_ANALYSIS"),
+      apiClient: client,
+    });
+    await vi.waitFor(() => expect(handoff.handoffLoading.value).toBe(false));
+    await handoff.generateHandoffCandidate();
+    handoff.updateHandoffDraft({
+      ...handoff.handoffDraft.value,
+      summary: "不能丢失的人工草稿",
+    });
+
+    await handoff.generateHandoffCandidate();
+
+    expect(handoff.handoffDraft.value.summary).toBe("不能丢失的人工草稿");
+    expect(handoff.handoffCandidate.value).toEqual(candidate());
+    expect(handoff.handoffError.value).toBe("交接请求失败，请稍后重试。");
+    expect(client.putHandoff).not.toHaveBeenCalled();
+  });
+
+  it("lets every candidate field replace, append, or be ignored while only normal save performs PUT", async () => {
+    const client = api({
+      getHandoff: vi.fn().mockResolvedValue(
+        view({
+          summary: "人工摘要",
+          decisions: [{ text: "人工决定", rationale: null }],
+          openQuestions: [{ text: "人工问题", ownerHint: null }],
+          pinnedFiles: [
+            { repositoryKey: "agent-web", relativePath: "docs/manual.md" },
+          ],
+          referencedRuns: [
+            {
+              runId: "run-manual",
+              phase: "REQUIREMENT_ANALYSIS",
+              safeSummary: "人工 Run",
+            },
+          ],
+        }),
+      ),
+    });
+    const handoff = useWorkbenchHandoff({
+      workbenchId: ref("wb-1"),
+      phase: ref("REQUIREMENT_ANALYSIS"),
+      apiClient: client,
+    });
+    await vi.waitFor(() => expect(handoff.handoffLoading.value).toBe(false));
+    await handoff.generateHandoffCandidate();
+
+    handoff.applyHandoffCandidateField("summary", "append");
+    handoff.applyHandoffCandidateField("decisions", "replace");
+    handoff.applyHandoffCandidateField("openQuestions", "append");
+    handoff.ignoreHandoffCandidateField("pinnedFiles");
+    handoff.applyHandoffCandidateField("referencedRuns", "append");
+
+    expect(client.putHandoff).not.toHaveBeenCalled();
+    expect(handoff.handoffDraft.value).toEqual({
+      summary: "人工摘要\n\n候选摘要",
+      decisions: [{ text: "候选决定", rationale: null }],
+      openQuestions: [
+        { text: "人工问题", ownerHint: null },
+        { text: "候选问题", ownerHint: "产品" },
+      ],
+      pinnedFiles: [
+        { repositoryKey: "agent-web", relativePath: "docs/manual.md" },
+      ],
+      referencedRuns: [
+        {
+          runId: "run-manual",
+          phase: "REQUIREMENT_ANALYSIS",
+          safeSummary: "人工 Run",
+        },
+        {
+          runId: "run-candidate",
+          phase: "REQUIREMENT_ANALYSIS",
+          safeSummary: "候选 Run",
+        },
+      ],
+    });
+    expect(handoff.handoffCandidatePending.value).toEqual({
+      summary: false,
+      decisions: false,
+      openQuestions: false,
+      pinnedFiles: false,
+      referencedRuns: false,
+    });
+
+    handoff.updateHandoffDraft({
+      ...handoff.handoffDraft.value,
+      summary: "采用后仍可人工编辑",
+    });
+    await handoff.saveHandoff();
+
+    expect(client.putHandoff).toHaveBeenCalledTimes(1);
+    expect(client.putHandoff).toHaveBeenCalledWith(
+      "wb-1",
+      "REQUIREMENT_ANALYSIS",
+      3,
+      expect.objectContaining({ summary: "采用后仍可人工编辑" }),
+    );
+    expect(handoff.handoffCandidate.value).toBeNull();
+  });
+
+  it("clears the browser-only candidate on phase changes and ignores an old generation response", async () => {
+    let resolveOld: ((value: PhaseHandoffCandidateView) => void) | null = null;
+    const generateHandoffCandidate = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<PhaseHandoffCandidateView>((resolve) => {
+            resolveOld = resolve;
+          }),
+      )
+      .mockResolvedValueOnce(candidate({ conversationGeneration: 3 }));
+    const phase = ref<"REQUIREMENT_ANALYSIS" | "SOLUTION_DESIGN">(
+      "REQUIREMENT_ANALYSIS",
+    );
+    const handoff = useWorkbenchHandoff({
+      workbenchId: ref("wb-1"),
+      phase,
+      apiClient: api({ generateHandoffCandidate }),
+    });
+    await vi.waitFor(() => expect(handoff.handoffLoading.value).toBe(false));
+    const oldGeneration = handoff.generateHandoffCandidate();
+
+    phase.value = "SOLUTION_DESIGN";
+    await nextTick();
+    await vi.waitFor(() => expect(handoff.handoffLoading.value).toBe(false));
+    expect(handoff.handoffCandidate.value).toBeNull();
+    const oldResolver = resolveOld as
+      | ((value: PhaseHandoffCandidateView) => void)
+      | null;
+    oldResolver?.(candidate());
+    await oldGeneration;
+
+    expect(handoff.handoffCandidate.value).toBeNull();
+  });
+
   it("loads this phase handoff and its upstream source on identity/phase changes", async () => {
     const workbenchId = ref<string | null>("wb-1");
     const phase = ref<"SOLUTION_DESIGN" | "IMPLEMENT_TEST">("SOLUTION_DESIGN");
@@ -223,11 +426,13 @@ describe("useWorkbenchHandoff", () => {
     });
     await handoff.saveHandoff();
     await handoff.acceptLatestSource();
+    await handoff.generateHandoffCandidate();
 
     expect(client.getHandoff).toHaveBeenCalled();
     expect(client.getHandoffSource).toHaveBeenCalled();
     expect(client.putHandoff).not.toHaveBeenCalled();
     expect(client.acceptHandoffReception).not.toHaveBeenCalled();
+    expect(client.generateHandoffCandidate).not.toHaveBeenCalled();
     expect(handoff.handoffDraft.value.summary).toBe("初始摘要");
     expect(handoff.handoffReadOnly.value).toBe(true);
   });

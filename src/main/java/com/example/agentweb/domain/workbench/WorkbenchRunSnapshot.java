@@ -42,6 +42,8 @@ public final class WorkbenchRunSnapshot {
     private final List<PromptPartSnapshot> promptParts;
     private final String promptHash;
     private final List<VerifiedWorkbenchRunAttachment> verifiedAttachments;
+    private final List<VerifiedUploadedConversationAttachment>
+            verifiedUploadedAttachments;
     private final RuntimeEnforcementSnapshot runtimeEnforcement;
     private final String reviewConfirmationId;
     private final Long reviewOpinionVersion;
@@ -58,13 +60,15 @@ public final class WorkbenchRunSnapshot {
             List<PromptPartSnapshot> promptParts, String promptHash,
             RuntimeEnforcementSnapshot runtimeEnforcement,
             List<VerifiedWorkbenchRunAttachment> verifiedAttachments,
+            List<VerifiedUploadedConversationAttachment>
+                    verifiedUploadedAttachments,
             ReviewModifyConfirmation reviewConfirmation, Instant createdAt) {
         this(runId, workbenchId, phase,
                 submissionIdempotencyKey, submissionRequestHash,
                 runMode, repositoryScope,
                 workspaceSnapshotReference, capabilityBinding, overrideVersion,
                 handoffSource, promptParts, promptHash, runtimeEnforcement,
-                verifiedAttachments,
+                verifiedAttachments, verifiedUploadedAttachments,
                 reviewConfirmation == null ? null
                         : reviewConfirmation.getConfirmationId(),
                 reviewConfirmation == null ? null
@@ -91,6 +95,8 @@ public final class WorkbenchRunSnapshot {
             List<PromptPartSnapshot> promptParts, String promptHash,
             RuntimeEnforcementSnapshot runtimeEnforcement,
             List<VerifiedWorkbenchRunAttachment> verifiedAttachments,
+            List<VerifiedUploadedConversationAttachment>
+                    verifiedUploadedAttachments,
             String reviewConfirmationId, Long reviewOpinionVersion,
             String reviewOpinionHash, Instant createdAt) {
         this.runId = DomainText.require(runId, "workbench snapshot run id", 128);
@@ -125,9 +131,14 @@ public final class WorkbenchRunSnapshot {
         this.handoffSource = requireHandoffMatchesPhase(phase, handoffSource);
         this.promptParts = immutablePromptParts(promptParts);
         this.promptHash = DomainText.requireSha256(promptHash, "workbench prompt hash");
+        VerifiedWorkbenchRunAttachmentSet attachmentSet =
+                VerifiedWorkbenchRunAttachmentSet.of(
+                        verifiedAttachments, verifiedUploadedAttachments);
         this.verifiedAttachments =
                 VerifiedWorkbenchRunAttachment.immutableListForScope(
-                        verifiedAttachments, repositoryScope);
+                        attachmentSet.getRepositoryDocuments(), repositoryScope);
+        this.verifiedUploadedAttachments =
+                attachmentSet.getUploadedAttachments();
         this.runtimeEnforcement = runtimeEnforcement;
         requireRuntimeMatchesScope(runMode, repositoryScope, runtimeEnforcement);
         this.reviewConfirmationId = reviewProofPresent
@@ -158,6 +169,7 @@ public final class WorkbenchRunSnapshot {
                 capabilityBinding, overrideVersion, handoffSource,
                 promptParts, promptHash, runtimeEnforcement,
                 Collections.<VerifiedWorkbenchRunAttachment>emptyList(),
+                Collections.<VerifiedUploadedConversationAttachment>emptyList(),
                 reviewConfirmation, createdAt);
     }
 
@@ -178,7 +190,32 @@ public final class WorkbenchRunSnapshot {
                 runMode, repositoryScope,
                 workspaceSnapshotReference, capabilityBinding, overrideVersion,
                 handoffSource, promptParts, promptHash, runtimeEnforcement,
-                verifiedAttachments, reviewConfirmation, createdAt);
+                verifiedAttachments,
+                Collections.<VerifiedUploadedConversationAttachment>emptyList(),
+                reviewConfirmation, createdAt);
+    }
+
+    public static WorkbenchRunSnapshot create(
+            String runId, WorkbenchId workbenchId, WorkbenchPhase phase,
+            String submissionIdempotencyKey, String submissionRequestHash,
+            RunMode runMode, RepositoryScope repositoryScope,
+            WorkspaceSnapshotReference workspaceSnapshotReference,
+            ResolvedCapabilityBinding capabilityBinding, Long overrideVersion,
+            HandoffSnapshotReference handoffSource,
+            List<PromptPartSnapshot> promptParts, String promptHash,
+            RuntimeEnforcementSnapshot runtimeEnforcement,
+            List<VerifiedWorkbenchRunAttachment> verifiedAttachments,
+            List<VerifiedUploadedConversationAttachment>
+                    verifiedUploadedAttachments,
+            ReviewModifyConfirmation reviewConfirmation, Instant createdAt) {
+        return new WorkbenchRunSnapshot(
+                runId, workbenchId, phase,
+                submissionIdempotencyKey, submissionRequestHash,
+                runMode, repositoryScope,
+                workspaceSnapshotReference, capabilityBinding, overrideVersion,
+                handoffSource, promptParts, promptHash, runtimeEnforcement,
+                verifiedAttachments, verifiedUploadedAttachments,
+                reviewConfirmation, createdAt);
     }
 
     public static WorkbenchRunSnapshot restore(
@@ -199,6 +236,7 @@ public final class WorkbenchRunSnapshot {
                 capabilityBinding, overrideVersion, handoffSource,
                 promptParts, promptHash, runtimeEnforcement,
                 Collections.<VerifiedWorkbenchRunAttachment>emptyList(),
+                Collections.<VerifiedUploadedConversationAttachment>emptyList(),
                 reviewConfirmationId, reviewOpinionVersion,
                 reviewOpinionHash, createdAt);
     }
@@ -222,8 +260,45 @@ public final class WorkbenchRunSnapshot {
                 workspaceSnapshotReference, capabilityBinding, overrideVersion,
                 handoffSource, promptParts, promptHash, runtimeEnforcement,
                 verifiedAttachments,
+                Collections.<VerifiedUploadedConversationAttachment>emptyList(),
                 reviewConfirmationId, reviewOpinionVersion,
                 reviewOpinionHash, createdAt);
+    }
+
+    public static WorkbenchRunSnapshot restore(
+            String runId, WorkbenchId workbenchId, WorkbenchPhase phase,
+            String submissionIdempotencyKey, String submissionRequestHash,
+            RunMode runMode, RepositoryScope repositoryScope,
+            WorkspaceSnapshotReference workspaceSnapshotReference,
+            ResolvedCapabilityBinding capabilityBinding, Long overrideVersion,
+            HandoffSnapshotReference handoffSource,
+            List<PromptPartSnapshot> promptParts, String promptHash,
+            RuntimeEnforcementSnapshot runtimeEnforcement,
+            List<VerifiedWorkbenchRunAttachment> verifiedAttachments,
+            List<VerifiedUploadedConversationAttachment>
+                    verifiedUploadedAttachments,
+            String reviewConfirmationId, Long reviewOpinionVersion,
+            String reviewOpinionHash, Instant createdAt) {
+        return new WorkbenchRunSnapshot(
+                runId, workbenchId, phase,
+                submissionIdempotencyKey, submissionRequestHash,
+                runMode, repositoryScope,
+                workspaceSnapshotReference, capabilityBinding, overrideVersion,
+                handoffSource, promptParts, promptHash, runtimeEnforcement,
+                verifiedAttachments, verifiedUploadedAttachments,
+                reviewConfirmationId, reviewOpinionVersion,
+                reviewOpinionHash, createdAt);
+    }
+
+    public void requireVerifiedAttachments(
+            VerifiedWorkbenchRunAttachmentSet attachments) {
+        if (attachments == null
+                || !verifiedAttachments.equals(
+                attachments.getRepositoryDocuments())
+                || !verifiedUploadedAttachments.equals(
+                attachments.getUploadedAttachments())) {
+            throw WorkbenchDomainException.runBindingCorrupted();
+        }
     }
 
     /**
@@ -287,6 +362,29 @@ public final class WorkbenchRunSnapshot {
      */
     public String executionOriginReference() {
         return workbenchId.getValue() + ":" + phase.name();
+    }
+
+    /**
+     * 将不可变 Run Snapshot 收敛为高影响操作可公开的最小安全引用。
+     * Prompt、Tool Output、附件正文和执行结果均不会进入引用。
+     *
+     * @param expectedWorkbenchId API 路径绑定的 Workbench
+     * @param expectedPhase API 请求显式绑定的 Phase
+     * @return 只包含 Run ID、Workbench、Phase 和固定元数据摘要的引用
+     */
+    public WorkbenchRunReference operationSourceReference(
+            WorkbenchId expectedWorkbenchId, WorkbenchPhase expectedPhase) {
+        if (expectedWorkbenchId == null || expectedPhase == null) {
+            throw new IllegalArgumentException(
+                    "operation source workbench and phase are required");
+        }
+        if (!workbenchId.equals(expectedWorkbenchId) || phase != expectedPhase) {
+            throw new IllegalArgumentException(
+                    "operation source run must belong to the exact workbench and phase");
+        }
+        return WorkbenchRunReference.of(
+                runId, workbenchId, phase,
+                "Run " + runId + " (" + phase.name() + ")");
     }
 
     /**

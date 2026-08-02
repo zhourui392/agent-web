@@ -45,6 +45,32 @@ function confirmation(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function candidate(overrides: Record<string, unknown> = {}) {
+  return {
+    phase: 'REVIEW_REFACTOR',
+    baseOpinionVersion: 3,
+    conversationGeneration: 1,
+    sourceMessageCount: 2,
+    strategy: 'DETERMINISTIC_PUBLIC_REVIEW_MESSAGES_V1',
+    items: [{
+      itemId: HASH,
+      finding: 'Application 层代替聚合做业务判断',
+      impact: '规则会随入口漂移',
+      suggestedChange: '将语义查询下沉聚合根',
+      affectedFiles: [{
+        repositoryKey: 'agent-web',
+        relativePath: 'src/main/java/A.java',
+        absolutePath: '/home/private/A.java',
+      }],
+      suggestedTests: ['运行 A 聚合单测'],
+      confirmation: 'must-not-project',
+    }],
+    owner: 'must-not-project',
+    conversationId: 'must-not-project',
+    ...overrides,
+  };
+}
+
 describe('workbench review API client', () => {
   it('loads owner-scoped exact opinion and confirmation proofs', async () => {
     const fetcher = vi.fn<WorkbenchReviewFetch>()
@@ -91,6 +117,61 @@ describe('workbench review API client', () => {
       },
       body: JSON.stringify({ opinionVersion: 3, opinionHash: HASH }),
     }));
+  });
+
+  it('generates a safe in-memory Review Candidate only through the explicit typed endpoint', async () => {
+    const fetcher = vi.fn<WorkbenchReviewFetch>()
+      .mockResolvedValueOnce(response(200, candidate()));
+    const client = createWorkbenchReviewApiClient(fetcher);
+
+    await expect(client.generateCandidate('wb/一 二')).resolves.toEqual({
+      phase: 'REVIEW_REFACTOR',
+      baseOpinionVersion: 3,
+      conversationGeneration: 1,
+      sourceMessageCount: 2,
+      strategy: 'DETERMINISTIC_PUBLIC_REVIEW_MESSAGES_V1',
+      items: [{
+        itemId: HASH,
+        finding: 'Application 层代替聚合做业务判断',
+        impact: '规则会随入口漂移',
+        suggestedChange: '将语义查询下沉聚合根',
+        affectedFiles: [{
+          repositoryKey: 'agent-web',
+          relativePath: 'src/main/java/A.java',
+        }],
+        suggestedTests: ['运行 A 聚合单测'],
+      }],
+    });
+    expect(fetcher).toHaveBeenCalledWith(
+      '/api/workbenches/wb%2F%E4%B8%80%20%E4%BA%8C/phases/REVIEW_REFACTOR/review-candidates',
+      expect.objectContaining({
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: '{}',
+      }),
+    );
+  });
+
+  it.each([
+    candidate({ items: [{ ...candidate().items[0], finding: 'see /home/private/A.java' }] }),
+    candidate({ items: [{
+      ...candidate().items[0],
+      affectedFiles: [{ repositoryKey: 'agent-web', relativePath: '../secret' }],
+    }] }),
+    candidate({ items: [candidate().items[0], candidate().items[0]] }),
+    candidate({ conversationGeneration: -1 }),
+  ])('rejects malformed or path-leaking Review Candidate responses', async (body) => {
+    const client = createWorkbenchReviewApiClient(
+      vi.fn<WorkbenchReviewFetch>().mockResolvedValue(response(200, body)),
+    );
+
+    await expect(client.generateCandidate('wb-1')).rejects.toMatchObject({
+      code: 'WORKBENCH_REVIEW_RESPONSE_INVALID',
+    });
   });
 
   it('treats only the two typed not-found responses as an empty proof', async () => {

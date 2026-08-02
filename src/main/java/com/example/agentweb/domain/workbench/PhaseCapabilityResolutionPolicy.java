@@ -1,6 +1,7 @@
 package com.example.agentweb.domain.workbench;
 
 import com.example.agentweb.domain.capability.CapabilityAccess;
+import com.example.agentweb.domain.capability.SkillManifest;
 import com.example.agentweb.domain.capability.SkillTrustSource;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.shared.DomainText;
@@ -25,12 +26,14 @@ public final class PhaseCapabilityResolutionPolicy {
     private final String runtime;
     private final String runtimeCompatibility;
     private final Set<SkillTrustSource> allowedSkillTrustSources;
+    private final Set<String> workspaceCapabilityTags;
     private final CapabilityAccess maximumMcpAccess;
 
     private PhaseCapabilityResolutionPolicy(
             String policyVersion, RunMode runMode,
             String runtime, String runtimeCompatibility,
-            Set<SkillTrustSource> allowedSkillTrustSources) {
+            Set<SkillTrustSource> allowedSkillTrustSources,
+            Set<String> workspaceCapabilityTags) {
         this.policyVersion = DomainText.require(
                 policyVersion, "workbench capability policy version", 120);
         if (runMode == null) {
@@ -46,6 +49,8 @@ public final class PhaseCapabilityResolutionPolicy {
                 "workbench runtime compatibility", 240);
         this.allowedSkillTrustSources = immutableTrustSources(
                 allowedSkillTrustSources);
+        this.workspaceCapabilityTags = immutableTags(
+                workspaceCapabilityTags);
         this.maximumMcpAccess = runMode.modifiesWorkspace()
                 ? CapabilityAccess.WRITE : CapabilityAccess.READ;
     }
@@ -56,12 +61,28 @@ public final class PhaseCapabilityResolutionPolicy {
             Set<SkillTrustSource> allowedSkillTrustSources) {
         return new PhaseCapabilityResolutionPolicy(
                 policyVersion, runMode, runtime, runtimeCompatibility,
-                allowedSkillTrustSources);
+                allowedSkillTrustSources, Collections.<String>emptySet());
+    }
+
+    public static PhaseCapabilityResolutionPolicy forRun(
+            String policyVersion, RunMode runMode,
+            String runtime, String runtimeCompatibility,
+            Set<SkillTrustSource> allowedSkillTrustSources,
+            WorkspaceDevelopmentContext developmentContext) {
+        if (developmentContext == null) {
+            throw new IllegalArgumentException(
+                    "workspace development context must not be null");
+        }
+        return new PhaseCapabilityResolutionPolicy(
+                policyVersion, runMode, runtime, runtimeCompatibility,
+                allowedSkillTrustSources,
+                developmentContext.capabilityTags());
     }
 
     public static PhaseCapabilityResolutionPolicy forProfilePreview(
             String policyVersion, WorkbenchPhase phase,
-            AgentType agentType) {
+            AgentType agentType,
+            WorkspaceDevelopmentContext developmentContext) {
         if (phase == null || agentType == null) {
             throw new IllegalArgumentException(
                     "profile preview phase and agent type must not be null");
@@ -74,15 +95,25 @@ public final class PhaseCapabilityResolutionPolicy {
         RunMode runMode = phase == WorkbenchPhase.IMPLEMENT_TEST
                 ? RunMode.MODIFY_WORKSPACE
                 : RunMode.DISCUSS_READ_ONLY;
-        return new PhaseCapabilityResolutionPolicy(
+        return forRun(
                 policyVersion, runMode, agentType.name(),
                 agentType.name() + "_WORKBENCH@1",
-                Collections.singleton(SkillTrustSource.PLATFORM));
+                Collections.singleton(SkillTrustSource.PLATFORM),
+                developmentContext);
     }
 
     public boolean allowsSkillTrustSource(SkillTrustSource trustSource) {
         return trustSource != null
                 && allowedSkillTrustSources.contains(trustSource);
+    }
+
+    public boolean allowsSkillForWorkspace(SkillManifest manifest) {
+        if (manifest == null) {
+            return false;
+        }
+        return workspaceCapabilityTags.isEmpty()
+                || manifest.getTechTags().isEmpty()
+                || manifest.matchesAnyTag(workspaceCapabilityTags);
     }
 
     public boolean allowsMcpAccess(CapabilityAccess access) {
@@ -95,11 +126,36 @@ public final class PhaseCapabilityResolutionPolicy {
 
     private static Set<SkillTrustSource> immutableTrustSources(
             Set<SkillTrustSource> values) {
-        if (values == null || values.contains(null)) {
+        if (values == null) {
             throw new IllegalArgumentException(
                     "allowed skill trust sources must not be null or contain null");
         }
-        return Collections.unmodifiableSet(
-                new HashSet<SkillTrustSource>(values));
+        Set<SkillTrustSource> result = new HashSet<SkillTrustSource>();
+        for (SkillTrustSource value : values) {
+            if (value == null) {
+                throw new IllegalArgumentException(
+                        "allowed skill trust sources must not be null or contain null");
+            }
+            result.add(value);
+        }
+        return Collections.unmodifiableSet(result);
+    }
+
+    private static Set<String> immutableTags(Set<String> values) {
+        if (values == null) {
+            throw new IllegalArgumentException(
+                    "workspace capability tags must not contain null");
+        }
+        Set<String> result = new HashSet<String>();
+        for (String value : values) {
+            if (value == null) {
+                throw new IllegalArgumentException(
+                        "workspace capability tags must not contain null");
+            }
+            result.add(DomainText.require(
+                    value, "workspace capability tag", 120)
+                    .toLowerCase(Locale.ROOT));
+        }
+        return Collections.unmodifiableSet(result);
     }
 }

@@ -78,6 +78,7 @@ class AgentProcessKernelTest {
             throws Exception {
         Path primary = Files.createDirectory(tempDir.resolve("primary"));
         Path script = script("success.sh", "#!/bin/sh\n"
+                + "test -d \"${AGENT_WORKBENCH_ATTACHMENT_DIR-}\" || exit 42\n"
                 + "cat >/dev/null\n"
                 + "printf '%s\\n' \"{\\\"type\\\":\\\"item.completed\\\","
                 + "\\\"item\\\":{\\\"type\\\":\\\"agent_message\\\","

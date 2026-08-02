@@ -24,6 +24,9 @@ import java.io.IOException;
  */
 public class AdminAuthFilter implements Filter {
 
+    private static final String REQUIRED_ADMIN_WORKBENCH_PREFIX =
+            "/api/admin/workbenches";
+
     private final UserContext userContext;
     private final AdminProperties properties;
 
@@ -62,11 +65,18 @@ public class AdminAuthFilter implements Filter {
 
     /** URI 命中任一受保护前缀即需口令把关;前缀集合来自 {@link AdminProperties}。 */
     private boolean matchesProtected(String uri) {
+        if (matchesPrefix(uri, REQUIRED_ADMIN_WORKBENCH_PREFIX)) {
+            return true;
+        }
         for (String prefix : properties.getProtectedPrefixes()) {
-            if (uri.equals(prefix) || uri.startsWith(prefix + "/")) {
+            if (matchesPrefix(uri, prefix)) {
                 return true;
             }
         }
         return false;
+    }
+
+    private boolean matchesPrefix(String uri, String prefix) {
+        return uri.equals(prefix) || uri.startsWith(prefix + "/");
     }
 }

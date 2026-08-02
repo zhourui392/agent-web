@@ -2,11 +2,20 @@ package com.example.agentweb.app.workbench.capability;
 
 import com.example.agentweb.app.workbench.WorkbenchNotFoundException;
 import com.example.agentweb.app.workbench.capability.port.ActiveRunCapabilityBindingQuery;
+import com.example.agentweb.app.workbench.port.WorkspaceDevelopmentContextGateway;
 import com.example.agentweb.domain.capability.CapabilityAccess;
+import com.example.agentweb.domain.capability.CapabilityRequest;
+import com.example.agentweb.domain.capability.McpServerCatalog;
 import com.example.agentweb.domain.capability.ResolvedCapabilityBinding;
 import com.example.agentweb.domain.capability.ResolvedMcpServerBinding;
 import com.example.agentweb.domain.capability.ResolvedRuleBinding;
 import com.example.agentweb.domain.capability.ResolvedSkillBinding;
+import com.example.agentweb.domain.capability.RuleCatalog;
+import com.example.agentweb.domain.capability.SkillCatalog;
+import com.example.agentweb.domain.capability.SkillDependency;
+import com.example.agentweb.domain.capability.SkillManifest;
+import com.example.agentweb.domain.capability.SkillPackage;
+import com.example.agentweb.domain.capability.SkillTrustSource;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.shared.CanonicalHashing;
 import com.example.agentweb.domain.workbench.AdditionalCapabilityRule;
@@ -15,17 +24,23 @@ import com.example.agentweb.domain.workbench.OwnerReference;
 import com.example.agentweb.domain.workbench.PhaseCapabilityConfiguration;
 import com.example.agentweb.domain.workbench.PhaseCapabilityConfigurationRepository;
 import com.example.agentweb.domain.workbench.PhaseCapabilityConfigurationState;
+import com.example.agentweb.domain.workbench.PhaseCapabilityBindingResolver;
 import com.example.agentweb.domain.workbench.PhaseCapabilityPreview;
 import com.example.agentweb.domain.workbench.PhaseCapabilityPreviewResolver;
 import com.example.agentweb.domain.workbench.PhaseCapabilityOverrideResolution;
 import com.example.agentweb.domain.workbench.PhaseCapabilityProfile;
 import com.example.agentweb.domain.workbench.PhaseCapabilityProfileCatalog;
 import com.example.agentweb.domain.workbench.PhaseCapabilityReference;
+import com.example.agentweb.domain.workbench.PhaseCapabilityResolutionPolicy;
 import com.example.agentweb.domain.workbench.PhaseCapabilityType;
+import com.example.agentweb.domain.workbench.RepositoryDevelopmentContextClassifier;
+import com.example.agentweb.domain.workbench.RepositoryDevelopmentMarker;
+import com.example.agentweb.domain.workbench.RunMode;
 import com.example.agentweb.domain.workbench.Workbench;
 import com.example.agentweb.domain.workbench.WorkbenchId;
 import com.example.agentweb.domain.workbench.WorkbenchPhase;
 import com.example.agentweb.domain.workbench.WorkbenchRepository;
+import com.example.agentweb.domain.workbench.WorkspaceDevelopmentContext;
 import com.example.agentweb.domain.workspace.RepositoryScope;
 import com.example.agentweb.domain.workspace.RepositorySelection;
 import com.example.agentweb.domain.workspace.ResolvedRepository;
@@ -36,8 +51,11 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -75,6 +93,8 @@ class PhaseCapabilityQueryServiceTest {
     private PhaseCapabilityProfileCatalog profileCatalog;
     private PhaseCapabilityPreviewResolver previewResolver;
     private ActiveRunCapabilityBindingQuery activeRunBindingQuery;
+    private WorkspaceDevelopmentContextGateway developmentContextGateway;
+    private WorkspaceDevelopmentContext developmentContext;
     private PhaseCapabilityQueryService service;
 
     @BeforeEach
@@ -85,9 +105,16 @@ class PhaseCapabilityQueryServiceTest {
         profileCatalog = mock(PhaseCapabilityProfileCatalog.class);
         previewResolver = mock(PhaseCapabilityPreviewResolver.class);
         activeRunBindingQuery = mock(ActiveRunCapabilityBindingQuery.class);
+        developmentContextGateway =
+                mock(WorkspaceDevelopmentContextGateway.class);
+        developmentContext = developmentContext(
+                RepositoryDevelopmentMarker.POM_XML);
+        when(developmentContextGateway.inspect(any(RepositoryScope.class)))
+                .thenReturn(developmentContext);
         service = new PhaseCapabilityQueryService(
                 workbenchRepository, configurationRepository, profileCatalog,
-                previewResolver, activeRunBindingQuery);
+                previewResolver, activeRunBindingQuery,
+                developmentContextGateway);
     }
 
     @Test
@@ -116,7 +143,7 @@ class PhaseCapabilityQueryServiceTest {
         when(profileCatalog.requireProfile(PHASE)).thenReturn(profile);
         when(previewResolver.resolve(
                 eq(profile), any(PhaseCapabilityOverrideResolution.class),
-                eq(AgentType.CODEX)))
+                eq(AgentType.CODEX), eq(developmentContext)))
                 .thenReturn(preview);
         when(activeRunBindingQuery.findActiveBindingHash(WORKBENCH_ID, PHASE))
                 .thenReturn(Optional.of(activeBindingHash));
@@ -155,7 +182,8 @@ class PhaseCapabilityQueryServiceTest {
         when(profileCatalog.requireProfile(PHASE)).thenReturn(profile);
         when(previewResolver.resolve(
                 eq(profile), any(PhaseCapabilityOverrideResolution.class),
-                eq(AgentType.CODEX))).thenReturn(preview);
+                eq(AgentType.CODEX), eq(developmentContext)))
+                .thenReturn(preview);
         when(activeRunBindingQuery.findActiveBindingHash(WORKBENCH_ID, PHASE))
                 .thenReturn(Optional.empty());
 
@@ -169,7 +197,8 @@ class PhaseCapabilityQueryServiceTest {
                 ArgumentCaptor.forClass(
                         PhaseCapabilityOverrideResolution.class);
         verify(previewResolver).resolve(
-                eq(profile), captured.capture(), eq(AgentType.CODEX));
+                eq(profile), captured.capture(), eq(AgentType.CODEX),
+                eq(developmentContext));
         assertFalse(captured.getValue().getEffectiveOverride()
                 .hasExplicitOptionalMcpSelection());
     }
@@ -187,7 +216,7 @@ class PhaseCapabilityQueryServiceTest {
         when(profileCatalog.requireProfile(PHASE)).thenReturn(profile);
         when(previewResolver.resolve(
                 eq(profile), any(PhaseCapabilityOverrideResolution.class),
-                eq(AgentType.CODEX)))
+                eq(AgentType.CODEX), eq(developmentContext)))
                 .thenReturn(preview(
                         profile, defaults, CapabilityAccess.READ));
         when(activeRunBindingQuery.findActiveBindingHash(WORKBENCH_ID, PHASE))
@@ -222,7 +251,7 @@ class PhaseCapabilityQueryServiceTest {
         when(profileCatalog.requireProfile(PHASE)).thenReturn(profile);
         when(previewResolver.resolve(
                 eq(profile), any(PhaseCapabilityOverrideResolution.class),
-                eq(AgentType.CODEX)))
+                eq(AgentType.CODEX), eq(developmentContext)))
                 .thenReturn(preview(
                         profile, overrideResolution, CapabilityAccess.READ));
 
@@ -274,7 +303,7 @@ class PhaseCapabilityQueryServiceTest {
         when(profileCatalog.requireProfile(PHASE)).thenReturn(profile);
         when(previewResolver.resolve(
                 eq(profile), any(PhaseCapabilityOverrideResolution.class),
-                eq(AgentType.CODEX)))
+                eq(AgentType.CODEX), eq(developmentContext)))
                 .thenReturn(preview(
                         profile, degraded, CapabilityAccess.READ));
 
@@ -304,7 +333,8 @@ class PhaseCapabilityQueryServiceTest {
                 ArgumentCaptor.forClass(
                         PhaseCapabilityOverrideResolution.class);
         verify(previewResolver, org.mockito.Mockito.times(2)).resolve(
-                eq(profile), captured.capture(), eq(AgentType.CODEX));
+                eq(profile), captured.capture(), eq(AgentType.CODEX),
+                eq(developmentContext));
         assertTrue(captured.getAllValues().get(0).getEffectiveOverride()
                 .getRemovedOptionalSkillIds().isEmpty());
         assertFalse(captured.getAllValues().get(0).getEffectiveOverride()
@@ -332,7 +362,7 @@ class PhaseCapabilityQueryServiceTest {
         when(profileCatalog.requireProfile(PHASE)).thenReturn(profile);
         when(previewResolver.resolve(
                 eq(profile), any(PhaseCapabilityOverrideResolution.class),
-                eq(AgentType.CODEX)))
+                eq(AgentType.CODEX), eq(developmentContext)))
                 .thenReturn(preview(
                         profile, resolution, CapabilityAccess.WRITE));
 
@@ -342,6 +372,83 @@ class PhaseCapabilityQueryServiceTest {
         assertNull(view.getRules().get(0).getAccess());
         assertNull(view.getSkills().get(0).getAccess());
         assertEquals("WRITE", view.getMcpServers().get(0).getAccess());
+    }
+
+    @Test
+    void effectiveProfileShouldMatchRunTechnologyFiltering() {
+        assertDrawerMatchesRun(
+                RepositoryDevelopmentMarker.POM_XML,
+                Collections.singletonList("java-specialist"),
+                Collections.singletonList(
+                        "python-specialist:OPTIONAL_SKILL_TECHNOLOGY_MISMATCH"));
+    }
+
+    @Test
+    void effectiveProfileShouldMatchRunPythonTechnologyFiltering() {
+        assertDrawerMatchesRun(
+                RepositoryDevelopmentMarker.PYPROJECT_TOML,
+                Collections.singletonList("python-specialist"),
+                Collections.singletonList(
+                        "java-specialist:OPTIONAL_SKILL_TECHNOLOGY_MISMATCH"));
+    }
+
+    @Test
+    void effectiveProfileShouldKeepPlatformDefaultsWithoutTechnologyMarker() {
+        assertDrawerMatchesRun(
+                RepositoryDevelopmentMarker.README_MARKDOWN,
+                Arrays.asList("java-specialist", "python-specialist"),
+                Collections.<String>emptyList());
+    }
+
+    private void assertDrawerMatchesRun(
+            RepositoryDevelopmentMarker marker,
+            List<String> expectedSkillIds,
+            List<String> expectedWarnings) {
+        PhaseCapabilityProfile profile = technologyProfile();
+        PhaseCapabilityBindingResolver bindingResolver =
+                technologyBindingResolver();
+        PhaseCapabilityQueryService technologyAwareQuery =
+                new PhaseCapabilityQueryService(
+                        workbenchRepository, configurationRepository,
+                        profileCatalog,
+                        new PhaseCapabilityPreviewResolver(
+                                bindingResolver,
+                                "workbench-policy@1"),
+                        activeRunBindingQuery, developmentContextGateway);
+        WorkspaceDevelopmentContext repositoryContext =
+                developmentContext(marker);
+        when(developmentContextGateway.inspect(any(RepositoryScope.class)))
+                .thenReturn(repositoryContext);
+        Workbench ownedWorkbench = workbench();
+        when(workbenchRepository.findById(WORKBENCH_ID))
+                .thenReturn(Optional.of(ownedWorkbench));
+        when(configurationRepository.findState(WORKBENCH_ID, PHASE))
+                .thenReturn(PhaseCapabilityConfigurationState.initiallyAbsent(
+                        WORKBENCH_ID, PHASE));
+        when(profileCatalog.requireProfile(PHASE)).thenReturn(profile);
+        when(activeRunBindingQuery.findActiveBindingHash(WORKBENCH_ID, PHASE))
+                .thenReturn(Optional.empty());
+
+        EffectivePhaseCapabilityView drawer =
+                technologyAwareQuery.getEffectiveProfile(
+                        OWNER, WORKBENCH_ID, PHASE);
+        ResolvedCapabilityBinding runBinding =
+                bindingResolver.resolve(
+                        profile, CapabilityOverride.empty(),
+                        PhaseCapabilityResolutionPolicy.forRun(
+                                "workbench-policy@1",
+                                RunMode.MODIFY_WORKSPACE,
+                                AgentType.CODEX.name(),
+                                "CODEX_WORKBENCH@1",
+                                Collections.singleton(
+                                        SkillTrustSource.PLATFORM),
+                                repositoryContext));
+
+        assertEquals(skillIds(runBinding), availableSkillIds(drawer));
+        assertEquals(expectedSkillIds, availableSkillIds(drawer));
+        assertEquals(expectedWarnings, drawer.getWarnings());
+        verify(developmentContextGateway).inspect(
+                ownedWorkbench.getRepositoryScope());
     }
 
     @Test
@@ -360,7 +467,9 @@ class PhaseCapabilityQueryServiceTest {
 
         verify(configurationRepository).find(WORKBENCH_ID, PHASE);
         verify(profileCatalog, never()).requireProfile(PHASE);
-        verifyNoInteractions(previewResolver, activeRunBindingQuery);
+        verifyNoInteractions(
+                previewResolver, activeRunBindingQuery,
+                developmentContextGateway);
     }
 
     private static PhaseCapabilityPreview preview(
@@ -421,6 +530,80 @@ class PhaseCapabilityQueryServiceTest {
         return Workbench.create(
                 WORKBENCH_ID, OWNER, "Workbench", "Goal",
                 AgentType.CODEX, "test", scope, snapshot, NOW);
+    }
+
+    private static PhaseCapabilityProfile technologyProfile() {
+        return PhaseCapabilityProfile.create(
+                "technology-profile", "1.0.0", PHASE,
+                Arrays.asList(
+                        new PhaseCapabilityReference(
+                                "java-specialist",
+                                PhaseCapabilityType.SKILL, false),
+                        new PhaseCapabilityReference(
+                                "python-specialist",
+                                PhaseCapabilityType.SKILL, false)));
+    }
+
+    private static PhaseCapabilityBindingResolver
+            technologyBindingResolver() {
+        RuleCatalog ruleCatalog = mock(RuleCatalog.class);
+        SkillCatalog skillCatalog = mock(SkillCatalog.class);
+        McpServerCatalog mcpServerCatalog = mock(McpServerCatalog.class);
+        when(skillCatalog.discover()).thenReturn(Arrays.asList(
+                skill("java-specialist", "java"),
+                skill("python-specialist", "python")));
+        when(mcpServerCatalog.discover()).thenReturn(Collections.emptyList());
+        return new PhaseCapabilityBindingResolver(
+                ruleCatalog, skillCatalog, mcpServerCatalog);
+    }
+
+    private static SkillPackage skill(String id, String technologyTag) {
+        SkillManifest manifest = new SkillManifest(
+                id, "1.0.0", "Skill " + id,
+                Collections.singleton(PHASE.name()),
+                Collections.singleton(technologyTag),
+                Collections.<String>emptySet(), "SKILL.md",
+                Collections.<String>emptySet(),
+                Collections.<SkillDependency>emptyList(),
+                Collections.<String>emptySet(),
+                Collections.singleton(AgentType.CODEX.name()),
+                SkillTrustSource.PLATFORM,
+                Collections.<CapabilityRequest>emptyList());
+        return new SkillPackage(
+                manifest, CanonicalHashing.sha256(id),
+                "# " + id, Collections.<String, String>emptyMap());
+    }
+
+    private static WorkspaceDevelopmentContext developmentContext(
+            RepositoryDevelopmentMarker marker) {
+        RepositoryScope scope = workbench().getRepositoryScope();
+        return WorkspaceDevelopmentContext.create(
+                scope.getScopeHash(), scope.getPrimaryRepositoryKey(),
+                Collections.singletonList(
+                        new RepositoryDevelopmentContextClassifier().classify(
+                                scope.getPrimaryRepositoryKey(),
+                                new LinkedHashSet<RepositoryDevelopmentMarker>(
+                                        Collections.singleton(marker)))));
+    }
+
+    private static List<String> availableSkillIds(
+            EffectivePhaseCapabilityView view) {
+        List<String> result = new ArrayList<String>();
+        for (CapabilityPreviewItemView skill : view.getSkills()) {
+            if (!"UNAVAILABLE".equals(skill.getSource())) {
+                result.add(skill.getId());
+            }
+        }
+        return result;
+    }
+
+    private static List<String> skillIds(
+            ResolvedCapabilityBinding binding) {
+        List<String> result = new ArrayList<String>();
+        for (ResolvedSkillBinding skill : binding.getSkills()) {
+            result.add(skill.getId());
+        }
+        return result;
     }
 
     private static String repeat(char value) {

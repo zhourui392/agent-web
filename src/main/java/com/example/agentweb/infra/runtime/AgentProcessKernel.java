@@ -125,7 +125,10 @@ public final class AgentProcessKernel implements AgentExecutionGateway, AutoClos
             credential = credentialResolver.prepareEnvironment(
                     plan.getRuntimeSelection(), plan.getRuntimeLimits(),
                     workspace.getIsolatedHome(), processEnvironment);
-            attachmentVerifier.verify(plan);
+            processEnvironment.put(
+                    "AGENT_WORKBENCH_ATTACHMENT_DIR",
+                    workspace.getAttachmentRoot().toString());
+            attachmentVerifier.verify(plan, workspace);
             capabilities.applySecretEnvironment(processEnvironment);
             process = builder.start();
             capabilities.clearSecretEnvironment(processEnvironment);

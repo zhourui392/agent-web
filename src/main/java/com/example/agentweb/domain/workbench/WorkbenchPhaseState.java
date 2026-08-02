@@ -182,10 +182,10 @@ public final class WorkbenchPhaseState {
         if (status == WorkbenchPhaseStatus.HUMAN_COMPLETED) {
             return false;
         }
-        if (status != WorkbenchPhaseStatus.IN_PROGRESS || activeRunReference != null) {
+        if (activeRunReference != null) {
             throw new WorkbenchDomainException(
                     WorkbenchErrorCode.PHASE_TRANSITION_INVALID,
-                    "phase can be completed only while idle and in progress: " + phase);
+                    "phase can be completed only while idle: " + phase);
         }
         status = WorkbenchPhaseStatus.HUMAN_COMPLETED;
         completedAt = now;
@@ -202,7 +202,9 @@ public final class WorkbenchPhaseState {
                     WorkbenchErrorCode.PHASE_TRANSITION_INVALID,
                     "only a human-completed phase can be reopened: " + phase);
         }
-        status = WorkbenchPhaseStatus.IN_PROGRESS;
+        status = currentConversation() == null
+                ? WorkbenchPhaseStatus.NOT_STARTED
+                : WorkbenchPhaseStatus.IN_PROGRESS;
         completedAt = null;
         lastActivityAt = now;
         return true;

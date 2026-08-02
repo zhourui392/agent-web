@@ -2,12 +2,17 @@ package com.example.agentweb.infra.runtime;
 
 import com.example.agentweb.app.runtime.port.AgentExecutionPlan;
 import com.example.agentweb.app.runtime.port.CredentialReference;
+import com.example.agentweb.app.runtime.port.RuntimeAttachmentExpectation;
 import com.example.agentweb.app.runtime.port.SandboxMode;
+import com.example.agentweb.app.workbench.attachment.port.StoredUploadedAttachment;
+import com.example.agentweb.app.workbench.attachment.port.UploadedAttachmentStorageRequest;
+import com.example.agentweb.infra.workbench.FileSystemUploadedConversationAttachmentStorage;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.io.ByteArrayInputStream;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collections;
@@ -107,5 +112,52 @@ class RuntimeWorkspaceMaterializerTest {
         assertEquals("repository Runtime configuration is not allowed",
                 failure.getMessage());
         assertFalse(failure.getMessage().contains(primary.toString()));
+    }
+
+    @Test
+    void copiesUploadedAttachmentIntoIsolatedReadOnlyRuntimeDirectory()
+            throws Exception {
+        Path primary = Files.createDirectory(tempDir.resolve("primary-uploaded"));
+        FileSystemUploadedConversationAttachmentStorage storage =
+                new FileSystemUploadedConversationAttachmentStorage(
+                        tempDir.resolve("stored-uploads"), 1024L);
+        byte[] content = "browser upload".getBytes(
+                java.nio.charset.StandardCharsets.UTF_8);
+        StoredUploadedAttachment stored = storage.store(
+                new UploadedAttachmentStorageRequest(
+                        new ByteArrayInputStream(content), content.length));
+        RuntimeAttachmentExpectation expectation =
+                RuntimeAttachmentExpectation.uploadedConversation(
+                        "attachment-1", stored.getStorageKey(),
+                        "attachment-1234567890abcdefabcd.md",
+                        stored.getSha256(), stored.getSize());
+        AgentExecutionPlan base = RuntimePlanFixtures.readOnly(
+                "exec-uploaded", primary, Collections.singletonList(primary),
+                Collections.<String>emptySet(),
+                CredentialReference.systemConfiguration());
+        AgentExecutionPlan plan = new AgentExecutionPlan(
+                base.getExecutionIdentity(), base.getRuntimeSelection(),
+                base.getPromptPayload(), base.getWorkspaceLayout(),
+                base.getCapabilityBinding(), base.getRuntimeLimits(),
+                Collections.singletonList(expectation));
+
+        RuntimeWorkspaceMaterializer.MaterializedWorkspace workspace =
+                new RuntimeWorkspaceMaterializer(
+                        tempDir.resolve("runtime-uploaded"), storage)
+                        .materialize(plan);
+
+        Path materialized = workspace.getAttachmentRoot().resolve(
+                expectation.getRuntimeFileName());
+        assertEquals("browser upload", new String(
+                Files.readAllBytes(materialized),
+                java.nio.charset.StandardCharsets.UTF_8));
+        assertTrue(Files.isDirectory(workspace.getAttachmentRoot()));
+        assertTrue(workspace.getAttachmentRoot().startsWith(
+                workspace.getExecutionRoot()));
+        assertFalse(workspace.getAttachmentRoot().startsWith(primary));
+        assertFalse(workspace.getReadableRoots().contains(
+                workspace.getAttachmentRoot()));
+        assertFalse(workspace.getWritableRoots().contains(
+                workspace.getAttachmentRoot()));
     }
 }

@@ -12,6 +12,7 @@ import com.example.agentweb.domain.workbench.WorkbenchPhase;
 import com.example.agentweb.domain.workbench.WorkbenchRunSnapshot;
 import com.example.agentweb.domain.workbench.WorkbenchRunSnapshotRepository;
 import com.example.agentweb.domain.workbench.VerifiedWorkbenchRunAttachment;
+import com.example.agentweb.domain.workbench.VerifiedUploadedConversationAttachment;
 import com.example.agentweb.domain.workspace.RepositoryScope;
 import com.example.agentweb.domain.workspace.WorkspaceSnapshotReference;
 import org.springframework.dao.DataAccessException;
@@ -84,7 +85,8 @@ public class SqliteWorkbenchRunSnapshotRepository
                     codec.writePromptParts(snapshot.getPromptParts()),
                     snapshot.getPromptHash(),
                     codec.writeVerifiedAttachments(
-                            snapshot.getVerifiedAttachments()),
+                            snapshot.getVerifiedAttachments(),
+                            snapshot.getVerifiedUploadedAttachments()),
                     codec.writeRuntimeEnforcement(snapshot.getRuntimeEnforcement()),
                     snapshot.getReviewConfirmationId(),
                     snapshot.getReviewOpinionVersion(), snapshot.getReviewOpinionHash(),
@@ -180,6 +182,8 @@ public class SqliteWorkbenchRunSnapshotRepository
                     codec.readPromptParts(row.promptPartsJson);
             List<VerifiedWorkbenchRunAttachment> attachments =
                     codec.readVerifiedAttachments(row.attachmentsJson);
+            List<VerifiedUploadedConversationAttachment> uploadedAttachments =
+                    codec.readVerifiedUploadedAttachments(row.attachmentsJson);
             RuntimeEnforcementSnapshot runtime =
                     codec.readRuntimeEnforcement(row.runtimeEnforcementJson);
             verifyReviewConfirmation(row);
@@ -190,7 +194,7 @@ public class SqliteWorkbenchRunSnapshotRepository
                     RunMode.valueOf(row.runMode),
                     scope, workspace, capability, row.overrideVersion, handoff,
                     promptParts, row.promptHash, runtime,
-                    attachments,
+                    attachments, uploadedAttachments,
                     row.reviewConfirmationId, row.reviewOpinionVersion,
                     row.reviewOpinionHash, row.createdAt));
         } catch (RuntimeException ex) {

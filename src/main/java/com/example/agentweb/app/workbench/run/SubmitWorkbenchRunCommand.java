@@ -2,15 +2,13 @@ package com.example.agentweb.app.workbench.run;
 
 import com.example.agentweb.domain.shared.CanonicalHashing;
 import com.example.agentweb.domain.shared.DomainText;
-import com.example.agentweb.domain.workbench.DocumentReference;
 import com.example.agentweb.domain.workbench.RunMode;
-import com.example.agentweb.domain.workbench.VerifiedWorkbenchRunAttachment;
+import com.example.agentweb.domain.workbench.WorkbenchRunAttachmentSelection;
+import com.example.agentweb.domain.workbench.WorkbenchRunAttachmentReference;
 import com.example.agentweb.domain.workbench.WorkbenchId;
 import com.example.agentweb.domain.workbench.WorkbenchPhase;
 import lombok.Getter;
 
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 
@@ -101,36 +99,14 @@ public final class SubmitWorkbenchRunCommand {
         CanonicalHashing.appendFramed(
                 canonical, "attachmentCount", attachments.size());
         for (WorkbenchRunAttachmentReference attachment : attachments) {
-            DocumentReference document = attachment.getDocumentReference();
-            CanonicalHashing.appendFramed(
-                    canonical, "attachmentRepositoryKey",
-                    document.getRepositoryKey());
-            CanonicalHashing.appendFramed(
-                    canonical, "attachmentRelativePath",
-                    document.getRelativePath());
-            CanonicalHashing.appendFramed(
-                    canonical, "attachmentContentHash",
-                    attachment.getContentHash());
+            attachment.appendCanonical(canonical);
         }
         return CanonicalHashing.sha256(canonical.toString());
     }
 
     private static List<WorkbenchRunAttachmentReference> immutableAttachments(
             List<WorkbenchRunAttachmentReference> values) {
-        if (values == null || values.contains(null)) {
-            throw new IllegalArgumentException(
-                    "workbench run attachments must not be null or contain null");
-        }
-        List<WorkbenchRunAttachmentReference> attachments =
-                new ArrayList<WorkbenchRunAttachmentReference>(values);
-        List<DocumentReference> references =
-                new ArrayList<DocumentReference>(attachments.size());
-        for (WorkbenchRunAttachmentReference attachment : attachments) {
-            references.add(attachment.getDocumentReference());
-        }
-        VerifiedWorkbenchRunAttachment.requireValidRequestReferences(
-                references);
-        return Collections.unmodifiableList(attachments);
+        return WorkbenchRunAttachmentSelection.immutable(values);
     }
 
     private static String normalizeOptional(

@@ -1,7 +1,6 @@
 package com.example.agentweb.interfaces.workbench.dto;
 
-import com.example.agentweb.app.workbench.run.WorkbenchRunAttachmentReference;
-import jakarta.validation.constraints.NotBlank;
+import com.example.agentweb.domain.workbench.WorkbenchRunAttachmentReference;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.Getter;
@@ -17,20 +16,43 @@ import lombok.Setter;
 @Setter
 public class WorkbenchRunAttachmentRequest {
 
-    @NotBlank
+    @Size(max = 64)
+    private String type;
+
     @Size(max = 512)
     private String repositoryKey;
 
-    @NotBlank
     @Size(max = 4096)
     private String relativePath;
 
-    @NotBlank
+    @Size(max = 128)
+    private String attachmentId;
+
     @Pattern(regexp = "(?i)^[0-9a-f]{64}$")
     private String contentHash;
 
     public WorkbenchRunAttachmentReference toReference() {
-        return WorkbenchRunAttachmentReference.of(
-                repositoryKey, relativePath, contentHash);
+        String normalizedType = type == null || type.trim().isEmpty()
+                ? "REPOSITORY_DOCUMENT"
+                : type.trim().toUpperCase(java.util.Locale.ROOT);
+        if ("REPOSITORY_DOCUMENT".equals(normalizedType)) {
+            if (attachmentId != null && !attachmentId.trim().isEmpty()) {
+                throw new IllegalArgumentException(
+                        "repository attachment must not include attachmentId");
+            }
+            return WorkbenchRunAttachmentReference.repositoryDocument(
+                    repositoryKey, relativePath, contentHash);
+        }
+        if ("UPLOADED_CONVERSATION".equals(normalizedType)) {
+            if ((repositoryKey != null && !repositoryKey.trim().isEmpty())
+                    || (relativePath != null && !relativePath.trim().isEmpty())) {
+                throw new IllegalArgumentException(
+                        "uploaded attachment must not include repository paths");
+            }
+            return WorkbenchRunAttachmentReference.uploadedConversation(
+                    attachmentId, contentHash);
+        }
+        throw new IllegalArgumentException(
+                "unsupported workbench run attachment type");
     }
 }

@@ -8,6 +8,7 @@ import com.example.agentweb.app.runtime.port.RuntimeState;
 import com.example.agentweb.app.runtime.port.RuntimeTermination;
 import com.example.agentweb.domain.chatrun.ChatRun;
 import com.example.agentweb.domain.chatrun.ChatRunId;
+import com.example.agentweb.domain.chatrun.ChatRunNotFoundException;
 import com.example.agentweb.domain.chatrun.ChatRunRecoveryDecision;
 import com.example.agentweb.domain.chatrun.ChatRunRecoveryLiveness;
 import com.example.agentweb.domain.chatrun.ChatRunRepository;
@@ -73,7 +74,7 @@ public class ChatRunRecoveryService {
         int recovered = 0;
         for (String runIdValue : queryService.findActiveRunIds()) {
             try {
-                recovered += reconcile(ChatRunId.of(runIdValue));
+                recovered += reconcileScanned(ChatRunId.of(runIdValue));
             } catch (RuntimeException failure) {
                 logFailure("chat-run-recovery-failed", runIdValue, failure);
             }
@@ -81,12 +82,30 @@ public class ChatRunRecoveryService {
         return recovered;
     }
 
-    private int reconcile(ChatRunId runId) {
+    /**
+     * 对一个已明确选择的 Run 执行恢复对账，不扫描或重放其他运行。
+     *
+     * @param runId 精确 Run ID
+     * @return ChatRun 聚合作出的恢复决议
+     */
+    public ChatRunRecoveryDecision reconcileOne(ChatRunId runId) {
+        Objects.requireNonNull(runId, "runId");
+        ChatRun run = runRepository.findById(runId)
+                .orElseThrow(() -> new ChatRunNotFoundException(
+                        runId.getValue()));
+        return reconcileAndNotify(run);
+    }
+
+    private int reconcileScanned(ChatRunId runId) {
         Optional<ChatRun> found = runRepository.findById(runId);
         if (!found.isPresent()) {
             return 0;
         }
-        ChatRun run = found.get();
+        ChatRunRecoveryDecision decision = reconcileAndNotify(found.get());
+        return decision.isRecoveryApplied() ? 1 : 0;
+    }
+
+    private ChatRunRecoveryDecision reconcileAndNotify(ChatRun run) {
         try {
             return reconcile(run);
         } catch (RuntimeException failure) {
@@ -95,7 +114,7 @@ public class ChatRunRecoveryService {
         }
     }
 
-    private int reconcile(ChatRun run) {
+    private ChatRunRecoveryDecision reconcile(ChatRun run) {
         ChatRunId runId = run.getId();
         Optional<RuntimeHandle> persistedHandle;
         try {
@@ -123,7 +142,7 @@ public class ChatRunRecoveryService {
         return applyObservation(run, handle, observation);
     }
 
-    private int applyObservation(
+    private ChatRunRecoveryDecision applyObservation(
             ChatRun run, RuntimeHandle handle,
             RuntimeObservation observation) {
         RuntimeState state = observation.getState();
@@ -143,27 +162,23 @@ public class ChatRunRecoveryService {
                 handle, null, false, true);
     }
 
-    private int apply(
+    private ChatRunRecoveryDecision apply(
             ChatRun run, ChatRunRecoveryLiveness liveness,
             RuntimeHandle handle, RuntimeTermination termination,
             boolean stopUnknownHandle, boolean removableHandle) {
         ChatRunRecoveryDecision decision = run.decideRecovery(liveness);
-        int recovered;
         switch (decision) {
             case RETAIN_ACTIVE:
-                recovered = 0;
                 break;
             case FINALIZE_TERMINATION:
                 terminationReconciler.reconcile(
                         run.getId(), requireHandle(handle),
                         requireTermination(termination));
                 handleStore.delete(run.getId());
-                recovered = 1;
                 break;
             case STOP_AND_INTERRUPT:
                 requestStopSafely(run.getId(), requireHandle(handle));
                 lifecycleService.interrupt(run.getId(), RESTART_MESSAGE);
-                recovered = 1;
                 break;
             case INTERRUPT:
                 if (stopUnknownHandle && handle != null) {
@@ -173,20 +188,18 @@ public class ChatRunRecoveryService {
                 if (removableHandle && handle != null) {
                     handleStore.delete(run.getId());
                 }
-                recovered = 1;
                 break;
             case IGNORE_TERMINAL:
                 if (removableHandle && handle != null) {
                     handleStore.delete(run.getId());
                 }
-                recovered = 0;
                 break;
             default:
                 throw new IllegalStateException(
                         "unsupported chat run recovery decision");
         }
         notifyReconciled(run, decision);
-        return recovered;
+        return decision;
     }
 
     private void requestStopSafely(ChatRunId runId, RuntimeHandle handle) {

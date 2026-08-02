@@ -364,6 +364,27 @@ class WorkbenchTest {
     }
 
     @Test
+    void reviewShouldAllowManualCompletionWithoutStartingConversation() {
+        Workbench workbench = newWorkbench();
+
+        assertTrue(workbench.completePhase(
+                WorkbenchPhase.REVIEW_REFACTOR, OWNER,
+                NOW.plusSeconds(1)));
+        assertEquals(WorkbenchPhaseStatus.HUMAN_COMPLETED,
+                workbench.phase(WorkbenchPhase.REVIEW_REFACTOR).getStatus());
+        assertEquals(NOW.plusSeconds(1), workbench.phase(
+                WorkbenchPhase.REVIEW_REFACTOR).getCompletedAt());
+
+        assertTrue(workbench.reopenPhase(
+                WorkbenchPhase.REVIEW_REFACTOR, OWNER,
+                NOW.plusSeconds(2)));
+        assertEquals(WorkbenchPhaseStatus.NOT_STARTED,
+                workbench.phase(WorkbenchPhase.REVIEW_REFACTOR).getStatus());
+        assertNull(workbench.phase(
+                WorkbenchPhase.REVIEW_REFACTOR).currentConversation());
+    }
+
+    @Test
     void ownerAndArchivedRulesShouldBeEnforcedInsideAggregate() {
         Workbench workbench = newWorkbench();
         OwnerReference stranger = OwnerReference.of("user-2", "Other");

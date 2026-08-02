@@ -42,11 +42,21 @@ final class RuntimeAttachmentVerifier {
     }
 
     void verify(AgentExecutionPlan plan) {
+        verify(plan, null);
+    }
+
+    void verify(
+            AgentExecutionPlan plan,
+            RuntimeWorkspaceMaterializer.MaterializedWorkspace workspace) {
         Objects.requireNonNull(plan, "runtime execution plan");
         try {
             for (RuntimeAttachmentExpectation expectation
                     : plan.getAttachmentExpectations()) {
-                verify(expectation);
+                if (expectation.isRepositoryDocument()) {
+                    verifyRepositoryDocument(expectation);
+                } else {
+                    verifyUploadedConversation(expectation, workspace);
+                }
             }
         } catch (IOException | RuntimeException failure) {
             throw new IllegalStateException(
@@ -54,7 +64,8 @@ final class RuntimeAttachmentVerifier {
         }
     }
 
-    private void verify(RuntimeAttachmentExpectation expectation)
+    private void verifyRepositoryDocument(
+            RuntimeAttachmentExpectation expectation)
             throws IOException {
         Path root = Paths.get(expectation.getRepositoryRoot());
         requireExactRoot(root);
@@ -63,6 +74,30 @@ final class RuntimeAttachmentVerifier {
         if (!candidate.startsWith(root) || candidate.equals(root)) {
             throw new IOException("invalid attachment identity");
         }
+        verifyFile(root, candidate, expectation);
+    }
+
+    private void verifyUploadedConversation(
+            RuntimeAttachmentExpectation expectation,
+            RuntimeWorkspaceMaterializer.MaterializedWorkspace workspace)
+            throws IOException {
+        if (workspace == null) {
+            throw new IOException(
+                    "materialized attachment workspace is unavailable");
+        }
+        Path root = workspace.getAttachmentRoot();
+        requireExactRoot(root);
+        Path candidate = root.resolve(
+                expectation.getRuntimeFileName()).normalize();
+        if (!candidate.startsWith(root) || candidate.equals(root)) {
+            throw new IOException("invalid uploaded attachment identity");
+        }
+        verifyFile(root, candidate, expectation);
+    }
+
+    private void verifyFile(
+            Path root, Path candidate,
+            RuntimeAttachmentExpectation expectation) throws IOException {
         rejectSymbolicLinks(root, candidate);
         BasicFileAttributes before = attributes(candidate);
         requireExactRegularFile(before, expectation.getSize());

@@ -105,9 +105,10 @@ public class FeedbackFlowTest {
     }
 
     @Test
-    public void getFeedback_session_not_found_returns_400() throws Exception {
+    public void getFeedback_session_not_found_returns_404() throws Exception {
         mvc.perform(get("/api/chat/session/not-a-real-session/feedback"))
-                .andExpect(status().isBadRequest());
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("SESSION_NOT_FOUND"));
     }
 
     @Test

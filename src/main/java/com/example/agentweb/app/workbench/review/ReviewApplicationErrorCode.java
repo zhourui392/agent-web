@@ -9,5 +9,6 @@ package com.example.agentweb.app.workbench.review;
 public enum ReviewApplicationErrorCode {
     OPINION_NOT_FOUND,
     CONFIRMATION_NOT_FOUND,
-    VERSION_CONFLICT
+    VERSION_CONFLICT,
+    CANDIDATE_SOURCE_UNAVAILABLE
 }

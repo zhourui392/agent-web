@@ -10,6 +10,7 @@ import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
+import java.util.Collections;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -42,6 +43,24 @@ public class AdminAuthFilterTest {
         assertNull(chain.getRequest());
     }
 
+    @Test
+    public void adminWorkbenchPath_cannotBeMadePublicByConfiguration()
+            throws Exception {
+        AdminProperties overridden = new AdminProperties();
+        overridden.setProtectedPrefixes(Collections.<String>emptyList());
+        AdminAuthFilter hardenedFilter = new AdminAuthFilter(
+                userContext, overridden);
+        MockHttpServletRequest req = new MockHttpServletRequest(
+                "GET", "/api/admin/workbenches/workbench-1");
+        MockHttpServletResponse resp = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        hardenedFilter.doFilter(req, resp, chain);
+
+        assertEquals(401, resp.getStatus());
+        assertNull(chain.getRequest());
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"/api/chat/list", "/api/auth/login", "/", "/api/fs/roots", "/api/metrics-internal"})
     public void nonProtectedPath_passesThrough(String uri) throws Exception {
@@ -57,6 +76,7 @@ public class AdminAuthFilterTest {
             "/api/admin-workflows",
             "/api/admin-workflow-executions/exec-1",
             "/api/admin-settings",
+            "/api/admin/workbenches/workbench-1/runs/run-1/stop",
             "/api/refinery/rebuild-recent",
             "/api/harness/runs/run-1",
     })
@@ -75,6 +95,7 @@ public class AdminAuthFilterTest {
             "/api/admin-workflows",
             "/api/admin-workflow-executions/exec-1",
             "/api/admin-settings",
+            "/api/admin/workbenches/workbench-1/runs/run-1/reconcile",
             "/api/refinery/rebuild-recent",
             "/api/harness/runs/run-1",
     })
@@ -95,6 +116,7 @@ public class AdminAuthFilterTest {
             "/api/admin-workflows",
             "/api/admin-workflow-executions/exec-1",
             "/api/admin-settings",
+            "/api/admin/workbenches/workbench-1",
             "/api/refinery/rebuild-recent",
             "/api/harness/runs/run-1",
     })

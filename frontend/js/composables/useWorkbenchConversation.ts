@@ -12,9 +12,11 @@ import {
   type WorkbenchPhaseConversation,
   type WorkbenchPhaseConversationMessage,
   type WorkbenchPhaseConversationRestart,
+  type WorkbenchRepositoryDocumentAttachment,
   type WorkbenchRunAttachment,
   type WorkbenchRunApiClient,
   type WorkbenchRunSubmission,
+  type WorkbenchUploadedConversationAttachment,
 } from '../api/workbench-run.js';
 import {
   useWorkbenchRunStream,
@@ -33,6 +35,7 @@ export interface UseWorkbenchConversationOptions {
   conversationGeneration: Ref<number>;
   currentConversationId?: Ref<string | null>;
   activeRunId: Ref<string | null>;
+  activeWriteRunId?: Ref<string | null>;
   expectedVersion: Ref<number | null>;
   phaseStatus?: Ref<WorkbenchPhaseStatus>;
   archived?: Ref<boolean>;
@@ -41,11 +44,27 @@ export interface UseWorkbenchConversationOptions {
   reviewConfirmationId: Ref<string | null>;
   apiClient?: WorkbenchRunApiClient;
   stream?: UseWorkbenchRunStream;
-  onSubmitted?: (submission: WorkbenchRunSubmission, mode: WorkbenchRunMode) => void;
+  onSubmitted?: (
+    submission: WorkbenchRunSubmission,
+    mode: WorkbenchRunMode,
+    attachments: ReadonlyArray<WorkbenchRunAttachment>,
+  ) => void;
   onConversationEnsured?: (conversation: WorkbenchPhaseConversation) => void;
   onConversationRestarted?: (conversation: WorkbenchPhaseConversationRestart) => void;
   onTerminal?: (runId: string) => void;
 }
+
+export interface PendingUploadedWorkbenchAttachment
+  extends WorkbenchUploadedConversationAttachment {
+  displayName: string;
+  mediaType: string;
+  size: number;
+  previewUrl: string | null;
+}
+
+export type PendingWorkbenchAttachment =
+  | WorkbenchRepositoryDocumentAttachment
+  | PendingUploadedWorkbenchAttachment;
 
 export function useWorkbenchConversation(options: UseWorkbenchConversationOptions) {
   const apiClient = options.apiClient ?? createWorkbenchRunApiClient();
@@ -70,7 +89,7 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
   const restarting = ref(false);
   const conversationMessages = ref<WorkbenchPhaseConversationMessage[]>([]);
   const olderMessagesCursor = ref<number | null>(null);
-  const pendingAttachments = ref<WorkbenchRunAttachment[]>([]);
+  const pendingAttachments = ref<PendingWorkbenchAttachment[]>([]);
   const conversationError = ref<string | null>(null);
   const conversationNotice = ref<string | null>(null);
   const localRunId = ref<string | null>(null);
@@ -94,11 +113,14 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
     localRunId.value && !stream.state.value?.terminal ||
     ['PENDING', 'RUNNING', 'CANCEL_REQUESTED'].includes(stream.state.value?.status || ''),
   ));
+  const writeRunBlocked = computed(() => runMode.value === 'MODIFY_WORKSPACE'
+    && Boolean(options.activeWriteRunId?.value));
   const conversationCanSubmit = computed(() =>
     !conversationReadOnly.value &&
     identityReady.value &&
     !submitting.value &&
     !runActive.value &&
+    !writeRunBlocked.value &&
     handoffReady.value &&
     Boolean(composerText.value.trim()),
   );
@@ -195,21 +217,45 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
     if (failedSubmission?.fingerprint !== submissionFingerprintOrNull()) failedSubmission = null;
   }
 
-  function addAttachment(attachment: WorkbenchRunAttachment): void {
+  function addAttachment(attachment: WorkbenchRunAttachment): boolean {
+    if (conversationReadOnly.value) return false;
+    let pending: PendingWorkbenchAttachment;
+    try {
+      const normalized = normalizeWorkbenchRunAttachments([attachment])[0];
+      if (!normalized) return false;
+      pending = normalized.type === 'UPLOADED_CONVERSATION'
+        ? pendingUploadedAttachment(attachment, normalized)
+        : normalized;
+      normalizeWorkbenchRunAttachments([...pendingAttachments.value, pending]);
+    } catch {
+      return false;
+    }
+    pendingAttachments.value = [...pendingAttachments.value, pending];
+    conversationError.value = null;
+    conversationNotice.value = null;
+    if (failedSubmission?.fingerprint !== submissionFingerprintOrNull()) failedSubmission = null;
+    return true;
+  }
+
+  function removeAttachment(repositoryKey: string, relativePath: string): void {
     if (conversationReadOnly.value) return;
-    pendingAttachments.value = normalizeWorkbenchRunAttachments([
-      ...pendingAttachments.value,
-      attachment,
-    ]);
+    const remaining = pendingAttachments.value.filter(attachment => (
+      attachment.type === 'UPLOADED_CONVERSATION'
+      || attachment.repositoryKey !== repositoryKey
+      || attachment.relativePath !== relativePath
+    ));
+    if (remaining.length === pendingAttachments.value.length) return;
+    pendingAttachments.value = remaining;
     conversationError.value = null;
     conversationNotice.value = null;
     if (failedSubmission?.fingerprint !== submissionFingerprintOrNull()) failedSubmission = null;
   }
 
-  function removeAttachment(repositoryKey: string, relativePath: string): void {
-    if (conversationReadOnly.value) return;
-    const remaining = pendingAttachments.value.filter(attachment => !(
-      attachment.repositoryKey === repositoryKey && attachment.relativePath === relativePath
+  function removeUploadedAttachment(attachmentId: string): void {
+    if (conversationReadOnly.value || typeof attachmentId !== 'string') return;
+    const remaining = pendingAttachments.value.filter(attachment => (
+      attachment.type !== 'UPLOADED_CONVERSATION'
+      || attachment.attachmentId !== attachmentId
     ));
     if (remaining.length === pendingAttachments.value.length) return;
     pendingAttachments.value = remaining;
@@ -221,6 +267,8 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
   function isAttachmentPending(repositoryKey: unknown, relativePath: unknown): boolean {
     return typeof repositoryKey === 'string' && typeof relativePath === 'string'
       && pendingAttachments.value.some(attachment => (
+        attachment.type !== 'UPLOADED_CONVERSATION'
+        &&
         attachment.repositoryKey === repositoryKey && attachment.relativePath === relativePath
       ));
   }
@@ -251,7 +299,7 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
       return;
     }
     if (runActive.value) {
-      conversationError.value = '当前 Workbench 已有写任务，请等待终态或先停止当前 Run。';
+      conversationError.value = '当前阶段已有活动 Run，请等待终态或先停止当前 Run。';
       return;
     }
     if (!handoffReady.value) {
@@ -264,6 +312,10 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
     }
     if (runMode.value === 'MODIFY_WORKSPACE' && !modifyAllowed.value) {
       conversationError.value = '当前阶段只允许只读讨论。';
+      return;
+    }
+    if (writeRunBlocked.value) {
+      conversationError.value = '当前 Workbench 已有活动写 Run；可切换为只读讨论，或等待写 Run 进入终态。';
       return;
     }
     const submissionPhase = submissionIdentity.phase;
@@ -327,7 +379,7 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
       conversationNotice.value = submitted.replayed
         ? '已恢复同一幂等请求创建的 Run。'
         : 'Run 已提交，正在等待 Runtime 输出。';
-      options.onSubmitted?.(submitted, submissionRunMode);
+      options.onSubmitted?.(submitted, submissionRunMode, attachments);
       await refreshConversationMessages();
     } catch (error) {
       if (isCurrentSubmission(requestToken, submissionIdentity)) {
@@ -557,12 +609,14 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
     handoffReady,
     currentRunId,
     runActive,
+    writeRunBlocked,
     conversationCanSubmit,
     canRestartConversation,
     updateComposerText,
     updateRunMode,
     addAttachment,
     removeAttachment,
+    removeUploadedAttachment,
     isAttachmentPending,
     submitConversation,
     stopConversation,
@@ -616,6 +670,7 @@ function submissionFingerprint(
   reviewConfirmationId: string | null,
   attachments: ReadonlyArray<WorkbenchRunAttachment>,
 ): string {
+  const normalizedAttachments = normalizeWorkbenchRunAttachments(attachments);
   return JSON.stringify([
     workbenchId,
     expectedVersion,
@@ -623,12 +678,42 @@ function submissionFingerprint(
     runMode,
     handoffSourceVersion,
     reviewConfirmationId,
-    attachments.map(attachment => [
-      attachment.repositoryKey,
-      attachment.relativePath,
-      attachment.contentHash,
-    ]),
+    normalizedAttachments.map(attachment => attachment.type === 'UPLOADED_CONVERSATION'
+      ? [attachment.type, attachment.attachmentId, attachment.contentHash]
+      : ['REPOSITORY_DOCUMENT', attachment.repositoryKey,
+          attachment.relativePath, attachment.contentHash]),
   ]);
+}
+
+function pendingUploadedAttachment(
+  candidate: WorkbenchRunAttachment,
+  normalized: WorkbenchUploadedConversationAttachment,
+): PendingUploadedWorkbenchAttachment {
+  const source = candidate as Partial<PendingUploadedWorkbenchAttachment>;
+  const displayName = boundedPendingText(source.displayName, 255);
+  const mediaType = boundedPendingText(source.mediaType, 128);
+  const previewUrl = source.previewUrl == null
+    ? null
+    : boundedPendingText(source.previewUrl, 4_096);
+  const size = source.size;
+  if (!displayName || !mediaType || typeof size !== 'number'
+    || !Number.isSafeInteger(size) || size < 1 || size > 10 * 1024 * 1024
+    || source.previewUrl != null && !previewUrl) {
+    throw new Error('uploaded workbench attachment metadata is invalid');
+  }
+  return {
+    ...normalized,
+    displayName,
+    mediaType,
+    size,
+    previewUrl,
+  };
+}
+
+function boundedPendingText(value: unknown, maximum: number): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  return normalized && normalized.length <= maximum ? normalized : null;
 }
 
 function conversationErrorMessage(error: unknown): string {
@@ -651,6 +736,14 @@ function conversationErrorMessage(error: unknown): string {
       return '仓库目录已移动、消失或不再匹配冻结范围；请恢复原目录，或创建新的 Workbench。';
     case 'REPOSITORY_SCOPE_VIOLATION':
       return '当前请求超出本轮冻结的仓库范围，系统已停止执行。';
+    case 'WORKBENCH_ATTACHMENT_INVALID':
+      return '附件引用与当前 Workbench、阶段或会话不匹配，请重新选择。';
+    case 'WORKBENCH_ATTACHMENT_TOO_LARGE':
+      return '附件超过服务端大小限制，请移除后重试。';
+    case 'WORKBENCH_ATTACHMENT_LIMIT_EXCEEDED':
+      return '仓内文档和浏览器上传附件总数超过本轮限制。';
+    case 'WORKBENCH_ATTACHMENT_UNAVAILABLE':
+      return '上传附件已过期、已取消或已被其他 Run 使用，请重新选择。';
     case 'WORKBENCH_RUN_CURSOR_EXPIRED':
     case 'CURSOR_EXPIRED':
       return 'Run 事件游标已过期，请刷新状态；系统不会自动重放写操作。';

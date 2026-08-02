@@ -2,6 +2,9 @@ package com.example.agentweb.infra.runtime;
 
 import com.example.agentweb.app.runtime.port.AgentExecutionPlan;
 import com.example.agentweb.app.runtime.port.RuntimeAttachmentExpectation;
+import com.example.agentweb.app.workbench.attachment.port.StoredUploadedAttachment;
+import com.example.agentweb.app.workbench.attachment.port.UploadedAttachmentStorageRequest;
+import com.example.agentweb.app.workbench.attachment.port.UploadedConversationAttachmentStorage;
 import com.example.agentweb.domain.shared.CanonicalHashing;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -85,6 +88,34 @@ class RuntimeAttachmentVerifierTest {
                         repository, "docs/design.md", original))));
     }
 
+    @Test
+    void uploadedAttachmentUsesOnlyIsolatedMaterializedDirectory()
+            throws Exception {
+        Path repository = Files.createDirectory(
+                tempDir.resolve("repository-uploaded"));
+        byte[] content = "browser upload".getBytes(StandardCharsets.UTF_8);
+        String runtimeFileName = "attachment-1234567890abcdefabcd.md";
+        RuntimeAttachmentExpectation expectation =
+                RuntimeAttachmentExpectation.uploadedConversation(
+                        "attachment-1",
+                        CanonicalHashing.sha256("private-storage-key"),
+                        runtimeFileName, CanonicalHashing.sha256(content),
+                        content.length);
+        AgentExecutionPlan plan = plan(repository, expectation);
+        RuntimeWorkspaceMaterializer.MaterializedWorkspace workspace =
+                new RuntimeWorkspaceMaterializer(
+                        tempDir.resolve("runtime-uploaded-verifier"),
+                        copyingStorage(content)).materialize(plan);
+
+        RuntimeAttachmentVerifier verifier = new RuntimeAttachmentVerifier();
+
+        assertDoesNotThrow(() -> verifier.verify(plan, workspace));
+        Files.write(workspace.getAttachmentRoot().resolve(runtimeFileName),
+                "tampered!!!!!".getBytes(StandardCharsets.UTF_8));
+        assertThrows(IllegalStateException.class,
+                () -> verifier.verify(plan, workspace));
+    }
+
     private AgentExecutionPlan plan(
             Path repository, RuntimeAttachmentExpectation expectation) {
         AgentExecutionPlan base = RuntimePlanFixtures.readOnly(
@@ -106,4 +137,32 @@ class RuntimeAttachmentVerifierTest {
                 "repository", repository.toString(), relativePath,
                 CanonicalHashing.sha256(content), content.length);
     }
+
+    private UploadedConversationAttachmentStorage copyingStorage(
+            byte[] content) {
+        return new UploadedConversationAttachmentStorage() {
+            @Override
+            public StoredUploadedAttachment store(
+                    UploadedAttachmentStorageRequest request) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public void copyVerified(
+                    String storageKey, Path destination,
+                    String expectedSha256, long expectedSize) {
+                try {
+                    Files.write(destination, content);
+                } catch (java.io.IOException failure) {
+                    throw new IllegalStateException(failure);
+                }
+            }
+
+            @Override
+            public void delete(String storageKey) {
+                throw new UnsupportedOperationException();
+            }
+        };
+    }
+
 }

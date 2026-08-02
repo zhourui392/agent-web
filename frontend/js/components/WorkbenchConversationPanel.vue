@@ -42,6 +42,15 @@
       title="请先在“阶段交接”中预览并接受上游版本；系统不会静默注入最新内容。"
     />
     <el-alert
+      v-if="writeRunBlocked"
+      class="workbench-conversation-alert"
+      data-test="workbench-write-run-blocked"
+      type="warning"
+      show-icon
+      :closable="false"
+      title="当前 Workbench 已有活动写 Run；可切换为只读讨论，或等待写 Run 进入终态。"
+    />
+    <el-alert
       v-if="terminalDocumentStale"
       class="workbench-conversation-alert"
       data-test="workbench-terminal-document-stale"
@@ -95,6 +104,18 @@
         </header>
         <p v-if="message.role === 'user'">{{ message.content }}</p>
         <div v-else v-html="renderMarkdown(message.content)"></div>
+        <div v-if="message.documentReferences.length" class="workbench-agent-document-references">
+          <el-button
+            v-for="reference in message.documentReferences"
+            :key="`${reference.repositoryKey}:${reference.relativePath}`"
+            link
+            type="primary"
+            data-test="workbench-agent-document-reference"
+            @click="emit('open-document', reference)"
+          >
+            {{ reference.repositoryKey }}/{{ reference.relativePath }}
+          </el-button>
+        </div>
       </article>
 
       <template v-if="runState">
@@ -108,7 +129,19 @@
             <small>#{{ block.eventId }}</small>
           </header>
           <p v-if="block.content">{{ block.content }}</p>
-          <details v-else>
+          <div v-if="block.documentReferences.length" class="workbench-agent-document-references">
+            <el-button
+              v-for="reference in block.documentReferences"
+              :key="`${reference.repositoryKey}:${reference.relativePath}`"
+              link
+              type="primary"
+              data-test="workbench-agent-document-reference"
+              @click="emit('open-document', reference)"
+            >
+              {{ reference.repositoryKey }}/{{ reference.relativePath }}
+            </el-button>
+          </div>
+          <details v-if="!block.content">
             <summary>{{ block.commandSummary || block.outputSummary || block.summary || block.tool || block.commandClass || block.eventType }}</summary>
             <p v-if="block.outputSummary" data-test="workbench-command-output-summary">
               {{ block.outputSummary }}
@@ -123,14 +156,15 @@
         </article>
 
         <button
-          v-for="document in runState.staleDocuments"
-          :key="`${document.repositoryKey}:${document.path}:${document.eventId}`"
+          v-for="document in visibleDocumentEvents"
+          :key="`${document.reference.repositoryKey}:${document.reference.relativePath}:${document.eventId}`"
           type="button"
           class="workbench-file-event"
-          @click="emit('open-document', document.repositoryKey, document.path)"
+          data-test="workbench-structured-document-reference"
+          @click="emit('open-document', document.reference)"
         >
           <span>文件 {{ document.changeType }}</span>
-          <strong>{{ document.repositoryKey }}/{{ document.path }}</strong>
+          <strong>{{ document.reference.repositoryKey }}/{{ document.reference.relativePath }}</strong>
           <small>点击在右侧查看；已打开内容只标记 stale，不会自动替换。</small>
         </button>
 
@@ -155,7 +189,13 @@
 
     <slot name="operations"></slot>
 
-    <div class="workbench-composer">
+    <div
+      :class="['workbench-composer', { 'is-file-dragging': fileDragging }]"
+      @dragenter.prevent="fileDragging = true"
+      @dragover.prevent
+      @dragleave="handleAttachmentDragLeave"
+      @drop.prevent="handleAttachmentDrop"
+    >
       <div class="workbench-composer-mode">
         <span>本轮模式</span>
         <el-radio-group
@@ -165,7 +205,11 @@
           @update:model-value="updateRunMode"
         >
           <el-radio-button value="DISCUSS_READ_ONLY">只读讨论</el-radio-button>
-          <el-radio-button v-if="modifyAllowed" value="MODIFY_WORKSPACE">修改工作区</el-radio-button>
+          <el-radio-button
+            v-if="modifyAllowed"
+            value="MODIFY_WORKSPACE"
+            :disabled="writeRunBlocked"
+          >修改工作区</el-radio-button>
         </el-radio-group>
         <small v-if="runMode === 'DISCUSS_READ_ONLY'" data-test="run-read-only-scope">
           只读模式不授予仓库写入权限。
@@ -186,13 +230,13 @@
         </small>
       </div>
       <div
-        v-if="attachments.length"
+        v-if="repositoryAttachments.length"
         class="workbench-pending-attachments"
         data-test="workbench-pending-attachments"
       >
-        <span>待发送文档</span>
+        <span>仓内文档</span>
         <el-tag
-          v-for="attachment in attachments"
+          v-for="attachment in repositoryAttachments"
           :key="`${attachment.repositoryKey}:${attachment.relativePath}`"
           closable
           :disable-transitions="true"
@@ -200,6 +244,61 @@
         >
           {{ attachment.repositoryKey }}/{{ attachment.relativePath }}
         </el-tag>
+      </div>
+      <el-alert
+        v-if="uploadNotice"
+        class="workbench-upload-alert"
+        data-test="workbench-upload-notice"
+        type="warning"
+        show-icon
+        :closable="false"
+        :title="uploadNotice"
+      />
+      <div
+        v-if="uploadItems.length"
+        class="workbench-upload-items"
+        data-test="workbench-upload-items"
+      >
+        <span>浏览器上传</span>
+        <article
+          v-for="item in uploadItems"
+          :key="item.clientId"
+          class="workbench-upload-item"
+          data-test="workbench-upload-item"
+        >
+          <img
+            v-if="item.previewUrl"
+            :src="item.previewUrl"
+            :alt="item.displayName"
+            class="workbench-upload-preview"
+            data-test="workbench-upload-preview"
+          />
+          <div class="workbench-upload-item-body">
+            <strong :title="item.displayName">{{ item.displayName }}</strong>
+            <small>{{ formatAttachmentSize(item.size) }} · {{ uploadStatusLabel(item.status) }}</small>
+            <small v-if="item.error" class="workbench-upload-error">{{ item.error }}</small>
+          </div>
+          <el-button
+            v-if="item.status === 'FAILED'"
+            link
+            type="primary"
+            data-test="workbench-upload-retry"
+            :disabled="attachmentInteractionDisabled"
+            @click="emit('retry-upload', item.clientId)"
+          >
+            重试
+          </el-button>
+          <el-button
+            link
+            type="danger"
+            data-test="workbench-upload-remove"
+            :loading="item.status === 'REMOVING'"
+            :disabled="readOnly || item.status === 'REMOVING'"
+            @click="emit('remove-upload', item.clientId)"
+          >
+            {{ item.status === 'UPLOADING' ? '取消' : '移除' }}
+          </el-button>
+        </article>
       </div>
       <el-input
         :model-value="modelValue"
@@ -212,12 +311,53 @@
         :disabled="readOnly || submitting"
         data-test="workbench-run-composer"
         @update:model-value="updateText"
+        @paste="handleAttachmentPaste"
         @keydown.ctrl.enter.prevent="emitSubmit"
         @keydown.meta.enter.prevent="emitSubmit"
       />
       <div class="workbench-composer-actions">
-        <span v-if="readOnly">已归档，仅可恢复查看历史。</span>
-        <span v-else>Ctrl / ⌘ + Enter 发送</span>
+        <div class="workbench-composer-attachment-actions">
+          <span v-if="readOnly">已归档，仅可恢复查看历史。</span>
+          <template v-else>
+            <input
+              ref="imagePicker"
+              type="file"
+              accept=".png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp"
+              multiple
+              hidden
+              data-test="workbench-upload-image-input"
+              @change="handleImageSelection"
+            />
+            <input
+              ref="filePicker"
+              type="file"
+              :accept="acceptedAttachmentTypes"
+              multiple
+              hidden
+              data-test="workbench-upload-file-input"
+              @change="handleFileSelection"
+            />
+            <el-button
+              size="small"
+              plain
+              data-test="workbench-upload-image-button"
+              :disabled="attachmentInteractionDisabled || attachmentCapacityReached"
+              @click="imagePicker?.click()"
+            >
+              选择图片
+            </el-button>
+            <el-button
+              size="small"
+              plain
+              data-test="workbench-upload-file-button"
+              :disabled="attachmentInteractionDisabled || attachmentCapacityReached"
+              @click="filePicker?.click()"
+            >
+              选择附件
+            </el-button>
+            <small>可粘贴图片或拖入文件 · 合计最多 8 个 · 单个 ≤ 10 MB</small>
+          </template>
+        </div>
         <el-button
           v-if="runActive"
           type="danger"
@@ -252,6 +392,10 @@
  */
 import { computed, nextTick, ref, watch } from 'vue';
 import { renderMarkdown, formatTime } from '../lib/formatters.js';
+import {
+  authorizedDocumentReference,
+  extractAuthorizedAgentDocumentReferences,
+} from '../lib/workbench-document-state.js';
 
 const props = defineProps({
   phase: { type: String, required: true },
@@ -265,6 +409,8 @@ const props = defineProps({
   olderMessagesLoading: { type: Boolean, required: true },
   repositoryKeys: { type: Array, required: true },
   attachments: { type: Array, required: true },
+  uploadItems: { type: Array, default: () => [] },
+  uploadNotice: { type: String, default: null },
   connectionStatus: { type: String, required: true },
   error: { type: String, default: null },
   notice: { type: String, default: null },
@@ -275,6 +421,7 @@ const props = defineProps({
   handoffReady: { type: Boolean, required: true },
   modifyAllowed: { type: Boolean, required: true },
   modifyReady: { type: Boolean, required: true },
+  writeRunBlocked: { type: Boolean, required: true },
   mobile: { type: Boolean, required: true },
   documentCollapsed: { type: Boolean, required: true },
   terminalDocumentStale: { type: Boolean, required: true },
@@ -289,27 +436,74 @@ const emit = defineEmits([
   'open-document-pane',
   'restore-document-pane',
   'remove-attachment',
+  'upload-files',
+  'retry-upload',
+  'remove-upload',
   'load-older-messages',
 ]);
 const timeline = ref(null);
+const imagePicker = ref(null);
+const filePicker = ref(null);
+const fileDragging = ref(false);
 const newOutputAvailable = ref(false);
+
+const acceptedAttachmentTypes = [
+  '.png', '.jpg', '.jpeg', '.gif', '.webp', '.pdf',
+  '.txt', '.log', '.md', '.markdown', '.json', '.xml', '.csv', '.yaml', '.yml', '.toml',
+  '.java', '.kt', '.kts', '.js', '.mjs', '.cjs', '.ts', '.tsx', '.vue', '.py', '.go', '.rs',
+  '.c', '.h', '.cc', '.cpp', '.cxx', '.hpp', '.sql', '.properties',
+].join(',');
 
 const runActive = computed(() => ['PENDING', 'RUNNING', 'CANCEL_REQUESTED']
   .includes(props.runState?.status || ''));
-const visibleMessages = computed(() => props.messages);
+const repositoryAttachments = computed(() => props.attachments.filter(
+  attachment => attachment.type !== 'UPLOADED_CONVERSATION',
+));
+const uploadsBusy = computed(() => props.uploadItems.some(
+  item => item.status === 'UPLOADING' || item.status === 'REMOVING',
+));
+const attachmentInteractionDisabled = computed(() =>
+  props.readOnly || props.submitting || runActive.value);
+const attachmentCapacityReached = computed(() => {
+  const uploading = props.uploadItems.filter(item => item.status === 'UPLOADING').length;
+  return props.attachments.length + uploading >= 8;
+});
+const visibleMessages = computed(() => props.messages.map(message => ({
+  ...message,
+  documentReferences: message.role === 'assistant'
+    ? extractAuthorizedAgentDocumentReferences(message.content, props.repositoryKeys)
+    : [],
+})));
 const persistedAssistantRunIds = computed(() => new Set(
   props.messages
     .filter(message => message.role === 'assistant' && message.runId)
     .map(message => message.runId),
 ));
-const visibleRunBlocks = computed(() => (props.runState?.blocks || []).filter(block => !(
-  block.kind === 'agent_chunk'
-    && persistedAssistantRunIds.value.has(props.runState?.context.runId || '')
-)));
+const visibleRunBlocks = computed(() => (props.runState?.blocks || [])
+  .filter(block => !(
+    block.kind === 'agent_chunk'
+      && persistedAssistantRunIds.value.has(props.runState?.context.runId || '')
+  ))
+  .map(block => ({
+    ...block,
+    documentReferences: block.kind === 'agent_chunk'
+      ? extractAuthorizedAgentDocumentReferences(block.content, props.repositoryKeys)
+      : [],
+  })));
+// 结构化事件和显式反引号候选都必须携带已选 repositoryKey；绝不从模糊文本猜仓库。
+const visibleDocumentEvents = computed(() => (props.runState?.staleDocuments || [])
+  .map(document => ({
+    ...document,
+    reference: authorizedDocumentReference({
+      repositoryKey: document.repositoryKey,
+      relativePath: document.path,
+    }, props.repositoryKeys),
+  }))
+  .filter(document => document.reference != null));
 const hasTimeline = computed(() => Boolean(
   props.messages.length || props.runState && (
     visibleRunBlocks.value.length ||
-    props.runState.staleDocuments.length ||
+    visibleDocumentEvents.value.length ||
     props.runState.testProgress.length ||
     props.runState.terminal
   ),
@@ -318,7 +512,9 @@ const canSubmit = computed(() =>
   !props.readOnly &&
   props.identityReady &&
   !props.submitting &&
+  !uploadsBusy.value &&
   !runActive.value &&
+  !(props.runMode === 'MODIFY_WORKSPACE' && props.writeRunBlocked) &&
   props.handoffReady &&
   (props.phase !== 'REVIEW_REFACTOR' || props.runMode !== 'MODIFY_WORKSPACE' || props.modifyReady) &&
   Boolean(props.modelValue.trim()),
@@ -369,6 +565,59 @@ function updateRunMode(value) {
 
 function emitSubmit() {
   if (canSubmit.value) emit('submit');
+}
+
+function handleImageSelection(event) {
+  emitSelectedFiles(event, file => file.type.startsWith('image/'));
+}
+
+function handleFileSelection(event) {
+  emitSelectedFiles(event, () => true);
+}
+
+function emitSelectedFiles(event, predicate) {
+  const input = event?.target;
+  const files = Array.from(input?.files || []).filter(predicate);
+  if (input) input.value = '';
+  if (files.length && !attachmentInteractionDisabled.value) emit('upload-files', files);
+}
+
+function handleAttachmentPaste(event) {
+  if (attachmentInteractionDisabled.value) return;
+  const files = Array.from(event?.clipboardData?.files || [])
+    .filter(file => file.type.startsWith('image/'));
+  if (!files.length) return;
+  event.preventDefault();
+  emit('upload-files', files);
+}
+
+function handleAttachmentDrop(event) {
+  fileDragging.value = false;
+  if (attachmentInteractionDisabled.value) return;
+  const files = Array.from(event?.dataTransfer?.files || []);
+  if (files.length) emit('upload-files', files);
+}
+
+function handleAttachmentDragLeave(event) {
+  const current = event?.currentTarget;
+  const related = event?.relatedTarget;
+  if (!current || !related || !current.contains(related)) fileDragging.value = false;
+}
+
+function formatAttachmentSize(bytes) {
+  if (!Number.isFinite(bytes) || bytes < 0) return '-';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+}
+
+function uploadStatusLabel(status) {
+  return {
+    UPLOADING: '上传中',
+    AVAILABLE: '待发送',
+    FAILED: '上传失败',
+    REMOVING: '正在移除',
+  }[status] || '状态未知';
 }
 
 function blockLabel(kind) {

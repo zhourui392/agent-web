@@ -2,10 +2,12 @@ package com.example.agentweb.domain.runtime;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -70,6 +72,25 @@ class RuntimeCommandPolicyTest {
         assertTrue(prefixes.stream().allMatch(prefix ->
                 !prefix.getTokens().isEmpty() && prefix.getOperation() != null));
         assertFalse(prefixes.toString().contains("password"));
+    }
+
+    @Test
+    void exposesOpaqueShellWrappersForConservativePreExecutionBlocking() {
+        List<List<String>> wrappers = policy.getOpaqueShellWrapperPrefixes();
+
+        assertTrue(wrappers.contains(Arrays.asList("bash", "-lc")));
+        assertTrue(wrappers.contains(Arrays.asList("sh", "-c")));
+        assertTrue(wrappers.contains(Arrays.asList("zsh", "-lc")));
+        assertTrue(wrappers.contains(Arrays.asList("cmd")));
+        assertTrue(wrappers.contains(Arrays.asList("cmd.exe")));
+        assertTrue(wrappers.contains(Arrays.asList("powershell")));
+        assertTrue(wrappers.contains(Arrays.asList("powershell.exe")));
+        assertTrue(wrappers.contains(Arrays.asList("pwsh")));
+        assertTrue(wrappers.contains(Arrays.asList("pwsh.exe")));
+        assertThrows(UnsupportedOperationException.class,
+                () -> wrappers.add(Arrays.asList("unsafe-shell")));
+        assertThrows(UnsupportedOperationException.class,
+                () -> wrappers.get(0).add("unsafe-option"));
     }
 
     private void assertBlocked(String command, RuntimeHighImpactOperation operation) {

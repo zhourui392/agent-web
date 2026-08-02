@@ -27,6 +27,17 @@ describe("WorkbenchHandoffDrawer source contract", () => {
     expect(drawer).toContain("emit('accept-latest')");
     expect(drawer).toContain("emit('keep-current')");
     expect(drawer).toContain("emit('open-document'");
+    expect(drawer).toContain('data-test="handoff-generate-candidate"');
+    expect(drawer).toContain('data-test="handoff-candidate"');
+    expect(drawer).toContain("emit('apply-candidate-field', 'summary', 'replace')");
+    expect(drawer).toContain("emit('apply-candidate-field', 'summary', 'append')");
+    expect(drawer).toContain("emit('ignore-candidate-field', 'summary')");
+    expect(drawer).toContain("emit('apply-candidate-field', 'decisions', 'replace')");
+    expect(drawer).toContain("emit('apply-candidate-field', 'decisions', 'append')");
+    expect(drawer).toContain("emit('ignore-candidate-field', 'decisions')");
+    expect(drawer).toContain("emit('apply-candidate-field', 'openQuestions', 'replace')");
+    expect(drawer).toContain("emit('apply-candidate-field', 'pinnedFiles', 'replace')");
+    expect(drawer).toContain("emit('apply-candidate-field', 'referencedRuns', 'replace')");
   });
 
   it("uses plain Vue interpolation and disables save/accept for read-only workbenches", async () => {
@@ -75,6 +86,14 @@ describe("Workbench Handoff page integration", () => {
     expect(page).toContain('@accept-latest="acceptLatestSource"');
     expect(page).toContain('@keep-current="keepCurrentSource"');
     expect(page).toContain('@open-document="openHandoffDocument"');
+    expect(page).toContain(':candidate="handoffCandidate"');
+    expect(page).toContain(':candidate-pending="handoffCandidatePending"');
+    expect(page).toContain('@generate-candidate="generateHandoffCandidate"');
+    expect(page).toContain('@apply-candidate-field="applyHandoffCandidateField"');
+    expect(page).toContain('@ignore-candidate-field="ignoreHandoffCandidateField"');
+    expect(page).toContain(
+      "handoff.handoffSource.value?.reception?.sourceVersion ??\n        handoff.handoffSource.value?.latestSource?.version ??\n        null",
+    );
     expect(page).not.toContain("{ name: '阶段交接'");
   });
 

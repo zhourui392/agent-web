@@ -99,6 +99,19 @@ class AgentExecutionPlanTest {
     }
 
     @Test
+    void uploadedAttachmentsDoNotPretendToBeReadableRepositoryRoots() {
+        RuntimeAttachmentExpectation uploaded = uploadedAttachment("attachment-1");
+
+        AgentExecutionPlan plan = planWithAttachments(
+                Collections.singletonList(uploaded));
+
+        assertSame(uploaded, plan.getAttachmentExpectations().get(0));
+        assertThrows(IllegalArgumentException.class,
+                () -> planWithAttachments(Arrays.asList(
+                        uploaded, uploadedAttachment("attachment-1"))));
+    }
+
+    @Test
     void attachmentsAreDefensivelyCopiedAndImmutable() {
         ArrayList<RuntimeAttachmentExpectation> attachments =
                 new ArrayList<RuntimeAttachmentExpectation>();
@@ -262,6 +275,15 @@ class AgentExecutionPlanTest {
             String repositoryRoot, String relativePath) {
         return new RuntimeAttachmentExpectation(
                 "repository", repositoryRoot, relativePath,
+                CanonicalHashing.sha256("approved"), 8L);
+    }
+
+    private static RuntimeAttachmentExpectation uploadedAttachment(
+            String attachmentId) {
+        return RuntimeAttachmentExpectation.uploadedConversation(
+                attachmentId,
+                CanonicalHashing.sha256("storage-" + attachmentId),
+                "attachment-1234567890abcdefabcd.md",
                 CanonicalHashing.sha256("approved"), 8L);
     }
 
