@@ -28,7 +28,6 @@ type="primary" size="large" style="width:100%; margin-top:16px;"
             <el-menu-item index="tool-invocation-analytics"><span>工具分析</span></el-menu-item>
             <el-menu-item index="users"><span>用户管理</span></el-menu-item>
             <el-menu-item index="workflows"><span>工作流</span></el-menu-item>
-            <el-menu-item v-if="harnessEnabled" index="harness"><span>Harness</span></el-menu-item>
             <el-menu-item index="recall"><span>召回观测</span></el-menu-item>
             <el-menu-item v-if="ragEnabled" index="refinery"><span>召回历史</span></el-menu-item>
             <el-menu-item index="chat"><span>对话</span></el-menu-item>
@@ -73,7 +72,6 @@ export default {
     // chat-rag(Knowledge Refinery)是否启用:enabled=false 时 controller 不装配,
     // /chunks 返回 404 -> 隐藏「召回历史」菜单。口径对齐主控制台 app.js 的探测。
     const ragEnabled = ref(false);
-    const harnessEnabled = ref(false);
 
     // 点菜单 = 整页跳到对应页(MPA);当前页不跳。各页是 /admin/<key>.html 真实静态文件。
     function onMenuSelect(index) {
@@ -93,20 +91,6 @@ export default {
       }
     }
 
-    async function probeHarness() {
-      try {
-        const res = await fetch('/api/harness/runs/__admin_probe__');
-        if (res.status !== 404) {
-          harnessEnabled.value = true;
-          return;
-        }
-        const body = await res.json();
-        harnessEnabled.value = body && body.code === 'HARNESS_RUN_NOT_FOUND';
-      } catch (e) {
-        // 静默：未装配或探测失败时隐藏入口，不影响其他管理功能
-      }
-    }
-
     async function checkStatus() {
       checking.value = true;
       try {
@@ -115,7 +99,6 @@ export default {
         if (authed.value) {
           emit('ready');
           probeRefinery();
-          probeHarness();
         } else if (status.authenticated) {
           loginError.value = '当前账户无管理员权限';
         }
@@ -144,7 +127,7 @@ export default {
 
     onMounted(checkStatus);
 
-    return { authed, checking, loginError, ragEnabled, harnessEnabled, onMenuSelect, login, logout };
+    return { authed, checking, loginError, ragEnabled, onMenuSelect, login, logout };
   }
 };
 </script>

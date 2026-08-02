@@ -29,10 +29,6 @@ MVP 建设一个面向个人开发者的本地开发工作台，以阶段化 Age
 产品从第一版开始支持“一个工作空间选择一个或多个代码仓库”的模型。用户必须明确选择本次 Workbench
 涉及的仓库、主仓库和写入范围，不能把整个父目录默认授权给 Agent。
 
-现有 Harness 不是长期兼容层。Workbench 开发前先把需要复用的 Runtime、Skill Catalog 和 MCP Catalog
-解耦为中性公共能力；Workbench 完成真实试点后停止新增 Harness Run，最终移除 Harness 页面、领域模块、
-API、配置和数据结构。正式交付能力后续直接接入 workspace `requirement-flow`。
-
 ## 1. 文档定位
 
 本文只回答产品问题：
@@ -41,8 +37,7 @@ API、配置和数据结构。正式交付能力后续直接接入 workspace `re
 - 页面有哪些区域和操作；
 - 四个阶段如何协作；
 - 多仓库、阶段默认能力、上下文交接和文档查看如何使用；
-- 哪些行为属于 MVP，哪些后续再做；
-- Harness 如何从产品层面退出。
+- 哪些行为属于 MVP，哪些后续再做。
 
 本文不确定以下实现细节：
 
@@ -51,23 +46,13 @@ API、配置和数据结构。正式交付能力后续直接接入 workspace `re
 - REST/SSE API 契约；
 - Runtime、Capability 和文件读取 Adapter；
 - 前端组件目录和状态管理方式；
-- Harness 代码与数据库的具体迁移脚本；
 - 测试类、Fixture 和部署脚本。
 
 这些内容在产品方案确认后拆分为独立技术设计，见 §21。
 
 ## 2. 产品背景
 
-现有 Harness 已覆盖 Stage、Attempt、Artifact、Gate、Approval、Capability Snapshot、Runtime、Deployment
-和审计时间线，适合受控交付控制面，但不适合作为日常本地开发入口：
-
-- 对话区域小，用户无法持续阅读 Agent 输出；
-- Artifact、Gate、Approval 和审计操作长期占据主界面；
-- 能力快照偏审计展示，用户需要理解本应由系统自动处理的 Rules、Skills 和 MCP；
-- 查看代码和文档需要离开阶段页面；
-- 一个简单本地开发任务也需要理解完整交付状态机。
-
-本地开发工作台的主要使用行为不同：
+日常本地开发围绕 Agent 对话展开，核心使用行为是：
 
 ```text
 与 Agent 讨论
@@ -76,7 +61,9 @@ API、配置和数据结构。正式交付能力后续直接接入 workspace `re
 → 人工决定下一步
 ```
 
-因此新产品不对 Harness 页面继续做减法，而是建立一个独立的轻量工作台，并在完成替代后移除 Harness。
+平台已具备 Runtime、Skill Catalog 和 MCP Catalog 等通用能力，但缺少一个面向本地开发流程的轻量工作台。开发者需要持续阅读 Agent 输出、随时查看代码和文档、并按阶段组织开发过程，而不是在一个受控交付控制面中完成简单本地任务。
+
+因此建设一个独立的轻量工作台，以阶段化 Agent 对话为核心，把对话空间、能力自动配置和文档查看整合在同一页面。
 
 ## 3. 目标用户与场景
 
@@ -124,8 +111,7 @@ MVP 面向单人主导的开发过程，不以多人同时编辑、多人审批�
 - 文档在线编辑、保存冲突和 IDE 能力；
 - 自动 commit、push、部署或生产环境写入；
 - 正式 requirement-flow 的状态管理和交付 PASS；
-- 桌面客户端封装；
-- 把历史 Harness Run 自动迁移成 Workbench。
+- 桌面客户端封装。
 
 ## 5. 产品原则
 
@@ -630,8 +616,7 @@ Workbench 的“人工完成”状态不写入 `flow.json`，也不形成正式�
 - 页面仍以对话为主；
 - 正式状态只读取 workspace 控制器投影；
 - Gate、证据和交付信息放入折叠区域；
-- Workbench 人工状态不映射成正式 PASS；
-- 不重新建设 Harness 式控制面。
+- Workbench 人工状态不映射成正式 PASS。
 
 ## 15. 产品安全和权限要求
 
@@ -750,8 +735,7 @@ Agent 输出 FILE_CHANGED
 - 右侧只读文档查看；
 - 文档区伸缩、收起、恢复、最大化和布局记忆；
 - 文件变化提示和手动刷新；
-- 路径、仓库、能力、进程和敏感信息安全边界；
-- Workbench 与 Harness 专用领域模块解耦。
+- 路径、仓库、能力、进程和敏感信息安全边界。
 
 ### 18.2 延后实现
 
@@ -761,8 +745,7 @@ Agent 输出 FILE_CHANGED
 - 多文档 Tab、并排 Diff 和搜索替换；
 - 自动 Review 和自动大范围重构；
 - 自动 commit、push 或部署；
-- 桌面封装；
-- 历史 Harness 审计模型迁移。
+- 桌面封装。
 
 ## 19. 产品验收标准
 
@@ -783,22 +766,9 @@ Agent 输出 FILE_CHANGED
 - [ ] 第四阶段的 Review 意见由人确认后，Agent 才执行重构；
 - [ ] 重构后提示并执行用户要求的受影响测试；
 - [ ] Agent 流式文本、工具调用、文件变化和终态可以恢复查看；
-- [ ] commit、push 和部署没有因阶段切换或聊天文本而自动获得授权；
-- [ ] Workbench 不依赖 Harness 专用领域状态或 API；
-- [ ] Workbench 真实试点完成前不会删除仍需迁移的公共能力。
+- [ ] commit、push 和部署没有因阶段切换或聊天文本而自动获得授权。
 
-## 20. 产品路线图与 Harness 退役
-
-### Phase 0：公共能力解耦前置
-
-在开发 Workbench 之前完成产品所需公共能力的解耦边界：
-
-- 固定现有 Runtime、Skill Catalog、MCP Catalog 的可复用行为；
-- 明确哪些能力属于通用基础设施，哪些只属于 Harness；
-- 确保新 Workbench 不需要依赖 Harness Stage、Artifact、Gate 或 Approval；
-- 建立“Workbench 禁止依赖 Harness 专用模块”的工程约束。
-
-具体包结构、接口和迁移步骤进入独立技术设计，不在本文确定。
+## 20. 产品路线图
 
 ### Phase 1：Workbench 与 Repository Scope
 
@@ -827,31 +797,7 @@ Agent 输出 FILE_CHANGED
 - 选择一个风险可控的真实本地需求；
 - 完整跑通四阶段；
 - 验证多仓库边界、人工 Review、重构和回归；
-- 收集对话空间、配置复杂度和文档查看体验反馈；
-- 达到产品验收标准后，开始 Harness 正式退役。
-
-### Phase 5：Harness 退役
-
-Harness 退役遵循：
-
-```text
-停止新增 Harness 功能
-→ Workbench 完成替代试点
-→ 禁止创建新 Harness Run
-→ 提供历史只读与按需导出窗口
-→ 删除 Harness 前端和写 API
-→ 删除 Harness 专用领域与基础设施
-→ 用户确认后清理历史表和 Artifact
-```
-
-产品要求：
-
-- Workbench 和 Chat 不依赖 `harness.*` 专用能力；
-- 历史 Harness Run 不自动转换成 Workbench；
-- 数据删除前必须备份并获得显式确认；
-- 正式交付能力由 workspace `requirement-flow` 承担；
-- 不保留第二套 Runtime、Catalog 或空壳 Harness 状态机；
-- Harness 删除后，普通 Chat、Workbench、文件查看和 workspace 能力仍正常工作。
+- 收集对话空间、配置复杂度和文档查看体验反馈。
 
 ## 21. 后续技术设计拆分
 
@@ -861,7 +807,7 @@ Harness 退役遵循：
 
 | 技术设计 | 需要解决的问题 |
 | --- | --- |
-| TD-01 公共 Runtime 与 Capability 解耦 | Chat/Harness 现状、通用端口、依赖迁移、架构测试 |
+| TD-01 公共 Runtime 与 Capability 解耦 | Chat 现状、通用端口、架构测试 |
 | TD-02 Workbench Domain 与持久化 | 聚合、不变量、状态唯一来源、SQLite 与并发版本 |
 | TD-03 阶段 ChatRun 与 SSE | 独立会话、事件模型、停止、恢复、输出保留 |
 | TD-04 多仓库工作区 | 扫描、Repository Scope、主仓库、写隔离和快照 |
@@ -869,7 +815,6 @@ Harness 退役遵循：
 | TD-06 文档查看器 | 文件内容 API、格式、大小、stale、路径和前端 Split Pane |
 | TD-07 阶段上下文包 | 数据模型、Agent 候选生成、人工编辑和下游注入 |
 | TD-08 高影响操作与 workspace 接入 | commit、push、部署授权和 requirement-flow 绑定 |
-| TD-09 Harness 退役 | 代码清单、数据导出、配置清理、回滚和删除验收 |
 | TD-10 测试与发布 | Domain、Interface、Runtime 合同、Vitest、Playwright 和灰度 |
 
 每份技术设计必须以本文的用户行为、范围和验收标准为输入；如果技术约束要求改变产品行为，应先回到
@@ -903,4 +848,4 @@ ChatRun、Capability、workspace 接入和文件安全继续留在本地后端�
 → 需要正式交付时，再进入受控的 commit / push / 部署 / 验证流程
 ```
 
-产品目标不是隐藏 Harness，而是用更适合本地开发的 Workbench 完成替代，并在替代验收后移除 Harness。
+产品目标是用更适合本地开发的 Workbench，让开发者围绕阶段化对话完成从需求到重构的完整开发过程。

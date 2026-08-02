@@ -3,7 +3,6 @@
 > 状态：Draft v0.1
 > 日期：2026-08-01
 > 前置：[TD-01](td-01-runtime-capability-decoupling.md)
-> 参考：[Harness 多仓库工作区设计](../harness/05-multi-repository-workspace-design.md)
 > @author alex
 
 ## 1. 目标
@@ -14,7 +13,7 @@
 
 ## 2. 公共领域模型
 
-Phase 0 将现有 `domain.harness` 多仓库类型迁入 `domain.workspace`。Workbench 使用：
+`domain.workspace` 提供统一的仓库选择与授权边界模型。Workbench 使用：
 
 ```text
 RepositorySelection
@@ -119,7 +118,6 @@ WORKBENCH_CREATE
 WORKBENCH_RUN_START
 WORKBENCH_RUN_END
 HIGH_IMPACT_PREFLIGHT
-HARNESS_*（仅 Harness 消费者自行定义，不放公共常量）
 ```
 
 公共 Snapshot 接受 `SnapshotPurpose` 值对象，不认识消费者枚举。Hash 继续采用 framed canonical hashing，
@@ -268,4 +266,3 @@ Interface/Playwright：
 - 单仓和多仓没有 Application 条件分支；
 - Runtime、Document、Event 使用同一 Repository Scope；
 - 未选 sibling 和父目录不进入写根；
-- Workbench 不引用 `domain.harness` 多仓库类型。

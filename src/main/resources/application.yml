@@ -234,9 +234,8 @@ agent:
       - /api/admin-settings
       - /api/admin/workbenches
       - /api/refinery
-      - /api/harness
 
-  # Workbench/Harness 共享的可信能力 Catalog。
+  # Workbench 共享的可信能力 Catalog。
   capability:
     rule-root: ${AGENT_CAPABILITY_RULE_ROOT:src/main/resources/capability/rules}
     platform-skill-root: ${AGENT_CAPABILITY_SKILL_ROOT:src/main/resources/capability/skills}
@@ -244,16 +243,13 @@ agent:
     workspace-skill-root: ${AGENT_CAPABILITY_WORKSPACE_SKILL_ROOT:}
     mcp-server-root: ${AGENT_CAPABILITY_MCP_ROOT:src/main/resources/capability/mcp-servers}
 
-  # Chat/Workbench 公共进程 Runtime。默认关闭；开启时必须显式提供独立凭据引用。
+  # Chat/Workbench 公共进程 Runtime。单用户本机模式继承服务进程用户的 Codex 登录态。
   runtime:
     # Workbench 与普通 Chat 独立迁移；开启 Workbench 不得改变 Claude/recall/resume Chat 路径。
-    workbench-enabled: ${AGENT_COMMON_RUNTIME_WORKBENCH_ENABLED:${AGENT_COMMON_RUNTIME_ENABLED:false}}
+    workbench-enabled: ${AGENT_COMMON_RUNTIME_WORKBENCH_ENABLED:${AGENT_COMMON_RUNTIME_ENABLED:true}}
     chat-enabled: ${AGENT_COMMON_RUNTIME_CHAT_ENABLED:false}
     codex-command: ${CODEX_CMD:codex}
     temp-root: ${AGENT_COMMON_RUNTIME_TEMP_ROOT:data/runtime}
-    credential-environment-reference: ${AGENT_COMMON_RUNTIME_CREDENTIAL_REFERENCE:}
-    supported-codex-versions:
-      - "0.145.0"
     compatibility-matrix-version: m0-2026-07-22
     version-probe-timeout-seconds: 5
     version-probe-max-bytes: 4096
@@ -262,9 +258,9 @@ agent:
     recovery-max-output-bytes: ${AGENT_COMMON_RUNTIME_RECOVERY_MAX_OUTPUT_BYTES:10485760}
 
   workbench:
-    enabled: ${AGENT_WORKBENCH_ENABLED:false}
-    create-enabled: ${AGENT_WORKBENCH_CREATE_ENABLED:false}
-    write-run-enabled: ${AGENT_WORKBENCH_WRITE_RUN_ENABLED:false}
+    enabled: ${AGENT_WORKBENCH_ENABLED:true}
+    create-enabled: ${AGENT_WORKBENCH_CREATE_ENABLED:true}
+    write-run-enabled: ${AGENT_WORKBENCH_WRITE_RUN_ENABLED:true}
     high-impact:
       commit-enabled: ${AGENT_WORKBENCH_HIGH_IMPACT_COMMIT_ENABLED:false}
       push-enabled: ${AGENT_WORKBENCH_HIGH_IMPACT_PUSH_ENABLED:false}
@@ -295,54 +291,6 @@ agent:
       bound-retention-seconds: ${AGENT_WORKBENCH_ATTACHMENT_BOUND_RETENTION_SECONDS:7200}
       cleanup-batch-size: ${AGENT_WORKBENCH_ATTACHMENT_CLEANUP_BATCH_SIZE:100}
       cleanup-delay-millis: ${AGENT_WORKBENCH_ATTACHMENT_CLEANUP_DELAY_MILLIS:60000}
-
-  # 研发交付 Harness，默认开启。关闭时不注册管理 API、Repository、Store 或执行入口；公共 Catalog 仍可用。
-  harness:
-    enabled: ${AGENT_HARNESS_ENABLED:true}
-    creation-enabled: ${AGENT_HARNESS_CREATION_ENABLED:true}
-    mutation-enabled: ${AGENT_HARNESS_MUTATION_ENABLED:true}
-    export-enabled: ${AGENT_HARNESS_EXPORT_ENABLED:true}
-    artifact-root: ${AGENT_HARNESS_ARTIFACT_ROOT:data/harness/artifacts}
-    # Catalog 在每次 Attempt 固化前热读取；打包部署应覆盖为管理员维护的外置只读目录。
-    prompt-pack-root: ${AGENT_HARNESS_PROMPT_PACK_ROOT:src/main/resources/capability/rules}
-    platform-skill-root: ${AGENT_HARNESS_PLATFORM_SKILL_ROOT:src/main/resources/capability/skills}
-    approved-user-skill-root: ${AGENT_HARNESS_APPROVED_USER_SKILL_ROOT:}
-    workspace-skill-root: ${AGENT_HARNESS_WORKSPACE_SKILL_ROOT:}
-    mcp-server-root: ${AGENT_HARNESS_MCP_SERVER_ROOT:src/main/resources/capability/mcp-servers}
-    deployment-template-root: ${AGENT_HARNESS_DEPLOYMENT_TEMPLATE_ROOT:src/main/resources/harness/deployment-templates}
-    deployment:
-      command-timeout-seconds: ${AGENT_HARNESS_DEPLOYMENT_TIMEOUT_SECONDS:600}
-      max-output-bytes: ${AGENT_HARNESS_DEPLOYMENT_MAX_OUTPUT_BYTES:1048576}
-    runtime:
-      codex-command: ${AGENT_HARNESS_CODEX_COMMAND:${CODEX_CMD:codex}}
-      # local-login 使用服务账户的本机 Codex CLI 登录态；isolated-key 使用临时 Home 和显式凭据引用。
-      auth-mode: ${AGENT_HARNESS_RUNTIME_AUTH_MODE:local-login}
-      # 仅 isolated-key 使用：启动期解析逻辑引用并注入单次 Codex 进程；local-login 不解析该配置。
-      provider-credential-reference: ${AGENT_HARNESS_CODEX_CREDENTIAL_REFERENCE:}
-      temp-root: ${AGENT_HARNESS_RUNTIME_TEMP_ROOT:data/harness/runtime}
-      sandbox-mode: read-only
-      implementation-sandbox-mode: workspace-write
-      supported-codex-versions:
-        - "0.145.0"
-      compatibility-matrix-version: m0-2026-07-22
-      version-probe-timeout-seconds: 5
-      version-probe-max-bytes: 4096
-      idle-timeout-seconds: ${AGENT_HARNESS_RUNTIME_IDLE_TIMEOUT_SECONDS:300}
-      # 按阶段 idle timeout(无输出超时):长程任务需更长。需求分析 2h,实现 24h。
-      analysis-idle-timeout-seconds: ${AGENT_HARNESS_RUNTIME_ANALYSIS_IDLE_TIMEOUT_SECONDS:7200}
-      design-idle-timeout-seconds: ${AGENT_HARNESS_RUNTIME_DESIGN_IDLE_TIMEOUT_SECONDS:7200}
-      implementation-idle-timeout-seconds: ${AGENT_HARNESS_RUNTIME_IMPLEMENTATION_IDLE_TIMEOUT_SECONDS:86400}
-      deployment-idle-timeout-seconds: ${AGENT_HARNESS_RUNTIME_DEPLOYMENT_IDLE_TIMEOUT_SECONDS:7200}
-      max-runtime-seconds: ${AGENT_HARNESS_RUNTIME_MAX_RUNTIME_SECONDS:86400}
-      max-output-bytes: 4194304
-    security:
-      capability-policy-version: harness-capability-policy@2.0.0
-      platform-safety: 遵守平台权限边界；未明确授权的文件、命令和外部能力默认拒绝。
-      environment-guardrail: 只在 Run 声明的环境和工作目录内操作，不读取或输出敏感凭据。
-      # Server 必须同时被 Catalog、请求 Grant 与此环境 allowlist 允许；默认空集合 fail-closed。
-      allowed-mcp-server-ids: ${AGENT_HARNESS_ALLOWED_MCP_SERVER_IDS:}
-      inherited-environment-variables:
-        - PATH
 
   # issue-log 写盘通道配置
   issue-log:

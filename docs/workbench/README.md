@@ -8,25 +8,24 @@
 
 ## 1. 结论
 
-Workbench 应作为独立限界上下文建设，复用中性化后的 Workspace、Capability 和 Runtime 公共能力，
-但不依赖 `domain.harness`、`app.harness`、`infra.harness`、Harness API 或 Harness 表。现有 `ChatRun`
-生命周期和可恢复 SSE 可以保留为通用对话执行底座；提交、Prompt、能力和工作区准备必须改造成按执行来源选择的
-策略，不能在 `ChatRunAppServiceImpl` 中增加 Workbench/Harness 条件链。
+Workbench 应作为独立限界上下文建设，复用中性化后的 Workspace、Capability 和 Runtime 公共能力。
+现有 `ChatRun` 生命周期和可恢复 SSE 可以保留为通用对话执行底座；提交、Prompt、能力和工作区准备必须改造成按执行来源选择的
+策略，不能在 `ChatRunAppServiceImpl` 中增加 Workbench 条件链。
 
 首个工程动作不是创建 Workbench Controller，而是完成 Phase 0 解耦：
 
-1. 把已经实现于 `domain.harness` 的多仓库模型迁到中性 `domain.workspace`；
-2. 把 Prompt/Skill/MCP Catalog 定义和文件适配器迁到中性 Capability 包；
-3. 从 `CodexHarnessRuntimeGateway` 提取进程、命令、沙箱、事件、脱敏和取消内核；
-4. 建立架构测试，保证公共能力不反向依赖 Harness，Workbench 不依赖任何 Harness 包；
+1. 把多仓库模型落到中性 `domain.workspace`；
+2. 把 Prompt/Skill/MCP Catalog 定义和文件适配器落到中性 Capability 包；
+3. 从现有 Codex Runtime Gateway 提取进程、命令、沙箱、事件、脱敏和取消内核；
+4. 建立架构测试，保证公共能力与 Workbench 边界清晰；
 5. 再按 Repository Scope → 四阶段 → 对话运行 → Handoff → Document Viewer 的顺序实现产品能力。
 
 ## 2. 关键技术决策
 
 | 编号 | 决策 | 理由 |
 | --- | --- | --- |
-| ADR-WB-001 | Workbench 建立独立 `domain.workbench` 限界上下文 | 阶段是人工工作状态，不是 Harness Gate/Approval 状态机 |
-| ADR-WB-002 | 多仓库模型迁入 `domain.workspace`，Harness 暂时单向依赖公共模型 | 当前新模型位于 `domain.harness`，直接复用会锁死退役路径 |
+| ADR-WB-001 | Workbench 建立独立 `domain.workbench` 限界上下文 | 阶段是人工工作状态，不是 Gate/Approval 状态机 |
+| ADR-WB-002 | 多仓库模型迁入 `domain.workspace`，作为公共模型 | 多仓库是公共工作区事实，不应绑定到任何单一限界上下文 |
 | ADR-WB-003 | Catalog 定义迁入 `domain.capability`，阶段默认策略仍由 Workbench Domain 表达 | Catalog 是公共事实，四阶段策略是 Workbench 业务语义 |
 | ADR-WB-004 | 保留 `ChatRun` 的执行生命周期和事件存储，引入不可变 Execution Plan Provider | 复用停止、恢复、SSE 和事件保留，避免复制第二套运行生命周期 |
 | ADR-WB-005 | 每次运行先固化 `WorkbenchRunSnapshot`，提交事务成功后再启动外部进程 | 保证能力、仓库范围、Handoff 和 Prompt 在一次运行内不变化 |
@@ -34,7 +33,6 @@ Workbench 应作为独立限界上下文建设，复用中性化后的 Workspace
 | ADR-WB-007 | 文件 API 只接受 `repositoryKey + relativePath` | 浏览器和 API 不以绝对路径作为授权凭据，防止越权与路径歧义 |
 | ADR-WB-008 | Review 阶段默认只读，执行重构必须提交显式 `MODIFY` 运行意图 | 人工确认不能从自然语言推断，符合“人工 Review 后才重构” |
 | ADR-WB-009 | commit、push、deploy、生产写使用类型化操作提案与独立授权 | 阶段切换、普通消息和 Agent 文本都不产生高影响授权 |
-| ADR-WB-010 | Harness 不双写 Workbench；试点后先禁新建、保留只读，再独立清表 | 两种产品语义不同，自动迁移或双写会制造错误状态映射 |
 
 ## 3. 当前代码基线与差距
 
@@ -46,16 +44,16 @@ Workbench 应作为独立限界上下文建设，复用中性化后的 Workspace
 | 可恢复 SSE、`Last-Event-ID`、410 游标过期 | `ChatRunController`、`ChatRunSubscriptionService` | 复用协议和前端 SSE Client |
 | Tool Invocation 结构化旁路 | `chat_tool_invocation`、`ToolInvocation*` | 增加仓库标签、工作目录和命令分类 |
 | Agent Runtime Registry | `app.agentrun.port`、`infra.agentrun` | 保留 Agent 可用性；执行计划需扩展多目录与能力绑定 |
-| Harness Codex Runtime 的沙箱、进程、取消、脱敏 | `CodexHarnessRuntimeGateway` | 提取中性 Runtime Kernel 后由 Workbench Adapter 组合 |
-| Prompt/Skill/MCP Catalog 与信任策略 | `domain.harness`、`infra.harness` | 迁入中性 Capability Context，禁止 Workbench 反向引用 |
-| 多仓库值对象与快照 | `domain.harness` | 行为保留，包迁入 `domain.workspace`，去掉 Harness purpose 常量 |
+| Codex Runtime 的沙箱、进程、取消、脱敏 | 现有 Codex Runtime Gateway | 提取中性 Runtime Kernel 后由 Workbench Adapter 组合 |
+| Prompt/Skill/MCP Catalog 与信任策略 | Catalog 定义与文件适配器 | 迁入中性 Capability Context，禁止 Workbench 反向引用 |
+| 多仓库值对象与快照 | 多仓库值对象 | 行为保留，包迁入 `domain.workspace` |
 | Workspace 白名单与真实路径策略 | `domain.worktree.WorkspacePathPolicy` | 抽出只读解析能力，Repository Scope 叠加更窄边界 |
-| Markdown 净化与可恢复 SSE 前端库 | `frontend/js/lib` | 直接复用底层库，不整体嵌入耦合的 Chat/Harness 页面 |
+| Markdown 净化与可恢复 SSE 前端库 | `frontend/js/lib` | 直接复用底层库，不整体嵌入耦合的 Chat 页面 |
 
 ### 3.2 不能直接复用的部分
 
-- `HarnessRun`、`HarnessStage`、Artifact、Gate、Approval、DeploymentExecution 不进入 Workbench。
-- `CapabilitySnapshot` 当前绑定 Harness Run/Stage/Attempt，需要新建中性的 Capability Binding 和
+- Artifact、Gate、Approval、DeploymentExecution 等旧流水线概念不进入 Workbench。
+- `CapabilitySnapshot` 当前绑定 Run/Stage/Attempt，需要新建中性的 Capability Binding 和
   Workbench 专用 Run Snapshot，不能加 nullable Workbench 字段兼容。
 - `ChatRunAppServiceImpl` 当前直接读取 `ChatSession`、拼 Chat 提交语义；Workbench 不能在其中追加
   `if (source == WORKBENCH)`。
@@ -89,10 +87,6 @@ flowchart TB
     WSINFRA --> GIT[Local Git / File System]
     RTINFRA --> REPOS[Selected Repositories]
     CAPINFRA --> CATALOG[Trusted Rule / Skill / MCP Catalog]
-
-    HARNESS[Harness 临时兼容] --> WS
-    HARNESS --> CAP
-    HARNESS --> RTPORT
 ```
 
 依赖只允许向内：
@@ -106,10 +100,6 @@ domain.workbench ──→ domain.workspace / domain.capability
 
 infra.workbench / infra.workspace / infra.capability / infra.runtime
         ↑ 实现内层端口
-
-Harness → 公共能力（迁移期允许）
-公共能力 ↛ Harness
-Workbench ↛ Harness
 ```
 
 ### 4.1 目标包结构
@@ -378,7 +368,7 @@ Workbench API 负责 Owner 和 Repository Scope 授权；内部可以复用 Chat
 
 ## 12. 数据模型总览
 
-新增表使用 `workbench_` 前缀；公共 Workspace Snapshot 使用 `workspace_` 前缀；不向 Harness 表建外键。
+新增表使用 `workbench_` 前缀；公共 Workspace Snapshot 使用 `workspace_` 前缀。
 
 ```text
 workbench
@@ -400,7 +390,7 @@ workspace_changed_file
 
 ## 13. 前端结构
 
-Workbench 是普通登录用户页面，不放在 Harness 管理页内部：
+Workbench 是普通登录用户页面，独立于管理台：
 
 ```text
 frontend/workbench.html
@@ -426,8 +416,7 @@ frontend/js/workbench/composables/
   useSplitPane.ts
 ```
 
-复用 `formatters.ts`、`resumable-sse-client.ts`、消息/工具的纯展示组件；不复用 Harness 页面状态，也不把
-现有 `chat-panel.vue` 整体嵌入。布局宽度、收起状态、当前/最近文档按 `user/workbench/phase` 保存到
+复用 `formatters.ts`、`resumable-sse-client.ts`、消息/工具的纯展示组件；也不把现有 `chat-panel.vue` 整体嵌入。布局宽度、收起状态、当前/最近文档按 `user/workbench/phase` 保存到
 `localStorage`，服务端不把浏览器布局写入业务表。
 
 ## 14. 安全基线
@@ -445,8 +434,7 @@ frontend/js/workbench/composables/
 ### Phase 0：公共能力解耦
 
 - 迁移 Workspace Domain、Capability Catalog 和 Runtime Kernel。
-- Harness Adapter 改为组合公共能力，保持行为和现有测试绿色。
-- 增加 Workbench/Harness 依赖 ArchUnit 规则。
+- 增加 Workbench 依赖 ArchUnit 规则。
 
 ### Phase 1：Workbench 与 Repository Scope
 
@@ -468,15 +456,11 @@ frontend/js/workbench/composables/
 - 单仓库和 sibling 多仓库各跑一个真实需求。
 - 验证 Review 显式写意图、回归、断线和重启恢复。
 
-### Phase 5：Harness 退役
-
-- 禁止新建 → 历史只读/导出 → 删除写 API/UI → 删除代码 → 显式确认后清表。
-
 ## 16. 变化点收敛
 
 | 变化来源 | 当前分散位置 | 推荐收敛点 |
 | --- | --- | --- |
-| 四阶段默认能力 | Harness Stage Policy、资源目录 | `PhaseCapabilityProfileCatalog` + Workbench Domain Policy |
+| 四阶段默认能力 | 资源目录、散落策略 | `PhaseCapabilityProfileCatalog` + Workbench Domain Policy |
 | Chat/Workbench Prompt 差异 | ChatRun Executor 与调用方 | `ExecutionPlanProvider` 多态 |
 | Codex/Claude 命令差异 | 各 Gateway | `AgentRuntimeAdapter` + 公共 Process Kernel |
 | 单仓/多仓 | Gateway、页面、路径字符串 | `RepositoryScope` + `WorkspaceTopology` |
@@ -484,15 +468,14 @@ frontend/js/workbench/composables/
 | Handoff 上游更新 | UI 临时状态 | `HandoffReception` 版本引用 |
 | 文档格式 | Controller/前端条件分支 | `DocumentKind` + Renderer Registry |
 | 高影响操作种类 | 自然语言和命令名 | `OperationType` + Policy/Executor Strategy |
-| Harness/Workbench 生命周期 | 迁移脚本和 feature flag | `HarnessRetirementCoordinator` 运维步骤，不做状态映射 |
 
 ## 17. 重构信号
 
-- `CodexHarnessRuntimeGateway` 体量过大且包含多类变化原因，应拆出 Process Kernel、Command Factory、
+- 现有 Codex Runtime Gateway 体量过大且包含多类变化原因，应拆出 Process Kernel、Command Factory、
   Workspace Layout、Event Decoder、Evidence/Redaction 和 Credential Resolver。
-- `PromptPackCatalog`、`SkillCatalog`、`McpServerCatalog` 名称已是公共语义，但包仍在 Harness，应迁包而非复制。
-- `RepositorySelection`、`WorkspaceTopology`、`WorkspaceSnapshot` 已经是公共工作区模型，继续留在
-  `domain.harness` 会让 Workbench 形成错误依赖。
+- `PromptPackCatalog`、`SkillCatalog`、`McpServerCatalog` 名称已是公共语义，应迁入中性 Capability 包而非复制。
+- `RepositorySelection`、`WorkspaceTopology`、`WorkspaceSnapshot` 已经是公共工作区模型，不应绑定到
+  任何单一限界上下文，否则会让 Workbench 形成错误依赖。
 - `ChatRunAppServiceImpl` 同时负责 Chat 会话校验、容量、幂等、消息追加和执行启动，应抽出通用 Run
   Submission Coordinator；来源差异交给 Provider，不增加 source 条件链。
 - `chat-panel.vue` 是页面级组合组件，Workbench 应提取纯展示组件和 composable，不再叠加更多产品状态。
@@ -504,11 +487,11 @@ frontend/js/workbench/composables/
 
 | 维度 | 评分 | 依据 |
 | --- | ---: | --- |
-| 聚合边界是否清晰 | 2/3 | 产品概念清晰，ChatRun 和新 Workspace 模型可用；公共模型仍位于 Harness |
-| 变化是否被收敛 | 1/3 | Runtime/Catalog/前端组合件仍带 Harness 或 Chat 入口语义 |
+| 聚合边界是否清晰 | 2/3 | 产品概念清晰，ChatRun 和新 Workspace 模型可用；公共模型尚未独立成包 |
+| 变化是否被收敛 | 1/3 | Runtime/Catalog/前端组合件仍带 Chat 入口语义 |
 | 不变量是否可被模型守护 | 2/3 | 多仓库与 ChatRun 状态已有领域模型；Workbench 写租约/Handoff/Override 尚无模型 |
-| 行为是否与模型一致 | 1/3 | Harness 四阶段与 Workbench 四阶段名称相似但语义不同，直接复用会错位 |
-| 是否支持下一轮变化 | 1/3 | 当前 Harness 包归属会阻碍退役和 requirement-flow 接入 |
+| 行为是否与模型一致 | 1/3 | 旧流水线四阶段与 Workbench 四阶段名称相似但语义不同，直接复用会错位 |
+| 是否支持下一轮变化 | 1/3 | 当前包归属会阻碍 requirement-flow 接入 |
 
 ### 18.2 目标设计
 
@@ -540,5 +523,4 @@ frontend/js/workbench/composables/
 - [TD-06 文档查看器](td-06-document-viewer.md)
 - [TD-07 阶段上下文包](td-07-phase-handoff.md)
 - [TD-08 高影响操作与 workspace 接入](td-08-high-impact-operations.md)
-- [TD-09 Harness 退役](td-09-harness-retirement.md)
 - [TD-10 测试与发布](td-10-test-release.md)

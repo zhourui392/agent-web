@@ -32,8 +32,7 @@
 不复用：
 
 - Chat Feedback、Share、Recall、Slash Command 默认行为；
-- Chat 页面工作目录作为唯一 Runtime Root 的假设；
-- Harness RuntimeExecution/Artifact/Event 表。
+- Chat 页面工作目录作为唯一 Runtime Root 的假设。
 
 ## 3. Phase Session
 
@@ -112,8 +111,7 @@ Registry 在 Spring 装配期验证每个已注册 Origin 恰好一个 Provider�
 `if/switch`。Provider 只是读取已持久化事实并组装 Plan：
 
 - Chat Provider：沿用历史消息、resume、PromptAssembly/Recall；
-- Workbench Provider：读取 WorkbenchRunSnapshot、Phase 会话历史、Capability Binding 和 Repository Layout；
-- Harness 不经这条路径，除非后续评审确认迁移，不为“统一”强行改变现有执行状态机。
+- Workbench Provider：读取 WorkbenchRunSnapshot、Phase 会话历史、Capability Binding 和 Repository Layout。
 
 ## 6. Prompt 与历史
 
@@ -196,7 +194,7 @@ Accept: text/event-stream
 ```
 
 文件变化身份固定为 `repositoryKey + relativePath`。运行前后可使用 Workspace Snapshot 做确定性补充，
-但 Workbench 不建立 Harness Artifact/Gate；Snapshot 差异只形成可观察事件与 Review 输入。
+但 Workbench 不建立 Artifact/Gate；Snapshot 差异只形成可观察事件与 Review 输入。
 
 ## 10. 停止、失败与恢复
 
@@ -300,4 +298,4 @@ If-Match: <workbench-version>
 - SSE 文本、工具、文件、测试与终态均可恢复；
 - 运行中 Capability Override 不改变当前 Plan；
 - 未知运行不重放，写租约最终可对账释放；
-- Executor 中不存在 Workbench/Harness 来源条件链。
+- Executor 中不存在 Workbench 来源条件链。

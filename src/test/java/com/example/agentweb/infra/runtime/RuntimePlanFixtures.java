@@ -1,7 +1,6 @@
 package com.example.agentweb.infra.runtime;
 
 import com.example.agentweb.app.runtime.port.AgentExecutionPlan;
-import com.example.agentweb.app.runtime.port.CredentialReference;
 import com.example.agentweb.app.runtime.port.ExecutionIdentity;
 import com.example.agentweb.app.runtime.port.HistoryDelivery;
 import com.example.agentweb.app.runtime.port.PromptPayload;
@@ -18,7 +17,6 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
-import java.util.Set;
 
 /**
  * 公共 Runtime 基础设施测试使用的完整执行计划 Fixture。
@@ -34,29 +32,23 @@ final class RuntimePlanFixtures {
     static AgentExecutionPlan plan(String executionId, Path primary,
                                    List<Path> readable, List<Path> writable,
                                    SandboxMode sandboxMode, Duration timeout,
-                                   long maximumOutputBytes,
-                                   Set<String> environmentAllowlist,
-                                   CredentialReference credentialReference) {
+                                   long maximumOutputBytes) {
         String prompt = "perform the bounded runtime task";
         return new AgentExecutionPlan(
                 new ExecutionIdentity(executionId, "owner-1", "workbench:wb-1"),
-                new RuntimeSelection(AgentType.CODEX, RuntimeVersionPolicy.configured(),
-                        credentialReference),
+                new RuntimeSelection(AgentType.CODEX, RuntimeVersionPolicy.configured()),
                 new PromptPayload(prompt, CanonicalHashing.sha256(prompt),
                         HistoryDelivery.PROMPT_PREFIX),
                 new WorkspaceLayout(primary.toString(), strings(readable), strings(writable),
                         sandboxMode),
                 emptyBinding(),
-                new RuntimeLimits(timeout, maximumOutputBytes, environmentAllowlist));
+                new RuntimeLimits(timeout, maximumOutputBytes));
     }
 
     static AgentExecutionPlan readOnly(String executionId, Path primary,
-                                       List<Path> readable,
-                                       Set<String> environmentAllowlist,
-                                       CredentialReference credentialReference) {
+                                       List<Path> readable) {
         return plan(executionId, primary, readable, Collections.<Path>emptyList(),
-                SandboxMode.READ_ONLY, Duration.ofSeconds(5L), 1024L * 1024L,
-                environmentAllowlist, credentialReference);
+                SandboxMode.READ_ONLY, Duration.ofSeconds(5L), 1024L * 1024L);
     }
 
     private static List<String> strings(List<Path> paths) {

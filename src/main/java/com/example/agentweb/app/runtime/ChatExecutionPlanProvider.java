@@ -5,7 +5,6 @@ import com.example.agentweb.app.chatrun.ChatRunPromptBuilder;
 import com.example.agentweb.app.chatrun.ChatRunQueryService;
 import com.example.agentweb.app.chatrun.PreparedChatRunPrompt;
 import com.example.agentweb.app.runtime.port.AgentExecutionPlan;
-import com.example.agentweb.app.runtime.port.CredentialReference;
 import com.example.agentweb.app.runtime.port.ExecutionIdentity;
 import com.example.agentweb.app.runtime.port.HistoryDelivery;
 import com.example.agentweb.app.runtime.port.PromptPayload;
@@ -38,21 +37,17 @@ public final class ChatExecutionPlanProvider implements ExecutionPlanProvider {
     private final ChatRunPromptBuilder promptBuilder;
     private final ResolvedCapabilityBinding capabilityBinding;
     private final RuntimeLimits runtimeLimits;
-    private final CredentialReference credentialReference;
 
     public ChatExecutionPlanProvider(
             ChatRunQueryService queryService,
             ChatRunPromptBuilder promptBuilder,
             ResolvedCapabilityBinding capabilityBinding,
-            RuntimeLimits runtimeLimits,
-            CredentialReference credentialReference) {
+            RuntimeLimits runtimeLimits) {
         this.queryService = Objects.requireNonNull(queryService, "queryService");
         this.promptBuilder = Objects.requireNonNull(promptBuilder, "promptBuilder");
         this.capabilityBinding = Objects.requireNonNull(
                 capabilityBinding, "capabilityBinding");
         this.runtimeLimits = Objects.requireNonNull(runtimeLimits, "runtimeLimits");
-        this.credentialReference = Objects.requireNonNull(
-                credentialReference, "credentialReference");
     }
 
     @Override
@@ -83,8 +78,7 @@ public final class ChatExecutionPlanProvider implements ExecutionPlanProvider {
                         requiredRun.getId().getValue(), context.getUserId(),
                         "chat:" + requiredRun.getSessionId()),
                 new RuntimeSelection(
-                        AgentType.CODEX, RuntimeVersionPolicy.configured(),
-                        credentialReference),
+                        AgentType.CODEX, RuntimeVersionPolicy.configured()),
                 new PromptPayload(
                         prompt, CanonicalHashing.sha256(prompt),
                         HistoryDelivery.PROMPT_PREFIX),

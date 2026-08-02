@@ -4,13 +4,6 @@ import com.example.agentweb.domain.capability.CapabilityCatalogException;
 import com.example.agentweb.domain.capability.CapabilityKind;
 import com.example.agentweb.domain.capability.SkillPackage;
 import com.example.agentweb.domain.capability.SkillTrustSource;
-import com.example.agentweb.domain.harness.AgentRuntime;
-import com.example.agentweb.domain.harness.CapabilityGrant;
-import com.example.agentweb.domain.harness.CapabilitySelectionRequest;
-import com.example.agentweb.domain.harness.HarnessStage;
-import com.example.agentweb.domain.harness.SkillSelection;
-import com.example.agentweb.domain.harness.SkillSelectionPolicy;
-import com.example.agentweb.domain.harness.StageCapabilityPolicy;
 import com.example.agentweb.domain.workbench.PhaseCapabilityProfile;
 import com.example.agentweb.domain.workbench.PhaseCapabilityReference;
 import com.example.agentweb.domain.workbench.PhaseCapabilityType;
@@ -162,20 +155,6 @@ class FileSystemSkillCatalogTest {
     }
 
     @Test
-    void builtInCatalogShouldSelectDifferentDefaultsForAnalysisAndImplementation() {
-        List<SkillPackage> packages = new FileSystemSkillCatalog(
-                Paths.get("src/main/resources/capability/skills"),
-                SkillTrustSource.PLATFORM).discover();
-        SkillSelectionPolicy policy = new SkillSelectionPolicy();
-
-        SkillSelection analysis = policy.select(request(HarnessStage.ANALYSIS), packages);
-        SkillSelection implementation = policy.select(request(HarnessStage.IMPLEMENTATION), packages);
-
-        assertEquals(Collections.singletonList("domain-modeling-audit"), analysis.selectedSkillIds());
-        assertEquals(Collections.singletonList("java-tdd"), implementation.selectedSkillIds());
-    }
-
-    @Test
     void builtInSkillsShouldCoverEveryWorkbenchProfileUseCaseThatReferencesThem() {
         List<SkillPackage> packages = new FileSystemSkillCatalog(
                 Paths.get("src/main/resources/capability/skills"),
@@ -202,12 +181,6 @@ class FileSystemSkillCatalogTest {
             }
         }
         assertEquals(6, matchedReferences);
-    }
-
-    private CapabilitySelectionRequest request(HarnessStage stage) {
-        return new CapabilitySelectionRequest(stage, AgentRuntime.CODEX,
-                StageCapabilityPolicy.defaultsFor(stage), Collections.<String>emptySet(),
-                Collections.<String>emptySet(), Collections.<String>emptySet(), CapabilityGrant.none());
     }
 
     private Path writeSkill(Path root, String id, String resource) throws IOException {

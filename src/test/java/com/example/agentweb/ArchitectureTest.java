@@ -1,11 +1,6 @@
 package com.example.agentweb;
 
-import com.example.agentweb.app.runtime.architecturefixture.AppRuntimeHarnessLeak;
 import com.example.agentweb.app.runtime.architecturefixture.ProviderSdkLeak;
-import com.example.agentweb.domain.capability.architecturefixture.CapabilityHarnessLeak;
-import com.example.agentweb.domain.workbench.architecturefixture.WorkbenchHarnessLeak;
-import com.example.agentweb.domain.workspace.architecturefixture.WorkspaceHarnessLeak;
-import com.example.agentweb.infra.runtime.architecturefixture.InfraRuntimeHarnessLeak;
 import com.example.agentweb.interfaces.architecturefixture.ProviderCliLeak;
 import com.example.agentweb.interfaces.workbench.architecturefixture.WorkbenchInfraLeak;
 import com.example.agentweb.interfaces.workbench.architecturefixture.WorkbenchRepositoryLeak;
@@ -114,16 +109,6 @@ public class ArchitectureTest {
             .should().dependOnClassesThat().resideInAPackage("com.example.agentweb.infra..");
 
     @ArchTest
-    static final ArchRule A5_HARNESS_DOMAIN_SEPARATE_FROM_WORKFLOW = noClasses()
-            .that().resideInAPackage("com.example.agentweb.domain.harness..")
-            .should().dependOnClassesThat().resideInAPackage("com.example.agentweb.domain.workflow..");
-
-    @ArchTest
-    static final ArchRule A6_WORKFLOW_DOMAIN_SEPARATE_FROM_HARNESS = noClasses()
-            .that().resideInAPackage("com.example.agentweb.domain.workflow..")
-            .should().dependOnClassesThat().resideInAPackage("com.example.agentweb.domain.harness..");
-
-    @ArchTest
     static final ArchRule A7_AGENTKIT_NOT_EXPOSED_TO_CORE_OR_INTERFACES = noClasses()
             .that().resideInAnyPackage(
                     "com.example.agentweb.app..",
@@ -137,42 +122,6 @@ public class ArchitectureTest {
                     "com.example.agentweb.config.nativeagent..",
                     "com.example.agentweb.infra.nativeagent..")
             .should().dependOnClassesThat().resideInAPackage("com.anthropic.agentkit..");
-
-    @ArchTest
-    static final ArchRule A9_WORKSPACE_DOMAIN_SEPARATE_FROM_HARNESS = noClasses()
-            .that().resideInAPackage("com.example.agentweb.domain.workspace..")
-            .should().dependOnClassesThat().resideInAPackage(
-                    "com.example.agentweb..harness..");
-
-    @ArchTest
-    static final ArchRule A10_CAPABILITY_DOMAIN_SEPARATE_FROM_HARNESS = noClasses()
-            .that().resideInAPackage("com.example.agentweb.domain.capability..")
-            .should().dependOnClassesThat().resideInAPackage(
-                    "com.example.agentweb..harness..");
-
-    @ArchTest
-    static final ArchRule A11_RUNTIME_INFRA_SEPARATE_FROM_HARNESS = noClasses()
-            .that().resideInAPackage("com.example.agentweb.infra.runtime..")
-            .should().dependOnClassesThat().resideInAPackage(
-                    "com.example.agentweb..harness..");
-
-    @ArchTest
-    static final ArchRule A12_WORKBENCH_SEPARATE_FROM_HARNESS = noClasses()
-            .that().resideInAPackage("com.example.agentweb..workbench..")
-            .should().dependOnClassesThat().resideInAPackage(
-                    "com.example.agentweb..harness..");
-
-    @ArchTest
-    static final ArchRule A13_CAPABILITY_INFRA_SEPARATE_FROM_HARNESS = noClasses()
-            .that().resideInAPackage("com.example.agentweb.infra.capability..")
-            .should().dependOnClassesThat().resideInAPackage(
-                    "com.example.agentweb..harness..");
-
-    @ArchTest
-    static final ArchRule A14_RUNTIME_APP_SEPARATE_FROM_HARNESS = noClasses()
-            .that().resideInAPackage("com.example.agentweb.app.runtime..")
-            .should().dependOnClassesThat().resideInAPackage(
-                    "com.example.agentweb..harness..");
 
     @ArchTest
     static final ArchRule A15_WORKBENCH_INTERFACE_NOT_DEPEND_ON_REPOSITORY = noClasses()
@@ -196,20 +145,6 @@ public class ArchitectureTest {
             .or().haveSimpleName("WorkbenchRunAttachmentType")
             .should().resideInAPackage(
                     "com.example.agentweb.domain.workbench");
-
-    @Test
-    void neutralPackagesShouldRejectDeliberateHarnessLeaks() {
-        assertRejects(A9_WORKSPACE_DOMAIN_SEPARATE_FROM_HARNESS,
-                WorkspaceHarnessLeak.class);
-        assertRejects(A10_CAPABILITY_DOMAIN_SEPARATE_FROM_HARNESS,
-                CapabilityHarnessLeak.class);
-        assertRejects(A11_RUNTIME_INFRA_SEPARATE_FROM_HARNESS,
-                InfraRuntimeHarnessLeak.class);
-        assertRejects(A12_WORKBENCH_SEPARATE_FROM_HARNESS,
-                WorkbenchHarnessLeak.class);
-        assertRejects(A14_RUNTIME_APP_SEPARATE_FROM_HARNESS,
-                AppRuntimeHarnessLeak.class);
-    }
 
     @Test
     void workbenchInterfaceRulesShouldRejectRepositoryAndInfrastructureLeaks() {

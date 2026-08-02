@@ -68,48 +68,6 @@ function stream(): UseWorkbenchRunStream {
 }
 
 describe('useWorkbenchConversation', () => {
-  it('blocks a second MODIFY run from another Phase while still allowing a read-only Run', async () => {
-    const api = runApi();
-    const activeWriteRunId = ref<string | null>('write-run-in-another-phase');
-    const conversation = useWorkbenchConversation({
-      ownerId: ref('owner-1'),
-      workbenchId: ref('wb-1'),
-      phase: ref('IMPLEMENT_TEST'),
-      conversationGeneration: ref(1),
-      currentConversationId: ref('session-1'),
-      activeRunId: ref(null),
-      activeWriteRunId,
-      expectedVersion: ref(7),
-      phaseStatus: ref('IN_PROGRESS'),
-      handoffRequired: ref(false),
-      handoffSourceVersion: ref(null),
-      reviewConfirmationId: ref(null),
-      apiClient: api,
-      stream: stream(),
-    });
-    conversation.updateComposerText('先继续只读分析');
-
-    expect(conversation.runMode.value).toBe('MODIFY_WORKSPACE');
-    expect(conversation.writeRunBlocked.value).toBe(true);
-    expect(conversation.conversationCanSubmit.value).toBe(false);
-
-    await conversation.submitConversation();
-
-    expect(api.submitRun).not.toHaveBeenCalled();
-    expect(conversation.conversationError.value)
-      .toBe('当前 Workbench 已有活动写 Run；可切换为只读讨论，或等待写 Run 进入终态。');
-
-    conversation.updateRunMode('DISCUSS_READ_ONLY');
-    expect(conversation.writeRunBlocked.value).toBe(false);
-    expect(conversation.conversationCanSubmit.value).toBe(true);
-
-    await conversation.submitConversation();
-
-    expect(api.submitRun).toHaveBeenCalledWith(expect.objectContaining({
-      request: expect.objectContaining({ runMode: 'DISCUSS_READ_ONLY' }),
-    }));
-  });
-
   it('loads the complete persisted messages for the current owner Workbench Phase identity', async () => {
     const api = runApi({
       getConversationMessages: vi.fn().mockResolvedValue({
@@ -662,7 +620,6 @@ describe('useWorkbenchConversation', () => {
     expect(ensured).not.toHaveBeenCalled();
     expect(submitted).not.toHaveBeenCalled();
     expect(conversation.composerText.value).toBe('开发阶段的新输入');
-    expect(conversation.runMode.value).toBe('MODIFY_WORKSPACE');
     expect(conversation.submitting.value).toBe(false);
   });
 
@@ -685,7 +642,6 @@ describe('useWorkbenchConversation', () => {
       stream: runtime,
       onSubmitted: submitted,
     });
-    conversation.updateRunMode('MODIFY_WORKSPACE');
     conversation.updateComposerText('按此意见提取领域策略并运行受影响测试');
 
     await conversation.submitConversation();
@@ -699,7 +655,6 @@ describe('useWorkbenchConversation', () => {
         message: '按此意见提取领域策略并运行受影响测试',
         runMode: 'MODIFY_WORKSPACE',
         handoffSourceVersion: 4,
-        reviewConfirmationId: 'confirmation-7',
       },
     }));
     expect(runtime.attach).toHaveBeenCalledWith('run-1', 0);
@@ -743,7 +698,7 @@ describe('useWorkbenchConversation', () => {
     expect(api.submitRun).toHaveBeenCalledWith(expect.objectContaining({
       request: {
         message: '结合附件讨论方案',
-        runMode: 'DISCUSS_READ_ONLY',
+        runMode: 'MODIFY_WORKSPACE',
         attachments: [first, second],
       },
     }));
@@ -793,13 +748,13 @@ describe('useWorkbenchConversation', () => {
     expect(api.submitRun).toHaveBeenCalledWith(expect.objectContaining({
       request: {
         message: '结合图片分析需求',
-        runMode: 'DISCUSS_READ_ONLY',
+        runMode: 'MODIFY_WORKSPACE',
         attachments: [wireAttachment],
       },
     }));
     expect(submitted).toHaveBeenCalledWith(
       expect.objectContaining({ runId: 'run-1' }),
-      'DISCUSS_READ_ONLY',
+      'MODIFY_WORKSPACE',
       [wireAttachment],
     );
     expect(JSON.stringify(vi.mocked(api.submitRun).mock.calls[0][0]))
@@ -979,10 +934,10 @@ describe('useWorkbenchConversation', () => {
     expect(conversation.pendingAttachments.value).toEqual([]);
   });
 
-  it('fails closed before transport when Handoff or Review confirmation is missing', async () => {
+  it('fails closed before transport when Handoff is missing but allows Review without confirmation', async () => {
     const api = runApi();
+    const runtime = stream();
     const handoffSourceVersion = ref<number | null>(null);
-    const confirmationId = ref<string | null>(null);
     const conversation = useWorkbenchConversation({
       ownerId: ref('owner-1'),
       workbenchId: ref('wb-1'),
@@ -992,11 +947,10 @@ describe('useWorkbenchConversation', () => {
       expectedVersion: ref(3),
       handoffRequired: ref(true),
       handoffSourceVersion,
-      reviewConfirmationId: confirmationId,
+      reviewConfirmationId: ref(null),
       apiClient: api,
-      stream: stream(),
+      stream: runtime,
     });
-    conversation.updateRunMode('MODIFY_WORKSPACE');
     conversation.updateComposerText('执行重构');
 
     await conversation.submitConversation();
@@ -1005,8 +959,7 @@ describe('useWorkbenchConversation', () => {
 
     handoffSourceVersion.value = 2;
     await conversation.submitConversation();
-    expect(api.submitRun).not.toHaveBeenCalled();
-    expect(conversation.conversationError.value).toContain('Review');
+    expect(api.submitRun).toHaveBeenCalled();
   });
 
   it('keeps archived Run history readable but prevents submit and stop', async () => {

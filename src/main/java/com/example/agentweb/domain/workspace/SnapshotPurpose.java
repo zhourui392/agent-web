@@ -6,7 +6,7 @@ import lombok.Getter;
 import java.util.Objects;
 
 /**
- * 消费者限定的工作区快照采集目的；公共 Workspace 不声明 Harness 或 Workbench 枚举。
+ * 消费者限定的工作区快照采集目的；公共 Workspace 不声明 Workbench 枚举。
 
  * @author alex
  * @since 2026-08-01

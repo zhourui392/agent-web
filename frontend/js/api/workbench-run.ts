@@ -115,6 +115,8 @@ const SAFE_SERVER_ERROR_CODES = new Set([
   'WORKBENCH_RUN_UNAVAILABLE',
   'RUNTIME_UNAVAILABLE',
   'SERVICE_UNAVAILABLE',
+  'WORKBENCH_PHASE_MESSAGE_TOO_LARGE',
+  'WORKBENCH_ATTACHMENT_STORAGE_UNAVAILABLE',
 ]);
 
 export type WorkbenchRunFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -982,9 +984,6 @@ function requireReviewConfirmation(phase: WorkbenchPhase, request: SubmitWorkben
     throw new Error('review confirmation id is invalid');
   }
   const reviewModify = phase === 'REVIEW_REFACTOR' && request.runMode === 'MODIFY_WORKSPACE';
-  if (reviewModify && !confirmationId) {
-    throw new Error('review confirmation is required for a Review modify run');
-  }
   if (!reviewModify && confirmationId) {
     throw new Error('review confirmation is only valid for a Review modify run');
   }

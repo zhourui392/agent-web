@@ -12,6 +12,5 @@ public enum AgentSurface {
     SCHEDULE,
     WORKFLOW,
     WORKBENCH,
-    HARNESS,
     REFINERY
 }

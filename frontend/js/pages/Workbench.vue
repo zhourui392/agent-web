@@ -93,13 +93,12 @@
                 </el-popover>
               </div>
               <h1>{{ detail.title }}</h1>
-              <p>{{ detail.originalGoal }}</p>
             </div>
             <div class="workbench-detail-badges">
+              <span :class="['agent-tag', 'agent-tag-' + detail.agentType.toLowerCase()]">{{ detail.agentType === 'CLAUDE' ? 'Claude' : 'Codex' }}</span>
               <el-tag :type="detail.status === 'ARCHIVED' ? 'info' : 'success'">
                 {{ workbenchStatusLabel(detail.status) }}
               </el-tag>
-              <el-tag effect="plain">{{ detail.agentType }}</el-tag>
               <el-tag v-if="detail.environment" effect="plain">{{ detail.environment }}</el-tag>
               <span class="workbench-version">v{{ detail.version }}</span>
             </div>
@@ -114,79 +113,45 @@
               @click="selectPhase(item.phase)"
             >
               <span class="workbench-phase-number">{{ index + 1 }}</span>
-              <span class="workbench-phase-copy">
-                <strong>{{ item.label }}</strong>
-                <small>{{ phaseStatusLabel(phaseView(item.phase)?.status || 'NOT_STARTED') }}</small>
-              </span>
+              <span>{{ item.label }}</span>
             </button>
+            <span class="workbench-phase-spacer"></span>
+            <el-button
+              plain
+              size="small"
+              data-test="open-run-history"
+              @click="openRunHistory"
+            >
+              运行记录
+            </el-button>
+            <el-button
+              plain
+              size="small"
+              data-test="open-handoff-drawer"
+              @click="openHandoffDrawer"
+            >
+              阶段交接
+            </el-button>
+            <el-button
+              v-if="selectedPhaseView?.status === 'HUMAN_COMPLETED'"
+              size="small"
+              :loading="mutationLoading"
+              :disabled="detail.status === 'ARCHIVED'"
+              @click="reopenSelectedPhase"
+            >
+              重新打开
+            </el-button>
+            <el-button
+              v-else
+              type="primary"
+              size="small"
+              :loading="mutationLoading"
+              :disabled="!canCompleteSelectedPhase"
+              @click="completeSelectedPhase"
+            >
+              人工完成
+            </el-button>
           </nav>
-
-          <section class="workbench-phase-toolbar">
-            <div>
-              <h2>{{ currentPhaseLabel }}</h2>
-              <p>可以随时切换阶段；阶段状态仅由人工维护，不表示 Gate 或 PASS。</p>
-              <el-tag
-                data-test="phase-capability-status"
-                :type="capabilityStatusType"
-                effect="plain"
-              >
-                阶段能力：{{ capabilityStatusLabel }}
-              </el-tag>
-            </div>
-            <div class="workbench-phase-actions">
-              <el-button
-                plain
-                data-test="open-run-history"
-                @click="openRunHistory"
-              >
-                运行记录
-              </el-button>
-              <el-button
-                plain
-                data-test="open-handoff-drawer"
-                @click="openHandoffDrawer"
-              >
-                阶段交接
-              </el-button>
-              <el-dropdown
-                trigger="click"
-                data-test="phase-advanced-menu"
-                @command="handlePhaseAdvancedCommand"
-              >
-                <el-button plain aria-label="阶段高级操作">⋯</el-button>
-                <template #dropdown>
-                  <el-dropdown-menu>
-                    <el-dropdown-item command="open-capability">阶段能力</el-dropdown-item>
-                    <el-dropdown-item
-                      divided
-                      command="restart-conversation"
-                      data-test="restart-phase-conversation"
-                      :disabled="!canRestartConversation"
-                    >
-                      {{ restarting ? '正在重启…' : '重启会话' }}
-                    </el-dropdown-item>
-                  </el-dropdown-menu>
-                </template>
-              </el-dropdown>
-              <el-button
-                v-if="selectedPhaseView?.status === 'HUMAN_COMPLETED'"
-                :loading="mutationLoading"
-                :disabled="detail.status === 'ARCHIVED'"
-                @click="reopenSelectedPhase"
-              >
-                重新打开
-              </el-button>
-              <el-button
-                v-else
-                type="primary"
-                :loading="mutationLoading"
-                :disabled="!canCompleteSelectedPhase"
-                @click="completeSelectedPhase"
-              >
-                人工完成
-              </el-button>
-            </div>
-          </section>
 
           <section
             ref="splitRoot"
@@ -202,7 +167,6 @@
               :phase="selectedPhase"
               :phase-label="currentPhaseLabel"
               :model-value="composerText"
-              :run-mode="runMode"
               :run-state="runState"
               :messages="conversationMessages"
               :messages-loading="messagesLoading"
@@ -220,14 +184,11 @@
               :read-only="archived"
               :identity-ready="identityReady"
               :handoff-ready="handoffReady"
-              :modify-allowed="modifyAllowed"
               :modify-ready="selectedPhase !== 'REVIEW_REFACTOR' || reviewConfirmed"
-              :write-run-blocked="writeRunBlocked"
               :mobile="isMobile"
               :document-collapsed="desktopMode === 'COLLAPSED'"
               :terminal-document-stale="Boolean(runState?.terminal && currentDocument?.stale)"
               @update:model-value="updateComposerText"
-              @update:run-mode="updateRunMode"
               @submit="submitConversation"
               @stop="stopConversation"
               @open-document="openRunDocument"
@@ -266,28 +227,6 @@
                   @update-candidate-item="updateReviewCandidateItem"
                   @accept-candidate-item="acceptReviewCandidateItem"
                   @ignore-candidate-item="ignoreReviewCandidateItem"
-                />
-              </template>
-              <template #operations>
-                <workbench-operation-cards
-                  :operations="phaseOperations"
-                  :loading="operationLoading"
-                  :deciding-id="operationDecidingId"
-                  :error="operationError"
-                  :notice="operationNotice"
-                  :read-only="operationReadOnly"
-                  :repositories="repositories"
-                  :source-runs="operationSourceRuns"
-                  :workbench-id="workbenchId"
-                  :phase="selectedPhase"
-                  :proposal-source-loading="operationSourceRunsLoading"
-                  :proposing="operationProposing"
-                  :proposal-created-token="operationProposalCreatedToken"
-                  :proposal-disabled-reason="operationProposalDisabledReason"
-                  @refresh="loadOperations"
-                  @decide="decideOperation"
-                  @prepare-proposal="prepareOperationProposal"
-                  @propose="proposeOperation"
                 />
               </template>
             </workbench-conversation-panel>
@@ -531,10 +470,10 @@
         </label>
         <label class="workbench-field">
           <span>Agent</span>
-          <el-select v-model="createForm.agentType" style="width: 100%">
-            <el-option label="Codex" value="CODEX" />
-          </el-select>
-          <small class="workbench-field-help">当前 Workbench 试点仅开放 Codex。</small>
+          <el-radio-group v-model="createForm.agentType" style="width: 100%">
+            <el-radio-button value="CODEX">Codex</el-radio-button>
+            <el-radio-button value="CLAUDE">Claude</el-radio-button>
+          </el-radio-group>
         </label>
         <label class="workbench-field">
           <span>环境</span>
@@ -588,20 +527,18 @@ import WorkbenchCapabilityDrawer from '../components/WorkbenchCapabilityDrawer.v
 import WorkbenchConversationPanel from '../components/WorkbenchConversationPanel.vue';
 import WorkbenchDocumentPane from '../components/WorkbenchDocumentPane.vue';
 import WorkbenchHandoffDrawer from '../components/WorkbenchHandoffDrawer.vue';
-import WorkbenchOperationCards from '../components/WorkbenchOperationCards.vue';
 import WorkbenchReviewPanel from '../components/WorkbenchReviewPanel.vue';
 import WorkbenchRunHistoryDrawer from '../components/WorkbenchRunHistoryDrawer.vue';
 import { useWorkbenchCapability } from '../composables/useWorkbenchCapability.js';
 import { useWorkbenchConversation } from '../composables/useWorkbenchConversation.js';
 import { useWorkbenchDocumentPane } from '../composables/useWorkbenchDocumentPane.js';
 import { useWorkbenchHandoff } from '../composables/useWorkbenchHandoff.js';
-import { useWorkbenchOperations } from '../composables/useWorkbenchOperations.js';
+import { useWorkbenchShell } from '../composables/useWorkbenchShell.js';
 import { useWorkbenchReview } from '../composables/useWorkbenchReview.js';
 import { useWorkbenchRunHistory } from '../composables/useWorkbenchRunHistory.js';
 import { useWorkbenchUploadedAttachments } from '../composables/useWorkbenchUploadedAttachments.js';
 import { openWorkbenchHandoffDocument } from '../lib/workbench-handoff-integration.js';
 import { WORKBENCH_PHASES, phaseStatusLabel } from '../lib/workbench-state.js';
-import { useWorkbenchShell } from '../composables/useWorkbenchShell.js';
 
 function repositoryRelativePathLabel(relativePath) {
   const normalized = typeof relativePath === 'string'
@@ -626,7 +563,6 @@ export default {
     WorkbenchConversationPanel,
     WorkbenchDocumentPane,
     WorkbenchHandoffDrawer,
-    WorkbenchOperationCards,
     WorkbenchReviewPanel,
     WorkbenchRunHistoryDrawer,
   },
@@ -700,12 +636,6 @@ export default {
       workbenchId,
       phase: shell.selectedPhase,
       archived,
-    });
-    const operations = useWorkbenchOperations({
-      workbenchId,
-      phase: shell.selectedPhase,
-      archived,
-      repositories,
     });
     const expectedVersion = computed(() => shell.detail.value?.version ?? null);
     const handoffRequired = computed(
@@ -978,15 +908,6 @@ export default {
     );
 
     watch(
-      () => conversation.runState.value?.operations
-        .map(operation => operation.operationId).join('|') || '',
-      fingerprint => {
-        if (fingerprint) void operations.loadOperations();
-      },
-      { flush: 'post' },
-    );
-
-    watch(
       () => [
         shell.currentUserId.value,
         workbenchId.value ?? '',
@@ -1029,7 +950,6 @@ export default {
       ...capability,
       ...handoff,
       ...review,
-      ...operations,
       ...conversation,
       workbenchUploadItems: uploadedAttachments.items,
       workbenchUploadNotice: uploadedAttachments.notice,

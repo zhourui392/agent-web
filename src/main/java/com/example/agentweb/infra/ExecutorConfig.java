@@ -45,17 +45,6 @@ public class ExecutorConfig {
         return ex;
     }
 
-    @Bean(name = "harnessSseExecutor")
-    public Executor harnessSseExecutor() {
-        ThreadPoolTaskExecutor ex = new ThreadPoolTaskExecutor();
-        ex.setCorePoolSize(2);
-        ex.setMaxPoolSize(8);
-        ex.setQueueCapacity(256);
-        ex.setThreadNamePrefix("harness-sse-");
-        ex.initialize();
-        return ex;
-    }
-
     @Bean
     public TaskScheduler taskScheduler() {
         ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();

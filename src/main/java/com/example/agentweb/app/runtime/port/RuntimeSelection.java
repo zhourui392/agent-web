@@ -6,7 +6,10 @@ import lombok.Getter;
 import java.util.Objects;
 
 /**
- * 已选 Runtime、版本约束和无明文 Secret 的凭据引用。
+ * 已选 Runtime 和版本约束。
+ *
+ * <p>单用户本机模式下 Codex 子进程直接继承服务进程用户的登录态，
+ * 不再携带凭据引用。</p>
  *
  * @author alex
  * @since 2026-08-01
@@ -16,15 +19,11 @@ public final class RuntimeSelection {
 
     private final AgentType agentType;
     private final RuntimeVersionPolicy runtimeVersionPolicy;
-    private final CredentialReference credentialReference;
 
     public RuntimeSelection(AgentType agentType,
-                            RuntimeVersionPolicy runtimeVersionPolicy,
-                            CredentialReference credentialReference) {
+                            RuntimeVersionPolicy runtimeVersionPolicy) {
         this.agentType = Objects.requireNonNull(agentType, "agentType");
         this.runtimeVersionPolicy = Objects.requireNonNull(
                 runtimeVersionPolicy, "runtimeVersionPolicy");
-        this.credentialReference = Objects.requireNonNull(
-                credentialReference, "credentialReference");
     }
 }

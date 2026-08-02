@@ -3,7 +3,7 @@
 > 状态：已实施，并完成自动化、制品和真实 OpenAI-compatible Provider 验证
 > 日期：2026-07-30
 > 适用范围：用户在普通聊天入口选择 NATIVE，以进程内 JAR 运行只读诊断 Agent
-> 非目标：替代 Harness/Coding Agent、开放写工具、让 NATIVE 成为全局默认
+> 非目标：替代 Coding Agent、开放写工具、让 NATIVE 成为全局默认
 
 ## 1. 摘要
 
@@ -14,8 +14,8 @@ agent-web，而不是把 agentkit-cli 当作子进程启动。
 
 1. 用户可以在桌面端和移动端普通聊天入口手动选择 NATIVE。
 2. 用户看到的名称是“诊断 Agent”，NATIVE 仍是后端和持久化中的稳定类型标识。
-3. NATIVE 只开放给普通聊天，不允许成为全局默认，也不进入定时任务、Workflow、
-   Harness 和 Knowledge Refinery 的运行时选择。
+3. NATIVE 只开放给普通聊天，不允许成为全局默认，也不进入定时任务、Workflow
+   和 Knowledge Refinery 的运行时选择。
 4. NATIVE 只有在运行时启用、配置合法且目标环境受支持时才允许创建新会话。
 5. 已存在的 NATIVE 会话即使运行时后来被关闭，历史仍可读取、分享和反馈；继续发送时给出
    明确的“当前不可用”提示。
@@ -79,7 +79,7 @@ agentkit-cli，不使用 systemPath，不复制本地 JAR，也不增加 CLI 进
 ### 2.2 非目标
 
 1. 第一阶段不让 NATIVE 成为全局默认 Agent。
-2. 第一阶段不在定时任务、可配置 Workflow、Harness runtime 或 Refinery scoring 中开放
+2. 第一阶段不在定时任务、可配置 Workflow 或 Refinery scoring 中开放
    NATIVE。
 3. 不把 AgentKit 改造成 Spring 组件；Spring 生命周期仅由 agent-web 的装配层管理。
 4. 不引入独立 AgentKit Server、RPC、插件扫描或 CLI 子进程。
@@ -216,7 +216,7 @@ resumeId。未来若只按 session 保存一个可变诊断快照，回退后仍
 | --- | --- |
 | AgentType | 持久化稳定身份：CODEX、CLAUDE、NATIVE；只回答“它是谁” |
 | AgentPurpose | 产品用途：GENERAL 或 DIAGNOSIS |
-| AgentSurface | 允许出现的业务入口；第一阶段关注 CHAT、DEFAULT、SCHEDULE、WORKFLOW、HARNESS、REFINERY |
+| AgentSurface | 允许出现的业务入口；第一阶段关注 CHAT、DEFAULT、SCHEDULE、WORKFLOW、REFINERY |
 | AgentOffer | 某 AgentType 在一个 surface 上的有效产品报价，包含名称、用途、静态策略和运行时可用性 |
 | AgentCatalog | 合并静态产品策略与已注册运行时能力后的查询与守卫 |
 | Default Eligible | 是否允许作为全局默认；不等同于用户是否能手动选择 |
@@ -349,7 +349,7 @@ Checkpoint 是与成功 ChatRun 对齐的 append-only 投影，不放进 ChatSes
 ### 6.3 必须由模型保护的不变量
 
 1. AgentType 只表示稳定身份，不再用一个选择布尔值同时表达所有策略。
-2. NATIVE 对 CHAT 可手动选择，对 DEFAULT、SCHEDULE、WORKFLOW、HARNESS、REFINERY 不可选。
+2. NATIVE 对 CHAT 可手动选择，对 DEFAULT、SCHEDULE、WORKFLOW、REFINERY 不可选。
 3. 创建新会话时，静态暴露策略、runtimeAvailable 和环境支持三项必须同时成立。
 4. NATIVE 永远不能通过“未传 agentType，使用全局默认”的路径被隐式选中。
 5. ChatSession.agentType 创建后不可修改，恢复历史时以服务端值覆盖 UI 临时选择。
@@ -1154,7 +1154,6 @@ assistant tool_use 和 user tool_result 中产生既有结构化投影。
 | 全局默认 | 不支持 |
 | Scheduled task | 不支持 |
 | Workflow | 不支持 |
-| Harness | 不支持 |
 | Refinery scoring runtime | 不支持 |
 
 ## 16. 可观测性

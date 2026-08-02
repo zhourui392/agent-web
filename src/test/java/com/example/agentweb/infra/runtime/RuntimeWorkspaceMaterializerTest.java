@@ -1,7 +1,6 @@
 package com.example.agentweb.infra.runtime;
 
 import com.example.agentweb.app.runtime.port.AgentExecutionPlan;
-import com.example.agentweb.app.runtime.port.CredentialReference;
 import com.example.agentweb.app.runtime.port.RuntimeAttachmentExpectation;
 import com.example.agentweb.app.runtime.port.SandboxMode;
 import com.example.agentweb.app.workbench.attachment.port.StoredUploadedAttachment;
@@ -40,8 +39,7 @@ class RuntimeWorkspaceMaterializerTest {
         Path extra = Files.createDirectory(tempDir.resolve("extra"));
         AgentExecutionPlan plan = RuntimePlanFixtures.plan("exec-layout", primary,
                 Arrays.asList(primary, extra), Arrays.asList(primary, extra),
-                SandboxMode.WORKSPACE_WRITE, Duration.ofSeconds(5L), 1024L,
-                Collections.<String>emptySet(), CredentialReference.systemConfiguration());
+                SandboxMode.WORKSPACE_WRITE, Duration.ofSeconds(5L), 1024L);
 
         RuntimeWorkspaceMaterializer.MaterializedWorkspace workspace =
                 new RuntimeWorkspaceMaterializer(tempDir.resolve("runtime")).materialize(plan);
@@ -69,8 +67,7 @@ class RuntimeWorkspaceMaterializerTest {
     void rejectsMissingOrSymlinkAliasedRepositoryBeforeLaunch() throws Exception {
         Path missing = tempDir.resolve("missing");
         AgentExecutionPlan missingPlan = RuntimePlanFixtures.readOnly("exec-missing", missing,
-                Collections.singletonList(missing), Collections.<String>emptySet(),
-                CredentialReference.systemConfiguration());
+                Collections.singletonList(missing));
         RuntimeWorkspaceMaterializer materializer =
                 new RuntimeWorkspaceMaterializer(tempDir.resolve("runtime-missing"));
 
@@ -84,8 +81,7 @@ class RuntimeWorkspaceMaterializerTest {
             return;
         }
         AgentExecutionPlan aliasPlan = RuntimePlanFixtures.readOnly("exec-alias", alias,
-                Collections.singletonList(alias), Collections.<String>emptySet(),
-                CredentialReference.systemConfiguration());
+                Collections.singletonList(alias));
 
         assertThrows(IllegalStateException.class, () -> materializer.materialize(aliasPlan));
     }
@@ -99,9 +95,7 @@ class RuntimeWorkspaceMaterializerTest {
                         .getBytes(java.nio.charset.StandardCharsets.UTF_8));
         AgentExecutionPlan plan = RuntimePlanFixtures.readOnly(
                 "exec-project-policy", primary,
-                Collections.singletonList(primary),
-                Collections.<String>emptySet(),
-                CredentialReference.systemConfiguration());
+                Collections.singletonList(primary));
 
         IllegalStateException failure = assertThrows(
                 IllegalStateException.class,
@@ -132,9 +126,7 @@ class RuntimeWorkspaceMaterializerTest {
                         "attachment-1234567890abcdefabcd.md",
                         stored.getSha256(), stored.getSize());
         AgentExecutionPlan base = RuntimePlanFixtures.readOnly(
-                "exec-uploaded", primary, Collections.singletonList(primary),
-                Collections.<String>emptySet(),
-                CredentialReference.systemConfiguration());
+                "exec-uploaded", primary, Collections.singletonList(primary));
         AgentExecutionPlan plan = new AgentExecutionPlan(
                 base.getExecutionIdentity(), base.getRuntimeSelection(),
                 base.getPromptPayload(), base.getWorkspaceLayout(),

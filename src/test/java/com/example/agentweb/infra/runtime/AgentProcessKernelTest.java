@@ -1,7 +1,6 @@
 package com.example.agentweb.infra.runtime;
 
 import com.example.agentweb.app.runtime.port.AgentExecutionPlan;
-import com.example.agentweb.app.runtime.port.CredentialReference;
 import com.example.agentweb.app.runtime.port.RuntimeAttachmentExpectation;
 import com.example.agentweb.app.runtime.port.RuntimeEvent;
 import com.example.agentweb.app.runtime.port.RuntimeEventSink;
@@ -30,9 +29,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
@@ -74,7 +71,7 @@ class AgentProcessKernelTest {
     }
 
     @Test
-    void asynchronouslyRunsCodexJsonlWithMinimalEnvironmentRedactionAndCleanup()
+    void asynchronouslyRunsCodexJsonlAndCleansUp()
             throws Exception {
         Path primary = Files.createDirectory(tempDir.resolve("primary"));
         Path script = script("success.sh", "#!/bin/sh\n"
@@ -82,18 +79,12 @@ class AgentProcessKernelTest {
                 + "cat >/dev/null\n"
                 + "printf '%s\\n' \"{\\\"type\\\":\\\"item.completed\\\","
                 + "\\\"item\\\":{\\\"type\\\":\\\"agent_message\\\","
-                + "\\\"text\\\":\\\"allowed=${TEST_ALLOWED-};"
-                + "dropped=${TEST_DROPPED-};credential=${OPENAI_API_KEY-}\\\"}}\"\n"
+                + "\\\"text\\\":\\\"done\\\"}}\"\n"
                 + "printf '%s\\n' '{\"type\":\"turn.completed\"}'\n");
-        Map<String, String> environment = new HashMap<String, String>();
-        environment.put("RUNTIME_KEY", SECRET);
-        environment.put("TEST_ALLOWED", "visible-safe-value");
-        environment.put("TEST_DROPPED", "must-not-be-inherited");
         RuntimeProcessRegistry registry = new RuntimeProcessRegistry();
-        AgentProcessKernel kernel = kernel(script, "runtime-success", environment, registry);
+        AgentProcessKernel kernel = kernel(script, "runtime-success", registry);
         AgentExecutionPlan plan = RuntimePlanFixtures.readOnly("exec-success", primary,
-                Collections.singletonList(primary), Collections.singleton("TEST_ALLOWED"),
-                CredentialReference.environment("RUNTIME_KEY"));
+                Collections.singletonList(primary));
         Events events = new Events();
 
         RuntimeHandle handle = kernel.start(plan, events);
@@ -106,19 +97,6 @@ class AgentProcessKernelTest {
         assertTrue(events.types().contains(RuntimeEventType.STARTED));
         assertTrue(events.types().contains(RuntimeEventType.OUTPUT));
         assertEquals(RuntimeEventType.TERMINATED, events.terminal().getType());
-        assertTrue(events.events.stream().flatMap(event ->
-                        event.getSemanticEvents().stream())
-                .anyMatch(event -> String.valueOf(
-                        event.getData().get("content"))
-                        .contains("visible-safe-value")));
-        assertTrue(events.events.stream().noneMatch(event ->
-                event.getSafePayload().contains(SECRET)
-                        || event.getSafePayload().contains("must-not-be-inherited")));
-        assertTrue(events.events.stream().flatMap(event ->
-                        event.getSemanticEvents().stream())
-                .anyMatch(event -> String.valueOf(
-                        event.getData().get("content"))
-                        .contains("[REDACTED]")));
         assertStrictlyIncreasingSequences(events.events);
         assertRuntimeRootEmpty(tempDir.resolve("runtime-success"));
     }
@@ -130,12 +108,10 @@ class AgentProcessKernelTest {
                 + "printf '%s\\n' '{\"type\":\"item.completed\","
                 + "\"payload\":\"12345678901234567890\"}'\n");
         RuntimeProcessRegistry limitedRegistry = new RuntimeProcessRegistry();
-        AgentProcessKernel limitedKernel = kernel(noisy, "runtime-limit",
-                Collections.<String, String>emptyMap(), limitedRegistry);
+        AgentProcessKernel limitedKernel = kernel(noisy, "runtime-limit", limitedRegistry);
         AgentExecutionPlan limitedPlan = RuntimePlanFixtures.plan("exec-limit", primary,
                 Collections.singletonList(primary), Collections.<Path>emptyList(),
-                SandboxMode.READ_ONLY, Duration.ofSeconds(5L), 16L,
-                Collections.<String>emptySet(), CredentialReference.systemConfiguration());
+                SandboxMode.READ_ONLY, Duration.ofSeconds(5L), 16L);
         Events limitedEvents = new Events();
 
         RuntimeHandle limitedHandle = limitedKernel.start(limitedPlan, limitedEvents);
@@ -148,12 +124,10 @@ class AgentProcessKernelTest {
 
         Path idle = script("idle.sh", "#!/bin/sh\nsleep 20\n");
         RuntimeProcessRegistry timeoutRegistry = new RuntimeProcessRegistry();
-        AgentProcessKernel timeoutKernel = kernel(idle, "runtime-timeout",
-                Collections.<String, String>emptyMap(), timeoutRegistry);
+        AgentProcessKernel timeoutKernel = kernel(idle, "runtime-timeout", timeoutRegistry);
         AgentExecutionPlan timeoutPlan = RuntimePlanFixtures.plan("exec-timeout", primary,
                 Collections.singletonList(primary), Collections.<Path>emptyList(),
-                SandboxMode.READ_ONLY, Duration.ofMillis(150L), 1024L,
-                Collections.<String>emptySet(), CredentialReference.systemConfiguration());
+                SandboxMode.READ_ONLY, Duration.ofMillis(150L), 1024L);
         Events timeoutEvents = new Events();
 
         RuntimeHandle timeoutHandle = timeoutKernel.start(timeoutPlan, timeoutEvents);
@@ -174,11 +148,9 @@ class AgentProcessKernelTest {
                 + "printf '%s' \"$!\" > '" + childPid + "'\n"
                 + "wait\n");
         RuntimeProcessRegistry registry = new RuntimeProcessRegistry();
-        AgentProcessKernel kernel = kernel(script, "runtime-stop",
-                Collections.<String, String>emptyMap(), registry);
+        AgentProcessKernel kernel = kernel(script, "runtime-stop", registry);
         AgentExecutionPlan plan = RuntimePlanFixtures.readOnly("exec-stop", primary,
-                Collections.singletonList(primary), Collections.<String>emptySet(),
-                CredentialReference.systemConfiguration());
+                Collections.singletonList(primary));
         Events events = new Events();
         RuntimeHandle handle = kernel.start(plan, events);
         awaitFile(childPid);
@@ -216,9 +188,7 @@ class AgentProcessKernelTest {
                         "STDIO")), Collections.emptyList(), "CODEX");
         AgentExecutionPlan plan = withBinding(
                 RuntimePlanFixtures.readOnly("exec-mcp", primary,
-                        Collections.singletonList(primary),
-                        Collections.<String>emptySet(),
-                        CredentialReference.systemConfiguration()), binding);
+                        Collections.singletonList(primary)), binding);
         RuntimeCapabilityMaterializer capabilityMaterializer =
                 new RuntimeCapabilityMaterializer(
                         Collections::emptyList,
@@ -229,8 +199,7 @@ class AgentProcessKernelTest {
                         });
         RuntimeProcessRegistry registry = new RuntimeProcessRegistry();
         AgentProcessKernel kernel = kernel(script, "runtime-mcp",
-                Collections.<String, String>emptyMap(), registry,
-                capabilityMaterializer);
+                registry, capabilityMaterializer);
         Events events = new Events();
 
         RuntimeHandle handle = kernel.start(plan, events);
@@ -268,13 +237,10 @@ class AgentProcessKernelTest {
         RuntimeProcessRegistry registry = new RuntimeProcessRegistry();
         AgentProcessKernel kernel = kernel(
                 script, "runtime-tool-duration",
-                Collections.<String, String>emptyMap(), registry,
-                times(10_000_000L, 17_000_000L));
+                registry, times(10_000_000L, 17_000_000L));
         AgentExecutionPlan plan = RuntimePlanFixtures.readOnly(
                 "exec-tool-duration", primary,
-                Collections.singletonList(primary),
-                Collections.<String>emptySet(),
-                CredentialReference.systemConfiguration());
+                Collections.singletonList(primary));
         Events events = new Events();
 
         kernel.start(plan, events);
@@ -300,9 +266,7 @@ class AgentProcessKernelTest {
         Path attachment = Files.write(primary.resolve("design.md"), approved);
         AgentExecutionPlan base = RuntimePlanFixtures.readOnly(
                 "exec-attachment", primary,
-                Collections.singletonList(primary),
-                Collections.<String>emptySet(),
-                CredentialReference.systemConfiguration());
+                Collections.singletonList(primary));
         RuntimeAttachmentExpectation expectation =
                 new RuntimeAttachmentExpectation(
                         "primary", primary.toString(), "design.md",
@@ -315,7 +279,7 @@ class AgentProcessKernelTest {
         Files.write(attachment, "tampered".getBytes(StandardCharsets.UTF_8));
         RuntimeProcessRegistry registry = new RuntimeProcessRegistry();
         AgentProcessKernel kernel = kernel(
-                script, "runtime-attachment", Collections.emptyMap(), registry);
+                script, "runtime-attachment", registry);
 
         IllegalStateException failure = assertThrows(
                 IllegalStateException.class, () -> kernel.start(plan, new Events()));
@@ -340,14 +304,11 @@ class AgentProcessKernelTest {
                 + "sleep 2\n"
                 + "touch '" + forbiddenEffect + "'\n");
         RuntimeProcessRegistry registry = new RuntimeProcessRegistry();
-        AgentProcessKernel kernel = kernel(script, "runtime-blocked",
-                Collections.<String, String>emptyMap(), registry);
+        AgentProcessKernel kernel = kernel(script, "runtime-blocked", registry);
         AgentExecutionPlan plan = RuntimePlanFixtures.plan(
                 "exec-blocked", primary, Collections.singletonList(primary),
                 Collections.singletonList(primary), SandboxMode.WORKSPACE_WRITE,
-                Duration.ofSeconds(5L), 1024L * 1024L,
-                Collections.<String>emptySet(),
-                CredentialReference.systemConfiguration());
+                Duration.ofSeconds(5L), 1024L * 1024L);
         Events events = new Events();
 
         RuntimeHandle handle = kernel.start(plan, events);
@@ -366,9 +327,8 @@ class AgentProcessKernelTest {
     }
 
     private AgentProcessKernel kernel(Path command, String runtimeDirectory,
-                                      Map<String, String> environment,
                                       RuntimeProcessRegistry registry) {
-        return kernel(command, runtimeDirectory, environment, registry,
+        return kernel(command, runtimeDirectory, registry,
                 new RuntimeCapabilityMaterializer(
                         Collections::emptyList, Collections::emptyList,
                         reference -> new char[0]));
@@ -376,11 +336,10 @@ class AgentProcessKernelTest {
 
     private AgentProcessKernel kernel(
             Path command, String runtimeDirectory,
-            Map<String, String> environment,
             RuntimeProcessRegistry registry,
             LongSupplier toolNanoTimeSource) {
         return kernel(
-                command, runtimeDirectory, environment, registry,
+                command, runtimeDirectory, registry,
                 new RuntimeCapabilityMaterializer(
                         Collections::emptyList, Collections::emptyList,
                         reference -> new char[0]),
@@ -388,17 +347,15 @@ class AgentProcessKernelTest {
     }
 
     private AgentProcessKernel kernel(Path command, String runtimeDirectory,
-                                      Map<String, String> environment,
                                       RuntimeProcessRegistry registry,
                                       RuntimeCapabilityMaterializer capabilityMaterializer) {
         return kernel(
-                command, runtimeDirectory, environment, registry,
+                command, runtimeDirectory, registry,
                 capabilityMaterializer, System::nanoTime);
     }
 
     private AgentProcessKernel kernel(
             Path command, String runtimeDirectory,
-            Map<String, String> environment,
             RuntimeProcessRegistry registry,
             RuntimeCapabilityMaterializer capabilityMaterializer,
             LongSupplier toolNanoTimeSource) {
@@ -413,7 +370,6 @@ class AgentProcessKernelTest {
                 new RuntimeWorkspaceMaterializer(tempDir.resolve(runtimeDirectory)),
                 capabilityMaterializer,
                 new RuntimeEventDecoder(new RuntimeOutputRedactor()),
-                new RuntimeCredentialResolver(() -> null, environment::get),
                 registry, new RuntimeCleanup(), executor,
                 toolNanoTimeSource);
         kernels.add(kernel);

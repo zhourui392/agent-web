@@ -37,7 +37,7 @@ describe('WorkbenchCapabilityDrawer source contract', () => {
     const production = `${drawer}\n${capabilityApi}`;
 
     expect(production).not.toContain('v-html');
-    expect(production).not.toMatch(/\/api\/(?:chat|fs|harness)(?:\/|['"`?])/);
+    expect(production).not.toMatch(/\/api\/(?:chat|fs)(?:\/|['"`?])/);
     expect(production).not.toContain('addedOptionalSkillIds');
     expect(production).not.toContain('removedOptionalSkillIds');
     expect(production).not.toContain('selectedOptionalRuleIds');
@@ -65,11 +65,9 @@ describe('WorkbenchCapabilityDrawer source contract', () => {
     expect(drawer).not.toMatch(/(?:write|写入).*includes\([^\n]*(?:id|summary|source)/i);
   });
 
-  it('is reachable from the phase advanced menu instead of the future-feature placeholder', async () => {
+  it('is reachable from the Workbench and not a future-feature placeholder', async () => {
     const page = await source('frontend/js/pages/Workbench.vue');
 
-    expect(page).toContain('data-test="phase-advanced-menu"');
-    expect(page).toContain('command="open-capability"');
     expect(page).toContain('<workbench-capability-drawer');
     expect(page).toContain('await capability.openCapabilityDrawer()');
     expect(page).not.toContain("{ name: '阶段能力'");

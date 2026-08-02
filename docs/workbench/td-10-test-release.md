@@ -8,7 +8,7 @@
 ## 1. 目标
 
 以 TDD、架构门禁、真实轻量边界测试和分阶段灰度验证 Workbench。测试重点不是把所有类拉进 Spring，而是
-证明领域不变量、提交后副作用、多仓库隔离、能力快照、SSE 恢复、文档安全和 Harness 解耦。
+证明领域不变量、提交后副作用、多仓库隔离、能力快照、SSE 恢复和文档安全。
 
 ## 2. TDD 门禁
 
@@ -244,7 +244,6 @@ MVP 基线建议：
 | Review 确认后重构 | PhaseRunPolicy + E2E |
 | SSE 恢复 | ChatRun Integration + Playwright |
 | 高影响操作独立授权 | Operation Domain + Runtime Security + E2E |
-| Workbench 不依赖 Harness | ArchUnit + Harness disabled Spring test |
 
 ## 13. 发布开关
 
@@ -304,7 +303,7 @@ agent:
 - 关闭 `enabled` 前必须保证无活动 Run；
 - Schema 均 additive，回滚应用时旧版本忽略新表/列；
 - 不自动删除 Workbench 数据；
-- 公共 Runtime/Catalog 回滚不能重新形成 Workbench → Harness 依赖；必要时整体回滚到 Phase 0 前版本。
+- 公共 Runtime/Catalog 回滚不能破坏 Workbench 运行；必要时整体回滚到 Phase 0 前版本。
 
 ## 16. 验证命令
 
@@ -325,5 +324,4 @@ cd tests && npm run typecheck && npm test
 - 单仓/多仓真实试点完成；
 - 无 P0/P1 Scope、Secret、重放、Owner 或 XSS 问题；
 - Runtime 未知终态和写租约完成重启对账演练；
-- 指标、告警、关闭开关和回滚步骤已演练；
-- Harness 仍可按 TD-09 的窗口安全运行/只读，Workbench 对其零依赖。
+- 指标、告警、关闭开关和回滚步骤已演练。

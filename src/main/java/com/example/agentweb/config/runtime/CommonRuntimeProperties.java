@@ -5,12 +5,11 @@ import lombok.Getter;
 import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
-import java.util.Collections;
-import java.util.LinkedHashSet;
-import java.util.Set;
-
 /**
  * Chat/Workbench 公共进程 Runtime 的 feature flag、安全边界和受管技术参数。
+ *
+ * <p>单用户本机模式下 Codex 子进程直接继承服务进程用户的登录态，
+ * 不再维护凭据环境引用。</p>
  *
  * @author alex
  * @since 2026-08-01
@@ -24,9 +23,6 @@ public class CommonRuntimeProperties {
     private boolean workbenchEnabled;
     private String codexCommand = "codex";
     private String tempRoot = "data/runtime";
-    private String credentialEnvironmentReference = "";
-    private Set<String> supportedCodexVersions =
-            new LinkedHashSet<String>(Collections.singleton("0.145.0"));
     private String compatibilityMatrixVersion = "m0-2026-07-22";
     private long versionProbeTimeoutSeconds = 5L;
     private long versionProbeMaxBytes = 4096L;
@@ -37,9 +33,6 @@ public class CommonRuntimeProperties {
     public void validate() {
         if (isBlank(codexCommand)
                 || isBlank(tempRoot)
-                || supportedCodexVersions == null
-                || supportedCodexVersions.isEmpty()
-                || supportedCodexVersions.contains(null)
                 || isBlank(compatibilityMatrixVersion)
                 || versionProbeTimeoutSeconds < 1L
                 || versionProbeMaxBytes < 1L
@@ -47,12 +40,6 @@ public class CommonRuntimeProperties {
                 || chatMaxOutputBytes < 1L) {
             throw new IllegalStateException(
                     "Invalid common Runtime configuration");
-        }
-        if ((chatEnabled || workbenchEnabled)
-                && isBlank(credentialEnvironmentReference)) {
-            throw new IllegalStateException(
-                    "Enabled common Runtime requires an explicit "
-                            + "credential environment reference");
         }
     }
 

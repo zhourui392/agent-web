@@ -479,9 +479,18 @@ function isVersionConflict(error: unknown): error is WorkbenchHandoffApiError {
 
 function handoffErrorMessage(error: unknown): string {
   if (!(error instanceof WorkbenchHandoffApiError)) {
+    if (error instanceof Error && error.message) {
+      return error.message;
+    }
     return '交接请求失败，请稍后重试。';
   }
   switch (error.code) {
+    case 'AUTHENTICATION_REQUIRED':
+    case 'UNAUTHORIZED':
+      return '登录已过期，请重新登录。';
+    case 'ACCESS_DENIED':
+    case 'FORBIDDEN':
+      return '无权执行此操作。';
     case 'WORKBENCH_ARCHIVED':
       return 'Workbench 已归档，交接内容仅可查看。';
     case 'WORKBENCH_HANDOFF_SOURCE_CHANGED':
@@ -498,6 +507,8 @@ function handoffErrorMessage(error: unknown): string {
     case 'WORKBENCH_HANDOFF_REQUEST_INVALID':
     case 'WORKBENCH_REQUEST_INVALID':
       return '交接内容不符合字段或长度约束。';
+    case 'WORKBENCH_HANDOFF_REQUEST_FAILED':
+      return `交接请求失败 (HTTP ${error.status})，请稍后重试。`;
     default:
       return '交接请求失败，请稍后重试。';
   }

@@ -147,7 +147,7 @@ export interface UseWorkbenchDocumentPane {
 
 function initialSessionState(): WorkbenchDocumentSessionState {
   return {
-    layout: createWorkbenchDocumentLayout(),
+    layout: collapseWorkbenchDocumentLayout(createWorkbenchDocumentLayout()),
     currentDocument: null,
     recentDocuments: [],
   };
@@ -236,7 +236,8 @@ export function useWorkbenchDocumentPane(
   const saveDownload = options.saveDownload ?? browserSaveDownload;
   const inlineImageUrls = options.inlineImageUrls ?? BROWSER_INLINE_IMAGE_URLS;
   const splitRoot = ref<HTMLElement | null>(null);
-  const layout = shallowRef<WorkbenchDocumentLayoutState>(createWorkbenchDocumentLayout());
+  const layout = shallowRef<WorkbenchDocumentLayoutState>(
+    collapseWorkbenchDocumentLayout(createWorkbenchDocumentLayout()));
   const isMobile = ref(browserMatchesMobile());
   const mobileDrawerVisible = ref(false);
   const dragging = ref(false);

@@ -13,7 +13,6 @@ import java.util.Collections;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Workbench Run 生产技术限额与准备 Settings 装配测试。
@@ -72,8 +71,6 @@ class WorkbenchRunConfigurationTest {
                 settings.getRuntimeLimits().getMaxOutputBytes());
         assertEquals(Collections.singleton(SkillTrustSource.PLATFORM),
                 settings.getAllowedSkillTrustSources());
-        assertTrue(settings.getRuntimeLimits()
-                .getEnvironmentAllowlist().isEmpty());
     }
 
     @Test

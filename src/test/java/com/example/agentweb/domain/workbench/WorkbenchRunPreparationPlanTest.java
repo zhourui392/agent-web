@@ -8,7 +8,9 @@ import org.junit.jupiter.api.Test;
 import java.time.Instant;
 import java.util.Collections;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -53,15 +55,13 @@ class WorkbenchRunPreparationPlanTest {
     }
 
     @Test
-    void analysisAndDesignShouldRejectModifyModeInDomain() {
-        assertCode(
-                WorkbenchErrorCode.RUN_MODE_FORBIDDEN,
+    void analysisAndDesignShouldAllowModifyModeInDomain() {
+        assertDoesNotThrow(
                 () -> workbench.planRunPreparation(
                         WorkbenchPhase.REQUIREMENT_ANALYSIS,
                         RunMode.MODIFY_WORKSPACE, null, null, OWNER,
                         workbench.getVersion()));
-        assertCode(
-                WorkbenchErrorCode.RUN_MODE_FORBIDDEN,
+        assertDoesNotThrow(
                 () -> workbench.planRunPreparation(
                         WorkbenchPhase.SOLUTION_DESIGN,
                         RunMode.MODIFY_WORKSPACE, Long.valueOf(0L), null,
@@ -173,13 +173,12 @@ class WorkbenchRunPreparationPlanTest {
     }
 
     @Test
-    void reviewModifyShouldRequireExplicitConfirmationId() {
-        assertCode(
-                WorkbenchErrorCode.RUN_MODE_FORBIDDEN,
-                () -> workbench.planRunPreparation(
-                        WorkbenchPhase.REVIEW_REFACTOR,
-                        RunMode.MODIFY_WORKSPACE, Long.valueOf(0L), null,
-                        OWNER, workbench.getVersion()));
+    void reviewModifyShouldAllowRunWithoutConfirmationId() {
+        WorkbenchRunPreparationPlan planWithoutConfirmation = workbench.planRunPreparation(
+                WorkbenchPhase.REVIEW_REFACTOR,
+                RunMode.MODIFY_WORKSPACE, Long.valueOf(0L), null,
+                OWNER, workbench.getVersion());
+        assertFalse(planWithoutConfirmation.requiresReviewConfirmation());
 
         WorkbenchRunPreparationPlan plan = workbench.planRunPreparation(
                 WorkbenchPhase.REVIEW_REFACTOR,

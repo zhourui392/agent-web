@@ -86,10 +86,10 @@ class FileSystemRuleCatalogTest {
     }
 
     @Test
-    void useCaseResolutionShouldRemainCompatibleWithHarnessStages() throws Exception {
+    void useCaseResolutionShouldRemainCompatibleWithWorkbenchPhases() throws Exception {
         writeRule(
                 "analysis", "analysis", "1.0.0", "PLATFORM", true,
-                "Harness analysis Prompt Pack",
+                "Workbench analysis Prompt Pack",
                 Collections.singletonList("ANALYSIS"),
                 "system", "system.md", true);
 
@@ -172,16 +172,16 @@ class FileSystemRuleCatalogTest {
     }
 
     @Test
-    void builtInCommonRootShouldCoverHarnessAndEveryWorkbenchRequiredRuleId() {
+    void builtInCommonRootShouldCoverWorkbenchPhaseAndWorkbenchRequiredRuleId() {
         FileSystemRuleCatalog catalog = new FileSystemRuleCatalog(
                 Paths.get(COMMON_RULE_ROOT));
 
-        for (String harnessUseCase : Arrays.asList(
+        for (String phaseUseCase : Arrays.asList(
                 "ANALYSIS", "DESIGN", "IMPLEMENTATION", "DEPLOYMENT")) {
-            RuleDefinition definition = catalog.resolve(harnessUseCase);
-            assertEquals(harnessUseCase.toLowerCase(java.util.Locale.ROOT),
+            RuleDefinition definition = catalog.resolve(phaseUseCase);
+            assertEquals(phaseUseCase.toLowerCase(java.util.Locale.ROOT),
                     definition.getId());
-            assertTrue(definition.supports(harnessUseCase));
+            assertTrue(definition.supports(phaseUseCase));
             assertEquals(4, definition.getResources().size());
         }
         for (String ruleId : WORKBENCH_REQUIRED_RULE_IDS) {

@@ -6,7 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 /**
- * 与 Harness 开关无关的可信 Capability Catalog 根配置。
+ * 可信 Capability Catalog 根配置。
  *
  * @author alex
  * @since 2026-08-01

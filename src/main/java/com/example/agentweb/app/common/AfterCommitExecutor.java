@@ -7,7 +7,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 /**
  * Runs infrastructure side effects only after the surrounding database transaction commits.
  *
- * <p>通用组件，chat 域和 harness 域共用。</p>
+ * <p>通用组件，chat 域和 workbench 域共用。</p>
  *
  * @author zhourui(V33215020)
  * @since 2026-07-22

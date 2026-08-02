@@ -86,24 +86,9 @@ class CommonRuntimeConfigurationTest {
     }
 
     @Test
-    void enabledWorkbenchRuntimeWithoutExplicitCredentialReferenceShouldFailFast() {
-        contextRunner.withPropertyValues(
-                        "agent.runtime.workbench-enabled=true")
-                .run(context -> {
-                    assertThat(context).hasFailed();
-                    assertThat(context.getStartupFailure())
-                            .hasRootCauseMessage(
-                                    "Enabled common Runtime requires an explicit "
-                                            + "credential environment reference");
-                });
-    }
-
-    @Test
     void enabledWorkbenchRuntimeShouldKeepOrdinaryChatLegacyAndRegisterOneProviderPerOrigin() {
         contextRunner.withPropertyValues(
-                        "agent.runtime.workbench-enabled=true",
-                        "agent.runtime.credential-environment-reference="
-                                + "AGENT_COMMON_RUNTIME_API_KEY")
+                        "agent.runtime.workbench-enabled=true")
                 .run(context -> {
                     assertThat(context).hasNotFailed();
                     assertThat(context.getBean(ChatRunLauncher.class))

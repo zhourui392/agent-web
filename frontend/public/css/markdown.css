@@ -1,6 +1,6 @@
 /*
  * 共享 Markdown 渲染样式；各页面容器加 .md-body 即复用，
- * 上下文特有覆盖（如 .harness-message.user 暗色主题）留在各自 CSS。
+ * 上下文特有覆盖留在各自 CSS。
  */
 .md-body p { margin: 0.4em 0; }
 .md-body p:empty { display: none; }

@@ -42,15 +42,6 @@
       title="请先在“阶段交接”中预览并接受上游版本；系统不会静默注入最新内容。"
     />
     <el-alert
-      v-if="writeRunBlocked"
-      class="workbench-conversation-alert"
-      data-test="workbench-write-run-blocked"
-      type="warning"
-      show-icon
-      :closable="false"
-      title="当前 Workbench 已有活动写 Run；可切换为只读讨论，或等待写 Run 进入终态。"
-    />
-    <el-alert
       v-if="terminalDocumentStale"
       class="workbench-conversation-alert"
       data-test="workbench-terminal-document-stale"
@@ -187,8 +178,6 @@
       </template>
     </div>
 
-    <slot name="operations"></slot>
-
     <div
       :class="['workbench-composer', { 'is-file-dragging': fileDragging }]"
       @dragenter.prevent="fileDragging = true"
@@ -196,39 +185,6 @@
       @dragleave="handleAttachmentDragLeave"
       @drop.prevent="handleAttachmentDrop"
     >
-      <div class="workbench-composer-mode">
-        <span>本轮模式</span>
-        <el-radio-group
-          :model-value="runMode"
-          size="small"
-          :disabled="readOnly || runActive || submitting"
-          @update:model-value="updateRunMode"
-        >
-          <el-radio-button value="DISCUSS_READ_ONLY">只读讨论</el-radio-button>
-          <el-radio-button
-            v-if="modifyAllowed"
-            value="MODIFY_WORKSPACE"
-            :disabled="writeRunBlocked"
-          >修改工作区</el-radio-button>
-        </el-radio-group>
-        <small v-if="runMode === 'DISCUSS_READ_ONLY'" data-test="run-read-only-scope">
-          只读模式不授予仓库写入权限。
-        </small>
-        <small v-else-if="runMode === 'MODIFY_WORKSPACE'" data-test="run-modify-scope">
-          本轮允许写入仓库：
-          <el-tag
-            v-for="repositoryKey in repositoryKeys"
-            :key="repositoryKey"
-            size="small"
-            effect="plain"
-          >
-            {{ repositoryKey }}
-          </el-tag>
-        </small>
-        <small v-if="phase === 'REVIEW_REFACTOR' && runMode === 'MODIFY_WORKSPACE'">
-          必须绑定上方当前 Review Confirmation。
-        </small>
-      </div>
       <div
         v-if="repositoryAttachments.length"
         class="workbench-pending-attachments"
@@ -401,7 +357,6 @@ const props = defineProps({
   phase: { type: String, required: true },
   phaseLabel: { type: String, required: true },
   modelValue: { type: String, required: true },
-  runMode: { type: String, required: true },
   runState: { type: Object, default: null },
   messages: { type: Array, required: true },
   messagesLoading: { type: Boolean, required: true },
@@ -419,9 +374,7 @@ const props = defineProps({
   readOnly: { type: Boolean, required: true },
   identityReady: { type: Boolean, required: true },
   handoffReady: { type: Boolean, required: true },
-  modifyAllowed: { type: Boolean, required: true },
   modifyReady: { type: Boolean, required: true },
-  writeRunBlocked: { type: Boolean, required: true },
   mobile: { type: Boolean, required: true },
   documentCollapsed: { type: Boolean, required: true },
   terminalDocumentStale: { type: Boolean, required: true },
@@ -429,7 +382,6 @@ const props = defineProps({
 
 const emit = defineEmits([
   'update:modelValue',
-  'update:runMode',
   'submit',
   'stop',
   'open-document',
@@ -514,9 +466,8 @@ const canSubmit = computed(() =>
   !props.submitting &&
   !uploadsBusy.value &&
   !runActive.value &&
-  !(props.runMode === 'MODIFY_WORKSPACE' && props.writeRunBlocked) &&
   props.handoffReady &&
-  (props.phase !== 'REVIEW_REFACTOR' || props.runMode !== 'MODIFY_WORKSPACE' || props.modifyReady) &&
+  (props.phase !== 'REVIEW_REFACTOR' || props.modifyReady) &&
   Boolean(props.modelValue.trim()),
 );
 const connectionLabel = computed(() => ({
@@ -555,12 +506,6 @@ const terminalLabel = computed(() => ({
 
 function updateText(value) {
   if (typeof value === 'string') emit('update:modelValue', value);
-}
-
-function updateRunMode(value) {
-  if (value === 'DISCUSS_READ_ONLY' || value === 'MODIFY_WORKSPACE') {
-    emit('update:runMode', value);
-  }
 }
 
 function emitSubmit() {

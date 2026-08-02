@@ -23,8 +23,7 @@ class RuntimePreflightContractTest {
     @Test
     void requestShouldRequireAndExposeOnlyNeutralRuntimeFacts() {
         RuntimeSelection selection = new RuntimeSelection(
-                AgentType.CODEX, RuntimeVersionPolicy.configured(),
-                CredentialReference.systemConfiguration());
+                AgentType.CODEX, RuntimeVersionPolicy.configured());
         WorkspaceLayout layout = new WorkspaceLayout(
                 "/workspace/primary",
                 Collections.singletonList("/workspace/primary"),
@@ -82,12 +81,12 @@ class RuntimePreflightContractTest {
     @Test
     void exceptionShouldCarryStableCodeAndRequireSafeMessage() {
         RuntimePreflightException failure = new RuntimePreflightException(
-                RuntimePreflightErrorCode.RUNTIME_VERSION_NOT_ALLOWED,
-                "Runtime version is not allowed");
+                RuntimePreflightErrorCode.RUNTIME_VERSION_MALFORMED,
+                "Runtime version output is malformed");
 
-        assertEquals(RuntimePreflightErrorCode.RUNTIME_VERSION_NOT_ALLOWED,
+        assertEquals(RuntimePreflightErrorCode.RUNTIME_VERSION_MALFORMED,
                 failure.getErrorCode());
-        assertEquals("Runtime version is not allowed", failure.getMessage());
+        assertEquals("Runtime version output is malformed", failure.getMessage());
         assertThrows(IllegalArgumentException.class,
                 () -> new RuntimePreflightException(
                         RuntimePreflightErrorCode.RUNTIME_PROBE_FAILED, " "));

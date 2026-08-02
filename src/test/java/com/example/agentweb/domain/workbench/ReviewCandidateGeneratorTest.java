@@ -176,13 +176,9 @@ class ReviewCandidateGeneratorTest {
                                                 + "Suggested Change: 只提取领域策略\n"
                                                 + "Required Test: 运行受影响单测"))));
 
-        WorkbenchDomainException unconfirmed = assertThrows(
-                WorkbenchDomainException.class,
-                () -> PhaseRunPolicy.requireAllowed(
-                        WorkbenchPhase.REVIEW_REFACTOR,
-                        RunMode.MODIFY_WORKSPACE, null));
-        assertEquals(WorkbenchErrorCode.RUN_MODE_FORBIDDEN,
-                unconfirmed.getCode());
+        assertDoesNotThrow(() -> PhaseRunPolicy.requireAllowed(
+                WorkbenchPhase.REVIEW_REFACTOR,
+                RunMode.MODIFY_WORKSPACE, null));
 
         ReviewCandidateItem accepted = candidate.getItems().get(0);
         String humanModifiedOpinion = accepted.getFinding()

@@ -1,6 +1,5 @@
 package com.example.agentweb.infra.runtime;
 
-import com.example.agentweb.app.runtime.port.CredentialReference;
 import com.example.agentweb.app.runtime.port.RuntimePreflightErrorCode;
 import com.example.agentweb.app.runtime.port.RuntimePreflightException;
 import com.example.agentweb.app.runtime.port.RuntimePreflightReport;
@@ -20,7 +19,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumSet;
-import java.util.LinkedHashSet;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -87,15 +85,13 @@ class CodexRuntimePreflightGatewayTest {
     }
 
     @Test
-    void configuredVersionShouldRejectVersionsOutsideConstructorAllowlist() {
-        RuntimePreflightException failure = assertThrows(
-                RuntimePreflightException.class, () -> gateway(
-                        successfulRunner("0.146.0"), fullMatrix()).inspect(request(
-                        AgentType.CODEX, RuntimeVersionPolicy.configured(),
-                        SandboxMode.READ_ONLY, false, MATRIX_ID)));
+    void configuredVersionShouldAllowAnyWellFormedRuntimeVersion() {
+        RuntimePreflightReport report = gateway(
+                successfulRunner("0.146.0"), fullMatrix()).inspect(request(
+                AgentType.CODEX, RuntimeVersionPolicy.configured(),
+                SandboxMode.READ_ONLY, false, MATRIX_ID));
 
-        assertEquals(RuntimePreflightErrorCode.RUNTIME_VERSION_NOT_ALLOWED,
-                failure.getErrorCode());
+        assertEquals("0.146.0", report.getRuntimeVersion());
     }
 
     @Test
@@ -202,13 +198,7 @@ class CodexRuntimePreflightGatewayTest {
     }
 
     @Test
-    void constructorShouldRejectEmptyVersionAllowlistAndIncompleteMatrix() {
-        RecordingProbeRunner runner = successfulRunner(VERIFIED_VERSION);
-
-        assertThrows(IllegalArgumentException.class,
-                () -> new CodexRuntimePreflightGateway(
-                        "codex", Collections.<String>emptySet(),
-                        fullMatrix(), runner));
+    void constructorShouldRejectIncompleteMatrix() {
         assertThrows(IllegalArgumentException.class,
                 () -> new CodexRuntimeCompatibilityMatrix(
                         MATRIX_ID, Collections.<SandboxMode>emptySet(), true));
@@ -218,9 +208,7 @@ class CodexRuntimePreflightGatewayTest {
             RuntimeVersionProbeRunner runner,
             CodexRuntimeCompatibilityMatrix matrix) {
         return new CodexRuntimePreflightGateway(
-                "codex", new LinkedHashSet<String>(
-                Collections.singletonList(VERIFIED_VERSION)),
-                matrix, runner);
+                "codex", matrix, runner);
     }
 
     private CodexRuntimeCompatibilityMatrix fullMatrix() {
@@ -249,8 +237,7 @@ class CodexRuntimePreflightGatewayTest {
                 : new ArrayList<String>(readable);
         return new RuntimePreflightRequest(
                 new RuntimeSelection(
-                        agentType, versionPolicy,
-                        CredentialReference.systemConfiguration()),
+                        agentType, versionPolicy),
                 new WorkspaceLayout(
                         primary.toString(), readable, writable, sandboxMode),
                 binding(runtimeCompatibility));

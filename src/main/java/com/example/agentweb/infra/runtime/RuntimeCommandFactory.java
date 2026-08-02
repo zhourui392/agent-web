@@ -78,29 +78,10 @@ public final class RuntimeCommandFactory {
         return Collections.unmodifiableList(command);
     }
 
-    /**
-     * Harness 迁移期可复用的 Codex JSONL 安全前缀；调用方继续追加自身 Artifact/MCP 参数。
-     */
-    public List<String> createCodexJsonPreamble(boolean ignoreUserConfiguration) {
-        return createCodexJsonPreamble(
-                ignoreUserConfiguration, true);
-    }
-
     private List<String> createCommonRuntimeCodexJsonPreamble() {
-        return createCodexJsonPreamble(true, false);
-    }
-
-    private List<String> createCodexJsonPreamble(
-            boolean ignoreUserConfiguration, boolean ignoreRules) {
         List<String> command = new ArrayList<String>();
         command.add(codexCommand);
         Collections.addAll(command, "--ask-for-approval", "never", "exec");
-        if (ignoreUserConfiguration) {
-            command.add("--ignore-user-config");
-        }
-        if (ignoreRules) {
-            command.add("--ignore-rules");
-        }
         addOverride(command, "allow_login_shell=false");
         Collections.addAll(command, "--ephemeral", "--json");
         return command;

@@ -3,7 +3,7 @@
  *
  * 为什么手工列而不用 unplugin-vue-components:
  * 那个插件靠构建期扫 .vue / .jsx 模板 AST 推断用到了哪些组件, 而本项目 0 个 .vue --
- * 49 种 el-* 全写在 HTML 的 in-DOM 模板里(harness.html 207 处、index.html 131 处),
+ * 49 种 el-* 全写在 HTML 的 in-DOM 模板里(index.html 131 处),
  * 由浏览器运行时编译, 构建期看不见这些标签。所以只能显式枚举。
  * 等 FE-R3 迁 SFC 后可换回 unplugin 自动推断。
  *
@@ -14,27 +14,27 @@
  * @author zhourui(V33215020)
  */
 import {
-  ElAlert, ElAside, ElAutocomplete, ElBadge, ElButton, ElCard, ElCheckbox,
-  ElCheckboxGroup, ElCol, ElCollapse, ElCollapseItem, ElCollapseTransition,
+  ElAlert, ElAside, ElBadge, ElButton, ElCard, ElCheckbox,
+  ElCheckboxGroup, ElCol, ElCollapse, ElCollapseItem,
   ElContainer, ElDatePicker, ElDescriptions,
   ElDescriptionsItem, ElDialog, ElDivider, ElDrawer, ElDropdown, ElDropdownItem,
   ElDropdownMenu, ElEmpty, ElForm, ElFormItem, ElHeader, ElIcon, ElImage, ElInput,
   ElInputNumber, ElMain, ElMenu, ElMenuItem, ElOption, ElPagination, ElPopover,
   ElRadioButton, ElRadioGroup, ElResult, ElRow, ElScrollbar, ElSelect, ElSwitch, ElTabPane,
-  ElTable, ElTableColumn, ElTabs, ElTag, ElTimeline, ElTimelineItem, ElTooltip,
+  ElTable, ElTableColumn, ElTabs, ElTag, ElTooltip,
   ElUpload, ElLoading,
 } from 'element-plus';
 import * as ElementPlusIconsVue from '@element-plus/icons-vue';
 
 const COMPONENTS = [
-  ElAlert, ElAside, ElAutocomplete, ElBadge, ElButton, ElCard, ElCheckbox,
-  ElCheckboxGroup, ElCol, ElCollapse, ElCollapseItem, ElCollapseTransition,
+  ElAlert, ElAside, ElBadge, ElButton, ElCard, ElCheckbox,
+  ElCheckboxGroup, ElCol, ElCollapse, ElCollapseItem,
   ElContainer, ElDatePicker, ElDescriptions,
   ElDescriptionsItem, ElDialog, ElDivider, ElDrawer, ElDropdown, ElDropdownItem,
   ElDropdownMenu, ElEmpty, ElForm, ElFormItem, ElHeader, ElIcon, ElImage, ElInput,
   ElInputNumber, ElMain, ElMenu, ElMenuItem, ElOption, ElPagination, ElPopover,
   ElRadioButton, ElRadioGroup, ElResult, ElRow, ElScrollbar, ElSelect, ElSwitch, ElTabPane,
-  ElTable, ElTableColumn, ElTabs, ElTag, ElTimeline, ElTimelineItem, ElTooltip,
+  ElTable, ElTableColumn, ElTabs, ElTag, ElTooltip,
   ElUpload,
 ];
 

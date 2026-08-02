@@ -32,17 +32,6 @@ public final class PhaseRunPolicy {
             throw forbidden(phase,
                     "review confirmation is only valid for a review modify run");
         }
-        if (!mode.modifiesWorkspace()) {
-            return;
-        }
-        if (phase == WorkbenchPhase.REQUIREMENT_ANALYSIS
-                || phase == WorkbenchPhase.SOLUTION_DESIGN) {
-            throw forbidden(phase, "analysis and design phases are read-only");
-        }
-        if (phase == WorkbenchPhase.REVIEW_REFACTOR && !reviewProofPresent) {
-            throw forbidden(phase,
-                    "review modify run requires an explicit review confirmation");
-        }
     }
 
     private static WorkbenchDomainException forbidden(WorkbenchPhase phase, String reason) {

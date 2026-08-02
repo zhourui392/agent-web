@@ -120,10 +120,7 @@ class RuntimeAttachmentVerifierTest {
             Path repository, RuntimeAttachmentExpectation expectation) {
         AgentExecutionPlan base = RuntimePlanFixtures.readOnly(
                 "exec-attachment", repository,
-                Collections.singletonList(repository),
-                Collections.<String>emptySet(),
-                com.example.agentweb.app.runtime.port.CredentialReference
-                        .systemConfiguration());
+                Collections.singletonList(repository));
         return new AgentExecutionPlan(
                 base.getExecutionIdentity(), base.getRuntimeSelection(),
                 base.getPromptPayload(), base.getWorkspaceLayout(),

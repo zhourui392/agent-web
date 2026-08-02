@@ -169,8 +169,6 @@ public class SqliteInitializer {
         }
         migrateChatRecallObservation();
         migrateWorkflowTables();
-        migrateHarnessM3();
-        migrateHarnessM4();
         createToolInvocationStatisticsIndexes();
     }
 
@@ -480,32 +478,6 @@ public class SqliteInitializer {
         } catch (Exception ignored) {
             // 建表迁移失败交给后续仓储访问暴露真实错误,避免启动因老库单点脏状态直接中断。
         }
-    }
-
-    private void migrateHarnessM3() {
-        addColumnIfMissing("harness_stage_attempt", "snapshot_hash TEXT");
-        addColumnIfMissing("harness_stage_attempt", "execution_id TEXT");
-        addColumnIfMissing("harness_capability_snapshot",
-                "schema_version TEXT NOT NULL DEFAULT 'M2'");
-        addColumnIfMissing("harness_capability_snapshot",
-                "selected_mcp_servers_json TEXT NOT NULL DEFAULT '[]'");
-        addColumnIfMissing("harness_capability_snapshot",
-                "rejected_mcp_servers_json TEXT NOT NULL DEFAULT '[]'");
-        addColumnIfMissing("harness_capability_snapshot", "runtime_enforcement_json TEXT");
-        addColumnIfMissing("harness_capability_snapshot",
-                "workspace_runtime_inventory_json TEXT NOT NULL DEFAULT '{}'");
-    }
-
-    private void migrateHarnessM4() {
-        addColumnIfMissing("harness_run",
-                "repository_root TEXT NOT NULL DEFAULT 'UNKNOWN'");
-        addColumnIfMissing("harness_run", "git_branch TEXT NOT NULL DEFAULT 'UNKNOWN'");
-        addColumnIfMissing("harness_run",
-                "git_head TEXT NOT NULL DEFAULT '0000000000000000000000000000000000000000'");
-        addColumnIfMissing("harness_run", "git_clean INTEGER NOT NULL DEFAULT 0");
-        addColumnIfMissing("harness_run", "git_diff_hash TEXT NOT NULL DEFAULT '"
-                + "0000000000000000000000000000000000000000000000000000000000000000'");
-        addColumnIfMissing("harness_run", "git_captured_at INTEGER NOT NULL DEFAULT 0");
     }
 
     private void addColumnIfMissing(String table, String definition) {

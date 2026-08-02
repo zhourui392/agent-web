@@ -37,13 +37,13 @@ const {
   shallowRef,
 } = frontendVueRuntime as typeof import('vue');
 
-interface FakeStreamHarness {
+interface FakeStreamSetup {
   stream: UseWorkbenchRunStream;
   factory: WorkbenchRunStreamFactory;
   identity: { value: WorkbenchRunMarkerIdentity | null };
 }
 
-interface IntegrationHarness {
+interface IntegrationSetup {
   vueScope: ReturnType<typeof effectScope>;
   userId: ReturnType<typeof ref<string>>;
   workbenchId: ReturnType<typeof ref<string | null>>;
@@ -56,7 +56,7 @@ interface IntegrationHarness {
     scope: WorkbenchDocumentEventScope | null,
     event: WorkbenchDocumentFileChangedEvent,
   ) => boolean>>;
-  fake: FakeStreamHarness;
+  fake: FakeStreamSetup;
 }
 
 function documentScope(
@@ -72,7 +72,7 @@ function documentScope(
   });
 }
 
-function fakeRunStream(): FakeStreamHarness {
+function fakeRunStream(): FakeStreamSetup {
   const state = shallowRef<WorkbenchRunState | null>(null);
   const error = shallowRef(null);
   const connectionStatus = shallowRef<'idle' | 'connecting' | 'streaming' | 'reconnecting' | 'closed'>('idle');
@@ -99,7 +99,7 @@ function fakeRunStream(): FakeStreamHarness {
   };
 }
 
-function createHarness(): IntegrationHarness {
+function createSetup(): IntegrationSetup {
   const userId = ref('user-1');
   const workbenchId = ref<string | null>('workbench-1');
   const phase = ref<WorkbenchPhase>('IMPLEMENT_TEST');
@@ -160,22 +160,22 @@ function changedState(
 
 describe('useWorkbenchDocumentRunIntegration', () => {
   it('captures the document token at subscription time and maps FILE_CHANGED exactly once', () => {
-    const harness = createHarness();
-    const capturedScope = harness.documentEventScope.value;
+    const setup = createSetup();
+    const capturedScope = setup.documentEventScope.value;
     const context = {
       workbenchId: 'workbench-1',
       phase: 'IMPLEMENT_TEST',
       runId: 'run-active',
     } as const;
 
-    expect(harness.fake.identity.value).toEqual({
+    expect(setup.fake.identity.value).toEqual({
       userId: 'user-1',
       workbenchId: 'workbench-1',
       phase: 'IMPLEMENT_TEST',
       conversationGeneration: 2,
     });
-    expect(harness.fake.stream.resume).toHaveBeenCalledWith('run-active');
-    expect(harness.fake.stream.attach).toHaveBeenCalledWith('run-active');
+    expect(setup.fake.stream.resume).toHaveBeenCalledWith('run-active');
+    expect(setup.fake.stream.attach).toHaveBeenCalledWith('run-active');
 
     const projected = changedState(context, 7, {
       repositoryKey: 'Agent-Web',
@@ -183,22 +183,22 @@ describe('useWorkbenchDocumentRunIntegration', () => {
       changeType: 'DELETED',
       contentVersion: 'sha256:v7',
     });
-    harness.fake.stream.state.value = projected;
+    setup.fake.stream.state.value = projected;
 
-    expect(harness.receiveDocumentFileChanged).toHaveBeenCalledWith(capturedScope, {
+    expect(setup.receiveDocumentFileChanged).toHaveBeenCalledWith(capturedScope, {
       repositoryKey: 'Agent-Web',
       relativePath: 'docs/Design.MD',
       changeType: 'DELETED',
       contentVersion: 'sha256:v7',
     });
 
-    harness.fake.stream.state.value = { ...projected };
-    expect(harness.receiveDocumentFileChanged).toHaveBeenCalledTimes(1);
-    harness.vueScope.stop();
+    setup.fake.stream.state.value = { ...projected };
+    expect(setup.receiveDocumentFileChanged).toHaveBeenCalledTimes(1);
+    setup.vueScope.stop();
   });
 
   it('sorts newly observed file projections by event id', () => {
-    const harness = createHarness();
+    const setup = createSetup();
     const context = {
       workbenchId: 'workbench-1',
       phase: 'IMPLEMENT_TEST',
@@ -216,180 +216,180 @@ describe('useWorkbenchDocumentRunIntegration', () => {
       changeType: 'MODIFIED',
       contentVersion: 'v9',
     }, projected);
-    harness.fake.stream.state.value = {
+    setup.fake.stream.state.value = {
       ...projected,
       staleDocuments: [...projected.staleDocuments].reverse(),
     };
 
-    expect(harness.receiveDocumentFileChanged.mock.calls.map(([, event]) => event.relativePath))
+    expect(setup.receiveDocumentFileChanged.mock.calls.map(([, event]) => event.relativePath))
       .toEqual(['b.md', 'a.md']);
-    harness.vueScope.stop();
+    setup.vueScope.stop();
   });
 
   it('rejects old run context and delayed phase events after rebuilding the subscription', async () => {
-    const harness = createHarness();
+    const setup = createSetup();
     const oldContext = {
       workbenchId: 'workbench-1',
       phase: 'IMPLEMENT_TEST',
       runId: 'run-active',
     } as const;
 
-    harness.phase.value = 'SOLUTION_DESIGN';
-    harness.documentEventScope.value = documentScope('workbench-1', 'SOLUTION_DESIGN', 2);
+    setup.phase.value = 'SOLUTION_DESIGN';
+    setup.documentEventScope.value = documentScope('workbench-1', 'SOLUTION_DESIGN', 2);
     await nextTick();
 
-    expect(harness.fake.stream.close).toHaveBeenCalled();
-    expect(harness.fake.identity.value?.phase).toBe('SOLUTION_DESIGN');
-    harness.fake.stream.state.value = changedState(oldContext, 11, {
+    expect(setup.fake.stream.close).toHaveBeenCalled();
+    expect(setup.fake.identity.value?.phase).toBe('SOLUTION_DESIGN');
+    setup.fake.stream.state.value = changedState(oldContext, 11, {
       repositoryKey: 'agent-web',
       path: 'docs/old.md',
       changeType: 'MODIFIED',
       contentVersion: 'v11',
     });
-    expect(harness.receiveDocumentFileChanged).not.toHaveBeenCalled();
+    expect(setup.receiveDocumentFileChanged).not.toHaveBeenCalled();
 
     const newContext = {
       workbenchId: 'workbench-1',
       phase: 'SOLUTION_DESIGN',
       runId: 'run-active',
     } as const;
-    harness.fake.stream.state.value = changedState(newContext, 1, {
+    setup.fake.stream.state.value = changedState(newContext, 1, {
       repositoryKey: 'agent-web',
       path: 'docs/new.md',
       changeType: 'MODIFIED',
       contentVersion: 'v1',
     });
-    expect(harness.receiveDocumentFileChanged).toHaveBeenLastCalledWith(
-      harness.documentEventScope.value,
+    expect(setup.receiveDocumentFileChanged).toHaveBeenLastCalledWith(
+      setup.documentEventScope.value,
       expect.objectContaining({ relativePath: 'docs/new.md' }),
     );
-    harness.vueScope.stop();
+    setup.vueScope.stop();
   });
 
   it('rejects delayed workbench events after a workbench scope switch', () => {
-    const harness = createHarness();
+    const setup = createSetup();
     const oldContext = {
       workbenchId: 'workbench-1',
       phase: 'IMPLEMENT_TEST',
       runId: 'run-active',
     } as const;
 
-    harness.workbenchId.value = 'workbench-2';
-    harness.documentEventScope.value = documentScope('workbench-2', 'IMPLEMENT_TEST', 2);
-    expect(harness.fake.identity.value?.workbenchId).toBe('workbench-2');
+    setup.workbenchId.value = 'workbench-2';
+    setup.documentEventScope.value = documentScope('workbench-2', 'IMPLEMENT_TEST', 2);
+    expect(setup.fake.identity.value?.workbenchId).toBe('workbench-2');
 
-    harness.fake.stream.state.value = changedState(oldContext, 13, {
+    setup.fake.stream.state.value = changedState(oldContext, 13, {
       repositoryKey: 'agent-web',
       path: 'docs/old-workbench.md',
       changeType: 'MODIFIED',
       contentVersion: 'v13',
     });
-    expect(harness.receiveDocumentFileChanged).not.toHaveBeenCalled();
+    expect(setup.receiveDocumentFileChanged).not.toHaveBeenCalled();
 
     const newContext = { ...oldContext, workbenchId: 'workbench-2' };
-    harness.fake.stream.state.value = changedState(newContext, 1, {
+    setup.fake.stream.state.value = changedState(newContext, 1, {
       repositoryKey: 'agent-web',
       path: 'docs/new-workbench.md',
       changeType: 'MODIFIED',
       contentVersion: 'v1',
     });
-    expect(harness.receiveDocumentFileChanged).toHaveBeenLastCalledWith(
-      harness.documentEventScope.value,
+    expect(setup.receiveDocumentFileChanged).toHaveBeenLastCalledWith(
+      setup.documentEventScope.value,
       expect.objectContaining({ relativePath: 'docs/new-workbench.md' }),
     );
-    harness.vueScope.stop();
+    setup.vueScope.stop();
   });
 
   it('rebuilds for conversation generation and active run changes, rejecting the old run state', () => {
-    const harness = createHarness();
+    const setup = createSetup();
     const oldContext = {
       workbenchId: 'workbench-1',
       phase: 'IMPLEMENT_TEST',
       runId: 'run-active',
     } as const;
 
-    harness.conversationGeneration.value = 3;
-    expect(harness.fake.identity.value?.conversationGeneration).toBe(3);
-    harness.activeRunId.value = 'run-new';
-    expect(harness.fake.stream.resume).toHaveBeenLastCalledWith('run-new');
-    expect(harness.fake.stream.attach).toHaveBeenLastCalledWith('run-new');
+    setup.conversationGeneration.value = 3;
+    expect(setup.fake.identity.value?.conversationGeneration).toBe(3);
+    setup.activeRunId.value = 'run-new';
+    expect(setup.fake.stream.resume).toHaveBeenLastCalledWith('run-new');
+    expect(setup.fake.stream.attach).toHaveBeenLastCalledWith('run-new');
 
-    harness.fake.stream.state.value = changedState(oldContext, 14, {
+    setup.fake.stream.state.value = changedState(oldContext, 14, {
       repositoryKey: 'agent-web',
       path: 'docs/old-run.md',
       changeType: 'MODIFIED',
       contentVersion: 'v14',
     });
-    expect(harness.receiveDocumentFileChanged).not.toHaveBeenCalled();
+    expect(setup.receiveDocumentFileChanged).not.toHaveBeenCalled();
 
     const newContext = { ...oldContext, runId: 'run-new' };
-    harness.fake.stream.state.value = changedState(newContext, 1, {
+    setup.fake.stream.state.value = changedState(newContext, 1, {
       repositoryKey: 'agent-web',
       path: 'docs/new-run.md',
       changeType: 'MODIFIED',
       contentVersion: 'v1',
     });
-    expect(harness.receiveDocumentFileChanged).toHaveBeenCalledWith(
-      harness.documentEventScope.value,
+    expect(setup.receiveDocumentFileChanged).toHaveBeenCalledWith(
+      setup.documentEventScope.value,
       expect.objectContaining({ relativePath: 'docs/new-run.md' }),
     );
-    harness.vueScope.stop();
+    setup.vueScope.stop();
   });
 
   it('closes on archive and never projects delayed state into the archived scope', () => {
-    const harness = createHarness();
+    const setup = createSetup();
     const context = {
       workbenchId: 'workbench-1',
       phase: 'IMPLEMENT_TEST',
       runId: 'run-active',
     } as const;
 
-    harness.archived.value = true;
-    expect(harness.fake.identity.value).toBeNull();
-    harness.fake.stream.state.value = changedState(context, 3, {
+    setup.archived.value = true;
+    expect(setup.fake.identity.value).toBeNull();
+    setup.fake.stream.state.value = changedState(context, 3, {
       repositoryKey: 'agent-web',
       path: 'README.md',
       changeType: 'MODIFIED',
       contentVersion: 'v3',
     });
-    expect(harness.receiveDocumentFileChanged).not.toHaveBeenCalled();
-    harness.vueScope.stop();
+    expect(setup.receiveDocumentFileChanged).not.toHaveBeenCalled();
+    setup.vueScope.stop();
   });
 
   it('rebinds when the document token changes and captures only the new token', () => {
-    const harness = createHarness();
-    const oldToken = harness.documentEventScope.value;
+    const setup = createSetup();
+    const oldToken = setup.documentEventScope.value;
     const newToken = documentScope('workbench-1', 'IMPLEMENT_TEST', 9);
-    harness.documentEventScope.value = newToken;
+    setup.documentEventScope.value = newToken;
     const context = {
       workbenchId: 'workbench-1',
       phase: 'IMPLEMENT_TEST',
       runId: 'run-active',
     } as const;
 
-    harness.fake.stream.state.value = changedState(context, 12, {
+    setup.fake.stream.state.value = changedState(context, 12, {
       repositoryKey: 'agent-web',
       path: 'docs/current.md',
       changeType: 'MODIFIED',
       contentVersion: 'v12',
     });
 
-    expect(harness.receiveDocumentFileChanged).toHaveBeenCalledWith(
+    expect(setup.receiveDocumentFileChanged).toHaveBeenCalledWith(
       newToken,
       expect.objectContaining({ relativePath: 'docs/current.md' }),
     );
-    expect(harness.receiveDocumentFileChanged).not.toHaveBeenCalledWith(
+    expect(setup.receiveDocumentFileChanged).not.toHaveBeenCalledWith(
       oldToken,
       expect.anything(),
     );
-    harness.vueScope.stop();
+    setup.vueScope.stop();
   });
 
   it('does not resume an old marker when detail names a different active run', () => {
-    const harness = createHarness();
-    expect(harness.fake.stream.resume).toHaveBeenCalledWith('run-active');
-    expect(harness.fake.stream.attach).toHaveBeenCalledWith('run-active');
-    harness.vueScope.stop();
+    const setup = createSetup();
+    expect(setup.fake.stream.resume).toHaveBeenCalledWith('run-active');
+    expect(setup.fake.stream.attach).toHaveBeenCalledWith('run-active');
+    setup.vueScope.stop();
   });
 });
 

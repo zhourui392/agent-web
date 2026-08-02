@@ -560,7 +560,7 @@ describe("Workbench Run API client", () => {
     });
   });
 
-  it("requires an explicit confirmation only for a Review MODIFY run", async () => {
+  it("allows a Review MODIFY run without confirmation but rejects invalid and non-Review confirmation", async () => {
     const { client, fetchMock } = clientWith(
       jsonResponse(202, acceptedSubmission()),
     );
@@ -570,16 +570,16 @@ describe("Workbench Run API client", () => {
       idempotencyKey: "run-key-review",
     };
 
-    await expect(
-      client.submitRun({
-        ...base,
-        phase: "REVIEW_REFACTOR",
-        request: {
-          message: "请改一下",
-          runMode: "MODIFY_WORKSPACE",
-        },
-      }),
-    ).rejects.toThrow("review confirmation");
+    await client.submitRun({
+      ...base,
+      phase: "REVIEW_REFACTOR",
+      request: {
+        message: "请改一下",
+        runMode: "MODIFY_WORKSPACE",
+      },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
     await expect(
       client.submitRun({
         ...base,
@@ -591,7 +591,7 @@ describe("Workbench Run API client", () => {
         },
       }),
     ).rejects.toThrow("review confirmation");
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
 
     await client.submitRun({
       ...base,
@@ -603,7 +603,7 @@ describe("Workbench Run API client", () => {
       },
     });
     expect(
-      JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body)),
+      JSON.parse(String((fetchMock.mock.calls[1][1] as RequestInit).body)),
     ).toEqual({
       message: "执行已确认的重构并运行受影响测试",
       runMode: "MODIFY_WORKSPACE",

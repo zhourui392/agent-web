@@ -51,7 +51,7 @@ public final class AgentOfferPolicy {
         return new AgentOffer(type, displayName, AgentPurpose.GENERAL,
                 EnumSet.of(AgentSurface.CHAT, AgentSurface.DEFAULT, AgentSurface.SCHEDULE,
                         AgentSurface.WORKFLOW, AgentSurface.WORKBENCH,
-                        AgentSurface.HARNESS, AgentSurface.REFINERY),
+                        AgentSurface.REFINERY),
                 true, true, runtime);
     }
 

@@ -5,7 +5,6 @@ import com.example.agentweb.app.chatrun.ChatRunPromptBuilder;
 import com.example.agentweb.app.chatrun.ChatRunQueryService;
 import com.example.agentweb.app.chatrun.PreparedChatRunPrompt;
 import com.example.agentweb.app.runtime.port.AgentExecutionPlan;
-import com.example.agentweb.app.runtime.port.CredentialReference;
 import com.example.agentweb.app.runtime.port.HistoryDelivery;
 import com.example.agentweb.app.runtime.port.RuntimeLimits;
 import com.example.agentweb.app.runtime.port.SandboxMode;
@@ -46,7 +45,6 @@ class ChatExecutionPlanProviderTest {
     private ChatRunPromptBuilder promptBuilder;
     private ResolvedCapabilityBinding capabilityBinding;
     private RuntimeLimits runtimeLimits;
-    private CredentialReference credentialReference;
     private ChatExecutionPlanProvider provider;
 
     @BeforeEach
@@ -55,13 +53,10 @@ class ChatExecutionPlanProviderTest {
         promptBuilder = mock(ChatRunPromptBuilder.class);
         capabilityBinding = binding();
         runtimeLimits = new RuntimeLimits(
-                Duration.ofMinutes(30), 8_388_608L,
-                Collections.<String>emptySet());
-        credentialReference = CredentialReference.environment(
-                "AGENT_COMMON_RUNTIME_API_KEY");
+                Duration.ofMinutes(30), 8_388_608L);
         provider = new ChatExecutionPlanProvider(
                 queryService, promptBuilder, capabilityBinding,
-                runtimeLimits, credentialReference);
+                runtimeLimits);
     }
 
     @Test
@@ -106,8 +101,6 @@ class ChatExecutionPlanProviderTest {
                 plan.getWorkspaceLayout().getSandboxMode());
         assertSame(capabilityBinding, plan.getCapabilityBinding());
         assertSame(runtimeLimits, plan.getRuntimeLimits());
-        assertSame(credentialReference,
-                plan.getRuntimeSelection().getCredentialReference());
     }
 
     @Test

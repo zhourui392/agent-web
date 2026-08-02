@@ -132,7 +132,7 @@ async function installFixture(
       }, auth === 'ANONYMOUS' ? 401 : 403);
       return;
     }
-    if (url.pathname.startsWith('/api/refinery/') || url.pathname.startsWith('/api/harness/')) {
+    if (url.pathname.startsWith('/api/refinery/')) {
       await json(route, { code: 'NOT_FOUND' }, 404);
       return;
     }

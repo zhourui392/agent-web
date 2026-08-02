@@ -144,12 +144,12 @@ describe('workbench API client', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('never falls back to unscoped chat fs or harness endpoints', async () => {
+  it('never falls back to unscoped chat or fs endpoints', async () => {
     const source = await readFile(
       new URL('../../frontend/js/api/workbench.ts', import.meta.url),
       'utf8',
     );
 
-    expect(source).not.toMatch(/\/api\/(chat|fs|harness)(?:\/|['"`])/);
+    expect(source).not.toMatch(/\/api\/(chat|fs)(?:\/|['"`])/);
   });
 });

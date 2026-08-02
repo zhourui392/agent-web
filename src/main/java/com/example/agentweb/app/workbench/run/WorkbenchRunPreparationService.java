@@ -1,7 +1,6 @@
 package com.example.agentweb.app.workbench.run;
 
 import com.example.agentweb.app.chatrun.ChatRunIdGenerator;
-import com.example.agentweb.app.runtime.port.CredentialReference;
 import com.example.agentweb.app.runtime.port.RuntimeLimits;
 import com.example.agentweb.app.runtime.port.RuntimePreflightErrorCode;
 import com.example.agentweb.app.runtime.port.RuntimePreflightException;
@@ -224,8 +223,7 @@ public class WorkbenchRunPreparationService {
                 plan.getReadableRepositoryRoots(),
                 plan.getWritableRepositoryRoots(), sandboxMode);
         RuntimeSelection runtimeSelection = new RuntimeSelection(
-                plan.getAgentType(), RuntimeVersionPolicy.configured(),
-                CredentialReference.systemConfiguration());
+                plan.getAgentType(), RuntimeVersionPolicy.configured());
         RuntimePreflightRequest preflightRequest =
                 new RuntimePreflightRequest(
                         runtimeSelection, workspaceLayout,

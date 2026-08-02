@@ -14,7 +14,6 @@ import com.example.agentweb.app.runtime.ExecutionPlanProviderRegistry;
 import com.example.agentweb.app.runtime.WorkbenchExecutionPlanProvider;
 import com.example.agentweb.app.runtime.port.AgentExecutionGateway;
 import com.example.agentweb.app.runtime.port.ChatRunRuntimeHandleStore;
-import com.example.agentweb.app.runtime.port.CredentialReference;
 import com.example.agentweb.app.runtime.port.RuntimeLimits;
 import com.example.agentweb.app.runtime.port.RuntimePreflightGateway;
 import com.example.agentweb.app.runtime.port.SandboxMode;
@@ -34,7 +33,6 @@ import com.example.agentweb.infra.runtime.CodexRuntimePreflightGateway;
 import com.example.agentweb.infra.runtime.RuntimeCapabilityMaterializer;
 import com.example.agentweb.infra.runtime.RuntimeCleanup;
 import com.example.agentweb.infra.runtime.RuntimeCommandFactory;
-import com.example.agentweb.infra.runtime.RuntimeCredentialResolver;
 import com.example.agentweb.infra.runtime.RuntimeEventDecoder;
 import com.example.agentweb.infra.runtime.RuntimeOutputRedactor;
 import com.example.agentweb.infra.runtime.RuntimeProcessRegistry;
@@ -125,13 +123,6 @@ public class CommonRuntimeConfiguration {
     }
 
     @Bean
-    public RuntimeCredentialResolver commonRuntimeCredentialResolver(
-            Environment environment) {
-        return new RuntimeCredentialResolver(
-                () -> null, environment::getProperty);
-    }
-
-    @Bean
     public RuntimeProcessRegistry commonRuntimeProcessRegistry() {
         return new RuntimeProcessRegistry();
     }
@@ -160,14 +151,13 @@ public class CommonRuntimeConfiguration {
             RuntimeWorkspaceMaterializer workspaceMaterializer,
             RuntimeCapabilityMaterializer capabilityMaterializer,
             RuntimeEventDecoder eventDecoder,
-            RuntimeCredentialResolver credentialResolver,
             RuntimeProcessRegistry processRegistry,
             RuntimeCleanup cleanup,
             @Qualifier("commonRuntimeMonitorExecutor")
                     ThreadPoolTaskExecutor monitorExecutor) {
         return new AgentProcessKernel(
                 commandFactory, workspaceMaterializer,
-                capabilityMaterializer, eventDecoder, credentialResolver,
+                capabilityMaterializer, eventDecoder,
                 processRegistry, cleanup, monitorExecutor);
     }
 
@@ -189,7 +179,6 @@ public class CommonRuntimeConfiguration {
             CodexRuntimeCompatibilityMatrix compatibilityMatrix) {
         return new CodexRuntimePreflightGateway(
                 properties.getCodexCommand(),
-                properties.getSupportedCodexVersions(),
                 compatibilityMatrix,
                 Duration.ofSeconds(
                         properties.getVersionProbeTimeoutSeconds()),
@@ -210,22 +199,18 @@ public class CommonRuntimeConfiguration {
                         properties.getCompatibilityMatrixVersion());
         RuntimeLimits limits = new RuntimeLimits(
                 Duration.ofSeconds(properties.getChatTimeoutSeconds()),
-                properties.getChatMaxOutputBytes(),
-                Collections.<String>emptySet());
+                properties.getChatMaxOutputBytes());
         return new ChatExecutionPlanProvider(
-                queryService, promptBuilder, binding, limits,
-                credentialReference(properties));
+                queryService, promptBuilder, binding, limits);
     }
 
     @Bean
     public WorkbenchExecutionPlanProvider workbenchExecutionPlanProvider(
             WorkbenchRunSnapshotRepository snapshotRepository,
             WorkbenchRunPromptPayloadRepository promptRepository,
-            WorkbenchRepository workbenchRepository,
-            CommonRuntimeProperties properties) {
+            WorkbenchRepository workbenchRepository) {
         return new WorkbenchExecutionPlanProvider(
-                snapshotRepository, promptRepository, workbenchRepository,
-                credentialReference(properties));
+                snapshotRepository, promptRepository, workbenchRepository);
     }
 
     @Bean
@@ -267,15 +252,5 @@ public class CommonRuntimeConfiguration {
         routes.put(RunOrigin.WORKBENCH, properties.isWorkbenchEnabled()
                 ? commonRuntimeLauncher : disabledWorkbenchLauncher);
         return new RunOriginRoutingChatRunLauncher(runRepository, routes);
-    }
-
-    private CredentialReference credentialReference(
-            CommonRuntimeProperties properties) {
-        if (!properties.isChatEnabled()
-                && !properties.isWorkbenchEnabled()) {
-            return CredentialReference.systemConfiguration();
-        }
-        return CredentialReference.environment(
-                properties.getCredentialEnvironmentReference());
     }
 }

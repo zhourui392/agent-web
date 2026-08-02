@@ -17,7 +17,7 @@ import java.util.Map;
  * 本地开发 Workbench 聚合根。
  *
  * <p>聚合集中守护固定四阶段、Owner、人工状态、阶段单 Run 与全局写 Run 租约；
- * 不承载 Harness Gate/PASS 语义。</p>
+ * 不承载 Gate/PASS 语义。</p>
  *
  * @author alex
  * @since 2026-08-01

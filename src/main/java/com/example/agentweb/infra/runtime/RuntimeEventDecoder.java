@@ -60,27 +60,21 @@ public final class RuntimeEventDecoder {
     }
 
     public DecodedEvent decode(String executionId, long sequence,
-                               String providerLine,
-                               RuntimeCredentialResolver.ResolvedCredential credential) {
-        return decode(executionId, sequence, providerLine,
-                credential, null, null);
+                               String providerLine) {
+        return decode(executionId, sequence, providerLine, null, null);
     }
 
     public DecodedEvent decode(
             String executionId, long sequence, String providerLine,
-            RuntimeCredentialResolver.ResolvedCredential credential,
             RuntimeCapabilityMaterialization capabilities) {
-        return decode(executionId, sequence, providerLine,
-                credential, capabilities, null);
+        return decode(executionId, sequence, providerLine, capabilities, null);
     }
 
     public DecodedEvent decode(
             String executionId, long sequence, String providerLine,
-            RuntimeCredentialResolver.ResolvedCredential credential,
             RuntimeCapabilityMaterialization capabilities,
             WorkspaceLayout workspaceLayout) {
         Objects.requireNonNull(providerLine, "providerLine");
-        Objects.requireNonNull(credential, "credential");
         JsonNode root = parseObject(providerLine);
         String providerEventType = providerEventType(root);
         boolean turnFailed = TURN_FAILED.equals(providerEventType);
@@ -88,7 +82,7 @@ public final class RuntimeEventDecoder {
                 || turnFailed || PROVIDER_ERROR.equals(providerEventType)
                 ? RuntimeEventType.DIAGNOSTIC : RuntimeEventType.OUTPUT;
         String assistantText = normalizedAssistantText(
-                root, providerEventType, credential, capabilities);
+                root, providerEventType, capabilities);
         SemanticProjection projection = eventType == RuntimeEventType.OUTPUT
                 ? semantics(root, providerEventType, workspaceLayout)
                 : SemanticProjection.empty();
@@ -126,7 +120,6 @@ public final class RuntimeEventDecoder {
 
     private String normalizedAssistantText(
             JsonNode root, String providerEventType,
-            RuntimeCredentialResolver.ResolvedCredential credential,
             RuntimeCapabilityMaterialization capabilities) {
         if (root == null || !ITEM_COMPLETED.equals(providerEventType)) {
             return null;
@@ -138,7 +131,7 @@ public final class RuntimeEventDecoder {
                 || text.asText().trim().isEmpty()) {
             return null;
         }
-        String safe = credential.redact(text.asText(), outputRedactor);
+        String safe = text.asText();
         if (capabilities != null) {
             safe = capabilities.redact(safe, outputRedactor);
         }

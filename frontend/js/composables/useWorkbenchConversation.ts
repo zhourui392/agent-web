@@ -81,7 +81,6 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
     eventUrl: (workbenchId, runId) => apiClient.eventsUrl(workbenchId, runId),
   });
   const composerText = ref('');
-  const runMode = ref<WorkbenchRunMode>(defaultRunMode(options.phase.value));
   const submitting = ref(false);
   const stopping = ref(false);
   const messagesLoading = ref(false);
@@ -102,8 +101,6 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
 
   const conversationReadOnly = computed(() => options.archived?.value ?? false);
   const identityReady = computed(() => identity.value != null);
-  const modifyAllowed = computed(() =>
-    options.phase.value === 'IMPLEMENT_TEST' || options.phase.value === 'REVIEW_REFACTOR');
   const handoffReady = computed(() =>
     !options.handoffRequired.value || options.handoffSourceVersion.value != null);
   const currentRunId = computed(() =>
@@ -113,14 +110,11 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
     localRunId.value && !stream.state.value?.terminal ||
     ['PENDING', 'RUNNING', 'CANCEL_REQUESTED'].includes(stream.state.value?.status || ''),
   ));
-  const writeRunBlocked = computed(() => runMode.value === 'MODIFY_WORKSPACE'
-    && Boolean(options.activeWriteRunId?.value));
   const conversationCanSubmit = computed(() =>
     !conversationReadOnly.value &&
     identityReady.value &&
     !submitting.value &&
     !runActive.value &&
-    !writeRunBlocked.value &&
     handoffReady.value &&
     Boolean(composerText.value.trim()),
   );
@@ -273,15 +267,6 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
       ));
   }
 
-  function updateRunMode(mode: WorkbenchRunMode): void {
-    if (mode !== 'DISCUSS_READ_ONLY' && mode !== 'MODIFY_WORKSPACE') return;
-    if (mode === 'MODIFY_WORKSPACE' && !modifyAllowed.value) return;
-    runMode.value = mode;
-    conversationError.value = null;
-    conversationNotice.value = null;
-    if (failedSubmission?.fingerprint !== submissionFingerprintOrNull()) failedSubmission = null;
-  }
-
   async function submitConversation(): Promise<void> {
     const workbenchId = options.workbenchId.value?.trim();
     const expectedVersion = options.expectedVersion.value;
@@ -310,24 +295,9 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
       conversationError.value = 'Workbench 版本不可用，请刷新后重试。';
       return;
     }
-    if (runMode.value === 'MODIFY_WORKSPACE' && !modifyAllowed.value) {
-      conversationError.value = '当前阶段只允许只读讨论。';
-      return;
-    }
-    if (writeRunBlocked.value) {
-      conversationError.value = '当前 Workbench 已有活动写 Run；可切换为只读讨论，或等待写 Run 进入终态。';
-      return;
-    }
     const submissionPhase = submissionIdentity.phase;
-    const submissionRunMode = runMode.value;
+    const submissionRunMode: WorkbenchRunMode = 'MODIFY_WORKSPACE';
     const submissionHandoffVersion = options.handoffSourceVersion.value;
-    const reviewModify = submissionPhase === 'REVIEW_REFACTOR'
-      && submissionRunMode === 'MODIFY_WORKSPACE';
-    const confirmationId = options.reviewConfirmationId.value;
-    if (reviewModify && !confirmationId) {
-      conversationError.value = '请先保存并精确确认当前 Review Opinion，再启动重构写入。';
-      return;
-    }
     const requestToken = ++submitRequestToken;
     submitting.value = true;
     try {
@@ -348,7 +318,7 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
         message,
         submissionRunMode,
         submissionHandoffVersion,
-        reviewModify ? confirmationId : null,
+        null,
         attachments,
       );
       const idempotencyKey = failedSubmission?.fingerprint === fingerprint
@@ -360,7 +330,6 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
         runMode: submissionRunMode,
         ...(submissionHandoffVersion == null
           ? {} : { handoffSourceVersion: submissionHandoffVersion }),
-        ...(reviewModify ? { reviewConfirmationId: confirmationId } : {}),
         ...(attachments.length === 0 ? {} : { attachments }),
       };
       const submitted = await apiClient.submitRun({
@@ -492,7 +461,7 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
       workbenchId,
       version,
       composerText.value,
-      runMode.value,
+      'MODIFY_WORKSPACE' as WorkbenchRunMode,
       options.handoffSourceVersion.value,
       options.reviewConfirmationId.value,
       pendingAttachments.value,
@@ -509,7 +478,6 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
     () => {
       composerText.value = '';
       pendingAttachments.value = [];
-      runMode.value = defaultRunMode(options.phase.value);
       localRunId.value = null;
       conversationError.value = null;
       conversationNotice.value = null;
@@ -589,7 +557,6 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
 
   return {
     composerText,
-    runMode,
     runState: stream.state,
     streamError: stream.error,
     connectionStatus: stream.connectionStatus,
@@ -605,15 +572,12 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
     conversationNotice,
     conversationReadOnly,
     identityReady,
-    modifyAllowed,
     handoffReady,
     currentRunId,
     runActive,
-    writeRunBlocked,
     conversationCanSubmit,
     canRestartConversation,
     updateComposerText,
-    updateRunMode,
     addAttachment,
     removeAttachment,
     removeUploadedAttachment,
@@ -718,9 +682,18 @@ function boundedPendingText(value: unknown, maximum: number): string | null {
 
 function conversationErrorMessage(error: unknown): string {
   if (!(error instanceof WorkbenchRunApiError)) {
+    if (error instanceof Error && error.message) {
+      return error.message;
+    }
     return 'Workbench Run 请求失败，请稍后重试。';
   }
   switch (error.code) {
+    case 'AUTHENTICATION_REQUIRED':
+    case 'UNAUTHORIZED':
+      return '登录已过期，请重新登录。';
+    case 'ACCESS_DENIED':
+    case 'FORBIDDEN':
+      return '无权执行此操作。';
     case 'WORKBENCH_RUN_NOT_FOUND':
     case 'WORKBENCH_NOT_FOUND':
       return 'Run 不存在或无权访问。';
@@ -744,6 +717,8 @@ function conversationErrorMessage(error: unknown): string {
       return '仓内文档和浏览器上传附件总数超过本轮限制。';
     case 'WORKBENCH_ATTACHMENT_UNAVAILABLE':
       return '上传附件已过期、已取消或已被其他 Run 使用，请重新选择。';
+    case 'WORKBENCH_ATTACHMENT_STORAGE_UNAVAILABLE':
+      return '附件存储服务不可用，请稍后重试。';
     case 'WORKBENCH_RUN_CURSOR_EXPIRED':
     case 'CURSOR_EXPIRED':
       return 'Run 事件游标已过期，请刷新状态；系统不会自动重放写操作。';
@@ -751,9 +726,19 @@ function conversationErrorMessage(error: unknown): string {
     case 'VALIDATION_ERROR':
     case 'INVALID_REQUEST':
       return 'Run 请求不符合当前阶段或能力约束。';
+    case 'WORKBENCH_PHASE_MESSAGE_TOO_LARGE':
+      return '消息内容过长，请缩短后重试。';
     case 'RUNTIME_UNAVAILABLE':
     case 'WORKBENCH_RUN_UNAVAILABLE':
+    case 'SERVICE_UNAVAILABLE':
       return 'Runtime 当前不可用，请检查阶段能力或稍后重试。';
+    case 'WORKBENCH_RUN_NETWORK_ERROR':
+      return '网络连接失败，请检查网络后重试。';
+    case 'WORKBENCH_RUN_UNEXPECTED_RESPONSE':
+    case 'WORKBENCH_RUN_RESPONSE_INVALID':
+      return '服务返回异常响应，请稍后重试。';
+    case 'WORKBENCH_RUN_REQUEST_FAILED':
+      return `Workbench Run 请求失败 (HTTP ${error.status})，请稍后重试。`;
     default:
       return 'Workbench Run 请求失败，请稍后重试。';
   }

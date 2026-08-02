@@ -1,7 +1,6 @@
 package com.example.agentweb.infra.runtime;
 
 import com.example.agentweb.app.runtime.port.AgentExecutionPlan;
-import com.example.agentweb.app.runtime.port.CredentialReference;
 import com.example.agentweb.app.runtime.port.SandboxMode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -38,9 +37,7 @@ class RuntimeCommandFactoryTest {
         Path undeclaredSibling = Files.createDirectory(
                 tempDir.resolve("undeclared-sibling"));
         AgentExecutionPlan plan = RuntimePlanFixtures.readOnly("exec-read", primary,
-                Arrays.asList(primary, readableSecond, readableFirst),
-                Collections.<String>emptySet(),
-                CredentialReference.systemConfiguration());
+                Arrays.asList(primary, readableSecond, readableFirst));
         RuntimeWorkspaceMaterializer materializer =
                 new RuntimeWorkspaceMaterializer(tempDir.resolve("runtime"));
         RuntimeWorkspaceMaterializer.MaterializedWorkspace workspace =
@@ -50,9 +47,10 @@ class RuntimeCommandFactoryTest {
 
         assertEquals("codex", tokens.get(0));
         assertOrdered(tokens, "--ask-for-approval", "never", "exec",
-                "--ignore-user-config", "--ephemeral", "--json");
+                "--ephemeral", "--json");
         assertOption(tokens, "-c", "allow_login_shell=false");
         assertFalse(tokens.contains("--ignore-rules"));
+        assertFalse(tokens.contains("--ignore-user-config"));
         assertOption(tokens, "--sandbox", "read-only");
         assertOption(tokens, "-C", primary.toRealPath().toString());
         assertEquals(Arrays.asList(
@@ -75,8 +73,7 @@ class RuntimeCommandFactoryTest {
                 Arrays.asList(primary, writableSecond, readableExtra, writableFirst),
                 Arrays.asList(primary, writableSecond, writableFirst),
                 SandboxMode.WORKSPACE_WRITE,
-                Duration.ofSeconds(5L), 1024L, Collections.<String>emptySet(),
-                CredentialReference.systemConfiguration());
+                Duration.ofSeconds(5L), 1024L);
         RuntimeWorkspaceMaterializer.MaterializedWorkspace workspace =
                 new RuntimeWorkspaceMaterializer(tempDir.resolve("runtime-write"))
                         .materialize(plan);
@@ -97,8 +94,7 @@ class RuntimeCommandFactoryTest {
     void commandTokensAreImmutableAndRejectControlCharacters() throws Exception {
         Path primary = Files.createDirectory(tempDir.resolve("primary-safe"));
         AgentExecutionPlan plan = RuntimePlanFixtures.readOnly("exec-safe", primary,
-                Collections.singletonList(primary), Collections.<String>emptySet(),
-                CredentialReference.systemConfiguration());
+                Collections.singletonList(primary));
         RuntimeWorkspaceMaterializer.MaterializedWorkspace workspace =
                 new RuntimeWorkspaceMaterializer(tempDir.resolve("runtime-safe"))
                         .materialize(plan);

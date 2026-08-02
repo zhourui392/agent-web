@@ -3,7 +3,7 @@
 > 依据：2026-07-25 前端现状评估（3 路并行探索：主聊天应用 / admin MPA / 构建工具链与测试）。
 > 原则：每步独立可合、行为不变优先、每步完成跑前端测试全绿再进下一步；**不自动打包/重启服务**。
 > 范围：`src/main/resources/static/` 下前端代码（JS/CSS/HTML），不含后端 API 契约变更。
-> 决策状态：**引入 Vite + 渐进 TS**（决策 A 已定，依据见 §3）。迁移策略为"分功能建测试围栏 -> 改造 -> 迁 TS"，每个功能模块独立可合、独立可回滚。为避免与 `docs/harness` 产品里程碑 M0-M7 混淆，本文件里程碑统一使用 `FE-R*`。
+> 决策状态：**引入 Vite + 渐进 TS**（决策 A 已定，依据见 §3）。迁移策略为"分功能建测试围栏 -> 改造 -> 迁 TS"，每个功能模块独立可合、独立可回滚。本文件里程碑统一使用 `FE-R*`。
 
 ## 1. 现状诊断
 
@@ -15,7 +15,6 @@
 |---|---|---|
 | `js/app.js` | 876 | 主应用，单 `setup()` 闭包 827 行 |
 | `js/components/chat-panel.js` | 1094 | 聊天巨型组件，189 行内联 template + 870 行 setup |
-| `js/admin/pages/harness.js` | 1210 | harness 4 阶段控制台，单 setup |
 | 其余 ~12 个 JS 文件 | ~1800 | admin pages / lib / utils / base |
 
 模块加载靠 `window.*` 全局挂载 + HTML 里裸 `<script src>` 硬编码顺序；缓存破坏靠手动 `?v=YYYYMMDD`。
@@ -25,13 +24,12 @@
 **P1 巨型单文件 setup，无内部分层**
 - `app.js` setup()（35-861 行）混合 401 拦截 + 状态 + 文件系统 UI + worktree 业务 + 历史业务 + 定时任务业务 + 宿主回调，无 store、无 api 层，末尾 84 行 return 手工罗列 80+ 暴露项。
 - `chat-panel.js` setup()（220-1091 行）承载完整聊天闭环（可恢复 SSE / 斜杠命令 / 图片附件 / 反馈 / 回退），零子组件拆分，189 行 HTML template 内联且含大量 inline style。
-- `harness.js` 单 setup 1210 行 + `harness.html` 内联 771 行，4 阶段控制台零拆分。
 
 **P2 大面积逐字重复，已开始脱节**
 - `copySegment`/`copyToClipboard` ×3（app.js / chat-panel.js / share.html）。
 - `shareSession` ×2（app.js / chat-panel.js）。
 - `enrichMessage`+`copySegment` ×2 逐字节复制（conversations.js / refinery.js）。
-- `fmtTime` ×4 且格式互斥（conversations 调 `formatBeijingDateTime`、workflows/refinery 用字符串 `replace` 裁剪、harness 用 `toLocaleString`）。
+- `fmtTime` ×3 且格式互斥（conversations 调 `formatBeijingDateTime`、workflows/refinery 用字符串 `replace` 裁剪）。
 - 消息映射 ×4（app.js `viewHistory`、chat-panel `reloadMessages`/`applyResume`、share.html `mapMessages`）。
 - markdown 渲染 CSS ×3（chat-panel.css / app.css 两处）+ admin.css 里 pre/code 样式 ×4。
 - 8 个 admin HTML 的 vendor `<script>` 块纯手工复制，`?v=` 串已不一致：`admin.css` 三个版本号（`2026061101`/`2026061501`/`2026072404`）、`formatters.js` 有无 `v=` 不一。
@@ -80,7 +78,7 @@
 | 重构安全 | 5000 行无类型，~99 后端路径无契约 | TS 类型 + 集中 api client 拦回归 |
 | 缓存破坏 | 手动 `?v=YYYYMMDD`，已不一致 | content-hash 文件名自动 |
 
-**成本**：`base.js` 前缀推导机制要重写（构建时 `base` 替代运行时 `currentScript`）、12 个 MPA 入口要配、内联 template 逐页迁 SFC、3 个 Playwright config 适配。
+**成本**：`base.js` 前缀推导机制要重写（构建时 `base` 替代运行时 `currentScript`）、11 个 MPA 入口要配、内联 template 逐页迁 SFC、2 个 Playwright config 适配。
 
 **结论**：无构建的 workaround 已在制造比它解决的问题更多的问题（P2 脱节、P3 隐式耦合、安全债、依赖无锁），引入。迁移策略用"分功能建测试围栏 -> 改造 -> 迁 TS"渐进推进，避免一次性大爆炸。
 
@@ -105,7 +103,7 @@ FE-R4  契约层 + 类型收尾 ──────  集中 api client + 后端�
 **核心方法论（FE-R3 适用）**：每个功能模块改造前，先建该模块的**测试围栏**（Playwright E2E 为主、Vitest 纯函数为辅），改造在围栏保护下进行。改造 = 拆子组件 / composable + 迁 TS。围栏测试全绿才合入。
 
 现有测试覆盖（FE-R3 时是"扩充 + 补缺"，非从零建）：
-- Playwright spec：chat / fs / worktree / workflows / admin-auth / admin-conversations / admin-dashboard / admin-recall / admin-refinery / admin-harness / mobile-smoke 等
+- Playwright spec：chat / fs / worktree / workflows / admin-auth / admin-conversations / admin-dashboard / admin-recall / admin-refinery / mobile-smoke 等
 - Vitest 10 spec：覆盖 `lib/formatters` / admin-utils
 
 ## 5. 阶段 0 详细设计：补 CI（FE-R0）
@@ -165,11 +163,11 @@ FE-R4  契约层 + 类型收尾 ──────  集中 api client + 后端�
 
 | 项 | 内容 |
 |---|---|
-| 现状 | `fmtTime` ×4 格式互斥：`conversations.js:119`（调 `formatBeijingDateTime`）、`workflows.js:212`+`refinery.js:168`（字符串 `.replace` 裁剪）、`harness.js:888`（`toLocaleString`）；`pct` 在 `dashboard.js:37` 内联重写 `recall-utils.js:44` 已有实现 |
+| 现状 | `fmtTime` ×3 格式互斥：`conversations.js:119`（调 `formatBeijingDateTime`）、`workflows.js:212`+`refinery.js:168`（字符串 `.replace` 裁剪）；`pct` 在 `dashboard.js:37` 内联重写 `recall-utils.js:44` 已有实现 |
 | 目标 | 全部收敛到 `AgentFormatters.formatTime` / `formatBeijingDateTime`；`pct` 收敛到 `AgentFormatters` 或 `recall-utils` |
-| 消费者 | conversations/workflows/refinery/harness/dashboard |
+| 消费者 | conversations/workflows/refinery/dashboard |
 | 迁移 | 先确认 `AgentFormatters.formatTime` 是"正确"格式；逐页替换；删除各页本地 `fmtTime` |
-| 风险 | 四份格式不一致，**逐页视觉确认**：conversations/workflows/refinery/harness 时间列。若某页确实需要不同格式，在 `AgentFormatters` 增 `formatTimeShort`/`formatTimeLong` 变体 |
+| 风险 | 三份格式不一致，**逐页视觉确认**：conversations/workflows/refinery 时间列。若某页确实需要不同格式，在 `AgentFormatters` 增 `formatTimeShort`/`formatTimeLong` 变体 |
 
 #### 6.1.4 消息视图 lib（`lib/message-view.js`）
 
@@ -195,8 +193,8 @@ FE-R4  契约层 + 类型收尾 ──────  集中 api client + 后端�
 
 | 项 | 内容 |
 |---|---|
-| 现状 | markdown 渲染样式 ×3（`chat-panel.css:196-223`、`app.css:229-233`、`app.css:236-264`）；admin.css 里 pre/code 样式 ×4；两个近似 `@keyframes pulse`（`harness-stepper-pulse:319`、`harness-pulse:424`） |
-| 目标 | 抽 `css/markdown.css`（统一的 `.md-body p/code/pre/...` 规则）；各处复用类名；合并近似动画 |
+| 现状 | markdown 渲染样式 ×3（`chat-panel.css:196-223`、`app.css:229-233`、`app.css:236-264`）；admin.css 里 pre/code 样式 ×4 |
+| 目标 | 抽 `css/markdown.css`（统一的 `.md-body p/code/pre/...` 规则）；各处复用类名 |
 | 消费者 | chat-panel / app 历史抽屉 / share / admin 多页 |
 | 迁移 | 新建 `css/markdown.css`；各 HTML 引入；逐处替换选择器为 `.md-body`；删重复规则 |
 | 风险 | CSS 改动影响面广，**逐页视觉验证**。优先级最低，放 FE-R1 末尾 |
@@ -212,7 +210,7 @@ FE-R4  契约层 + 类型收尾 ──────  集中 api client + 后端�
 
 - 每项抽取独立提交，提交前跑：
   - `cd tests && npm test`（Vitest 纯函数）
-  - `cd tests && npx playwright test` 相关 spec（chat / admin-conversations / admin-recall / admin-harness）
+  - `cd tests && npx playwright test` 相关 spec（chat / admin-conversations / admin-recall）
 - 行为不变验证：抽取前后对同一输入产出相同输出（Vitest 覆盖 `AgentFormatters`，新 lib 补对应单测）。
 - 视觉验证：6.1.3 / 6.1.6 逐页人工确认渲染无变化。
 
@@ -223,11 +221,11 @@ FE-R4  契约层 + 类型收尾 ──────  集中 api client + 后端�
 ### 7.1 步骤
 
 1. **建前端 package.json**：在仓库根（或 `frontend/` 子目录，见 7.4）新建，依赖 `vue@3.5.x` / `element-plus@2.14.x` / `@element-plus/icons-vue@2.3.x` / `marked@12.x` / `dompurify@3.2.x`（替代 webjars）+ devDeps `vite` / `@vitejs/plugin-vue` / `typescript`（暂不用，FE-R3 启用）。
-2. **Vite 多入口配置**（`vite.config.ts`）：12 个入口（8 admin + index/login/share/git-settings），`build.rollupOptions.input` 逐个指定 HTML。`build.outDir` 指向 `src/main/resources/static-dist/`（见 7.4 部署）。
+2. **Vite 多入口配置**（`vite.config.ts`）：11 个入口（7 admin + index/login/share/git-settings），`build.rollupOptions.input` 逐个指定 HTML。`build.outDir` 指向 `src/main/resources/static-dist/`（见 7.4 部署）。
 3. ~~**前缀机制迁移**~~ —— **已作废**：`/qa` 部署废弃，前缀机制整体删除（`base.js` 连同 `deriveBase`/`withBase`/fetch 与 EventSource 包裹一并移除），`vite.config.js` 用 `base: '/'`。详见 §7.5。
 4. **vendor 迁移**：`static/vendor/` 删除，改 `import Vue from 'vue'` 等。Element Plus 按需引入减体积。
 
-   > **实施修正（已完成）**：`unplugin-vue-components` 在本项目**用不了**——它靠构建期扫 `.vue`/`.jsx` 模板 AST 推断组件，而本项目 0 个 `.vue`，49 种 `el-*` 全写在 HTML 的 in-DOM 模板里（`harness.html` 207 处、`index.html` 131 处）由浏览器运行时编译，构建期看不见这些标签。
+   > **实施修正（已完成）**：`unplugin-vue-components` 在本项目**用不了**——它靠构建期扫 `.vue`/`.jsx` 模板 AST 推断组件，而本项目 0 个 `.vue`，49 种 `el-*` 全写在 HTML 的 in-DOM 模板里（`index.html` 131 处）由浏览器运行时编译，构建期看不见这些标签。
    > 改为**手工显式注册**：新增 `js/element-plus-setup.js`，枚举 49 个组件 + `ElLoading` 指令（`v-loading` 19 处，全量 `use` 时随包注册，按需注册必须显式补），5 个 entry 统一调 `setupElementPlus(app)` 替代 `app.use(ElementPlus)`。
    > **图标仍全量注册**：`index.html:396` 有 `<component :is="t.enabled ? 'video-pause' : 'caret-right'" />` 按字符串名动态解析，构建期无法枚举。
    > 收益：主 chunk 1225 KB → 868 KB（gzip 395 → 280 KB）。CSS 仍全量（349 KB），同受静态分析限制。
@@ -244,7 +242,7 @@ FE-R4  契约层 + 类型收尾 ──────  集中 api client + 后端�
 
 ### 7.3 验证
 
-- 2 个 Playwright config 全绿：默认（根路径）、`playwright.harness.config.ts`。（原第 3 个 `playwright.qa-prefix.config.ts` 随 `/qa` 废弃已删除。）
+- 1 个 Playwright config 全绿：默认（根路径）。（原 `playwright.qa-prefix.config.ts` 随 `/qa` 废弃已删除。）
 - `mvn test` 全绿（后端不受影响，确认静态资源路径未变）。
 - 产物体积对比：应显著小于现状 ~2.2MB（tree-shaking + 按需引入 element-plus）。
 - CSP 头确认：此阶 `unsafe-eval` 仍在（SFC 未迁），FE-R3 末尾移除。
@@ -254,7 +252,6 @@ FE-R4  契约层 + 类型收尾 ──────  集中 api client + 后端�
 | 项 | 结果 |
 |---|---|
 | 默认 config | 37 passed / 20 failed；20 个失败**与改造前逐条同名**（已 `git stash` 对照 baseline 确认） |
-| `harness.config` | 1 passed / 2 failed；失败断言 `Expected "WAITING_APPROVAL" / Received "FAILED"` 与 baseline **逐字相同**，属既有状态机问题 |
 | `mvn test` | 全绿，1331 tests |
 | Vitest | 125 passed / 3 failed（3 个失败即 §5.4 已记录的缺 `rg`） |
 | 体积 | 旧 vendor 合计 2167 KB → 登录页实际加载 868 KB JS + 349 KB CSS（gzip 327 KB） |
@@ -268,7 +265,7 @@ FE-R4  契约层 + 类型收尾 ──────  集中 api client + 后端�
 
 同时清掉三处随功能删除而失效的配置：`_admin.ts` 的三个死 slug、`AdminProperties` 与 `application{,-e2e}.yml` 里 `/api/issue-log-backfill` 与 `/api/diagnose-history` 两条指向不存在接口的 `protected-prefixes`（YAML 会整体覆盖 Java 默认值，两边都要改）。
 
-**清理后**：默认 config **37 passed / 6 failed**（`mvn test` 1331 全绿）。剩余 6 个为真实的既有问题，与前端改造无关：`harness.spec` ×3（状态机 `WAITING_APPROVAL` → `FAILED`）、`admin-auth`、`dashboard`、`git-settings` 各 1。
+**清理后**：默认 config **37 passed / 3 failed**（`mvn test` 1331 全绿）。剩余 3 个为真实的既有问题，与前端改造无关：`admin-auth`、`dashboard`、`git-settings` 各 1。
 
 ### 7.4 决策点
 
@@ -325,7 +322,6 @@ FE-R4  契约层 + 类型收尾 ──────  集中 api client + 后端�
 | FE-R3.6 | `chat-panel` resumable-run（最复杂，212 行） | Playwright chat spec（扩充断连/刷新恢复用例，参考 `resumable-chat-stream-design.md` 测试矩阵） | 拆 `useResumableRun` composable |
 | FE-R3.7 | `chat-panel` message-rendering + 子组件拆分 | Playwright chat spec + share.html spec | 拆 `MessageItem`/`ToolBlock`/`RecallCard`/`CommandPopup`/`InputArea` SFC |
 | FE-R3.8 | admin 小 pages（conversations/refinery/recall/workflows/settings/users/dashboard） | 对应 Playwright admin-* spec | 逐页迁 SFC + TS，复用 FE-R1 lib |
-| FE-R3.9 | admin harness（最大，按 4 阶段再拆） | Playwright admin-harness spec（扩充 4 阶段用例） | 拆 4 阶段子组件 + composable，单文件 <400 行 |
 | FE-R3.10 | `share.html` + `login.html` + `git-settings.html` | Playwright share spec | 迁 SFC，share.html 复用 FE-R3.7 消息组件 |
 
 ### 8.3 拆分蓝图
@@ -361,10 +357,6 @@ FE-R4  契约层 + 类型收尾 ──────  集中 api client + 后端�
 | `useFeedback` | 分析评价（534-592） |
 | `useSlashCommand` | 命令弹窗交互（613-652） |
 
-#### harness.js（FE-R3.9）
-
-按 4 阶段拆子组件 + 共享 composable（run 列表/筛选/轮询/对话 feed/审批）。目标：单文件 <400 行，每阶段子组件 <300 行。
-
 ### 8.4 CSP `unsafe-eval` 移除
 
 FE-R3.7（chat-panel 消息渲染 SFC 化）后，所有运行时模板编译消除。在 `SecurityHeadersFilter` 移除 `script-src 'unsafe-eval'`，Playwright 验证所有页面渲染正常（CSP 违规会 console error，E2E 捕获）。
@@ -373,7 +365,7 @@ FE-R3.7（chat-panel 消息渲染 SFC 化）后，所有运行时模板编译消
 
 - 每个子里程碑：对应围栏 Playwright spec 全绿 + `mvn test` + Vitest。
 - FE-R3.6（resumable-run）额外：参考 `docs/resumable-chat-stream-design.md` §19 测试矩阵，覆盖断连/刷新/多订阅者/terminal 收口。
-- FE-R3.10 后：2 个 Playwright config 全绿，CSP 头确认无 `unsafe-eval`。
+- FE-R3.10 后：1 个 Playwright config 全绿，CSP 头确认无 `unsafe-eval`。
 
 ## 9. 阶段 4 详细设计：契约层 + 类型收尾（FE-R4）
 
@@ -406,8 +398,7 @@ FE-R3.7（chat-panel 消息渲染 SFC 化）后，所有运行时模板编译消
 | FE-R3.2-3.4 | app.js 拆 composable（auth/fs/worktree/history/scheduled-task） | FE-R3.1 | ✅ 完成 |
 | FE-R3.5-3.7 | chat-panel 拆 composable + 子组件 SFC | FE-R3.4 | ✅ 完成 |
 | FE-R3.8 | admin 小 pages 迁 SFC + TS | FE-R3.7 | ✅ 完成（SFC 化,TS 留后续） |
-| FE-R3.9 | admin harness 拆 4 阶段子组件 | FE-R3.8 | ✅ SFC 化完成;4 阶段子组件拆分留后续 |
-| FE-R3.10 | share/login/git-settings 迁 SFC + 移除 CSP unsafe-eval | FE-R3.9 | ✅ 完成 |
+| FE-R3.10 | share/login/git-settings 迁 SFC + 移除 CSP unsafe-eval | FE-R3.8 | ✅ 完成 |
 | FE-R4 | 集中 api client + 类型契约 + ESLint | FE-R3.10 | ✅ ESLint/Prettier 完成;api client 留后续 |
 
 ## 11. 风险与回滚
@@ -422,7 +413,6 @@ FE-R3.7（chat-panel 消息渲染 SFC 化）后，所有运行时模板编译消
 | Vite 多入口配置复杂 | 12 入口逐个配，先 index 跑通再扩 admin | 退回 CDN 模式（git revert FE-R2） |
 | 前端源码位置迁移丢失文件 | FE-R2 用 `git mv` 保留历史 | git revert |
 | resumable-run 改造破坏恢复语义 | FE-R3.6 参照 `resumable-chat-stream-design.md` 测试矩阵扩充围栏 | revert composable 拆分 |
-| harness 改造规模大 | FE-R3.9 按 4 阶段拆，每阶段独立子里程碑 | 单阶段 revert |
 | CSP 收紧后页面渲染异常 | FE-R3.10 移除 unsafe-eval 后全量 Playwright + console error 捕获 | 恢复 unsafe-eval |
 | E2E 在 CI 环境跑不稳 | FE-R0 先观察 1-2 周跑通率 | E2E job 设为 non-blocking |
 

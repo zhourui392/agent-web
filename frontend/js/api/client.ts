@@ -1,6 +1,6 @@
 /**
  * 集中 API client：统一 fetch + JSON 解析 + 错误处理。
- * 各域模块（chat.ts / admin.ts / harness.ts 等）基于此构建。
+ * 各域模块（chat.ts / admin.ts 等）基于此构建。
  */
 
 export class ApiError extends Error {

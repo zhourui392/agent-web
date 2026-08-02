@@ -35,18 +35,7 @@ describe('Workbench interactive panels', () => {
     expect(conversation).toContain('props.modifyReady');
   });
 
-  it('shows typed operation targets and states that authorization never means execution', async () => {
-    const cards = await source('frontend/js/components/WorkbenchOperationCards.vue');
-
-    expect(cards).toContain('data-test="high-impact-operation"');
-    expect(cards).toContain('executionAvailable === false');
-    expect(cards).toContain('批准只记录授权，不会自动执行');
-    expect(cards).toContain("emit('decide'");
-    expect(cards).toContain(':disabled="readOnly');
-    expect(cards).not.toContain('v-html');
-  });
-
-  it('replaces the disabled phase placeholder with timeline, mode, stop and composer controls', async () => {
+  it('replaces the disabled phase placeholder with timeline, stop and composer controls', async () => {
     const page = await source('frontend/js/pages/Workbench.vue');
 
     expect(page).toContain("import WorkbenchConversationPanel from '../components/WorkbenchConversationPanel.vue'");
@@ -54,7 +43,6 @@ describe('Workbench interactive panels', () => {
     expect(page).toContain('@submit="submitConversation"');
     expect(page).toContain('@stop="stopConversation"');
     expect(page).toContain('<workbench-review-panel');
-    expect(page).toContain('<workbench-operation-cards');
     expect(page).not.toContain('阶段对话尚未接入');
     expect(page).not.toContain('阶段对话能力尚未开放');
     expect(page).not.toContain("{ name: 'Review 确认'");
@@ -121,50 +109,6 @@ describe('Workbench interactive panels', () => {
     expect(scope).not.toContain("{{ repository.relativePath || '.' }}");
     expect(scope).toContain('v-if="repository.primary"');
     expect(scope).not.toContain('repository.absolutePath');
-  });
-
-  it('shows automatic Phase capability status and keeps advanced actions out of the primary toolbar', async () => {
-    const page = await source('frontend/js/pages/Workbench.vue');
-
-    expect(page).toContain('data-test="phase-capability-status"');
-    expect(page).toContain('capabilitySummaryStatus');
-    expect(page).toContain("AVAILABLE: '可用'");
-    expect(page).toContain("DEGRADED: '降级可用'");
-    expect(page).toContain("UNAVAILABLE: '不可用'");
-    expect(page).toContain("LOAD_FAILED: '加载失败'");
-    expect(page).toContain('data-test="phase-advanced-menu"');
-    expect(page).toContain('@command="handlePhaseAdvancedCommand"');
-    expect(page).toContain('command="open-capability"');
-    expect(page).not.toContain('data-test="open-capability-drawer"');
-  });
-
-  it('states repository write authority by Run mode using repository keys only', async () => {
-    const page = await source('frontend/js/pages/Workbench.vue');
-    const panel = await source('frontend/js/components/WorkbenchConversationPanel.vue');
-    const modifyScopeStart = panel.indexOf('data-test="run-modify-scope"');
-    const modifyScopeEnd = panel.indexOf('</small>', modifyScopeStart);
-    const modifyScope = panel.slice(modifyScopeStart, modifyScopeEnd);
-
-    expect(page).toContain(':repository-keys="repositoryKeys"');
-    expect(panel).toContain('repositoryKeys: { type: Array, required: true }');
-    expect(panel).toContain('只读模式不授予仓库写入');
-    expect(panel).toContain('本轮允许写入仓库');
-    expect(panel).toContain('v-for="repositoryKey in repositoryKeys"');
-    expect(modifyScope).not.toContain('relativePath');
-    expect(modifyScope).not.toContain('workspaceRoot');
-  });
-
-  it('uses the Workbench-wide active write id to block only a second modify Run', async () => {
-    const page = await source('frontend/js/pages/Workbench.vue');
-    const panel = await source('frontend/js/components/WorkbenchConversationPanel.vue');
-
-    expect(page).toContain('const activeWriteRunId = computed(');
-    expect(page).toContain('() => shell.detail.value?.activeWriteRunId || null');
-    expect(page).toContain('activeWriteRunId,');
-    expect(page).toContain(':write-run-blocked="writeRunBlocked"');
-    expect(panel).toContain('writeRunBlocked: { type: Boolean, required: true }');
-    expect(panel).toContain("props.runMode === 'MODIFY_WORKSPACE' && props.writeRunBlocked");
-    expect(panel).toContain('可切换为只读讨论');
   });
 
   it('allows an idle not-started Phase to be manually completed but blocks active or archived Phases', async () => {
@@ -276,10 +220,7 @@ describe('Workbench interactive panels', () => {
   it('wires an explicit destructive Phase conversation restart confirmation and state update', async () => {
     const page = await source('frontend/js/pages/Workbench.vue');
 
-    expect(page).toContain('data-test="restart-phase-conversation"');
     expect(page).toContain('旧会话历史将只读保留，新会话不会复制任何消息');
-    expect(page).toContain(':disabled="!canRestartConversation"');
-    expect(page).toContain('command="restart-conversation"');
     expect(page).toContain('ElMessageBox.confirm');
     expect(page).toContain('handlePhaseAdvancedCommand');
     expect(page).toContain(':messages="conversationMessages"');
@@ -287,13 +228,12 @@ describe('Workbench interactive panels', () => {
     expect(page).toContain('onConversationRestarted: applyConversationRestart');
   });
 
-  it('keeps an archived Workbench readable while disabling Run, Review, Handoff and Operation mutations', async () => {
+  it('keeps an archived Workbench readable while disabling Run, Review and Handoff mutations', async () => {
     const page = await source('frontend/js/pages/Workbench.vue');
     const conversation = await source('frontend/js/components/WorkbenchConversationPanel.vue');
 
     expect(page).toContain(':read-only="archived"');
     expect(page).toContain(':read-only="reviewReadOnly"');
-    expect(page).toContain(':read-only="operationReadOnly"');
     expect(page).toContain(':read-only="handoffReadOnly"');
     expect(conversation).toContain(':disabled="readOnly"');
   });

@@ -13,10 +13,9 @@ import { loginAdminUI } from './_admin';
  * 因既有数据/状态机问题本就失败, 渲染层面反而没人看。
  */
 // 实际存在的 admin 页面 (frontend/admin/*.html)。新增页面时补进来。
-// harness.html 用了 207 处 el-*, 是按需注册风险最高的一页, 必须在列。
 const ADMIN_PAGES = [
   'dashboard', 'conversations', 'workflows', 'recall',
-  'refinery', 'chat', 'harness', 'settings', 'users',
+  'refinery', 'chat', 'settings', 'users',
 ];
 
 /** 未被解析的自定义组件会原样留在 DOM: 查还剩多少 el-* / 图标标签没被替换掉。 */

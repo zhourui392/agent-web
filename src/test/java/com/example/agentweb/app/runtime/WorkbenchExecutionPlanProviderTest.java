@@ -1,7 +1,6 @@
 package com.example.agentweb.app.runtime;
 
 import com.example.agentweb.app.runtime.port.AgentExecutionPlan;
-import com.example.agentweb.app.runtime.port.CredentialReference;
 import com.example.agentweb.app.runtime.port.HistoryDelivery;
 import com.example.agentweb.app.runtime.port.RuntimeVersionPolicy;
 import com.example.agentweb.app.runtime.port.SandboxMode;
@@ -66,7 +65,6 @@ class WorkbenchExecutionPlanProviderTest {
     private WorkbenchRunSnapshotRepository snapshotRepository;
     private WorkbenchRunPromptPayloadRepository promptRepository;
     private WorkbenchRepository workbenchRepository;
-    private CredentialReference credentialReference;
     private WorkbenchExecutionPlanProvider provider;
     private RepositoryScope scope;
     private Workbench workbench;
@@ -79,11 +77,9 @@ class WorkbenchExecutionPlanProviderTest {
         snapshotRepository = mock(WorkbenchRunSnapshotRepository.class);
         promptRepository = mock(WorkbenchRunPromptPayloadRepository.class);
         workbenchRepository = mock(WorkbenchRepository.class);
-        credentialReference = CredentialReference.environment(
-                "AGENT_COMMON_RUNTIME_API_KEY");
         provider = new WorkbenchExecutionPlanProvider(
                 snapshotRepository, promptRepository,
-                workbenchRepository, credentialReference);
+                workbenchRepository);
 
         scope = scope();
         WorkspaceSnapshotReference workspaceSnapshot = snapshotReference();
@@ -137,8 +133,6 @@ class WorkbenchExecutionPlanProviderTest {
                 plan.getRuntimeSelection().getRuntimeVersionPolicy().getMode());
         assertEquals("0.145.0", plan.getRuntimeSelection()
                 .getRuntimeVersionPolicy().exactVersion().get());
-        assertSame(credentialReference,
-                plan.getRuntimeSelection().getCredentialReference());
         assertEquals(promptPayload.getFinalPrompt(),
                 plan.getPromptPayload().getFinalPrompt());
         assertEquals(promptPayload.getPromptHash(),
@@ -161,7 +155,6 @@ class WorkbenchExecutionPlanProviderTest {
                 plan.getRuntimeLimits().getTimeout().getSeconds());
         assertEquals(8_388_608L,
                 plan.getRuntimeLimits().getMaxOutputBytes());
-        assertTrue(plan.getRuntimeLimits().getEnvironmentAllowlist().isEmpty());
     }
 
     @Test

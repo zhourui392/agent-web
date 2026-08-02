@@ -3,15 +3,12 @@ package com.example.agentweb.infra.runtime;
 import com.example.agentweb.app.runtime.port.RuntimeEvent;
 import com.example.agentweb.app.runtime.port.RuntimeSemanticEvent;
 import com.example.agentweb.app.runtime.port.RuntimeEventType;
-import com.example.agentweb.app.runtime.port.CredentialReference;
 import com.example.agentweb.app.runtime.port.SandboxMode;
 import com.example.agentweb.app.runtime.port.WorkspaceLayout;
-import com.example.agentweb.domain.shared.AgentType;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -29,13 +26,11 @@ class RuntimeEventDecoderTest {
     private static final String SECRET = "decoder-secret-never-visible";
 
     @Test
-    void decodesCodexJsonlTypeAndRedactsCredentialBeforeBuildingEvent() {
-        RuntimeCredentialResolver.ResolvedCredential credential = credential();
+    void decodesCodexJsonlTypeAndBoundsSafePayloadBeforeBuildingEvent() {
         RuntimeEventDecoder decoder = new RuntimeEventDecoder(new RuntimeOutputRedactor());
 
         RuntimeEventDecoder.DecodedEvent decoded = decoder.decode("exec-jsonl", 2L,
-                "{\"type\":\"item.completed\",\"credential\":\"" + SECRET + "\"}",
-                credential);
+                "{\"type\":\"item.completed\",\"credential\":\"" + SECRET + "\"}");
 
         assertEquals("item.completed", decoded.getProviderEventType());
         assertEquals(RuntimeEventType.OUTPUT, decoded.getEvent().getType());
@@ -50,7 +45,6 @@ class RuntimeEventDecoderTest {
 
     @Test
     void normalizesOnlyCompletedCodexAgentMessageAsAssistantText() {
-        RuntimeCredentialResolver.ResolvedCredential credential = credential();
         RuntimeEventDecoder decoder = new RuntimeEventDecoder(
                 new RuntimeOutputRedactor());
 
@@ -58,18 +52,15 @@ class RuntimeEventDecoderTest {
                 "exec-agent", 4L,
                 "{\"type\":\"item.completed\",\"item\":{"
                         + "\"type\":\"agent_message\","
-                        + "\"text\":\"answer " + SECRET + "\"}}",
-                credential);
+                        + "\"text\":\"answer\"}}");
         RuntimeEventDecoder.DecodedEvent technical = decoder.decode(
                 "exec-tool", 5L,
                 "{\"type\":\"item.completed\",\"item\":{"
                         + "\"type\":\"command_execution\","
-                        + "\"aggregated_output\":\"do not render\"}}",
-                credential);
+                        + "\"aggregated_output\":\"do not render\"}}");
 
-        assertEquals("answer [REDACTED]",
+        assertEquals("answer",
                 assistant.getEvent().assistantText().get());
-        assertFalse(assistant.getEvent().getSafePayload().contains(SECRET));
         assertFalse(technical.getEvent().assistantText().isPresent());
         assertEquals("agent_chunk", assistant.getEvent()
                 .getSemanticEvents().get(0).getEventType());
@@ -78,16 +69,14 @@ class RuntimeEventDecoderTest {
 
     @Test
     void recognizesTurnFailureAndBoundsMalformedProviderOutput() {
-        RuntimeCredentialResolver.ResolvedCredential credential = credential();
         RuntimeEventDecoder decoder = new RuntimeEventDecoder(new RuntimeOutputRedactor());
 
         RuntimeEventDecoder.DecodedEvent failed = decoder.decode("exec-failed", 1L,
-                "{ \"type\" : \"turn.failed\", \"secret\" : \"" + SECRET + "\" }",
-                credential);
+                "{ \"type\" : \"turn.failed\", \"secret\" : \"" + SECRET + "\" }");
         String oversized = String.join("", java.util.Collections.nCopies(
                 RuntimeEvent.MAX_SAFE_PAYLOAD_LENGTH + 100, "x"));
         RuntimeEventDecoder.DecodedEvent malformed = decoder.decode("exec-malformed", 3L,
-                oversized, credential);
+                oversized);
 
         assertTrue(failed.isTurnFailed());
         assertEquals(RuntimeEventType.DIAGNOSTIC, failed.getEvent().getType());
@@ -110,7 +99,7 @@ class RuntimeEventDecoderTest {
                         + "\"id\":\"item-10\",\"type\":\"command_execution\","
                         + "\"command\":\"./mvnw -q test\","
                         + "\"status\":\"in_progress\"}}",
-                credential(), null, layout);
+                null, layout);
         RuntimeEventDecoder.DecodedEvent completed = decoder.decode(
                 "exec-command", 11L,
                 "{\"type\":\"item.completed\",\"item\":{"
@@ -118,7 +107,7 @@ class RuntimeEventDecoderTest {
                         + "\"command\":\"./mvnw -q test\","
                         + "\"aggregated_output\":\"/home/alex/secret " + SECRET + "\","
                         + "\"exit_code\":0,\"status\":\"completed\"}}",
-                credential(), null, layout);
+                null, layout);
 
         assertEquals(Arrays.asList("tool_started", "command_started", "test_progress"),
                 eventTypes(started));
@@ -160,7 +149,7 @@ class RuntimeEventDecoderTest {
                         + "\"server\":\"repository-query\",\"tool\":\"read_file\","
                         + "\"status\":\"completed\","
                         + "\"result\":{\"content\":[{\"text\":\"/home/private\"}]}}}",
-                credential(), null, layout);
+                null, layout);
         RuntimeEventDecoder.DecodedEvent files = decoder.decode(
                 "exec-files", 21L,
                 "{\"type\":\"item.completed\",\"item\":{"
@@ -168,7 +157,7 @@ class RuntimeEventDecoderTest {
                         + "\"status\":\"completed\",\"changes\":["
                         + "{\"path\":\"/workspace/platform/service-b/src/B.java\",\"kind\":\"add\"},"
                         + "{\"path\":\"src/A.java\",\"kind\":\"update\"}]}}",
-                credential(), null, layout);
+                null, layout);
 
         assertEquals(Collections.singletonList("tool_finished"), eventTypes(mcp));
         assertFalse(mcp.getEvent().getSafePayload().contains("/home/private"));
@@ -194,14 +183,14 @@ class RuntimeEventDecoderTest {
                         + "\"status\":\"completed\",\"changes\":["
                         + "{\"path\":\"/workspace/unselected/secret.txt\","
                         + "\"kind\":\"update\"}]}}",
-                credential(), null, layout);
+                null, layout);
         RuntimeEventDecoder.DecodedEvent blocked = decoder.decode(
                 "exec-command", 31L,
                 "{\"type\":\"item.started\",\"item\":{"
                         + "\"id\":\"item-31\",\"type\":\"command_execution\","
                         + "\"command\":\"git push origin master\","
                         + "\"status\":\"in_progress\"}}",
-                credential(), null, layout);
+                null, layout);
 
         assertTrue(escaped.getEvent().getSemanticEvents().isEmpty());
         assertEquals(Collections.singletonList("operation_blocked"), eventTypes(blocked));
@@ -226,11 +215,5 @@ class RuntimeEventDecoderTest {
                 Arrays.asList("/workspace/service-a", "/workspace/platform/service-b"),
                 Arrays.asList("/workspace/service-a", "/workspace/platform/service-b"),
                 SandboxMode.WORKSPACE_WRITE);
-    }
-
-    private RuntimeCredentialResolver.ResolvedCredential credential() {
-        RuntimeCredentialResolver resolver = new RuntimeCredentialResolver(
-                () -> SECRET, name -> null);
-        return resolver.resolve(AgentType.CODEX, CredentialReference.systemConfiguration());
     }
 }

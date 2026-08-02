@@ -189,14 +189,14 @@ class WorkbenchRunSnapshotTest {
                         owner, NOW.minusSeconds(1));
         assertRunBindingCorrupted(
                 () -> snapshot.requireReviewConfirmation(wrongConfirmation));
-        assertThrows(WorkbenchDomainException.class,
-                () -> WorkbenchRunSnapshot.create(
-                        "run-review-2", WORKBENCH_ID, WorkbenchPhase.REVIEW_REFACTOR,
-                        "submit-key-review-2", repeat('7'),
-                        RunMode.MODIFY_WORKSPACE, scope,
-                        snapshot.getWorkspaceSnapshotReference(), binding(), null,
-                        snapshot.getHandoffSource(), snapshot.getPromptParts(), repeat('5'),
-                        snapshot.getRuntimeEnforcement(), null, NOW));
+        WorkbenchRunSnapshot snapshotWithoutConfirmation = WorkbenchRunSnapshot.create(
+                "run-review-2", WORKBENCH_ID, WorkbenchPhase.REVIEW_REFACTOR,
+                "submit-key-review-2", repeat('7'),
+                RunMode.MODIFY_WORKSPACE, scope,
+                snapshot.getWorkspaceSnapshotReference(), binding(), null,
+                snapshot.getHandoffSource(), snapshot.getPromptParts(), repeat('5'),
+                snapshot.getRuntimeEnforcement(), null, NOW);
+        assertNull(snapshotWithoutConfirmation.getReviewConfirmationId());
     }
 
     @Test

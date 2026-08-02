@@ -12,7 +12,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import java.time.Duration;
-import java.util.Collections;
 
 /**
  * Workbench Run 准备策略的生产装配。
@@ -55,7 +54,6 @@ public class WorkbenchRunConfiguration {
                 new RuntimeLimits(
                         Duration.ofSeconds(
                                 runProperties.getTimeoutSeconds()),
-                        runProperties.getMaxOutputBytes(),
-                        Collections.<String>emptySet()));
+                        runProperties.getMaxOutputBytes()));
     }
 }

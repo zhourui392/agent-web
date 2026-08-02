@@ -18,7 +18,6 @@ type FixtureOptions = {
   ownerId?: string;
   archived?: boolean;
   activeRun?: { phase: Phase; runId: string; runMode?: 'DISCUSS_READ_ONLY' | 'MODIFY_WORKSPACE' };
-  operation?: ReturnType<typeof proposedOperation>;
   noRuns?: boolean;
   onApiRequest?: (request: Request) => void;
   onSse?: (route: Route, request: Request) => Promise<void>;
@@ -193,40 +192,6 @@ function effectiveCapabilityProfile(phase: Phase) {
   };
 }
 
-function proposedOperation() {
-  return {
-    operationId: 'operation-e2e',
-    sourceRunId: 'run-operation',
-    phase: 'REVIEW_REFACTOR' as const,
-    type: 'GIT_PUSH' as const,
-    target: {
-      type: 'GIT_PUSH' as const,
-      repositoryKeys: ['service-a'],
-      details: {
-        remoteName: 'origin',
-        localBranch: 'feature/workbench',
-        remoteRef: 'refs/heads/feature/workbench',
-        expectedLocalHead: 'c'.repeat(40),
-        forceAllowed: false,
-      },
-    },
-    requestedPayloadHash: HASH,
-    safeSummary: '推送 service-a 的已核对提交',
-    status: 'PROPOSED' as const,
-    proposedAt: NOW,
-    decisionReason: null,
-    decidedAt: null,
-    authorizationExpiresAt: null,
-    preflightHash: null,
-    executionReference: null,
-    failureCode: null,
-    updatedAt: NOW,
-    version: 3,
-    executionAvailable: false as const,
-    executionMode: 'MANUAL_OR_DEFERRED' as const,
-  };
-}
-
 function json(route: Route, body: unknown, status = 200): Promise<void> {
   return route.fulfill({
     status,
@@ -261,7 +226,6 @@ function multipartFileName(request: Request): string {
 }
 
 async function installWorkbenchFixture(page: Page, options: FixtureOptions = {}): Promise<void> {
-  let operation: Record<string, unknown> | null = options.operation ?? null;
   let opinion: null | {
     phase: 'REVIEW_REFACTOR';
     version: number;
@@ -373,51 +337,6 @@ async function installWorkbenchFixture(page: Page, options: FixtureOptions = {})
       });
       return;
     }
-    if (url.pathname === `/api/workbenches/${WORKBENCH_ID}/operations` && method === 'GET') {
-      await json(route, operation ? [operation] : []);
-      return;
-    }
-    if (url.pathname === `/api/workbenches/${WORKBENCH_ID}/operations` && method === 'POST') {
-      const body = request.postDataJSON() as {
-        sourceRunId: string;
-        phase: Phase;
-        safeSummary: string;
-        target: Record<string, unknown> & { type: string };
-      };
-      const { type, ...requestDetails } = body.target;
-      const repositoryKeys = type === 'PRODUCTION_WRITE'
-        ? []
-        : type === 'LOCAL_DEPLOY'
-          ? body.target.repositoryTargets as string[]
-          : [body.target.repositoryKey as string];
-      const details = { ...requestDetails };
-      delete details.repositoryKey;
-      delete details.repositoryTargets;
-      if (type === 'GIT_PUSH') details.forceAllowed = false;
-      operation = {
-        operationId: 'operation-proposed-e2e',
-        sourceRunId: body.sourceRunId,
-        phase: body.phase,
-        type,
-        target: { type, repositoryKeys, details },
-        requestedPayloadHash: createHash('sha256').update(JSON.stringify(body)).digest('hex'),
-        safeSummary: body.safeSummary,
-        status: 'PROPOSED',
-        proposedAt: NOW,
-        decisionReason: null,
-        decidedAt: null,
-        authorizationExpiresAt: null,
-        preflightHash: null,
-        executionReference: null,
-        failureCode: null,
-        updatedAt: NOW,
-        version: 0,
-        executionAvailable: false,
-        executionMode: 'MANUAL_OR_DEFERRED',
-      };
-      await json(route, operation, 201);
-      return;
-    }
     if (url.pathname.endsWith('/review-candidates') && method === 'POST') {
       await json(route, {
         phase: 'REVIEW_REFACTOR',
@@ -484,19 +403,6 @@ async function installWorkbenchFixture(page: Page, options: FixtureOptions = {})
         readOnly: false,
       };
       await json(route, confirmation, 201);
-      return;
-    }
-    if (url.pathname.endsWith('/decision') && method === 'POST' && operation) {
-      const body = request.postDataJSON() as { decision: 'APPROVE' | 'REJECT'; reason: string };
-      operation = {
-        ...operation,
-        status: body.decision === 'APPROVE' ? 'AUTHORIZED' : 'REJECTED',
-        decisionReason: body.reason,
-        decidedAt: NOW,
-        updatedAt: NOW + 1,
-        version: typeof operation.version === 'number' ? operation.version + 1 : 1,
-      };
-      await json(route, operation);
       return;
     }
     if (url.pathname.endsWith('/documents/tree') && method === 'GET') {
@@ -829,7 +735,7 @@ test('四阶段对话保持主区域，文档收起占满且拖拽宽度刷新�
   }).toBeLessThanOrEqual(3);
 });
 
-test('四阶段可任意导航，对话模式按阶段收敛且 Owner 缺失时 fail-closed', async ({ page }) => {
+test('四阶段可任意导航，Owner 缺失时 fail-closed', async ({ page }) => {
   const submitted: Array<{ phase: Phase; body: Record<string, unknown>; headers: Record<string, string> }> = [];
   await installWorkbenchFixture(page, {
     onApiRequest(request) {
@@ -848,12 +754,6 @@ test('四阶段可任意导航，对话模式按阶段收敛且 Owner 缺失时 
   for (const phase of PHASES) {
     await page.getByRole('button', { name: new RegExp(phaseLabel(phase)) }).click();
     await expect(page.getByRole('heading', { name: phaseLabel(phase), exact: true, level: 2 })).toBeVisible();
-    const modify = page.getByRole('radio', { name: '修改工作区' });
-    if (phase === 'IMPLEMENT_TEST' || phase === 'REVIEW_REFACTOR') {
-      await expect(modify).toBeVisible();
-    } else {
-      await expect(modify).toHaveCount(0);
-    }
   }
 
   await page.getByRole('button', { name: /需求分析/ }).click();
@@ -862,7 +762,7 @@ test('四阶段可任意导航，对话模式按阶段收敛且 Owner 缺失时 
   await page.getByTestId('workbench-run-submit').click();
   await expect.poll(() => submitted.length).toBe(1);
   expect(submitted[0].phase).toBe('REQUIREMENT_ANALYSIS');
-  expect(submitted[0].body).toEqual({ message: '解释当前需求边界', runMode: 'DISCUSS_READ_ONLY' });
+  expect(submitted[0].body).toEqual({ message: '解释当前需求边界', runMode: 'MODIFY_WORKSPACE' });
   expect(submitted[0].headers['if-match']).toBe('8');
   expect(submitted[0].headers['idempotency-key']).toBeTruthy();
 
@@ -872,7 +772,7 @@ test('四阶段可任意导航，对话模式按阶段收敛且 Owner 缺失时 
   await expect.poll(() => submitted.length).toBe(2);
   expect(submitted[1].body).toEqual({
     message: '解释方案取舍',
-    runMode: 'DISCUSS_READ_ONLY',
+    runMode: 'MODIFY_WORKSPACE',
     handoffSourceVersion: 1,
   });
 
@@ -904,7 +804,7 @@ test('四阶段可任意导航，对话模式按阶段收敛且 Owner 缺失时 
   await ownerlessPage.close();
 });
 
-test('全局写 Run 只阻止第二个修改任务，未开始阶段仍可人工完成且结构化文件引用可打开', async ({ page }) => {
+test('全局写 Run 不阻止其他阶段提交，未开始阶段仍可人工完成且结构化文件引用可打开', async ({ page }) => {
   const submitted: Array<Record<string, unknown>> = [];
   await installWorkbenchFixture(page, {
     activeRun: {
@@ -944,17 +844,12 @@ test('全局写 Run 只阻止第二个修改任务，未开始阶段仍可人工
 
   await page.getByRole('button', { name: /开发部署测试/ }).click();
   await page.getByRole('button', { name: /README\.md/ }).click();
-  await page.getByTestId('workbench-run-composer').fill('仅继续分析，不启动第二个写任务');
-  await expect(page.getByTestId('workbench-write-run-blocked')).toContainText('可切换为只读讨论');
-  await expect(page.getByTestId('workbench-run-submit')).toBeDisabled();
-
-  await page.locator('.workbench-composer-mode').getByText('只读讨论', { exact: true }).click();
-  await expect(page.getByTestId('workbench-run-submit')).toBeEnabled();
+  await page.getByTestId('workbench-run-composer').fill('继续分析并提交');
   await page.getByTestId('workbench-run-submit').click();
   await expect.poll(() => submitted.length).toBe(1);
   expect(submitted[0]).toEqual({
-    message: '仅继续分析，不启动第二个写任务',
-    runMode: 'DISCUSS_READ_ONLY',
+    message: '继续分析并提交',
+    runMode: 'MODIFY_WORKSPACE',
     handoffSourceVersion: 1,
   });
 
@@ -1058,15 +953,13 @@ test('Stop 只记录取消意图，直到 SSE terminal 才展示已取消终态'
   await expect(page.getByText('本轮运行已取消')).toBeVisible({ timeout: 5_000 });
 });
 
-test('Review exact proof 绑定 MODIFY，请求变更立即失效；批准操作只到 AUTHORIZED', async ({ page }) => {
-  const operation = proposedOperation();
+test('Review exact proof 绑定 MODIFY，请求变更立即失效', async ({ page }) => {
   const reviewRequests: Array<{ path: string; method: string; body: unknown; ifMatch?: string }> = [];
   let runBody: Record<string, unknown> | null = null;
   await installWorkbenchFixture(page, {
-    operation,
     onApiRequest(request) {
       const url = new URL(request.url());
-      if (url.pathname.includes('/review-') || url.pathname.endsWith('/decision')) {
+      if (url.pathname.includes('/review-')) {
         reviewRequests.push({
           path: url.pathname,
           method: request.method(),
@@ -1103,7 +996,6 @@ test('Review exact proof 绑定 MODIFY，请求变更立即失效；批准操作
     opinionHash: createHash('sha256').update(opinionText).digest('hex'),
   });
 
-  await page.locator('.workbench-composer-mode').getByText('修改工作区', { exact: true }).click();
   await page.getByTestId('workbench-run-submit').click();
   await expect.poll(() => runBody).not.toBeNull();
   expect(runBody).toEqual({
@@ -1113,137 +1005,18 @@ test('Review exact proof 绑定 MODIFY，请求变更立即失效；批准操作
     reviewConfirmationId: 'confirmation-e2e',
   });
 
-  await expect(page.getByTestId('high-impact-operation')).toContainText('执行器未开放：批准只记录授权，不会自动执行。');
-  await page.getByPlaceholder('说明已核对的目标、风险或拒绝原因（必填）').fill('已核对 remote、branch 与 HEAD');
-  await page.getByRole('button', { name: '批准授权' }).click();
-  await expect(page.getByTestId('high-impact-operation')).toContainText('已授权待处理');
-  await expect(page.getByTestId('high-impact-operation')).not.toContainText('已完成');
-  const decision = reviewRequests.find(item => item.path.endsWith('/decision'))!;
-  expect(decision.ifMatch).toBe('3');
-  expect(decision.body).toEqual({ decision: 'APPROVE', reason: '已核对 remote、branch 与 HEAD' });
-
   await reviewInput.fill(`${opinionText}。补充范围`);
   await expect(page.getByText('未授权修改')).toBeVisible();
   await expect(page.getByTestId('workbench-run-submit')).toBeDisabled();
 });
 
-test('显式提交类型化 Commit 提案，只创建 PROPOSED；授权仍走独立 decision', async ({ page }) => {
-  const requests: Array<{
-    path: string;
-    method: string;
-    body: Record<string, unknown> | null;
-    idempotencyKey?: string;
-    ifMatch?: string;
-  }> = [];
-  await installWorkbenchFixture(page, {
-    onApiRequest(request) {
-      const path = new URL(request.url()).pathname;
-      if (path.includes('/operations')) {
-        requests.push({
-          path,
-          method: request.method(),
-          body: request.postData() ? request.postDataJSON() as Record<string, unknown> : null,
-          idempotencyKey: request.headers()['idempotency-key'],
-          ifMatch: request.headers()['if-match'],
-        });
-      }
-    },
-  });
-  await page.addInitScript(() => {
-    localStorage.setItem('agent-web:workbench-shell:owner-e2e:wb-e2e', JSON.stringify({
-      selectedPhase: 'IMPLEMENT_TEST',
-    }));
-  });
-  await gotoWorkbench(page);
-
-  const proposalPosts = () => requests.filter(request =>
-    request.method === 'POST' && request.path === `/api/workbenches/${WORKBENCH_ID}/operations`);
-  await page.getByTestId('open-operation-proposal').click();
-  await expect(page.getByTestId('operation-proposal-form')).toBeVisible();
-  await expect(page.getByTestId('operation-selected-source-run')).toContainText('run-history-e2e');
-  expect(proposalPosts()).toHaveLength(0);
-
-  await page.getByTestId('operation-safe-summary').fill('提交 service-a 已核对的 README 变更');
-  await page.getByTestId('operation-branch').fill('feature/workbench');
-  await page.getByTestId('operation-expected-head').fill('c'.repeat(40));
-  await page.getByTestId('operation-state-hash').fill(HASH);
-  await page.getByTestId('operation-included-paths').fill('README.md');
-  const messagePreview = '  feat: cafe\u0301\n\n  add proposal  ';
-  await page.getByTestId('operation-message-preview').fill(messagePreview);
-  expect(proposalPosts()).toHaveLength(0);
-  await expect(page.getByText('Hash 不由用户填写。')).toBeVisible();
-
-  const submit = page.getByTestId('submit-operation-proposal');
-  await expect(submit).toBeEnabled();
-  await submit.click();
-  await expect.poll(() => proposalPosts().length).toBe(1);
-  await expect(page.getByTestId('operation-proposal-form')).toHaveCount(0);
-  await expect(page.getByTestId('high-impact-operation')).toContainText('待决策');
-  await expect(page.getByText('仅创建待决策提案；尚未授权，也不会自动执行。')).toBeVisible();
-
-  const proposal = proposalPosts()[0]!;
-  const proposalBody = proposal.body!;
-  const target = proposalBody.target as Record<string, unknown>;
-  const normalizedPreview = 'feat: caf\u00e9\n\n  add proposal';
-  expect(proposal.idempotencyKey).toBeTruthy();
-  expect(Object.keys(proposalBody).sort()).toEqual(['phase', 'safeSummary', 'sourceRunId', 'target']);
-  expect(proposalBody).toMatchObject({
-    sourceRunId: 'run-history-e2e',
-    phase: 'IMPLEMENT_TEST',
-    safeSummary: '提交 service-a 已核对的 README 变更',
-  });
-  expect(target).toEqual({
-    type: 'GIT_COMMIT',
-    repositoryKey: 'service-a',
-    branch: 'feature/workbench',
-    expectedHead: 'c'.repeat(40),
-    expectedStateHash: HASH,
-    includedPaths: ['README.md'],
-    messageHash: createHash('sha256').update(normalizedPreview).digest('hex'),
-    safeMessagePreview: normalizedPreview,
-  });
-  expect(JSON.stringify(proposalBody)).not.toMatch(/command|shell|args|CUSTOM/);
-  expect(requests.some(request => request.path.endsWith('/execute'))).toBe(false);
-
-  await page.getByPlaceholder('说明已核对的目标、风险或拒绝原因（必填）').fill('已独立核对仓库、分支和状态 Hash');
-  await page.getByRole('button', { name: '批准授权' }).click();
-  await expect(page.getByTestId('high-impact-operation')).toContainText('已授权待处理');
-  expect(proposalPosts()).toHaveLength(1);
-  const decisions = requests.filter(request => request.path.endsWith('/decision'));
-  expect(decisions).toHaveLength(1);
-  expect(decisions[0]?.ifMatch).toBe('0');
-  expect(decisions[0]?.body).toEqual({
-    decision: 'APPROVE',
-    reason: '已独立核对仓库、分支和状态 Hash',
-  });
-  expect(requests.some(request => request.path.endsWith('/execute'))).toBe(false);
-});
-
-test('归档或当前阶段没有真实 Run 时不能提交高影响操作提案', async ({ page }) => {
+test('归档后仅可恢复查看历史', async ({ page }) => {
   await installWorkbenchFixture(page, { archived: true });
   await gotoWorkbench(page);
-  await expect(page.getByTestId('open-operation-proposal')).toBeDisabled();
   await expect(page.getByTestId('workbench-run-composer')).toBeDisabled();
   await expect(page.getByText('已归档，仅可恢复查看历史。')).toBeVisible();
   await expect(page.getByTestId('workbench-upload-image-button')).toHaveCount(0);
   await expect(page.getByTestId('workbench-upload-file-button')).toHaveCount(0);
-});
-
-test('当前阶段没有真实 Run 时提案表单保持禁用且不猜测来源', async ({ page }) => {
-  const proposalPosts: Request[] = [];
-  await installWorkbenchFixture(page, {
-    noRuns: true,
-    onApiRequest(request) {
-      if (new URL(request.url()).pathname.endsWith('/operations') && request.method() === 'POST') {
-        proposalPosts.push(request);
-      }
-    },
-  });
-  await gotoWorkbench(page);
-  await page.getByTestId('open-operation-proposal').click();
-  await expect(page.getByTestId('operation-proposal-disabled-reason')).toContainText('真实 Run');
-  await expect(page.getByTestId('submit-operation-proposal')).toBeDisabled();
-  expect(proposalPosts).toHaveLength(0);
 });
 
 test('仓内文档和浏览器上传附件联合提交时只发送逻辑引用', async ({ page }) => {
@@ -1283,7 +1056,7 @@ test('仓内文档和浏览器上传附件联合提交时只发送逻辑引用',
 
   expect(runBody).toEqual({
     message: '结合设计图和 README 分析需求',
-    runMode: 'DISCUSS_READ_ONLY',
+    runMode: 'MODIFY_WORKSPACE',
     attachments: [{
       repositoryKey: 'service-a',
       relativePath: 'README.md',

@@ -1,7 +1,6 @@
 package com.example.agentweb.app.runtime;
 
 import com.example.agentweb.app.runtime.port.AgentExecutionPlan;
-import com.example.agentweb.app.runtime.port.CredentialReference;
 import com.example.agentweb.app.runtime.port.ExecutionIdentity;
 import com.example.agentweb.app.runtime.port.HistoryDelivery;
 import com.example.agentweb.app.runtime.port.PromptPayload;
@@ -50,21 +49,17 @@ public final class WorkbenchExecutionPlanProvider
     private final WorkbenchRunSnapshotRepository snapshotRepository;
     private final WorkbenchRunPromptPayloadRepository promptRepository;
     private final WorkbenchRepository workbenchRepository;
-    private final CredentialReference credentialReference;
 
     public WorkbenchExecutionPlanProvider(
             WorkbenchRunSnapshotRepository snapshotRepository,
             WorkbenchRunPromptPayloadRepository promptRepository,
-            WorkbenchRepository workbenchRepository,
-            CredentialReference credentialReference) {
+            WorkbenchRepository workbenchRepository) {
         this.snapshotRepository = Objects.requireNonNull(
                 snapshotRepository, "snapshotRepository");
         this.promptRepository = Objects.requireNonNull(
                 promptRepository, "promptRepository");
         this.workbenchRepository = Objects.requireNonNull(
                 workbenchRepository, "workbenchRepository");
-        this.credentialReference = Objects.requireNonNull(
-                credentialReference, "credentialReference");
     }
 
     @Override
@@ -107,8 +102,7 @@ public final class WorkbenchExecutionPlanProvider
                         snapshot.executionOriginReference()),
                 new RuntimeSelection(
                         agentType,
-                        RuntimeVersionPolicy.exact(runtime.getRuntimeVersion()),
-                        credentialReference),
+                        RuntimeVersionPolicy.exact(runtime.getRuntimeVersion())),
                 new PromptPayload(
                         prompt.getFinalPrompt(), prompt.getPromptHash(),
                         HistoryDelivery.valueOf(
@@ -123,8 +117,7 @@ public final class WorkbenchExecutionPlanProvider
                 snapshot.getCapabilityBinding(),
                 new RuntimeLimits(
                         Duration.ofSeconds(runtime.getTimeoutSeconds()),
-                        runtime.getOutputLimitBytes(),
-                        Collections.<String>emptySet()),
+                        runtime.getOutputLimitBytes()),
                 attachmentExpectations(snapshot, scope));
     }
 

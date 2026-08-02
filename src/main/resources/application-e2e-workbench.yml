@@ -2,16 +2,11 @@
 agent:
   public-access:
     enabled: true
-  harness:
-    enabled: false
   runtime:
     workbench-enabled: true
     chat-enabled: false
     codex-command: ${AGENT_E2E_WORKBENCH_CODEX_COMMAND:${user.dir}/tests/e2e/fixtures/workbench-runtime-stub.sh}
     temp-root: ${java.io.tmpdir}/agent-web-workbench-runtime-e2e
-    credential-environment-reference: AGENT_E2E_WORKBENCH_RUNTIME_KEY
-    supported-codex-versions:
-      - "0.145.0"
   workbench:
     enabled: true
     create-enabled: true

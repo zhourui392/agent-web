@@ -13,8 +13,6 @@ import com.example.agentweb.domain.shared.AgentType;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.LinkedHashSet;
-import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -40,26 +38,23 @@ public final class CodexRuntimePreflightGateway
     private static final char NULL_CHARACTER = '\0';
 
     private final String codexCommand;
-    private final Set<String> configuredVersionAllowlist;
     private final CodexRuntimeCompatibilityMatrix compatibilityMatrix;
     private final RuntimeVersionProbeRunner probeRunner;
 
     public CodexRuntimePreflightGateway(
-            String codexCommand, Set<String> configuredVersionAllowlist,
+            String codexCommand,
             CodexRuntimeCompatibilityMatrix compatibilityMatrix,
             Duration probeTimeout, long maximumProbeOutputBytes) {
-        this(codexCommand, configuredVersionAllowlist, compatibilityMatrix,
+        this(codexCommand, compatibilityMatrix,
                 new ProcessRuntimeVersionProbeRunner(
                         probeTimeout, maximumProbeOutputBytes));
     }
 
     CodexRuntimePreflightGateway(
-            String codexCommand, Set<String> configuredVersionAllowlist,
+            String codexCommand,
             CodexRuntimeCompatibilityMatrix compatibilityMatrix,
             RuntimeVersionProbeRunner probeRunner) {
         this.codexCommand = requireSafeExecutable(codexCommand);
-        this.configuredVersionAllowlist = immutableVersions(
-                configuredVersionAllowlist);
         if (compatibilityMatrix == null || probeRunner == null) {
             throw new IllegalArgumentException(
                     "Codex compatibility matrix and probe runner are required");
@@ -92,11 +87,6 @@ public final class CodexRuntimePreflightGateway
                     "Runtime version probe exited unsuccessfully");
         }
         String runtimeVersion = parseVersion(probe.getOutput());
-        if (!configuredVersionAllowlist.contains(runtimeVersion)) {
-            throw failure(
-                    RuntimePreflightErrorCode.RUNTIME_VERSION_NOT_ALLOWED,
-                    "Runtime version is not in the configured verified allowlist");
-        }
         RuntimeVersionPolicy versionPolicy =
                 selection.getRuntimeVersionPolicy();
         if (versionPolicy.getMode() == RuntimeVersionPolicy.Mode.EXACT
@@ -122,23 +112,6 @@ public final class CodexRuntimePreflightGateway
                     "Runtime version output is not recognized");
         }
         return matcher.group(1);
-    }
-
-    private static Set<String> immutableVersions(Set<String> versions) {
-        if (versions == null || versions.isEmpty()
-                || versions.contains(null)) {
-            throw new IllegalArgumentException(
-                    "configured Codex version allowlist must not be empty");
-        }
-        Set<String> copy = new LinkedHashSet<String>();
-        for (String version : versions) {
-            if (!SEMANTIC_VERSION.matcher(version).matches()) {
-                throw new IllegalArgumentException(
-                        "configured Codex version allowlist contains an invalid version");
-            }
-            copy.add(version);
-        }
-        return Collections.unmodifiableSet(copy);
     }
 
     private static String requireSafeExecutable(String value) {

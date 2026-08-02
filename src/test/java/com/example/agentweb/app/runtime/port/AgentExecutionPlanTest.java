@@ -9,9 +9,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -26,13 +24,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class AgentExecutionPlanTest {
 
     @Test
-    void createsCompletePlanWithoutHarnessOrNullableOptions() {
+    void createsCompletePlanWithoutNullableOptions() {
         ResolvedCapabilityBinding binding = capabilityBinding();
         AgentExecutionPlan plan = new AgentExecutionPlan(
                 new ExecutionIdentity("exec-1", "owner-1", "workbench:wb-1:implementation:1"),
                 new RuntimeSelection(AgentType.CODEX,
-                        RuntimeVersionPolicy.exact("codex-cli@1.2.3"),
-                        CredentialReference.environment("CODEX_RUNTIME_TOKEN")),
+                        RuntimeVersionPolicy.exact("codex-cli@1.2.3")),
                 new PromptPayload("implement the approved design",
                         CanonicalHashing.sha256("implement the approved design"),
                         HistoryDelivery.PROMPT_PREFIX),
@@ -41,8 +38,7 @@ class AgentExecutionPlanTest {
                         Collections.singletonList("/workspace/service-a"),
                         SandboxMode.WORKSPACE_WRITE),
                 binding,
-                new RuntimeLimits(Duration.ofMinutes(20), 8_388_608L,
-                        new LinkedHashSet<String>(Arrays.asList("PATH", "LANG"))));
+                new RuntimeLimits(Duration.ofMinutes(20), 8_388_608L));
 
         assertEquals("exec-1", plan.getExecutionIdentity().getExecutionId());
         assertEquals(AgentType.CODEX, plan.getRuntimeSelection().getAgentType());
@@ -51,8 +47,6 @@ class AgentExecutionPlanTest {
                 plan.getWorkspaceLayout().getPrimaryRepositoryRoot());
         assertSame(binding, plan.getCapabilityBinding());
         assertEquals(Duration.ofMinutes(20), plan.getRuntimeLimits().getTimeout());
-        assertEquals(new LinkedHashSet<String>(Arrays.asList("PATH", "LANG")),
-                plan.getRuntimeLimits().getEnvironmentAllowlist());
     }
 
     @Test
@@ -61,24 +55,19 @@ class AgentExecutionPlanTest {
                 "/workspace/service-a", "/workspace/service-b"));
         ArrayList<String> writable = new ArrayList<String>(Collections.singletonList(
                 "/workspace/service-a"));
-        Set<String> environment = new LinkedHashSet<String>(Collections.singletonList("PATH"));
 
         WorkspaceLayout layout = new WorkspaceLayout("/workspace/service-a", readable,
                 writable, SandboxMode.WORKSPACE_WRITE);
-        RuntimeLimits limits = new RuntimeLimits(Duration.ofSeconds(30), 1024, environment);
+        RuntimeLimits limits = new RuntimeLimits(Duration.ofSeconds(30), 1024);
         readable.clear();
         writable.clear();
-        environment.clear();
 
         assertEquals(2, layout.getReadableRoots().size());
         assertEquals(1, layout.getWritableRoots().size());
-        assertEquals(Collections.singleton("PATH"), limits.getEnvironmentAllowlist());
         assertThrows(UnsupportedOperationException.class,
                 () -> layout.getReadableRoots().add("/workspace/service-c"));
         assertThrows(UnsupportedOperationException.class,
                 () -> layout.getWritableRoots().clear());
-        assertThrows(UnsupportedOperationException.class,
-                () -> limits.getEnvironmentAllowlist().add("HOME"));
     }
 
     @Test
@@ -181,17 +170,13 @@ class AgentExecutionPlanTest {
     }
 
     @Test
-    void runtimeLimitsRequirePositiveBoundsAndValidEnvironmentNames() {
+    void runtimeLimitsRequirePositiveBounds() {
         assertThrows(IllegalArgumentException.class,
-                () -> new RuntimeLimits(Duration.ZERO, 1024, Collections.<String>emptySet()));
+                () -> new RuntimeLimits(Duration.ZERO, 1024));
         assertThrows(IllegalArgumentException.class,
-                () -> new RuntimeLimits(Duration.ofSeconds(1), 0,
-                        Collections.<String>emptySet()));
+                () -> new RuntimeLimits(Duration.ofSeconds(1), 0));
         assertThrows(IllegalArgumentException.class,
-                () -> new RuntimeLimits(Duration.ofSeconds(1), 1024,
-                        Collections.singleton("INVALID-NAME")));
-        assertThrows(IllegalArgumentException.class,
-                () -> new RuntimeLimits(Duration.ofSeconds(1), 1024, null));
+                () -> new RuntimeLimits(null, 1024));
     }
 
     @Test
@@ -249,16 +234,14 @@ class AgentExecutionPlanTest {
         String prompt = "prompt";
         return new AgentExecutionPlan(
                 new ExecutionIdentity("exec-1", "owner-1", "chat:conversation-1:run-1"),
-                new RuntimeSelection(AgentType.CODEX, RuntimeVersionPolicy.configured(),
-                        CredentialReference.systemConfiguration()),
+                new RuntimeSelection(AgentType.CODEX, RuntimeVersionPolicy.configured()),
                 new PromptPayload(prompt, CanonicalHashing.sha256(prompt),
                         HistoryDelivery.PROVIDER_RESUME),
                 new WorkspaceLayout("/workspace/service-a",
                         Collections.singletonList("/workspace/service-a"),
                         Collections.<String>emptyList(), SandboxMode.READ_ONLY),
                 capabilityBinding(),
-                new RuntimeLimits(Duration.ofSeconds(30), 1024,
-                        Collections.<String>emptySet()));
+                new RuntimeLimits(Duration.ofSeconds(30), 1024));
     }
 
     private static AgentExecutionPlan planWithAttachments(

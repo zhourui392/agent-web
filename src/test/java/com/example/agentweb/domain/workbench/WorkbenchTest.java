@@ -173,27 +173,21 @@ class WorkbenchTest {
     }
 
     @Test
-    void phaseRunPolicyShouldKeepAnalysisAndDesignReadOnlyAndRequireReviewConfirmation() {
+    void phaseRunPolicyShouldAllowModifyWorkspaceForAllPhasesWithoutReviewConfirmation() {
         Workbench workbench = newWorkbench();
         bindAllConversations(workbench);
 
-        assertThrows(WorkbenchDomainException.class,
-                () -> workbench.prepareRun(WorkbenchPhase.REQUIREMENT_ANALYSIS, "run-1",
-                        RunMode.MODIFY_WORKSPACE, OWNER, NOW.plusSeconds(10)));
-        assertThrows(WorkbenchDomainException.class,
-                () -> workbench.prepareRun(WorkbenchPhase.SOLUTION_DESIGN, "run-2",
-                        RunMode.MODIFY_WORKSPACE, OWNER, NOW.plusSeconds(11)));
-        assertThrows(WorkbenchDomainException.class,
-                () -> workbench.prepareRun(WorkbenchPhase.REVIEW_REFACTOR, "run-3",
-                        RunMode.MODIFY_WORKSPACE, OWNER, NOW.plusSeconds(12)));
-
-        workbench.prepareReviewRefactorRun(
-                "run-4", RunMode.MODIFY_WORKSPACE,
-                reviewConfirmation("review-confirmation-4", workbench), OWNER,
-                NOW.plusSeconds(13));
-        assertEquals("review-confirmation-4",
+        workbench.prepareRun(WorkbenchPhase.REQUIREMENT_ANALYSIS, "run-1",
+                RunMode.MODIFY_WORKSPACE, OWNER, NOW.plusSeconds(10));
+        workbench.finishRun(WorkbenchPhase.REQUIREMENT_ANALYSIS, "run-1", NOW.plusSeconds(15));
+        workbench.prepareRun(WorkbenchPhase.SOLUTION_DESIGN, "run-2",
+                RunMode.MODIFY_WORKSPACE, OWNER, NOW.plusSeconds(16));
+        workbench.finishRun(WorkbenchPhase.SOLUTION_DESIGN, "run-2", NOW.plusSeconds(20));
+        workbench.prepareRun(WorkbenchPhase.REVIEW_REFACTOR, "run-3",
+                RunMode.MODIFY_WORKSPACE, OWNER, NOW.plusSeconds(21));
+        assertEquals("run-3",
                 workbench.phase(WorkbenchPhase.REVIEW_REFACTOR)
-                        .getActiveRunReference().getReviewConfirmationId());
+                        .getActiveRunReference().getRunId());
     }
 
     @Test
@@ -325,11 +319,11 @@ class WorkbenchTest {
                         "review-run-partial", WorkbenchPhase.REVIEW_REFACTOR,
                         RunMode.MODIFY_WORKSPACE, "confirmation-1", null,
                         repeat('e'), NOW.plusSeconds(1)));
-        assertThrows(WorkbenchDomainException.class,
-                () -> ActiveRunReference.restore(
-                        "analysis-write", WorkbenchPhase.REQUIREMENT_ANALYSIS,
-                        RunMode.MODIFY_WORKSPACE, null, null, null,
-                        NOW.plusSeconds(1)));
+        ActiveRunReference analysisWrite = ActiveRunReference.restore(
+                "analysis-write", WorkbenchPhase.REQUIREMENT_ANALYSIS,
+                RunMode.MODIFY_WORKSPACE, null, null, null,
+                NOW.plusSeconds(1));
+        assertEquals(RunMode.MODIFY_WORKSPACE, analysisWrite.getRunMode());
         assertThrows(WorkbenchDomainException.class,
                 () -> ActiveRunReference.restore(
                         "implementation-with-review-proof",

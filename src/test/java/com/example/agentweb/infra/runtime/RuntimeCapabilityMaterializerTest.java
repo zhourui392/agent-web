@@ -1,7 +1,6 @@
 package com.example.agentweb.infra.runtime;
 
 import com.example.agentweb.app.runtime.port.AgentExecutionPlan;
-import com.example.agentweb.app.runtime.port.CredentialReference;
 import com.example.agentweb.app.runtime.port.ExecutionIdentity;
 import com.example.agentweb.app.runtime.port.HistoryDelivery;
 import com.example.agentweb.app.runtime.port.PromptPayload;
@@ -215,16 +214,14 @@ class RuntimeCapabilityMaterializerTest {
         String prompt = "bounded workbench runtime";
         return new AgentExecutionPlan(
                 new ExecutionIdentity("exec-capability", "owner-1", "workbench:wb-1"),
-                new RuntimeSelection(AgentType.CODEX, RuntimeVersionPolicy.configured(),
-                        CredentialReference.systemConfiguration()),
+                new RuntimeSelection(AgentType.CODEX, RuntimeVersionPolicy.configured()),
                 new PromptPayload(prompt, CanonicalHashing.sha256(prompt),
                         HistoryDelivery.PROMPT_PREFIX),
                 new WorkspaceLayout(primary.toString(),
                         Collections.singletonList(primary.toString()),
                         Collections.<String>emptyList(), SandboxMode.READ_ONLY),
                 binding,
-                new RuntimeLimits(Duration.ofSeconds(5L), 1024L * 1024L,
-                        Collections.<String>emptySet()));
+                new RuntimeLimits(Duration.ofSeconds(5L), 1024L * 1024L));
     }
 
     private ResolvedCapabilityBinding binding(

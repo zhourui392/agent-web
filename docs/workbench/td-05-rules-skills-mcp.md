@@ -218,7 +218,7 @@ agent:
       hot-reload-enabled: true
 ```
 
-Catalog 根使用 TD-01 的 `agent.capability.*`；Workbench 配置不读取 `agent.harness.*`。
+Catalog 根使用 TD-01 的 `agent.capability.*`。
 
 ## 12. 测试
 
@@ -252,7 +252,6 @@ Vitest/Playwright：
 ## 13. 验收标准
 
 - 四阶段默认 Profile 确定且版本化；
-- Workbench 不依赖 Harness Catalog；
 - 用户无需选择能力即可运行；
 - Snapshot 可追溯实际 Rule/Skill/MCP 和 Hash；
 - Override 不能提升权限且只影响下一轮；

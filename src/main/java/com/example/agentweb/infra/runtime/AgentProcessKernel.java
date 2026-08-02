@@ -31,6 +31,9 @@ import java.util.stream.Stream;
 /**
  * Provider 中立端口下的本地 Agent 进程内核，负责异步启动、硬限额、进程树停止与清理。
  *
+ * <p>单用户本机模式下 Codex 子进程直接继承服务进程环境变量（HOME、CODEX_HOME、
+ * XDG_CONFIG_HOME、PATH 等），不再创建隔离的认证 HOME 或注入 Provider Key。</p>
+ *
  * @author alex
  * @since 2026-08-01
  */
@@ -42,7 +45,6 @@ public final class AgentProcessKernel implements AgentExecutionGateway, AutoClos
     private final RuntimeWorkspaceMaterializer workspaceMaterializer;
     private final RuntimeCapabilityMaterializer capabilityMaterializer;
     private final RuntimeEventDecoder eventDecoder;
-    private final RuntimeCredentialResolver credentialResolver;
     private final RuntimeProcessRegistry processRegistry;
     private final RuntimeCleanup cleanup;
     private final Executor monitorExecutor;
@@ -54,7 +56,6 @@ public final class AgentProcessKernel implements AgentExecutionGateway, AutoClos
     public AgentProcessKernel(RuntimeCommandFactory commandFactory,
                               RuntimeWorkspaceMaterializer workspaceMaterializer,
                               RuntimeEventDecoder eventDecoder,
-                              RuntimeCredentialResolver credentialResolver,
                               RuntimeProcessRegistry processRegistry,
                               RuntimeCleanup cleanup,
                               Executor monitorExecutor) {
@@ -62,7 +63,7 @@ public final class AgentProcessKernel implements AgentExecutionGateway, AutoClos
                 new RuntimeCapabilityMaterializer(
                         Collections::emptyList, Collections::emptyList,
                         reference -> new char[0]),
-                eventDecoder, credentialResolver, processRegistry,
+                eventDecoder, processRegistry,
                 cleanup, monitorExecutor);
     }
 
@@ -70,20 +71,18 @@ public final class AgentProcessKernel implements AgentExecutionGateway, AutoClos
                               RuntimeWorkspaceMaterializer workspaceMaterializer,
                               RuntimeCapabilityMaterializer capabilityMaterializer,
                               RuntimeEventDecoder eventDecoder,
-                              RuntimeCredentialResolver credentialResolver,
                               RuntimeProcessRegistry processRegistry,
                               RuntimeCleanup cleanup,
                               Executor monitorExecutor) {
         this(commandFactory, workspaceMaterializer, capabilityMaterializer,
-                eventDecoder, credentialResolver, processRegistry, cleanup,
-                monitorExecutor, System::nanoTime);
+                eventDecoder, processRegistry, cleanup, monitorExecutor,
+                System::nanoTime);
     }
 
     AgentProcessKernel(RuntimeCommandFactory commandFactory,
                        RuntimeWorkspaceMaterializer workspaceMaterializer,
                        RuntimeCapabilityMaterializer capabilityMaterializer,
                        RuntimeEventDecoder eventDecoder,
-                       RuntimeCredentialResolver credentialResolver,
                        RuntimeProcessRegistry processRegistry,
                        RuntimeCleanup cleanup,
                        Executor monitorExecutor,
@@ -94,8 +93,6 @@ public final class AgentProcessKernel implements AgentExecutionGateway, AutoClos
         this.capabilityMaterializer = Objects.requireNonNull(
                 capabilityMaterializer, "capabilityMaterializer");
         this.eventDecoder = Objects.requireNonNull(eventDecoder, "eventDecoder");
-        this.credentialResolver = Objects.requireNonNull(
-                credentialResolver, "credentialResolver");
         this.processRegistry = Objects.requireNonNull(processRegistry, "processRegistry");
         this.cleanup = Objects.requireNonNull(cleanup, "cleanup");
         this.monitorExecutor = Objects.requireNonNull(monitorExecutor, "monitorExecutor");
@@ -110,7 +107,6 @@ public final class AgentProcessKernel implements AgentExecutionGateway, AutoClos
         Objects.requireNonNull(sink, "sink");
         RuntimeWorkspaceMaterializer.MaterializedWorkspace workspace = null;
         RuntimeCapabilityMaterialization capabilities = null;
-        RuntimeCredentialResolver.ResolvedCredential credential = null;
         Process process = null;
         RuntimeHandle handle = null;
         java.util.Map<String, String> processEnvironment = null;
@@ -122,9 +118,6 @@ public final class AgentProcessKernel implements AgentExecutionGateway, AutoClos
             builder.directory(workspace.getPrimaryRepositoryRoot().toFile());
             builder.redirectErrorStream(true);
             processEnvironment = builder.environment();
-            credential = credentialResolver.prepareEnvironment(
-                    plan.getRuntimeSelection(), plan.getRuntimeLimits(),
-                    workspace.getIsolatedHome(), processEnvironment);
             processEnvironment.put(
                     "AGENT_WORKBENCH_ATTACHMENT_DIR",
                     workspace.getAttachmentRoot().toString());
@@ -135,7 +128,7 @@ public final class AgentProcessKernel implements AgentExecutionGateway, AutoClos
             handle = processRegistry.register(
                     plan.getExecutionIdentity().getExecutionId(), process);
             ExecutionContext context = new ExecutionContext(plan, sink, handle, process,
-                    workspace, capabilities, credential, System.nanoTime(),
+                    workspace, capabilities, System.nanoTime(),
                     toolNanoTimeSource);
             ExecutionContext previous = contexts.putIfAbsent(handle.getHandleId(), context);
             if (previous != null) {
@@ -155,7 +148,7 @@ public final class AgentProcessKernel implements AgentExecutionGateway, AutoClos
                     processRegistry.markTerminated(
                             handle, exitCode(process), RuntimeTerminationReason.START_FAILURE);
                 } catch (RuntimeException ignored) {
-                    // 启动失败仍继续清理临时目录和内存凭据。
+                    // 启动失败仍继续清理临时目录。
                 }
                 processRegistry.releaseProcess(handle);
                 contexts.remove(handle.getHandleId());
@@ -163,7 +156,7 @@ public final class AgentProcessKernel implements AgentExecutionGateway, AutoClos
             if (capabilities != null) {
                 capabilities.close();
             }
-            cleanup.cleanup(workspace == null ? null : workspace.getExecutionRoot(), credential);
+            cleanup.cleanup(workspace == null ? null : workspace.getExecutionRoot());
             throw new IllegalStateException("Agent process could not be started", ex);
         }
     }
@@ -296,7 +289,7 @@ public final class AgentProcessKernel implements AgentExecutionGateway, AutoClos
         context.releaseTiming();
         context.getCapabilities().close();
         RuntimeCleanup.CleanupResult cleanupResult = cleanup.cleanup(
-                context.getWorkspace().getExecutionRoot(), context.getCredential());
+                context.getWorkspace().getExecutionRoot());
         processRegistry.markTerminated(context.getHandle(), exitCode, reason);
         processRegistry.releaseProcess(context.getHandle());
         contexts.remove(context.getHandle().getHandleId(), context);
@@ -378,7 +371,6 @@ public final class AgentProcessKernel implements AgentExecutionGateway, AutoClos
         private final Process process;
         private final RuntimeWorkspaceMaterializer.MaterializedWorkspace workspace;
         private final RuntimeCapabilityMaterialization capabilities;
-        private final RuntimeCredentialResolver.ResolvedCredential credential;
         private final long startedNanos;
         private final RuntimeToolTimingTracker toolTiming;
         private final AtomicLong sequence = new AtomicLong();
@@ -388,7 +380,6 @@ public final class AgentProcessKernel implements AgentExecutionGateway, AutoClos
                                  RuntimeHandle handle, Process process,
                                  RuntimeWorkspaceMaterializer.MaterializedWorkspace workspace,
                                  RuntimeCapabilityMaterialization capabilities,
-                                 RuntimeCredentialResolver.ResolvedCredential credential,
                                  long startedNanos,
                                  LongSupplier toolNanoTimeSource) {
             this.plan = plan;
@@ -397,7 +388,6 @@ public final class AgentProcessKernel implements AgentExecutionGateway, AutoClos
             this.process = process;
             this.workspace = workspace;
             this.capabilities = capabilities;
-            this.credential = credential;
             this.startedNanos = startedNanos;
             this.toolTiming = new RuntimeToolTimingTracker(
                     handle.getExecutionId(), toolNanoTimeSource);
@@ -427,7 +417,7 @@ public final class AgentProcessKernel implements AgentExecutionGateway, AutoClos
                 RuntimeEventDecoder decoder, String line) {
             RuntimeEventDecoder.DecodedEvent decoded = decoder.decode(
                     handle.getExecutionId(), sequence.incrementAndGet(), line,
-                    credential, capabilities, plan.getWorkspaceLayout());
+                    capabilities, plan.getWorkspaceLayout());
             sink.onEvent(toolTiming.enhance(decoded.getEvent()));
             return decoded;
         }
@@ -450,10 +440,6 @@ public final class AgentProcessKernel implements AgentExecutionGateway, AutoClos
 
         private RuntimeWorkspaceMaterializer.MaterializedWorkspace getWorkspace() {
             return workspace;
-        }
-
-        private RuntimeCredentialResolver.ResolvedCredential getCredential() {
-            return credential;
         }
 
         private RuntimeCapabilityMaterialization getCapabilities() {

@@ -106,7 +106,7 @@ public final class RuntimeWorkspaceMaterializer {
                     executionRoot, isolatedHome, attachmentRoot,
                     primary, readable, writable);
         } catch (IOException | RuntimeException ex) {
-            new RuntimeCleanup().cleanup(executionRoot, null);
+            new RuntimeCleanup().cleanup(executionRoot);
             throw new IllegalStateException(
                     "runtime workspace could not be materialized");
         }

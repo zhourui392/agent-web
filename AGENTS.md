@@ -1,365 +1,109 @@
-# 角色与原则
-- Java 资深开发专家，OO/DDD 大师；封装细节、保持主流程清晰，组合优于继承.
-- 思考与检索用英文，回复用中文；简短直接、言之有据，不编造，不确定先核实代码.
-- 作者统一格式 `@author alex`.
-
-# DDD 四层架构
-Interface / Application / Domain / Infrastructure 严格分层；**Application 严禁业务逻辑**（仅做编排+事务），**Domain 不依赖任何外层**.
-
-## 落地判据
-- **App 层泄漏判定**（出现即下沉聚合）：
-  - 遍历聚合内部集合做条件查找（如 `for msg in session.getMessages()` 找特定 id）.
-  - 对聚合 getter 结果做语义判断（`x != null && !x.isEmpty()`、role / 状态比对）.
-  - 替聚合做构造期不变量校验（路径 / 必填 / 格式）—— 改聚合工厂 `Aggregate.create(...)`.
-- **贫血允许，但不允许"代劳"**：无不变量时聚合可为纯数据载体；一旦出现状态迁移、合法性校验、语义查询，必须收回聚合根，禁止 app 层用 getter 重组规则.
-- **聚合根 persistence-ignorant**：聚合根禁止注入/调用 Repository；跨聚合走 ID 引用或参数传入；需跨聚合编排由领域服务承载 Repository 调用.
-- **Repository 写/读侧分治**：
-  - **写侧**：接口定义在 domain（签名只允许 domain 类型，禁泄漏 ORM / JDBC / Mybatis / Spring Data 注解），infra 实现；app 只依赖 domain 接口.
-  - **读侧（CQRS）**：纯 SELECT 允许 app 绕过聚合直达 infra，前提 ①返回 DTO / 视图 / `Map`，禁返回半截聚合 ②接口（`XxxQueryService`）放 domain 或 app，不允许 inject 带 ORM 注解类 ③SQL / Mapper 里禁业务判断.
-- **Repository vs QueryService 边界**：domain Repository 仅聚合 lifecycle（3-5 方法）返回聚合根；读模型投影拆到 `XxxQueryService`（放 app 或 domain，**不放 infra**）；混在同一接口必须拆.
-- **Repository 位置默认 domain**：①Repository 本是 domain 概念 ②未来 domain service 调用只能用 domain 位置 ③domain 抽独立 artifact 时随之带走.
-
-# 工程实践（Java）
-- 样板代码走 Lombok / MapStruct，通用工具走 Guava / Commons / Jackson / Spring Util，禁止重造轮子.
-- 手写仅限：聚合根业务方法（不变量 / 状态迁移）、库表达不了的多源转换（走领域服务）、库覆盖不到的工具.
-
-# TDD 开发流程（强制）
-
-## 前置门禁（修改 Java 文件前按顺序）
-1. 改动是否涉及 if / switch / 条件分支 / 业务判断？
-2. 否（纯委托、生命周期启停、配置 / 文档）→ 直接编码.
-3. 是 → 先按「App 层泄漏判定」检查归属层；错位（如本该在聚合的规则放 app）→ 先下沉再回到 4.
-4. 归属正确 → 停下，先写/改测试见红 → 最小实现见绿 → 重构保绿.
-
-**违反 = 回退重做。给错位代码补测试 = 把架构错误锁进回归网，必须先纠正分层。**
-
-## 技术约定
-- 单测用 Mockito + JUnit 5；禁 Spring 上下文 / 真实外部依赖；Given-When-Then.
-- 运行测试 `/fast-test`，项目级约定 `/java-tdd`.
-
-## 按层测试（对齐 DDD 四层）
-| 层 | Mock 对象 | 测试重点 |
-|---|---|---|
-| **Domain**（聚合根 / 领域服务 / VO） | 无 | 不变量、状态迁移、业务规则 |
-| **Application** | Domain Repository / Gateway / Domain Service | 编排顺序、事务边界；**禁业务规则** |
-| **Infrastructure**（RepositoryImpl / GatewayImpl / QueryServiceImpl） | Mapper / Redis / Client | 缓存、防穿透、协议适配（**业务判断不在此层**） |
-| **Interface**（Controller） | Application Service | 参数校验、DTO 转换、HTTP 状态码 |
-| Mapper / 纯 SQL / JPA Entity | —— | 不走单元 TDD，走集成测试 |
-
-## 兜底
-- 含 if / switch 等条件分支的非纯 CRUD 代码，**无论包名 / 类名一律走 TDD**；豁免：纯委托、固定生命周期、纯配置 / 文档.
-- 分支若落在 Application / Infrastructure，先回门禁第 3 步判断归属——业务规则必须先下沉到 Domain 再补测试.
-
 # AGENTS.md
 
-这份文件给 Codex 和其他 CLI Agent 提供仓库内协作约定。内容只保留当前项目真实存在、能从代码或配置验证的信息。
+本文件只规定 Agent 修改代码时的决策、禁令和验收门禁。项目入口见 `README.md`，启动见 `docs/getting-started.md`，目录与测试命令见 `docs/development.md`；完整配置见 `src/main/resources/application.yml`；Workbench 细节见 `docs/workbench/README.md`。
 
-## 项目概况
+## 角色与输出
 
-`agent-web` 是一个 Spring Boot Web 服务，用浏览器驱动本机 CLI Agent。当前支持 Claude CLI、Codex CLI，后端启动子进程并通过 SSE 把输出流式推给前端。服务还包含 Local Development Workbench、研发交付 Harness、远程诊断 API、管理后台、飞书 IM 工单、知识精炼和 issue-log 沉淀流程。
-
-主要能力：
-
-- 浏览器聊天界面驱动本机 CLI Agent
-- Claude / Codex 输出事件归一化后通过 SSE 流式展示
-- 会话持久化、用户隔离、分享链接、反馈、回退、图片上下文
-- 受配置根目录约束的文件浏览、上传、下载、删除
-- Cron 定时 Agent 任务
-- Git worktree 切换、按用户保存 Git 凭据配置
-- Local Development Workbench：Workspace Root 扫描、多仓 Repository Scope、四阶段独立会话、Run Snapshot、Handoff、Review、文档/附件和受控 Operation
-- 远程诊断 API，支持 API Key、幂等键、SSE 续传、超时、取消
-- 管理后台：dashboard、会话列表、诊断历史、issue-log 回填，以及 Admin Workbench 查询、Stop、Reconcile
-- 飞书 IM 消息建单、诊断卡片回执、复核与人工反馈
-- Knowledge Refinery：可选的会话/诊断评分、Ark embedding、向量召回、低分丢弃留痕
-- 诊断结果生成 issue-log，并支持历史诊断回填候选
-
-## 构建、启动、测试
-
-```bash
-mvn clean package                                      # 构建 JAR
-mvn spring-boot:run                                    # 本地启动，application.yml 默认端口 18092
-java -jar target/agent-web-0.1.0-SNAPSHOT.jar          # 启动已构建 JAR
-./scripts/service.sh build                             # 经 service 脚本构建，自动探测 JDK 21
-./scripts/service.sh start|stop|restart|status|logs    # 守护进程控制 (Windows 用 .\scripts\service.ps1)
-
-mvn -q test                                            # 默认后端快速测试集
-mvn -q -Dtest=ChatFlowTest test                         # 单个后端测试类
-mvn -q -Dtest=ChatFlowTest#methodName test              # 单个后端测试方法
-mvn verify                                             # 测试 + JaCoCo report/check
-mvn pmd:check                                          # Alibaba P3C PMD，failOnViolation=false
-
-./scripts/test-all.sh                                  # 后端 + Vitest + Playwright
-cd tests && npx vitest run                             # 前端纯函数单测
-cd tests && npx playwright test                        # 前端 E2E，自动以 e2e profile 启动 18099
-cd tests && npx playwright test chat.spec.ts           # 单个 E2E spec
-cd tests && npx playwright test -c playwright.workbench.config.ts        # Mock Workbench
-cd tests && npx playwright test -c playwright.admin-workbench.config.ts  # Admin Workbench
-cd tests && npx playwright test -c playwright.workbench-real.config.ts   # Spring + SQLite + Runtime Stub
-```
-
-代码改完后不要主动执行 `mvn package`、`./scripts/service.sh restart` 或部署命令，除非用户明确要求编译、打包、部署或重启。验证优先选择能覆盖改动的最小测试命令。
-
-**push 到 master 前必须跑一次全量验证**（对齐 `.github/workflows/frontend-ci.yml` 的 job）：
-
-```bash
-mvn -B test                                          # 1. backend-test
-cd frontend && npm run typecheck && npm run lint && npm run build  # 2. frontend-build（frontend 目录）
-cd tests && npm run typecheck && npm test            # 3. vitest（tests 目录）
-```
-
-特别注意：`frontend/` 和 `tests/` 是两个独立的 tsconfig，**两个 typecheck 都要跑**——只跑 `tests/` 的 typecheck 会漏掉 `frontend/` 下的类型错误。
-
-### Maven 测试分组
-
-`mvn -q test` 是默认快速测试集，不等价于全量后端测试。`pom.xml` 通过 `test.excludedGroups` 默认排除：
-
-- `live`：依赖真实外部 CLI / 登录态。
-- `git-integration`：真实 git / worktree 测试。
-- `spring-flow`：`@SpringBootTest` 全链路测试。
-- `process-integration`：真实子进程编排测试。
-
-默认集启用了 JUnit 类级并行，配置在 `src/test/resources/junit-platform.properties`：测试类并行、类内方法串行、固定并行度 8。Spring Test Context cache 在 Surefire 里设为 128。`src/test/resources/logback-test.xml` 会关闭测试期应用日志。2026-08-01 Workbench 发布候选记录为默认后端集 2442 项通过、`ArchitectureTest` 18/18；`ArchitectureTest` 还守卫 Spring AOP 代理类不得 `final`。数量和耗时会随代码及机器负载变化，以当前命令输出为准。
-
-Workbench 发布候选还记录了 Vitest 50 files / 523 tests、Mock Workbench 14/14、Admin Workbench 2/2、真实边界 4/4。`playwright.workbench-real.config.ts` 使用真实 Spring、SQLite、进程编排和 Runtime Stub，不访问真实 Codex/Claude 模型或登录态，不能替代真实用户/真实 CLI 试点。完整证据和剩余门禁见 `docs/workbench/release-readiness-2026-08-01.md`。
-
-在当前 Windows PowerShell 环境直接跑 Maven 前先切到 JDK 21：
-
-```powershell
-$env:JAVA_HOME='C:\Program Files\Java\jdk-21'
-$env:Path="$env:JAVA_HOME\bin;$env:Path"
-mvn -q test
-```
-
-显式运行默认排除的慢测试时，要覆盖 `test.excludedGroups`，否则 tag 仍会被排除：
-
-```powershell
-# SpringBootTest 全链路
-mvn -q '-Dtest.excludedGroups=live,git-integration,process-integration' '-Dgroups=spring-flow' test
-
-# 真实子进程编排
-mvn -q '-Dtest.excludedGroups=live,git-integration,spring-flow' '-Dgroups=process-integration' test
-
-# 真实 git/worktree 测试
-mvn -q '-Dtest.excludedGroups=live,spring-flow,process-integration' '-Dgroups=git-integration' test
-
-# live 测试，要求真实外部 CLI 和登录态
-mvn -q '-Dtest.excludedGroups=git-integration,spring-flow,process-integration' '-Dgroups=live' test
-```
-
-如果只想跑某个带 tag 的慢测试类，也要同步覆盖排除项，例如：
-
-```powershell
-mvn -q '-Dtest.excludedGroups=live,git-integration,spring-flow' '-Dtest=com.example.agentweb.infra.AgentCliGatewayTest' test
-```
-
-### 本地 JDK 注意事项
-
-项目是 Spring Boot 3.3.13 + `<java.version>21</java.version>`，编译和测试需要 JDK 21。Linux 部署机默认 shell 指向 JDK 8（`JAVA_HOME=/usr/local/jdk8`），直接 `mvn test` 会在编译期报 class-file / release 版本错误。`scripts/service.sh build/start` 会从 `/usr/local/jdk-21` 自动探测并导出 `JAVA_HOME` / `PATH`；直接跑 Maven 时带上：
-
-```bash
-JAVA_HOME=/usr/local/jdk-21 mvn test
-```
-
-探测失败时用 `JAVA_BIN=/usr/local/jdk-21/bin/java ./scripts/service.sh build` 覆盖。不要靠调低 `-Djava.version` 绕过——那只会掩盖环境问题，偏离项目构建目标。
-
-### NATIVE 进程内诊断 Agent
-
-NATIVE 是可选的进程内只读诊断能力。`pom.xml` 正常依赖正式制品 `com.anthropic:agentkit-agent-diagnosis:0.2.1`，并由其传递引入 `agentkit-kernel`；构建和运行都不依赖 AgentKit CLI，也没有额外 Maven profile 或 sibling 源码目录。Spring 装配与 AgentKit 类型只允许位于 `config.nativeagent`、`infra.nativeagent`。
-
-`agent.native.enabled` 默认 `false`，禁用时不要求模型和密钥，Catalog 仍返回 NATIVE 描述但标记不可用。启用时必须配置模型、API key、`bound-environment` 和安全后端；配置不完整会 fail fast。常用覆盖变量是 `AGENT_NATIVE_ENABLED`、`AGENT_NATIVE_PROVIDER`、`AGENT_NATIVE_MODEL`、`AGENT_NATIVE_API_KEY`、`AGENT_NATIVE_BASE_URL`、`AGENT_NATIVE_BOUND_ENVIRONMENT`。NATIVE 凭据和地址只读取 `AGENT_NATIVE_API_KEY`、`AGENT_NATIVE_BASE_URL`，不回退 `OPENAI_API_KEY`、`OPENAI_BASE_URL`，避免和 Codex CLI/官方 OpenAI 客户端串用 Provider。NATIVE 只允许用户在普通聊天手动选择，不能成为全局默认，也不能进入 schedule/workflow/harness/refinery。
-
-## 技术栈
-
-- 后端：Spring Boot 3.3.13、Java 21、Maven
-- 数据库：SQLite + Spring JDBC
-- 前端：Vue 3 + Element Plus + Vite（源码在 `frontend/`，构建输出到 `frontend/dist/`，Caddy file_server 提供）
-- 测试：JUnit 5、Mockito、MockMvc、Vitest、Playwright
-- 质量检查：Alibaba P3C PMD、`mvn verify` 中的 JaCoCo 覆盖率门禁
-- 外部集成：Claude CLI、Codex CLI、飞书开放平台、Volcengine Ark embedding API
+- 以 Java 资深开发、OO/DDD 视角工作；封装细节、保持主流程清晰，组合优于继承。
+- 思考与检索用英文，回复用中文；简短直接、言之有据，不确定时先核实代码。
+- 新 Java 类必须包含 `@author alex` 和 `@since`。
 
 ## 架构边界
 
-项目按 DDD + 六边形架构分层：
+严格遵守 DDD + 六边形四层架构：
 
 ```text
-interfaces/   REST Controller、请求/响应 DTO、异常处理
-app/          应用服务与流程编排，以及按子域组织的外部能力端口
-domain/       聚合根、值对象、策略、仓储端口
-infra/        CLI 进程适配、SQLite 仓储、认证过滤器、调度器、端口实现、HTTP 客户端
-config/       Spring MVC、Spring 装配和运行配置 Properties
+interfaces/   Controller、请求/响应 DTO、边界校验与转换
+app/          用例编排、事务；严禁业务规则
+domain/       聚合、值对象、领域服务、写侧 Repository；不依赖外层
+infra/        DB、文件、CLI、HTTP、缓存等外部适配
+config/       Spring 装配与配置 Properties
 ```
 
-重要目录：
+Controller 不处理业务规则；Application 只编排 Domain Repository、Gateway、Domain Service；Infrastructure 不替 Domain 作业务判断。
 
-- `interfaces`：聊天、文件、认证、管理、诊断、refinery、issue-log，以及 `interfaces/workbench` 下的 Owner/Admin Workbench API
-- `app`：聊天/会话编排、流式处理、worktree、定时任务、诊断、IM 工单、refinery、issue-log、metrics、git config、agentrun，以及 `workbench` / 公共 `runtime` 编排；外部能力端口位于对应子域的 `port` 或边界包
-- `domain`：chat/chatrun、auth、git、worktree、slash command、schedule、diagnosis、refinery、issue-log、workbench，以及公共 `workspace` / `capability` / `runtime`
-- `infra`：CLI dialect、SQLite repo、认证过滤器、调度器、HTTP client、上传存储，以及 `workbench` / `workspace` / `capability` / `runtime` 适配
-- `config`：Web/Spring 装配和配置 Properties；Workbench 与公共能力分别位于 `config/workbench`、`config/runtime`、`config/capability`
-- `frontend`：Vue 3 + Element Plus + Vite MPA 源码，构建输出到 `frontend/dist/`，Caddy `file_server` 提供
-- `src/main/resources/workbench/profiles`：四阶段默认 Capability Profile
-- `tests`：独立 npm 测试工程，包含 Vitest 与 Playwright
+### 业务逻辑归属判据
 
-## 主要流程
+Application 出现以下代码，必须先把语义下沉到聚合根：
 
-### Chat
+- 遍历聚合内部集合做条件查找。
+- 对聚合 getter 结果做非空、状态、角色等语义判断。
+- 替聚合校验路径、必填、格式等构造期不变量；改为 `Aggregate.create(...)`。
+- 用多个 getter 重组状态迁移、合法性校验或语义查询。
 
-1. `ChatController` 接收普通消息或 SSE 请求。
-2. `ChatAppServiceImpl` 处理 `ChatSession`、用户归属、slash command、可选 recall、持久化。
-3. `AgentCliGateway` 按 agent 类型路由到对应 `CliDialect`。
-4. `ClaudeCliDialect` 或 `CodexCliDialect` 构建命令并启动子进程。
-5. `CodexEventNormalizer` 把原生 JSON 事件转成前端统一契约。
-6. `StreamChunkHandler` 存储 chunk，并通过 SSE 推给浏览器。
+无不变量时聚合可以是数据载体；一旦出现业务语义，必须由聚合方法表达。聚合根不得注入或调用 Repository；跨聚合以 ID/参数引用，需 Repository 编排时使用领域服务。
 
-### CLI 模式
+### Repository 与读模型
 
-- Claude 默认使用 `claude --print --output-format stream-json --verbose --include-partial-messages ...`。
-- `agent.cli.codex.args` 为空时，Codex 走真实 `codex exec --json`；填非空模板时回退 legacy 文本输出模式。
-- 集成测试必须使用 `TestCliStub` 或 e2e fixtures，不要调用真实本机 Agent。
+- 写侧 Repository 接口放在 Domain，只做聚合生命周期（通常 3–5 个方法），签名只使用 Domain 类型；Infra 负责实现。
+- 纯 SELECT 使用 `XxxQueryService`，接口放 App 或 Domain、实现放 Infra；返回 DTO、View 或 `Map`，不得返回半截聚合。
+- ORM/JDBC/MyBatis/Spring Data 类型和注解不得泄漏到 Domain 接口；SQL/Mapper 不承载业务判断。
+- Repository 与 QueryService 混在同一接口时必须拆分。
 
-### AgentRun 与 Prompt 组装
+## TDD 门禁（强制）
 
-`app/agentrun/` 是应用层执行管线（不是领域聚合），把各入口"组装一次 run 的 prompt"收敛到统一 pipeline。诊断、Workflow、定时任务都经它装配。
+修改 Java 文件前按顺序判断：
 
-- 入口构造 `AgentRunContext`：`originalInput` + 两条正交轴 `runForm`（CHAT / DIAGNOSE / WORKFLOW_STEP / SCHEDULED / CUSTOM）× `sourceDomain`（DIAGNOSE / CHAT / GENERAL）+ `workingDir` / `env` / `RunRecallPolicy`。
-- `RunRecallPolicyFactory` 按 `AgentRunProperties`（`agent.run.*`）建策略；`AGENT_RUN_WORKSPACE_CONTEXT_ENABLED` / `AGENT_RUN_WORKSPACE_KNOWLEDGE_ENABLED` / `AGENT_RUN_RECALL_TOP_K` 可运行期关停。历史 RAG 仅在 `sourceDomain=DIAGNOSE` 开（再受 `agent.refinery.diagnose.recall-enabled` 内层控制）。`AgentRunContext` 未显式传 policy 时默认 `RunRecallPolicy.disabled()`（fail-safe）。
-- `PromptAssemblyService` 按固定序跑 6 个 `PromptContributor`：Env → WorkspaceContext → KnowledgePreRecall → HistoricalRag → UserInput → OutputInstruction，拼 `PromptPart`、算 SHA-256 prompt hash。每个 contributor 失败降级为空，绝不阻断 run。
-- 当前用户问题由 `UserInputContributor` 唯一注入；命中诊断历史 RAG（legacy enhanced query 已含 `[当前问题]`）时靠 `ownsUserInput` 互斥跳过，避免重复。
-- `WorkspaceContextResolver` 在 `agent.fs.roots` 白名单内发现约定知识索引（`docs/issue-log/INDEX.md` / `known-issues` / `playbooks`）与可选 `.agent-web.yml`（SnakeYAML 解析 `knowledge_indexes` / `guardrails`）。**`agent-web` 不发现 / 不读取 / 不注入本文件（`AGENTS.md`）与 `CLAUDE.md`**——是否加载由具体 CLI 自身决定。
-- guardrail 合并：env（`agent.envs[].prompt`）是基线，workspace manifest 只能收紧。当前零 schema 变更：`diagnose_task.query` 存最终 assembled prompt（非仅原始 query）；召回观测仅落日志 + 现有 `recall_used` / `recall_chunk_ids`。
+1. 是否涉及 `if`、`switch`、条件分支或业务判断？
+2. 否：纯委托、固定生命周期、配置、文档可直接修改。
+3. 是：先按上述判据确认归属层；错位的规则先下沉 Domain，不能给错位代码补测试。
+4. 归属正确后，先写/改测试见红，再做最小实现见绿，最后重构保绿。
 
-### Local Development Workbench
+测试使用 JUnit 5 + Mockito，采用 Given-When-Then；非 `live` 测试不得调用共享/外部 DB、Redis、MQ、HTTP 或真实 CLI，任务范围内的临时 SQLite/文件系统集成测试除外。按层选择：
 
-1. `/api/workbench/workspaces/inspect` 在配置白名单内解析 Workspace Root、扫描 Git 仓库和技术上下文；用户选择仓库集合、主仓与 `READ` / `MODIFY` 后创建 Workbench，不可变 Repository Scope 随之冻结。
-2. 四阶段 `REQUIREMENT_ANALYSIS`、`SOLUTION_DESIGN`、`IMPLEMENT_TEST`、`REVIEW_REFACTOR` 各有独立会话和默认 Phase Capability；Override 只影响下一轮，已启动 Run 的 Snapshot 不变。
-3. Run 提交事务冻结 Rules/Skills/MCP、Runtime、Repository Scope、Prompt、附件引用和 Handoff Reception，事务成功后才启动公共 Runtime；浏览器关闭不取消后台 Run，SSE 可续传，支持 Stop 与重启恢复/对账。
-4. Agent 只能产生 Handoff Candidate。用户采用/编辑/拒绝后形成 Summary、Decisions、Open Questions、Pinned Files、Referenced Runs 五字段 Handoff；首次下游 Run 在同一提交事务接收最新版本，上游后续更新只标 stale。
-5. `REVIEW_REFACTOR` 的 Review Candidate 需人工逐项采用/忽略，保存 Opinion 并精确确认后才允许 `MODIFY`；受影响测试建议和执行状态纳入审计。
-6. 文档 Pane 只读，文件变化只标 stale，必须手动刷新；仓内文档与浏览器上传附件可联合提交，上传正文只进入 Git 忽略的 `data/workbench/uploads`。
-7. `GIT_COMMIT`、`GIT_PUSH`、`LOCAL_DEPLOY`、`PRODUCTION_WRITE` 为类型化 Operation Proposal；创建只进入 `PROPOSED`，不能从对话内容或阶段切换推导授权，高影响 Executor 发布开关默认全关。
-8. Admin Workbench 只返回安全投影，并仅允许查询、Stop、单 Run Reconcile；不能代 Owner 对话、修改 Handoff/Override 或批准 Operation。
+| 层 | 隔离方式 | 重点 |
+| --- | --- | --- |
+| Domain | 不 Mock Domain，不启动 Spring | 不变量、状态迁移、业务规则 |
+| Application | Mock Repository/Gateway/Domain Service | 编排顺序、事务边界 |
+| Infrastructure | Mock Client/Mapper，或用 SQLite/`@TempDir` 轻量集成 | 缓存、协议和持久化适配 |
+| Interface | Mock Application Service；必要时 `@WebMvcTest` | 参数、DTO、状态码 |
+| Mapper/SQL/JPA Entity | 集成测试 | 查询与映射正确性 |
 
-Workbench 与 Harness 公共 Catalog/Runtime 已解耦。当前真实边界 E2E 使用 Runtime Stub，真实用户和真实 Codex/Claude CLI 试点、监控告警、回滚演练与性能基线仍未完成；达到 `docs/workbench/release-readiness-2026-08-01.md` 的退出标准前，不得删除 Harness 迁移窗口。
+完整 `@SpringBootTest` 仅用于 SSE 时序/续传、事务代理、Scheduler、Filter Chain、会话持久化等跨切边界。项目级 TDD 约定使用 `/java-tdd`，快速测试使用 `/fast-test`。
 
-### 飞书 IM 工单
+## 高风险功能边界
 
-- 飞书长连接事件先落 IM inbox，再由 worker 标准化消费并建立 `Ticket`。
-- `TicketAppService` 提交诊断，`TicketDiagnoseSubscriber` 消费终态并更新消息卡片。
-- 用户或管理台反馈写入工单，供 issue-log 回填与 refinery tier 调整使用。
-
-### Knowledge Refinery
-
-`agent.refinery.enabled` 默认关闭。开启后：
-
-- `ChatRefineryTrigger` 找静默会话，交给 `ConversationRefinery` 评分。
-- 高分结果通过 `ArkEmbeddingClient` 生成 embedding，并由 `SqliteRagChunkRepo` 入库。
-- 低分结果可写入 `chat_rag_discarded`，用于阈值校准。
-- `RefineryRecaller` 内存扫描 cosine，再按 trigger signal 和时间衰减重排；只有请求开启 recall 时才注入 `[历史参考]`。
-- 诊断入库和诊断召回分别由 `agent.refinery.diagnose.*` 控制。
-
-### Issue Log
-
-- 诊断详情可以通过 `IssueLogDraftProducer` 生成可编辑 issue-log 草稿。
-- `IssueLogRefinery`、`IssueLogDedupMatcher`、`IssueLogMerger` 使用同步 CLI 调用，并带确定性 fallback。
-- `FileSystemIssueLogRepository` 写入 `<workingDir>/docs/issue-log`，由 `WorkingDirIssueLogLockRegistry` 做工作目录级锁。
-- 回填只生成候选；归档或写文件必须人工审核通过。
-
-### 存储
-
-- 活跃会话缓存：`InMemorySessionRepo`
-- 会话和大部分应用状态持久化：SQLite repo
-- JSON 会话备份/导出：`JsonFileSessionRepo`
-- 建表脚本：`src/main/resources/schema.sql`
-
-## 配置
-
-主配置在 `src/main/resources/application.yml`。机器相关路径可通过 `agent-paths.yml` 覆盖。
-
-常用环境变量：
-
-| 变量 | 用途 |
-| --- | --- |
-| `CLAUDE_CLI_CMD` | Claude 可执行文件 |
-| `CODEX_CMD` | Codex 可执行文件 |
-| `SERVER_ADDRESS` / `SERVER_FORWARD_HEADERS_STRATEGY` | 应用监听地址（同机 Caddy 默认 `127.0.0.1`）/ 可信代理转发头策略 |
-| `CODEX_HOME` | Codex 配置/鉴权目录 |
-| `OPENAI_API_KEY` | Codex API 鉴权，已有登录态时可不设 |
-| `AGENT_DB_PATH` | SQLite 数据库路径 |
-| `AGENT_AUTH_SESSION_TTL_SECONDS` | 数据库登录会话有效期（默认 7 天） |
-| `AGENT_AUTH_COOKIE_NAME` / `AGENT_AUTH_COOKIE_SECURE` | 登录 Cookie 名 / 是否强制 Secure（公网默认 `__Host-agent_session` / `true`） |
-| `AGENT_AUTH_LOGIN_MAX_FAILURES` / `AGENT_AUTH_LOGIN_FAILURE_WINDOW_SECONDS` | 登录失败限流阈值 / 窗口 |
-| `AGENT_PUBLIC_ACCESS_ENABLED` / `AGENT_BOOTSTRAP_ADMIN_PASSWORD` | 公网启动门禁 / 首次替换公开种子密码的新密码 |
-| `AGENT_WORKTREE_ALLOWED_ROOT` | Worktree 操作允许的工作区根 |
-| `GIT_CRED_ENC_KEY` | 用户 Git push 凭据的 AES-256-GCM 主密钥 |
-| `FEISHU_APP_ID` / `FEISHU_APP_SECRET` | 飞书凭据 |
-| `REFINERY_ENABLED` | Knowledge Refinery 总开关 |
-| `REFINERY_EMBED_API_KEY` | Ark embedding 凭据，refinery 开启时必填 |
-| `REFINERY_EMBED_ENDPOINT` / `REFINERY_EMBED_MODEL` / `REFINERY_EMBED_DIM` | Ark embedding 配置 |
-| `REFINERY_DIAGNOSE_INGEST_ENABLED` / `REFINERY_DIAGNOSE_RECALL_ENABLED` | 诊断侧 refinery 灰度开关 |
-| `AGENT_RUN_WORKSPACE_CONTEXT_ENABLED` | AgentRun workspace context 注入开关（默认 true，紧急可关） |
-| `AGENT_RUN_WORKSPACE_KNOWLEDGE_ENABLED` | AgentRun workspace 知识预召回开关（默认 true） |
-| `AGENT_RUN_RECALL_TOP_K` | AgentRun 召回 top-K（默认 8） |
-| `AGENT_WORKBENCH_ENABLED` | Workbench 总开关（默认 false）；关闭时所有下级发布开关也必须关闭 |
-| `AGENT_WORKBENCH_CREATE_ENABLED` / `AGENT_WORKBENCH_WRITE_RUN_ENABLED` | 创建/写 Run 分级开关（均默认 false） |
-| `AGENT_COMMON_RUNTIME_WORKBENCH_ENABLED` | Workbench 公共 Runtime 独立迁移开关（默认 false，不改变 Chat 路径） |
-| `AGENT_COMMON_RUNTIME_CREDENTIAL_REFERENCE` | 公共 Runtime 凭据环境变量逻辑名；Runtime 开启时必填，禁止填真实密钥值 |
-| `AGENT_WORKBENCH_HIGH_IMPACT_*_ENABLED` | commit/push/local deploy/production write 四类 Executor 独立开关（均默认 false） |
-| `AGENT_WORKBENCH_RUN_TIMEOUT_SECONDS` / `AGENT_WORKBENCH_RUN_MAX_OUTPUT_BYTES` | 单次 Run 超时/输出上限（默认 1800 秒/8388608 字节） |
-| `AGENT_WORKBENCH_ATTACHMENT_STORAGE_ROOT` | 上传附件受控根（默认 `data/workbench/uploads`，必须保持 Git 忽略） |
-| `AGENT_WORKBENCH_ATTACHMENT_MAXIMUM_BYTES` / `AGENT_WORKBENCH_ATTACHMENT_MAXIMUM_AVAILABLE` | 单附件大小/每会话可用数量上限（默认 10485760/16） |
-| `AGENT_HARNESS_ENABLED` | Harness 总开关（当前默认 true，测试/E2E profile 可覆盖关闭） |
-
-`application.yml` 里可能有本地/测试部署用的占位密钥。不要新增硬编码凭据，新增敏感配置走环境变量或 Secret Store；需要文件化保存时遵循下方规则。
-
-### 敏感信息落盘
-
-- 服务端使用的 API Key、Token、Secret、私钥、密码和凭据导出文件等敏感信息，需要文件化保存时必须放在仓库根目录 `data/` 下；当前统一入口为 `data/secrets.properties`，由 Spring Boot 通过 `spring.config.import` 自动读取。禁止把敏感值放入源码、配置模板、文档、日志、测试 Fixture、Artifact 或仓库其他目录。
-- `data/` 必须整目录保持 Git 忽略；写入敏感文件前先用 `git check-ignore -q data/<path>` 验证，禁止使用 `git add -f`、Git ignore 例外或其他方式提交其中内容。
-- 敏感目录权限应为 `700`，敏感文件权限应为 `600`；代码、脚本、命令输出和回复中不得打印敏感值，只能核对变量名、是否存在或不可逆摘要。
-- Codex CLI 与 Claude Code 继续使用本机默认配置和登录态；不要移动、复制、读取或改写用户级 `~/.codex`、`~/.claude` 等认证目录，也不要把 `OPENAI_API_KEY`、`ANTHROPIC_API_KEY` 放入 `data/secrets.properties`，除非用户明确要求改变 CLI 鉴权方式。
-- `data/secrets.properties` 当前用于 `GIT_CRED_ENC_KEY`、`REFINERY_EMBED_API_KEY`（兼容 `CHAT_RAG_EMBED_API_KEY`）和一次性的 `AGENT_BOOTSTRAP_ADMIN_PASSWORD` 等服务端配置；同名外部环境变量优先级更高。生产环境优先使用进程环境或 Secret Store。
-- `env.local` 仅保留为历史防误提交规则，不再作为新增敏感信息的存放位置。
+- CLI 测试必须使用 `TestCliStub`、Runtime Stub 或 E2E fixture；只有明确标记的 `live` 测试可以调用真实 CLI/登录态。
+- Workbench 的 Repository Scope 和已启动 Run Snapshot 不可变；浏览器断开不取消后台 Run。
+- Handoff/Review 采用与修改必须由用户明确操作；不能从对话内容或阶段切换推导授权。
+- `GIT_COMMIT`、`GIT_PUSH`、`LOCAL_DEPLOY`、`PRODUCTION_WRITE` 只能创建类型化 Proposal，初态为 `PROPOSED`；高影响 Executor 默认关闭。
+- Admin Workbench 只允许安全投影查询、Stop、单 Run Reconcile，不得代 Owner 对话、改 Handoff/Override 或批准 Operation。
+- NATIVE 只允许普通聊天手动选择，不能成为全局默认或进入 schedule/workflow/refinery；AgentKit 类型仅允许位于 `config.nativeagent`、`infra.nativeagent`。
+- NATIVE 只读取 `AGENT_NATIVE_API_KEY`、`AGENT_NATIVE_BASE_URL`，不得回退到 Codex/OpenAI CLI 凭据。
 
 ## 开发约定
 
-- 修改服务行为、测试、启动、诊断、飞书接入、refinery 或前端流程前，先读 `README.md`。
-- 新增 helper、service、adapter、validator、parser、repository 或抽象前，先用 `rg` 搜索现有能力。
-- 改动保持在用户请求范围内；除非不重构就无法安全完成，否则不做大范围整理。
-- 保持分层：Controller 做边界转换和校验，App 编排流程，Domain 承载业务规则，Infra 处理外部系统。
-- 新 Java 类必须包含 `@author alex` 和 `@since`。
-- 禁止通配符导入。
-- 使用项目声明的 Java 21 编译级别；不要降级 `java.version` 规避本机 JDK 配置问题。
-- 除非测试明确标记为 `live`，单测和集成测试不要调用真实 DB/Redis/MQ/HTTP/CLI 外部服务。
-- 除任务明确要求外，不要修改 `agent-paths.yml`、`env.local`、`data/` 下的敏感文件或本地 DB，以及生成的测试产物。
+- 修改不熟悉的子系统前，先读 `README.md` 对应章节及其专题文档。
+- 新增 helper/service/adapter/validator/parser/repository/抽象前，先用 `rg` 搜索现有能力。
+- 改动保持在用户请求范围内；除非安全完成任务所必需，不做大范围整理。
+- 样板代码优先 Lombok/MapStruct；通用能力优先 Guava、Commons、Jackson、Spring Util，禁止重复造轮子。
+- 禁止通配符导入；保持项目声明的 Java 21，不得降级 `java.version` 规避环境问题。
+- 不主动修改 `agent-paths.yml`、`env.local`、`data/`、本地 DB 或生成产物，除非任务明确要求。
+- 前端源码只放 `frontend/`；可复用纯逻辑先抽到 `frontend/js/lib`，再在 `tests/unit` 补 Vitest。禁止在已停用的 `src/main/resources/static` 新增页面。
+- Playwright 优先语义化 locator 或稳定 `data-test`，不得依赖 Element Plus 内部 class。
 
-## 测试选择
+## 敏感信息
 
-优先选择最低成本且能覆盖风险的层级：
+- 禁止在源码、配置模板、文档、日志、Fixture 或 Artifact 中新增硬编码凭据；生产优先进程环境或 Secret Store。
+- 必须文件化的服务端秘密只放 Git 忽略的 `data/secrets.properties`；写入前执行 `git check-ignore -q data/<path>`。目录权限 `700`，文件权限 `600`。
+- 不得读取、复制或改写用户级 `~/.codex`、`~/.claude` 认证目录；除非用户明确改变 CLI 鉴权方式，不把 CLI API Key 写入 `data/secrets.properties`。
+- 命令输出和回复不得打印敏感值，只能确认变量名、是否存在或不可逆摘要；禁止 `git add -f data/...`。
+- `env.local` 仅保留历史防误提交规则，不作为新增秘密的存储位置。
 
-- Domain 单测：不启动 Spring，不 mock domain 对象。
-- App 单测：Mockito mock repository/gateway，使用真实 domain 对象。
-- Infra 轻量集成：真实 SQLite 或文件系统，配合 `@TempDir`；非必要不启动 Spring 容器。
-- Interface 测试：验证 DTO、状态码、过滤器行为时用 `@WebMvcTest` 或聚焦 controller 的测试。
-- 完整 `@SpringBootTest`：只用于 SSE 时序/续传、事务代理、scheduler 装配、filter chain 装配、会话持久化这类跨切关注点。
+## 构建与测试
 
-前端约定：
+- 完整命令见 `docs/development.md#测试`；优先运行覆盖改动的最小测试。
+- Linux 直接运行 Maven 时使用 `JAVA_HOME=/usr/local/jdk-21`。
+- 显式运行默认排除的慢分组时必须覆盖 `test.excludedGroups`，具体分组以 `pom.xml` 为准。
+- 不主动执行 `mvn package`、`./scripts/service.sh restart` 或部署命令，除非用户明确要求。
+- push 到 `master` 前必须完成 `docs/development.md#发布前门禁` 所列的后端、`frontend/`、`tests/` 三组 CI 门禁；后两个工程的 typecheck 都必须运行。
 
-- 生产前端源码保持在 `frontend/`，由 Vite 构建到 `frontend/dist/`；不要在已停用的 `src/main/resources/static` 增加新页面。
-- 可复用纯 JS/TS 逻辑先抽到 `frontend/js/lib`，再补 `tests/unit` 下的 Vitest。
-- Playwright 必须在 `tests/` 目录运行，或从仓库根显式传 `-c tests/<config>.ts`；Workbench 分别使用 `playwright.workbench.config.ts`、`playwright.admin-workbench.config.ts`、`playwright.workbench-real.config.ts`。
-- Playwright 优先使用 `getByRole`、`getByText` 等语义化 locator，或稳定 `data-test`，不要依赖 Element Plus 内部 class。
+## 完成前检查
 
-## 验证清单
-
-完成代码改动前：
-
-- 跑与影响范围匹配的最小后端或前端测试。
-- Java 业务逻辑变更要补能在实现前失败的测试。
-- Controller/API 变更要覆盖状态码和参数校验。
-- SQLite repo 变更要用真实 SQLite 验证。
-- 前端行为变更跑 Vitest 或对应 Playwright spec。
-- Workbench Controller/API 变更要覆盖 Owner/Admin 授权、feature flag、CAS/幂等冲突和安全响应投影。
-- Workbench Repository、文档或附件存储变更要用真实 SQLite/`@TempDir` 覆盖 Repository Scope、symlink/`NOFOLLOW`、Hash、TTL 和清理边界。
-- Workbench 主流程改动按影响选择 Mock Workbench、Admin Workbench、真实 Spring + SQLite + Runtime Stub E2E；Runtime Stub 通过不等于真实 CLI 试点通过。
-- push 到 `master` 前无论改动类型，都执行本文“push 到 master 前必须跑一次全量验证”的三组命令。
-- 不能运行测试时，说明原因和残余风险。
+- Java 业务逻辑：有实现前能失败的测试，并完成红—绿—重构。
+- Controller/API：覆盖参数校验、状态码与安全响应投影。
+- SQLite Repository：使用真实 SQLite 验证；文件存储使用 `@TempDir`。
+- 前端行为：运行对应 Vitest 或 Playwright spec。
+- Workbench 边界：按影响覆盖 Owner/Admin 授权、feature flag、CAS/幂等冲突、Repository Scope、symlink/`NOFOLLOW`、Hash、TTL 和清理。
+- Workbench 主流程：按影响选择 Mock Workbench、Admin Workbench、Spring + SQLite + Runtime Stub E2E；Stub 通过不等于真实 CLI 试点通过。
+- 无法运行测试时，明确说明原因、未验证项和残余风险。

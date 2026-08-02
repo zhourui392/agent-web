@@ -13,7 +13,7 @@ import java.util.Set;
 /**
  * 一次公共 Agent Runtime 执行所需的完整、不可变事实。
  *
- * <p>Chat、Workbench 与 Harness 各自负责完成业务校验并组装本对象；Runtime 只执行该计划，
+ * <p>Chat 与 Workbench 各自负责完成业务校验并组装本对象；Runtime 只执行该计划，
  * 不从缺省值推断来源流程、写权限或能力选择。</p>
  *
  * @author alex

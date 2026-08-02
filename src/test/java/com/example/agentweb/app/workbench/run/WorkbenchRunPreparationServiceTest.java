@@ -199,8 +199,7 @@ class WorkbenchRunPreparationServiceTest {
                         RUNTIME_COMPATIBILITY,
                         Collections.singleton(SkillTrustSource.PLATFORM),
                         new RuntimeLimits(
-                                Duration.ofMinutes(30), 8_388_608L,
-                                Collections.<String>emptySet())),
+                                Duration.ofMinutes(30), 8_388_608L)),
                 Clock.fixed(NOW.plusSeconds(2), ZoneOffset.UTC));
 
         scope = scope();

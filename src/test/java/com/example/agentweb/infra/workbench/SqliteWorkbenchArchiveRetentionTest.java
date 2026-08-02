@@ -2,22 +2,17 @@ package com.example.agentweb.infra.workbench;
 
 import com.example.agentweb.domain.workbench.Decision;
 import com.example.agentweb.domain.workbench.HandoffReception;
-import com.example.agentweb.domain.workbench.HighImpactOperation;
-import com.example.agentweb.domain.workbench.HighImpactOperationPolicy;
 import com.example.agentweb.domain.workbench.PhaseHandoff;
 import com.example.agentweb.domain.workbench.ReviewModifyConfirmation;
 import com.example.agentweb.domain.workbench.ReviewOpinion;
 import com.example.agentweb.domain.workbench.Workbench;
 import com.example.agentweb.domain.workbench.WorkbenchPhase;
-import com.example.agentweb.domain.workbench.WorkbenchRunReference;
 import com.example.agentweb.domain.workbench.WorkbenchStatus;
-import com.example.agentweb.domain.workbench.ProductionWriteTarget;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.nio.file.Path;
-import java.time.Duration;
 import java.util.Collections;
 
 import static com.example.agentweb.infra.workbench.WorkbenchPersistenceFixtures.NOW;
@@ -70,17 +65,6 @@ class SqliteWorkbenchArchiveRetentionTest {
         new SqliteWorkbenchRunSnapshotRepository(jdbc).add(
                 WorkbenchPersistenceFixtures.reviewRunSnapshot(
                         workbench, workspace.snapshot(), confirmation, "archive-run"));
-        HighImpactOperation operation = HighImpactOperationPolicy
-                .withAuthorizationTtl(Duration.ofMinutes(10))
-                .propose(workbench, "archive-operation",
-                        WorkbenchRunReference.of(
-                                "archive-run", workbench.getId(),
-                                WorkbenchPhase.REVIEW_REFACTOR, "Review 完成"),
-                        ProductionWriteTarget.describe(
-                                "production", "database/orders",
-                                WorkbenchPersistenceFixtures.HASH_A),
-                        "生产写入提案", OWNER, NOW.plusSeconds(11));
-        new SqliteHighImpactOperationRepository(jdbc).add(operation);
 
         workbench.archive(OWNER, NOW.plusSeconds(12));
         workbenchRepository.update(workbench);
@@ -96,7 +80,6 @@ class SqliteWorkbenchArchiveRetentionTest {
         assertEquals(1, count(jdbc, "workbench_review_opinion"));
         assertEquals(1, count(jdbc, "workbench_review_modify_confirmation"));
         assertEquals(1, count(jdbc, "workbench_run_snapshot"));
-        assertEquals(1, count(jdbc, "workbench_high_impact_operation"));
         assertEquals(1, jdbc.queryForObject(
                 "SELECT COUNT(*) FROM workspace_snapshot WHERE snapshot_id=?",
                 Integer.class, "archive-creation-snapshot"));
