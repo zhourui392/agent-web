@@ -56,7 +56,7 @@ Interface / Application / Domain / Infrastructure 严格分层；**Application �
 
 ## 项目概况
 
-`agent-web` 是一个 Spring Boot Web 服务，用浏览器驱动本机 CLI Agent。当前支持 Claude CLI、Codex CLI，后端启动子进程并通过 SSE 把输出流式推给前端。服务还包含远程诊断 API、管理后台、飞书 IM 工单、知识精炼和 issue-log 沉淀流程。
+`agent-web` 是一个 Spring Boot Web 服务，用浏览器驱动本机 CLI Agent。当前支持 Claude CLI、Codex CLI，后端启动子进程并通过 SSE 把输出流式推给前端。服务还包含 Local Development Workbench、研发交付 Harness、远程诊断 API、管理后台、飞书 IM 工单、知识精炼和 issue-log 沉淀流程。
 
 主要能力：
 
@@ -66,8 +66,9 @@ Interface / Application / Domain / Infrastructure 严格分层；**Application �
 - 受配置根目录约束的文件浏览、上传、下载、删除
 - Cron 定时 Agent 任务
 - Git worktree 切换、按用户保存 Git 凭据配置
+- Local Development Workbench：Workspace Root 扫描、多仓 Repository Scope、四阶段独立会话、Run Snapshot、Handoff、Review、文档/附件和受控 Operation
 - 远程诊断 API，支持 API Key、幂等键、SSE 续传、超时、取消
-- 管理后台：dashboard、会话列表、诊断历史、issue-log 回填
+- 管理后台：dashboard、会话列表、诊断历史、issue-log 回填，以及 Admin Workbench 查询、Stop、Reconcile
 - 飞书 IM 消息建单、诊断卡片回执、复核与人工反馈
 - Knowledge Refinery：可选的会话/诊断评分、Ark embedding、向量召回、低分丢弃留痕
 - 诊断结果生成 issue-log，并支持历史诊断回填候选
@@ -91,6 +92,9 @@ mvn pmd:check                                          # Alibaba P3C PMD，failO
 cd tests && npx vitest run                             # 前端纯函数单测
 cd tests && npx playwright test                        # 前端 E2E，自动以 e2e profile 启动 18099
 cd tests && npx playwright test chat.spec.ts           # 单个 E2E spec
+cd tests && npx playwright test -c playwright.workbench.config.ts        # Mock Workbench
+cd tests && npx playwright test -c playwright.admin-workbench.config.ts  # Admin Workbench
+cd tests && npx playwright test -c playwright.workbench-real.config.ts   # Spring + SQLite + Runtime Stub
 ```
 
 代码改完后不要主动执行 `mvn package`、`./scripts/service.sh restart` 或部署命令，除非用户明确要求编译、打包、部署或重启。验证优先选择能覆盖改动的最小测试命令。
@@ -114,7 +118,9 @@ cd tests && npm run typecheck && npm test            # 3. vitest（tests 目录�
 - `spring-flow`：`@SpringBootTest` 全链路测试。
 - `process-integration`：真实子进程编排测试。
 
-默认集启用了 JUnit 类级并行，配置在 `src/test/resources/junit-platform.properties`：测试类并行、类内方法串行、固定并行度 8。Spring Test Context cache 在 Surefire 里设为 128。`src/test/resources/logback-test.xml` 会关闭测试期应用日志。当前 PowerShell 环境最近验证 `mvn -q test` 约 60-65 秒通过；运行时长会受机器负载和首次编译影响。
+默认集启用了 JUnit 类级并行，配置在 `src/test/resources/junit-platform.properties`：测试类并行、类内方法串行、固定并行度 8。Spring Test Context cache 在 Surefire 里设为 128。`src/test/resources/logback-test.xml` 会关闭测试期应用日志。2026-08-01 Workbench 发布候选记录为默认后端集 2442 项通过、`ArchitectureTest` 18/18；`ArchitectureTest` 还守卫 Spring AOP 代理类不得 `final`。数量和耗时会随代码及机器负载变化，以当前命令输出为准。
+
+Workbench 发布候选还记录了 Vitest 50 files / 523 tests、Mock Workbench 14/14、Admin Workbench 2/2、真实边界 4/4。`playwright.workbench-real.config.ts` 使用真实 Spring、SQLite、进程编排和 Runtime Stub，不访问真实 Codex/Claude 模型或登录态，不能替代真实用户/真实 CLI 试点。完整证据和剩余门禁见 `docs/workbench/release-readiness-2026-08-01.md`。
 
 在当前 Windows PowerShell 环境直接跑 Maven 前先切到 JDK 21：
 
@@ -185,12 +191,13 @@ config/       Spring MVC、Spring 装配和运行配置 Properties
 
 重要目录：
 
-- `interfaces`：`ChatController`、`FsController`、`AuthController`、`AdminAuthController`、`AdminConversationController`、`MetricsController`、`GitConfigController`、`DiagnoseController`、`DiagnoseHistoryController`、`Refinery*Controller`、`IssueLogBackfillController`
-- `app`：聊天/会话编排、流式处理、worktree、定时任务、诊断、IM 工单、refinery、issue-log、metrics、git config、agentrun（prompt 组装管线）；Agent/认证/日志等外部能力端口位于对应子域的 `port` 或边界包
-- `domain`：chat/session、auth、git、worktree、slash command、schedule、diagnose、ticket、messaging、refinery、issue-log
-- `infra`：`AgentCliGateway`、CLI dialect、SQLite repo、SSO/admin auth、动态调度器、MDC 适配、Feishu client、Ark embedding client、issue-log 持久化、上传存储
-- `config`：Web/Spring 装配，以及 `AgentRunProperties`、`ChatProperties`、`EnvProperties`、`FsProperties`、`ResumableChatStreamProperties`、`RefineryProperties`
-- `src/main/resources/static`：静态前端页面、JS、CSS、vendor 文件
+- `interfaces`：聊天、文件、认证、管理、诊断、refinery、issue-log，以及 `interfaces/workbench` 下的 Owner/Admin Workbench API
+- `app`：聊天/会话编排、流式处理、worktree、定时任务、诊断、IM 工单、refinery、issue-log、metrics、git config、agentrun，以及 `workbench` / 公共 `runtime` 编排；外部能力端口位于对应子域的 `port` 或边界包
+- `domain`：chat/chatrun、auth、git、worktree、slash command、schedule、diagnosis、refinery、issue-log、workbench，以及公共 `workspace` / `capability` / `runtime`
+- `infra`：CLI dialect、SQLite repo、认证过滤器、调度器、HTTP client、上传存储，以及 `workbench` / `workspace` / `capability` / `runtime` 适配
+- `config`：Web/Spring 装配和配置 Properties；Workbench 与公共能力分别位于 `config/workbench`、`config/runtime`、`config/capability`
+- `frontend`：Vue 3 + Element Plus + Vite MPA 源码，构建输出到 `frontend/dist/`，Caddy `file_server` 提供
+- `src/main/resources/workbench/profiles`：四阶段默认 Capability Profile
 - `tests`：独立 npm 测试工程，包含 Vitest 与 Playwright
 
 ## 主要流程
@@ -220,6 +227,19 @@ config/       Spring MVC、Spring 装配和运行配置 Properties
 - 当前用户问题由 `UserInputContributor` 唯一注入；命中诊断历史 RAG（legacy enhanced query 已含 `[当前问题]`）时靠 `ownsUserInput` 互斥跳过，避免重复。
 - `WorkspaceContextResolver` 在 `agent.fs.roots` 白名单内发现约定知识索引（`docs/issue-log/INDEX.md` / `known-issues` / `playbooks`）与可选 `.agent-web.yml`（SnakeYAML 解析 `knowledge_indexes` / `guardrails`）。**`agent-web` 不发现 / 不读取 / 不注入本文件（`AGENTS.md`）与 `CLAUDE.md`**——是否加载由具体 CLI 自身决定。
 - guardrail 合并：env（`agent.envs[].prompt`）是基线，workspace manifest 只能收紧。当前零 schema 变更：`diagnose_task.query` 存最终 assembled prompt（非仅原始 query）；召回观测仅落日志 + 现有 `recall_used` / `recall_chunk_ids`。
+
+### Local Development Workbench
+
+1. `/api/workbench/workspaces/inspect` 在配置白名单内解析 Workspace Root、扫描 Git 仓库和技术上下文；用户选择仓库集合、主仓与 `READ` / `MODIFY` 后创建 Workbench，不可变 Repository Scope 随之冻结。
+2. 四阶段 `REQUIREMENT_ANALYSIS`、`SOLUTION_DESIGN`、`IMPLEMENT_TEST`、`REVIEW_REFACTOR` 各有独立会话和默认 Phase Capability；Override 只影响下一轮，已启动 Run 的 Snapshot 不变。
+3. Run 提交事务冻结 Rules/Skills/MCP、Runtime、Repository Scope、Prompt、附件引用和 Handoff Reception，事务成功后才启动公共 Runtime；浏览器关闭不取消后台 Run，SSE 可续传，支持 Stop 与重启恢复/对账。
+4. Agent 只能产生 Handoff Candidate。用户采用/编辑/拒绝后形成 Summary、Decisions、Open Questions、Pinned Files、Referenced Runs 五字段 Handoff；首次下游 Run 在同一提交事务接收最新版本，上游后续更新只标 stale。
+5. `REVIEW_REFACTOR` 的 Review Candidate 需人工逐项采用/忽略，保存 Opinion 并精确确认后才允许 `MODIFY`；受影响测试建议和执行状态纳入审计。
+6. 文档 Pane 只读，文件变化只标 stale，必须手动刷新；仓内文档与浏览器上传附件可联合提交，上传正文只进入 Git 忽略的 `data/workbench/uploads`。
+7. `GIT_COMMIT`、`GIT_PUSH`、`LOCAL_DEPLOY`、`PRODUCTION_WRITE` 为类型化 Operation Proposal；创建只进入 `PROPOSED`，不能从对话内容或阶段切换推导授权，高影响 Executor 发布开关默认全关。
+8. Admin Workbench 只返回安全投影，并仅允许查询、Stop、单 Run Reconcile；不能代 Owner 对话、修改 Handoff/Override 或批准 Operation。
+
+Workbench 与 Harness 公共 Catalog/Runtime 已解耦。当前真实边界 E2E 使用 Runtime Stub，真实用户和真实 Codex/Claude CLI 试点、监控告警、回滚演练与性能基线仍未完成；达到 `docs/workbench/release-readiness-2026-08-01.md` 的退出标准前，不得删除 Harness 迁移窗口。
 
 ### 飞书 IM 工单
 
@@ -279,6 +299,15 @@ config/       Spring MVC、Spring 装配和运行配置 Properties
 | `AGENT_RUN_WORKSPACE_CONTEXT_ENABLED` | AgentRun workspace context 注入开关（默认 true，紧急可关） |
 | `AGENT_RUN_WORKSPACE_KNOWLEDGE_ENABLED` | AgentRun workspace 知识预召回开关（默认 true） |
 | `AGENT_RUN_RECALL_TOP_K` | AgentRun 召回 top-K（默认 8） |
+| `AGENT_WORKBENCH_ENABLED` | Workbench 总开关（默认 false）；关闭时所有下级发布开关也必须关闭 |
+| `AGENT_WORKBENCH_CREATE_ENABLED` / `AGENT_WORKBENCH_WRITE_RUN_ENABLED` | 创建/写 Run 分级开关（均默认 false） |
+| `AGENT_COMMON_RUNTIME_WORKBENCH_ENABLED` | Workbench 公共 Runtime 独立迁移开关（默认 false，不改变 Chat 路径） |
+| `AGENT_COMMON_RUNTIME_CREDENTIAL_REFERENCE` | 公共 Runtime 凭据环境变量逻辑名；Runtime 开启时必填，禁止填真实密钥值 |
+| `AGENT_WORKBENCH_HIGH_IMPACT_*_ENABLED` | commit/push/local deploy/production write 四类 Executor 独立开关（均默认 false） |
+| `AGENT_WORKBENCH_RUN_TIMEOUT_SECONDS` / `AGENT_WORKBENCH_RUN_MAX_OUTPUT_BYTES` | 单次 Run 超时/输出上限（默认 1800 秒/8388608 字节） |
+| `AGENT_WORKBENCH_ATTACHMENT_STORAGE_ROOT` | 上传附件受控根（默认 `data/workbench/uploads`，必须保持 Git 忽略） |
+| `AGENT_WORKBENCH_ATTACHMENT_MAXIMUM_BYTES` / `AGENT_WORKBENCH_ATTACHMENT_MAXIMUM_AVAILABLE` | 单附件大小/每会话可用数量上限（默认 10485760/16） |
+| `AGENT_HARNESS_ENABLED` | Harness 总开关（当前默认 true，测试/E2E profile 可覆盖关闭） |
 
 `application.yml` 里可能有本地/测试部署用的占位密钥。不要新增硬编码凭据，新增敏感配置走环境变量或 Secret Store；需要文件化保存时遵循下方规则。
 
@@ -297,9 +326,9 @@ config/       Spring MVC、Spring 装配和运行配置 Properties
 - 新增 helper、service、adapter、validator、parser、repository 或抽象前，先用 `rg` 搜索现有能力。
 - 改动保持在用户请求范围内；除非不重构就无法安全完成，否则不做大范围整理。
 - 保持分层：Controller 做边界转换和校验，App 编排流程，Domain 承载业务规则，Infra 处理外部系统。
-- 新 Java 类必须包含 `@author zhourui(V33215020)` 和 `@since`。
+- 新 Java 类必须包含 `@author alex` 和 `@since`。
 - 禁止通配符导入。
-- 保持 Java 8 兼容。
+- 使用项目声明的 Java 21 编译级别；不要降级 `java.version` 规避本机 JDK 配置问题。
 - 除非测试明确标记为 `live`，单测和集成测试不要调用真实 DB/Redis/MQ/HTTP/CLI 外部服务。
 - 除任务明确要求外，不要修改 `agent-paths.yml`、`env.local`、`data/` 下的敏感文件或本地 DB，以及生成的测试产物。
 
@@ -315,9 +344,9 @@ config/       Spring MVC、Spring 装配和运行配置 Properties
 
 前端约定：
 
-- 生产前端保持在 `src/main/resources/static` 下的静态文件模式。
-- 可复用纯 JS 逻辑先抽到 `static/js/lib`，再补 Vitest。
-- Playwright 必须在 `tests/` 目录运行，或显式传 `-c tests/playwright.config.ts`；否则可能误加载 Vitest spec。
+- 生产前端源码保持在 `frontend/`，由 Vite 构建到 `frontend/dist/`；不要在已停用的 `src/main/resources/static` 增加新页面。
+- 可复用纯 JS/TS 逻辑先抽到 `frontend/js/lib`，再补 `tests/unit` 下的 Vitest。
+- Playwright 必须在 `tests/` 目录运行，或从仓库根显式传 `-c tests/<config>.ts`；Workbench 分别使用 `playwright.workbench.config.ts`、`playwright.admin-workbench.config.ts`、`playwright.workbench-real.config.ts`。
 - Playwright 优先使用 `getByRole`、`getByText` 等语义化 locator，或稳定 `data-test`，不要依赖 Element Plus 内部 class。
 
 ## 验证清单
@@ -329,4 +358,8 @@ config/       Spring MVC、Spring 装配和运行配置 Properties
 - Controller/API 变更要覆盖状态码和参数校验。
 - SQLite repo 变更要用真实 SQLite 验证。
 - 前端行为变更跑 Vitest 或对应 Playwright spec。
+- Workbench Controller/API 变更要覆盖 Owner/Admin 授权、feature flag、CAS/幂等冲突和安全响应投影。
+- Workbench Repository、文档或附件存储变更要用真实 SQLite/`@TempDir` 覆盖 Repository Scope、symlink/`NOFOLLOW`、Hash、TTL 和清理边界。
+- Workbench 主流程改动按影响选择 Mock Workbench、Admin Workbench、真实 Spring + SQLite + Runtime Stub E2E；Runtime Stub 通过不等于真实 CLI 试点通过。
+- push 到 `master` 前无论改动类型，都执行本文“push 到 master 前必须跑一次全量验证”的三组命令。
 - 不能运行测试时，说明原因和残余风险。

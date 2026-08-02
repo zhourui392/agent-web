@@ -1,6 +1,6 @@
 # Agent Web
 
-> 基于 Spring Boot 的 Web 服务：通过浏览器驱动本机 Claude / Codex CLI，提供流式对话、工作流、定时任务、文件与 Git 工作区管理。
+> 基于 Spring Boot 的 Web 服务：通过浏览器驱动本机 Claude / Codex CLI，提供流式对话、本地研发工作台、工作流、定时任务、文件与 Git 工作区管理。
 
 ## 核心特性
 
@@ -21,6 +21,20 @@
 - **AgentRun 统一 Prompt 组装** — 各执行入口经 `app/agentrun/` 应用层管线装配 prompt：环境约束 → workspace 上下文 → 知识预召回 → 历史 RAG → 用户问题 → 输出格式，六段可开关、可降级、可观测（SHA-256 prompt hash）
 - **NATIVE 进程内诊断 Agent** — 用户可在普通聊天手动选择只读诊断运行时；以 AgentKit 0.2.1 普通 JAR 集成，复用 ChatRun、SQLite checkpoint 与可恢复 SSE，不启动 AgentKit CLI
 
+### Local Development Workbench（默认关闭）
+
+- **四阶段研发主流程** — `/workbench.html` 提供 `REQUIREMENT_ANALYSIS → SOLUTION_DESIGN → IMPLEMENT_TEST → REVIEW_REFACTOR` 四阶段工作台，每个阶段使用独立会话
+- **多仓 Repository Scope** — 从受信 Workspace Root 扫描 Git 仓库，由用户选择仓库集合、主仓和精确的 `READ` / `MODIFY` 边界；Scope 在 Workbench 创建后冻结
+- **可审计能力绑定** — 每阶段有默认 Phase Capability，可为下一轮配置 Override；每个 Run 使用不可变 Snapshot 冻结 Rules、Skills、MCP、Runtime、Repository Scope、Prompt 与 Handoff Reception
+- **结构化阶段交接** — Agent 只生成 Handoff Candidate，由用户采用、编辑或拒绝；正式 Handoff 固定为 Summary、Decisions、Open Questions、Pinned Files、Referenced Runs 五个字段，首次下游 Run 在提交事务内接收最新版本
+- **Review 与受控修改** — Review Candidate 支持逐项采用或忽略；只有人工保存 Review Opinion 并精确确认后才能发起 `MODIFY`，同时保留受影响测试建议与执行状态
+- **文档与附件上下文** — 只读文档 Pane 支持折叠、最大化、布局记忆和 stale/manual refresh；仓内文档引用可与浏览器上传附件联合提交，附件正文只进入 Git 忽略的受控存储
+- **后台运行与恢复** — Run 与浏览器连接解耦，支持事件续传、显式 Stop、刷新恢复和服务重启后的状态恢复/对账
+- **高影响操作默认不授权** — `GIT_COMMIT`、`GIT_PUSH`、`LOCAL_DEPLOY`、`PRODUCTION_WRITE` 使用类型化 Operation Proposal；创建 Proposal 只进入 `PROPOSED`，四类 Executor 发布开关均默认关闭
+- **Admin 安全投影** — `/admin/workbenches.html` 只提供安全裁剪后的查询、Stop 和单 Run Reconcile；管理员不能代 Owner 对话、修改 Handoff/Override 或批准 Operation
+
+Workbench 与 Harness 已解耦，但当前只完成自动化和真实 Spring + SQLite + Runtime Stub 边界验证，**尚未达到真实用户、真实 Codex/Claude CLI 试点退出标准**，因此不能据此退役 Harness。产品设计、技术方案与发布证据分别见 [MVP 产品设计](docs/local-development-workbench-mvp-design.md)、[Workbench 技术方案](docs/workbench/README.md)和[发布就绪快照](docs/workbench/release-readiness-2026-08-01.md)。
+
 ### 知识精炼与召回（Knowledge Refinery，默认关闭）
 
 - **自动沉淀** — 静默会话自动评分 → embedding 入向量库
@@ -29,9 +43,9 @@
 
 ### 平台运维
 
-- **管理台**（`/admin`，数据库 ADMIN 角色鉴权）— 使用概览、对话浏览、用户账号创建、工作流管理、RAG 语料维护、运行时设置（Agent 模型、默认工作空间与目录授权）
+- **管理台**（`/admin`，数据库 ADMIN 角色鉴权）— 使用概览、对话浏览、用户账号创建、工作流管理、RAG 语料维护、运行时设置（Agent 模型、默认工作空间与目录授权），以及 Workbench 查询、Stop、Reconcile 运维
 - **工作流编排** — 定义可复用的多步 workflow（每步一个 prompt 模板），一键触发执行并按步记录结果
-- **研发交付 Harness（默认关闭）** — 独立于 Workflow 的固定四阶段控制平面；M1—M3 已完成领域内核、Prompt/Skill/MCP Snapshot 和 Codex Runtime，M4 已打通 `ANALYSIS → DESIGN → IMPLEMENTATION → DEPLOYMENT`、`WAITING_INPUT`、确定性 Gate、Artifact 修订/失效、Git/TDD 证据、独立 local 部署 Approval、重启人工对账、管理页面和最终追踪报告。正式 Runtime 默认使用服务账户的本机 Codex CLI 登录态，也可切换到隔离 Key；自动化和真实在线 Prompt/Skill 已通过，但真实试点需求尚未完成，真实验收前不能关闭 M4，详见 [M4 实现记录](docs/harness/m4/README.md)与[自测报告](docs/harness/m4/test-report.md)
+- **研发交付 Harness（默认开启）** — 独立于 Workflow 的固定四阶段控制平面；M1—M3 已完成领域内核、Prompt/Skill/MCP Snapshot 和 Codex Runtime，M4 已打通 `ANALYSIS → DESIGN → IMPLEMENTATION → DEPLOYMENT`、`WAITING_INPUT`、确定性 Gate、Artifact 修订/失效、Git/TDD 证据、独立 local 部署 Approval、重启人工对账、管理页面和最终追踪报告。正式 Runtime 默认使用服务账户的本机 Codex CLI 登录态，也可切换到隔离 Key；Workbench 已与 Harness 公共能力解耦，但 Workbench 真实试点和外部门禁完成前不能删除 Harness 迁移窗口，详见 [M4 实现记录](docs/harness/m4/README.md)与[自测报告](docs/harness/m4/test-report.md)
 - **每用户 Git 身份** — 各用户配置自己的 git identity 与 SCM 凭据（密码加密存储、不回显），用于交付时归属提交与解析凭据链
 
 ## 技术栈
@@ -175,9 +189,23 @@ agent:
       - /api/metrics
   refinery:                         # 知识精炼 / 向量召回，默认关
     enabled: false
+  runtime:                          # Chat/Workbench 公共进程 Runtime，默认关
+    workbench-enabled: false
+    chat-enabled: false
+  workbench:                        # Workbench 页面/API、创建和写 Run 分级发布
+    enabled: false
+    create-enabled: false
+    write-run-enabled: false
+    high-impact:                    # 四类高影响 Executor 均默认关
+      commit-enabled: false
+      push-enabled: false
+      local-deploy-enabled: false
+      production-write-enabled: false
+  harness:                          # 迁移期研发交付 Harness，当前默认开
+    enabled: true
 ```
 
-> CLI 方言参数、知识精炼（`agent.refinery.*`）和 issue-log（`agent.issue-log.*`）的完整配置与内联注释见 `application.yml`。
+> CLI 方言参数、知识精炼（`agent.refinery.*`）、Workbench（`agent.runtime.*` / `agent.workbench.*`）、Harness（`agent.harness.*`）和 issue-log（`agent.issue-log.*`）的完整配置与内联注释见 `application.yml`。
 
 NATIVE 默认关闭，默认模型为 `gpt-5.6-sol`。开启时至少设置 `AGENT_NATIVE_ENABLED=true`、
 `AGENT_NATIVE_API_KEY` 和 `AGENT_NATIVE_BOUND_ENVIRONMENT`；需要换模型时再覆盖
@@ -246,7 +274,16 @@ AGENT_BOOTSTRAP_ADMIN_PASSWORD=<仅首次公网启动使用的新管理员密码
 | `AGENT_RUN_WORKSPACE_CONTEXT_ENABLED` | `true` | AgentRun workspace context 注入总开关，紧急止血可关（`agent.run.*`） |
 | `AGENT_RUN_WORKSPACE_KNOWLEDGE_ENABLED` | `true` | AgentRun workspace 知识预召回开关 |
 | `AGENT_RUN_RECALL_TOP_K` | `8` | AgentRun 召回 top-K |
-| `AGENT_HARNESS_ENABLED` | `false` | Harness 管理 API、Repository、Catalog、Artifact Store 总开关；默认关闭 |
+| `AGENT_WORKBENCH_ENABLED` | `false` | Workbench 页面/API 总开关；关闭时下级开关必须同时关闭 |
+| `AGENT_WORKBENCH_CREATE_ENABLED` / `AGENT_WORKBENCH_WRITE_RUN_ENABLED` | `false` / `false` | Workbench 创建与写 Run 分级发布开关 |
+| `AGENT_COMMON_RUNTIME_WORKBENCH_ENABLED` | `false` | Workbench 使用公共 Codex Runtime 的独立迁移开关；不改变普通 Chat 路径 |
+| `AGENT_COMMON_RUNTIME_CREDENTIAL_REFERENCE` | _(无)_ | 公共 Runtime 凭据环境变量的逻辑名；Runtime 开启时必须显式配置，真实凭据仍由进程环境/Secret Store 注入 |
+| `AGENT_WORKBENCH_HIGH_IMPACT_COMMIT_ENABLED` / `AGENT_WORKBENCH_HIGH_IMPACT_PUSH_ENABLED` | `false` / `false` | Git commit/push Executor 发布开关；Proposal 本身不构成授权 |
+| `AGENT_WORKBENCH_HIGH_IMPACT_LOCAL_DEPLOY_ENABLED` / `AGENT_WORKBENCH_HIGH_IMPACT_PRODUCTION_WRITE_ENABLED` | `false` / `false` | 本地部署/生产写 Executor 发布开关；默认 fail-closed |
+| `AGENT_WORKBENCH_RUN_TIMEOUT_SECONDS` / `AGENT_WORKBENCH_RUN_MAX_OUTPUT_BYTES` | `1800` / `8388608` | Workbench 单次 Run 超时与输出上限 |
+| `AGENT_WORKBENCH_ATTACHMENT_STORAGE_ROOT` | `data/workbench/uploads` | 浏览器上传附件的 Git 忽略受控根，不写入 Repository Scope |
+| `AGENT_WORKBENCH_ATTACHMENT_MAXIMUM_BYTES` / `AGENT_WORKBENCH_ATTACHMENT_MAXIMUM_AVAILABLE` | `10485760` / `16` | 单附件大小与每阶段会话可用附件数上限 |
+| `AGENT_HARNESS_ENABLED` | `true` | Harness 管理 API、Repository、Catalog、Artifact Store 总开关；当前默认开启，测试 profile 可覆盖关闭 |
 | `AGENT_HARNESS_ARTIFACT_ROOT` | `data/harness/artifacts` | Harness Artifact 正文受控根目录 |
 | `AGENT_CAPABILITY_RULE_ROOT` | `src/main/resources/capability/rules` | Workbench 与 Harness 共用的可信 Rule Catalog 根；不受 Harness 开关或旧 Harness 根变量影响 |
 | `AGENT_CAPABILITY_SKILL_ROOT` | `src/main/resources/capability/skills` | Workbench 与 Harness 共用的平台可信 Skill Catalog 根；不回退读取旧 Harness 变量 |
@@ -279,11 +316,34 @@ AGENT_BOOTSTRAP_ADMIN_PASSWORD=<仅首次公网启动使用的新管理员密码
 5. 历史列表展示对话，可查看 / 继续会话；**删除仅限自己创建的对话**
 6. 「分享」按钮生成只读公开链接；链接持有者可查看历史与消息中明确引用的图片，但不能续聊或启动 Agent
 
+### Local Development Workbench
+
+Workbench 默认关闭。开启创建和真实写 Run 时，需要同时发布 Workbench、创建、写 Run、公共 Runtime
+四个开关，并给 Runtime 配置一个凭据环境变量的逻辑引用；不要把实际凭据值提交到仓库：
+
+```bash
+AGENT_WORKBENCH_ENABLED=true \
+AGENT_WORKBENCH_CREATE_ENABLED=true \
+AGENT_WORKBENCH_WRITE_RUN_ENABLED=true \
+AGENT_COMMON_RUNTIME_WORKBENCH_ENABLED=true \
+AGENT_COMMON_RUNTIME_CREDENTIAL_REFERENCE=WORKBENCH_CODEX_PROVIDER_KEY \
+mvn spring-boot:run
+```
+
+登录后访问 `/workbench.html`：先输入受 `agent.fs.roots` 约束的 Workspace Root，扫描并选择 Repository
+Scope、主仓和写入边界，再按四阶段分别对话和运行。阶段完成前核对或编辑五字段 Handoff；第四阶段的
+Review Candidate 必须经人工逐项处理并确认后才能进入修改。高影响操作还需要各自独立发布开关和
+Owner 明确决定，不能从聊天文本、阶段切换或 Proposal 创建中自动获得授权。
+
+ADMIN 可在 `/admin/workbenches.html` 查询安全投影、停止 Run 或对单个 Run 执行 Reconcile。当前
+自动化真实边界使用 Runtime Stub，不代表真实 Codex/Claude CLI 试点完成；启用前应阅读
+[Workbench 发布就绪快照](docs/workbench/release-readiness-2026-08-01.md)中的剩余门禁。
+
 ### 研发交付 Harness
 
-Harness 默认关闭。试用前先阅读 [M4 开启、恢复和限制说明](docs/harness/m4/README.md#7-开启配置与关闭)，
-准备管理员维护的外置 Catalog 和仅 local 的 token 化部署模板，再通过
-`AGENT_HARNESS_ENABLED=true` 开启。ADMIN 登录后访问 `/admin/harness.html`，按固定顺序执行：
+Harness 当前默认开启，测试/E2E profile 可显式覆盖关闭。试用前先阅读
+[M4 开启、恢复和限制说明](docs/harness/m4/README.md#7-开启配置与关闭)，准备管理员维护的外置 Catalog
+和仅 local 的 token 化部署模板。ADMIN 登录后访问 `/admin/harness.html`，按固定顺序执行：
 
 ```text
 创建 Run 并冻结原始需求
@@ -311,45 +371,65 @@ Feature Flag 关闭不会删除历史数据。服务重启时未知 Runtime 标�
 
 > 页面聊天统一先 `POST /api/chat/session/{id}/runs`（携带 `Idempotency-Key`）提交，再通过 `GET /api/chat/runs/{runId}/events` 订阅；断线后客户端指数退避重连，并使用 `Last-Event-ID` 回放未确认事件。旧 POST SSE、session status/stop 入口已移除。
 
+Workbench 核心入口按边界拆分：`POST /api/workbench/workspaces/inspect` 只检查 Workspace Root 和仓库拓扑；
+`/api/workbenches` 负责 Owner 范围内的 Workbench、阶段、会话、Run、Handoff、Capability、文档、附件和
+Operation；`/api/admin/workbenches` 只向 ADMIN 暴露安全投影以及 Stop/Reconcile 运维动作。完整方法、请求体和
+并发版本约束以 `interfaces/workbench/` 下 Controller 为准。
+
 ## 项目结构
 
 ```
 src/main/java/com/example/agentweb/
 ├── interfaces/   REST Controller + DTO（Chat / Fs / Auth / Share / Worktree / ScheduledTask /
-│                 AdminWorkflow / GitConfig / Metrics / RecallMetrics / Refinery* / Admin*）
+│                 AdminWorkflow / GitConfig / Metrics / RecallMetrics / Refinery* / Workbench / Admin*）
 ├── app/          应用编排（无业务逻辑）：agentrun（prompt 组装）、chat、scheduled-task、
-│                 workflow、git、metrics、refinery、harness；面向外部能力的端口位于
+│                 workflow、git、metrics、refinery、workbench、runtime、harness；面向外部能力的端口位于
 │                 agentrun/port、auth/port、logging 等对应子域
 ├── domain/       聚合根 / 值对象 / 仓储端口：chat、workflow、git、refinery、issuelog、auth、
-│                 schedule、slashcommand、worktree、harness、shared
+│                 schedule、slashcommand、worktree、workbench、workspace、capability、runtime、harness、shared
 ├── infra/        CLI 进程执行（cli/ 方言策略）、SQLite 仓储、auth/（本地会话登录 + context path 派生）、
-│                 workflow/、git/、schedule/、log/、metrics/、refinery/、issuelog/、harness/、setting/
-└── config/       Web MVC / Spring 装配、运行配置 Properties（含 refinery/、harness/）
+│                 workflow/、git/、schedule/、log/、metrics/、refinery/、issuelog/、workbench/、workspace/、
+│                 capability/、runtime/、harness/、setting/
+└── config/       Web MVC / Spring 装配、运行配置 Properties（含 capability/、runtime/、workbench/、harness/）
 
 src/main/resources/
 ├── application.yml              主配置（各 agent.* 节点带内联注释）
 ├── schema.sql                  SQLite 建表脚本
 ├── *-prompt.md                 refinery 评分与 issue-log prompt
-└── static/                     （前端分离后此目录不再使用，构建产物在 frontend/dist/）
+└── workbench/profiles/         四阶段默认 Capability Profile
 
+frontend/                       Vue 3 + Element Plus + Vite MPA 源码；构建产物为 frontend/dist/
 tests/                          前端测试工程：Vitest 纯函数单测 + Playwright E2E（自带 e2e profile）
-docs/                           设计文档（domain-model.md / event-storming.md，部分早于本次重构，以源码为准）
+docs/                           产品、架构、发布和运维文档；Workbench 索引位于 docs/workbench/README.md
 ```
 
 ## 测试
 
-三层测试金字塔：后端 JUnit 5 + Mockito（约 180 个测试类），前端 Vitest 纯函数单测，Playwright E2E 主链路。
+三层测试金字塔：后端 JUnit 5 + Mockito，前端 Vitest 纯函数单测，Playwright E2E 主链路。`mvn test`
+默认排除 `live`、`git-integration`、`spring-flow`、`process-integration` 四个慢分组，不等于包含真实外部
+CLI/登录态的全部测试。
 
 ```bash
-mvn test                            # 全部后端测试
-mvn test -Dtest=ChatFlowTest        # 单类
-mvn test -Dtest='*RepoTest'         # 仅跑 Infra 轻量集成
-mvn pmd:check                       # 代码质量检查（Alibaba P3C）
-cd tests && npm test                # 前端纯函数单测（Vitest）
-cd tests && npm run e2e             # 前端 E2E（Playwright，自动启停 Spring Boot e2e profile）
+mvn -B test                                                   # 默认后端快速测试集
+mvn test -Dtest=ChatFlowTest                                 # 单类
+mvn test -Dtest='*RepoTest'                                  # 仅跑 Infra 轻量集成
+mvn pmd:check                                                # 代码质量检查（Alibaba P3C）
+cd frontend && npm run typecheck && npm run lint && npm run build
+cd tests && npm run typecheck && npm test                    # Vitest
+cd tests && npm run e2e                                      # 通用 Playwright E2E
+cd tests && npx playwright test -c playwright.workbench.config.ts        # Mock Workbench
+cd tests && npx playwright test -c playwright.admin-workbench.config.ts  # Admin Workbench
+cd tests && npx playwright test -c playwright.workbench-real.config.ts   # Spring + SQLite + Runtime Stub
 ```
 
-> Playwright 必须在 `tests/` 目录内运行（`playwright.config.ts` 只在 cwd=`tests/` 时被自动加载），否则会误把 Vitest 单测当 E2E 加载报假错。
+> Playwright 必须在 `tests/` 目录内运行，或从仓库根显式传 `-c tests/<config>.ts`，否则可能误把 Vitest
+> 单测当 E2E 加载。`playwright.workbench-real.config.ts` 的“real”表示真实 Spring、SQLite、进程编排和
+> Runtime Stub 边界，不会使用真实 Codex/Claude 模型或登录态。
+
+2026-08-01 发布候选记录为：默认后端集 2442 项、`ArchitectureTest` 18/18、Vitest 50 files / 523
+tests、Workbench Mock 14/14、Admin Workbench 2/2、真实边界 Stub 4/4；详细命令、慢分组和未完成的真实
+试点/运维门禁见[发布就绪快照](docs/workbench/release-readiness-2026-08-01.md)。push 到 `master` 前仍必须以
+当前工作树重新运行后端、`frontend/` 和 `tests/` 三组门禁，不能用历史记录替代。
 
 关键测试：
 - `ChatFlowTest` / `FeedbackFlowTest` — 聊天流程与会话反馈
@@ -362,7 +442,8 @@ cd tests && npm run e2e             # 前端 E2E（Playwright，自动启停 Spr
 - `infra/AgentCliGatewayTest` / `infra/AgentTypeResolverTest` — 网关与类型兜底
 - `app/workflow/*` / `domain/workflow/*` / `infra/workflow/*` — 多步工作流编排与持久化
 - `domain/refinery/*` / `app/refinery/*` / `infra/refinery/*` — 知识精炼评分、召回重排、embedding、向量库
-- `ArchitectureTest` — 分层约束校验
+- `domain/workbench/*` / `app/workbench/*` / `infra/workbench/*` / `interfaces/workbench/*` — Workbench 不变量、编排、SQLite/文件适配与 API
+- `ArchitectureTest` — 分层约束及 Spring AOP 代理类不得 `final` 等架构守卫
 
 ## 安全注意事项
 
@@ -374,6 +455,10 @@ cd tests && npm run e2e             # 前端 E2E（Playwright，自动启停 Spr
 - 会话可见性默认按用户隔离；**删除仅限会话创建者**（删他人会话返回 403）；管理接口在普通会话认证后再校验 `ADMIN` 角色
 - 分享链接基于随机 Token，只读查看；公开分享不能续聊、不能启动 Agent、不能使用 owner 的 Git 身份或凭据
 - 用户路径经过真实路径白名单校验，拒绝符号链接逃逸；上传限制文件名、扩展名和大小，并禁止覆盖已有文件
+- Workbench 在 Workspace Root 白名单之上冻结 Repository Scope；所有文档、附件引用、Run 写根和 Operation Target 再按 Scope 授权，未选择的 sibling 仓库不可写
+- Workbench 上传附件在受控 Git 忽略目录保存，使用内容 Hash、大小/数量/TTL 上限和 `NOFOLLOW` 路径检查；附件不能通过文件路径声明伪造
+- Workbench Runtime Snapshot 冻结 Exec Policy、能力绑定和写根；类型化 Operation 默认仅为 Proposal，高影响 Executor 独立发布且必须由 Owner 明确决定
+- Admin Workbench 只返回安全投影，不返回消息正文、Prompt、Secret 或原始命令；管理员运维动作进入独立审计记录
 - Markdown 经 DOMPurify 白名单净化；统一发送 CSP、`nosniff`、拒绝 framing 等浏览器安全头
 - Agent 子进程使用最小环境变量集合、超时和输出上限；Codex 默认不绕过 sandbox，Claude 不使用 `--dangerously-skip-permissions`
 - 用户 SCM 凭据密码加密存储（`GitCredentialCipher`），响应不回显
@@ -387,5 +472,5 @@ cd tests && npm run e2e             # 前端 E2E（Playwright，自动启停 Spr
 - 把 `agent.fs.roots` 限制到确实允许浏览、修改和执行 worktree 操作的必要工作目录
 - 用户 Git 凭据使用 `GIT_CRED_ENC_KEY` 加密；密钥通过受控环境或 Git 忽略配置注入，不写入受版本控制的文件
 - TLS 在反向代理终止时保持 `SERVER_FORWARD_HEADERS_STRATEGY=framework`，并设置 `X-Forwarded-Proto=https`；部署样例和检查清单见 [公网 HTTPS 部署](docs/public-deployment.md)
-- CSP 为兼容当前无前端构建步骤的 Vue 运行时模板编译，暂时包含 `unsafe-inline` 与 `unsafe-eval`；后续改为预编译模板和外部脚本后应移除这两个兼容项
+- Vue/Vite 已使用 runtime-only 预编译构建，CSP 不再包含 `unsafe-eval`；当前 `style-src` / `script-src` 仍保留 `unsafe-inline`，后续清理内联样式/脚本后应继续收紧
 - 不要开启 `CODEX_SANDBOX_BYPASS`，除非已经评估工作目录、CLI 登录态和子进程权限边界
