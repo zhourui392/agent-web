@@ -26,6 +26,7 @@ export default [
       'js/admin/pages/Workflows.vue',
       'js/admin/pages/Recall.vue',
       'js/admin/pages/Workbenches.vue',
+      'js/admin/pages/Capabilities.vue',
       'js/admin/components/ToolInvocationDetailDrawer.vue',
     ],
   },

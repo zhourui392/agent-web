@@ -270,9 +270,11 @@ import {
   fetchProfiles,
   fetchCatalog,
   updateProfile,
-  type AdminPhaseCapabilityProfile,
-  type AdminCapabilityCatalog,
-  type CapabilityReferenceInput,
+} from '../api/capabilities.js';
+import type {
+  AdminPhaseCapabilityProfile,
+  AdminCapabilityCatalog,
+  CapabilityReferenceInput,
 } from '../api/capabilities.js';
 
 type Phase = 'REQUIREMENT_ANALYSIS' | 'SOLUTION_DESIGN' | 'IMPLEMENT_TEST' | 'REVIEW_REFACTOR';
