@@ -65,6 +65,9 @@ public class FileSystemMcpServerCatalog implements McpServerCatalog {
             throw new CapabilityCatalogException("CATALOG_SCHEMA_UNSUPPORTED",
                     "unsupported MCP catalog schema version");
         }
+        yaml.requireOnlyKeys("schemaVersion", "id", "version", "description",
+                "applicableUseCases", "runtimes", "command", "startupTimeoutSeconds",
+                "toolTimeoutSeconds", "capabilities", "secrets");
         return new McpServerDefinition(yaml.requiredString("id"),
                 yaml.requiredString("version"), yaml.requiredString("description"),
                 stringSet(yaml.requiredStringList("applicableUseCases"), "use case"),

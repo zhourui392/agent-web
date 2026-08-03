@@ -41,26 +41,6 @@ public class FileSystemRuleCatalog implements RuleCatalog {
     }
 
     @Override
-    public RuleDefinition resolve(String useCase) {
-        String normalized = requireUseCase(useCase);
-        List<RuleDefinition> matches = new ArrayList<RuleDefinition>();
-        for (RuleDefinition definition : loadDefinitions()) {
-            if (definition.supports(normalized)) {
-                matches.add(definition);
-            }
-        }
-        if (matches.isEmpty()) {
-            throw new CapabilityCatalogException("RULE_DEFINITION_NOT_FOUND",
-                    "no rule definition found for use case: " + normalized);
-        }
-        if (matches.size() > 1) {
-            throw new CapabilityCatalogException("RULE_DEFINITION_VERSION_CONFLICT",
-                    "multiple rule definition versions found for use case: " + normalized);
-        }
-        return matches.get(0);
-    }
-
-    @Override
     public RuleDefinition resolveById(String logicalId) {
         String requiredId = requireLogicalId(logicalId);
         List<RuleDefinition> matches = new ArrayList<RuleDefinition>();

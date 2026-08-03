@@ -5,6 +5,7 @@ import com.example.agentweb.app.runtime.port.RuntimeSemanticEvent;
 import com.example.agentweb.app.runtime.port.RuntimeEventType;
 import com.example.agentweb.app.runtime.port.SandboxMode;
 import com.example.agentweb.app.runtime.port.WorkspaceLayout;
+import com.example.agentweb.infra.cli.CodexEventNormalizer;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
@@ -13,10 +14,13 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Codex JSONL 到公共 Runtime Event 的归一化、脱敏与截断契约。
+ *
+ * <p>事件识别委托给 {@link CodexEventNormalizer}，未识别事件返回 skipped（event=null）。</p>
  *
  * @author alex
  * @since 2026-08-01
@@ -25,29 +29,23 @@ class RuntimeEventDecoderTest {
 
     private static final String SECRET = "decoder-secret-never-visible";
 
-    @Test
-    void decodesCodexJsonlTypeAndBoundsSafePayloadBeforeBuildingEvent() {
-        RuntimeEventDecoder decoder = new RuntimeEventDecoder(new RuntimeOutputRedactor());
+    private final RuntimeEventDecoder decoder = new RuntimeEventDecoder(
+            new RuntimeOutputRedactor(),
+            com.example.agentweb.domain.runtime.RuntimeCommandPolicy.platformDefault(),
+            new CodexEventNormalizer());
 
+    @Test
+    void unrecognizedItemCompletedShouldBeSkipped() {
         RuntimeEventDecoder.DecodedEvent decoded = decoder.decode("exec-jsonl", 2L,
                 "{\"type\":\"item.completed\",\"credential\":\"" + SECRET + "\"}");
 
-        assertEquals("item.completed", decoded.getProviderEventType());
-        assertEquals(RuntimeEventType.OUTPUT, decoded.getEvent().getType());
-        assertEquals(2L, decoded.getEvent().getSequence());
-        assertFalse(decoded.getEvent().getSafePayload().contains(SECRET));
-        assertFalse(decoded.getEvent().getSafePayload().contains("credential"));
-        assertEquals("codex event received: item.completed",
-                decoded.getEvent().getSafePayload());
+        assertNull(decoded.getEvent());
+        assertEquals("", decoded.getProviderEventType());
         assertFalse(decoded.isTurnFailed());
-        assertFalse(decoded.getEvent().assistantText().isPresent());
     }
 
     @Test
     void normalizesOnlyCompletedCodexAgentMessageAsAssistantText() {
-        RuntimeEventDecoder decoder = new RuntimeEventDecoder(
-                new RuntimeOutputRedactor());
-
         RuntimeEventDecoder.DecodedEvent assistant = decoder.decode(
                 "exec-agent", 4L,
                 "{\"type\":\"item.completed\",\"item\":{"
@@ -68,12 +66,10 @@ class RuntimeEventDecoderTest {
     }
 
     @Test
-    void recognizesTurnFailureAndBoundsMalformedProviderOutput() {
-        RuntimeEventDecoder decoder = new RuntimeEventDecoder(new RuntimeOutputRedactor());
-
+    void recognizesTurnFailureAndSkipsMalformedProviderOutput() {
         RuntimeEventDecoder.DecodedEvent failed = decoder.decode("exec-failed", 1L,
                 "{ \"type\" : \"turn.failed\", \"secret\" : \"" + SECRET + "\" }");
-        String oversized = String.join("", java.util.Collections.nCopies(
+        String oversized = String.join("", Collections.nCopies(
                 RuntimeEvent.MAX_SAFE_PAYLOAD_LENGTH + 100, "x"));
         RuntimeEventDecoder.DecodedEvent malformed = decoder.decode("exec-malformed", 3L,
                 oversized);
@@ -81,16 +77,11 @@ class RuntimeEventDecoderTest {
         assertTrue(failed.isTurnFailed());
         assertEquals(RuntimeEventType.DIAGNOSTIC, failed.getEvent().getType());
         assertEquals("turn.failed", failed.getProviderEventType());
-        assertEquals(RuntimeEventType.DIAGNOSTIC, malformed.getEvent().getType());
-        assertEquals("", malformed.getProviderEventType());
-        assertEquals("unstructured provider output suppressed",
-                malformed.getEvent().getSafePayload());
+        assertNull(malformed.getEvent());
     }
 
     @Test
     void mapsCommandToolAndTestLifecycleWithoutExposingCommandOrOutput() {
-        RuntimeEventDecoder decoder = new RuntimeEventDecoder(
-                new RuntimeOutputRedactor());
         WorkspaceLayout layout = workspaceLayout();
 
         RuntimeEventDecoder.DecodedEvent started = decoder.decode(
@@ -139,8 +130,6 @@ class RuntimeEventDecoderTest {
 
     @Test
     void mapsMcpAndFileChangesToExactRepositoryRelativeContracts() {
-        RuntimeEventDecoder decoder = new RuntimeEventDecoder(
-                new RuntimeOutputRedactor());
         WorkspaceLayout layout = workspaceLayout();
         RuntimeEventDecoder.DecodedEvent mcp = decoder.decode(
                 "exec-mcp", 20L,
@@ -173,8 +162,6 @@ class RuntimeEventDecoderTest {
 
     @Test
     void rejectsOutOfScopeFilesAndSignalsBlockedHighImpactIntentWithoutRawCommand() {
-        RuntimeEventDecoder decoder = new RuntimeEventDecoder(
-                new RuntimeOutputRedactor());
         WorkspaceLayout layout = workspaceLayout();
         RuntimeEventDecoder.DecodedEvent escaped = decoder.decode(
                 "exec-files", 30L,

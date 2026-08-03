@@ -185,17 +185,13 @@ class ChatRunRuntimeLauncherTest {
 
         sinkReference.get().onEvent(event(2L, RuntimeEventType.OUTPUT, "safe output"));
 
-        ArgumentCaptor<String> payload = ArgumentCaptor.forClass(String.class);
-        verify(lifecycleService).append(eq(RUN_ID), eq("runtime_output"), payload.capture());
-        JsonNode json = new ObjectMapper().readTree(payload.getValue());
-        assertEquals(2L, json.get("runtimeSequence").asLong());
-        assertEquals("OUTPUT", json.get("runtimeType").asText());
-        assertEquals("safe output", json.get("payload").asText());
+        verify(lifecycleService, never()).append(
+                eq(RUN_ID), any(String.class), any(String.class));
         verify(executionGateway, never()).observe(any(RuntimeHandle.class));
     }
 
     @Test
-    void normalizedAssistantOutputShouldPersistRawAuditBeforeRenderableAgentChunk()
+    void normalizedAssistantOutputShouldPersistRenderableAgentChunk()
             throws Exception {
         AtomicReference<RuntimeEventSink> sinkReference =
                 new AtomicReference<RuntimeEventSink>();
@@ -211,10 +207,7 @@ class ChatRunRuntimeLauncherTest {
 
         ArgumentCaptor<String> chunkPayload =
                 ArgumentCaptor.forClass(String.class);
-        InOrder order = inOrder(lifecycleService);
-        order.verify(lifecycleService).append(
-                eq(RUN_ID), eq("runtime_output"), any(String.class));
-        order.verify(lifecycleService).append(
+        verify(lifecycleService).append(
                 eq(RUN_ID), eq("agent_chunk"), chunkPayload.capture());
         JsonNode chunk = new ObjectMapper().readTree(
                 chunkPayload.getValue());
@@ -223,7 +216,7 @@ class ChatRunRuntimeLauncherTest {
     }
 
     @Test
-    void structuredRuntimeSemanticsShouldPersistAfterSafeAuditInDeclaredOrder()
+    void structuredRuntimeSemanticsShouldPersistInDeclaredOrder()
             throws Exception {
         AtomicReference<RuntimeEventSink> sinkReference =
                 new AtomicReference<RuntimeEventSink>();
@@ -242,8 +235,6 @@ class ChatRunRuntimeLauncherTest {
         sinkReference.get().onEvent(runtimeEvent);
 
         InOrder order = inOrder(lifecycleService);
-        order.verify(lifecycleService).append(
-                eq(RUN_ID), eq("runtime_output"), any(String.class));
         order.verify(lifecycleService).append(
                 eq(RUN_ID), eq("tool_started"), any(String.class));
         order.verify(lifecycleService).append(
@@ -270,8 +261,6 @@ class ChatRunRuntimeLauncherTest {
                 lifecycleService, executionGateway, terminationReconciler);
         order.verify(lifecycleService).start(RUN_ID);
         order.verify(lifecycleService).append(eq(RUN_ID), eq("runtime_started"), any(String.class));
-        order.verify(lifecycleService, times(2)).append(
-                eq(RUN_ID), eq("runtime_output"), any(String.class));
         order.verify(lifecycleService).append(eq(RUN_ID), eq("runtime_terminated"), any(String.class));
         order.verify(executionGateway).observe(HANDLE);
         order.verify(terminationReconciler).reconcile(

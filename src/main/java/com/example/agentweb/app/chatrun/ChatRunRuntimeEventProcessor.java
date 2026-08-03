@@ -53,7 +53,6 @@ final class ChatRunRuntimeEventProcessor {
                 appendRuntimeEvent("runtime_started", event);
                 return;
             case OUTPUT:
-                appendRuntimeEvent("runtime_output", event);
                 appendSemanticEvents(event);
                 return;
             case DIAGNOSTIC:

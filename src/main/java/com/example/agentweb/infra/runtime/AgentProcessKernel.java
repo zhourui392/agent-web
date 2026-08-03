@@ -259,6 +259,9 @@ public final class AgentProcessKernel implements AgentExecutionGateway, AutoClos
             return ConsumeResult.stop(RuntimeTerminationReason.OUTPUT_LIMIT);
         }
         RuntimeEventDecoder.DecodedEvent decoded = context.decodeAndEmit(eventDecoder, line);
+        if (decoded.getEvent() == null) {
+            return ConsumeResult.output(false);
+        }
         if (decoded.isOperationBlocked()) {
             return ConsumeResult.stop(RuntimeTerminationReason.SECURITY_POLICY);
         }
@@ -418,7 +421,9 @@ public final class AgentProcessKernel implements AgentExecutionGateway, AutoClos
             RuntimeEventDecoder.DecodedEvent decoded = decoder.decode(
                     handle.getExecutionId(), sequence.incrementAndGet(), line,
                     capabilities, plan.getWorkspaceLayout());
-            sink.onEvent(toolTiming.enhance(decoded.getEvent()));
+            if (decoded.getEvent() != null) {
+                sink.onEvent(toolTiming.enhance(decoded.getEvent()));
+            }
             return decoded;
         }
 

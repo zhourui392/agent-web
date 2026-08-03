@@ -23,6 +23,15 @@
 
 Catalog 不包含 Phase 业务规则；Workbench 不直接读取文件或解析 YAML。
 
+### 2.1 Catalog Manifest 输入协议
+
+Rule、Skill 与 MCP Manifest 统一使用 `applicableUseCases` 声明适用场景。已退役的 `stage`、
+`stages` 字段不再映射或兼容；Catalog 发现未声明字段时以 `CATALOG_MANIFEST_INVALID`
+失败关闭，不能静默忽略。
+
+Rule Catalog 只按逻辑 ID 返回版本化定义。Workbench Domain 再根据当前 Phase 校验定义的
+`applicableUseCases`；Catalog Adapter 不按 Phase 选择唯一 Rule，也不替 Domain 推断适用性。
+
 ## 3. Profile 资源结构
 
 ```text

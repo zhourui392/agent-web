@@ -763,6 +763,21 @@ CREATE TABLE IF NOT EXISTS workbench_phase_capability_config (
     CHECK (version >= 0)
 );
 
+CREATE TABLE IF NOT EXISTS workbench_phase_capability_profile (
+    phase               TEXT    NOT NULL PRIMARY KEY,
+    profile_id          TEXT    NOT NULL,
+    profile_version     TEXT    NOT NULL,
+    profile_hash        TEXT    NOT NULL,
+    capabilities_json   TEXT    NOT NULL,
+    updated_by_id       TEXT    NOT NULL,
+    updated_by_name     TEXT    NOT NULL,
+    updated_at          INTEGER NOT NULL,
+    version             INTEGER NOT NULL,
+    CHECK (version >= 1),
+    CHECK (length(profile_hash) = 64
+        AND profile_hash NOT GLOB '*[^0-9a-f]*')
+);
+
 CREATE TABLE IF NOT EXISTS workbench_review_opinion (
     workbench_id    TEXT    NOT NULL,
     opinion_version INTEGER NOT NULL,

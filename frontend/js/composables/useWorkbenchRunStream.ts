@@ -142,6 +142,26 @@ export function useWorkbenchRunStream(
   );
   let activeClient: WorkbenchRunStreamClient | null = null;
   let connectionGeneration = 0;
+  let pendingState: WorkbenchRunState | null = null;
+  let flushTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function flushPendingState(): void {
+    if (flushTimer) {
+      clearTimeout(flushTimer);
+      flushTimer = null;
+    }
+    if (pendingState) {
+      state.value = pendingState;
+      pendingState = null;
+    }
+  }
+
+  function scheduleFlush(reduced: WorkbenchRunState): void {
+    pendingState = reduced;
+    if (!flushTimer) {
+      flushTimer = setTimeout(flushPendingState, 100);
+    }
+  }
 
   function storage(): StorageLike {
     return options.storage || globalThis.localStorage;
@@ -158,6 +178,7 @@ export function useWorkbenchRunStream(
   }
 
   function closeActive(nextStatus: WorkbenchRunConnectionStatus): void {
+    flushPendingState();
     connectionGeneration++;
     const client = activeClient;
     activeClient = null;
@@ -225,7 +246,7 @@ export function useWorkbenchRunStream(
     }
 
     connectionStatus.value = 'streaming';
-    const current = state.value;
+    const current = pendingState || state.value;
     if (!current) return;
     const reduced = applyWorkbenchRunEvent(current, {
       id: event.lastEventId,
@@ -234,11 +255,18 @@ export function useWorkbenchRunStream(
     }, context);
     if (reduced === current) return;
 
-    state.value = reduced;
     safelySaveMarker(store, context.runId, reduced.lastAppliedEventSeq);
     if (reduced.terminal) {
+      if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+      pendingState = null;
+      state.value = reduced;
       safelyClearMarker(store);
       closeActive('closed');
+    } else if (event.type === 'agent_chunk') {
+      scheduleFlush(reduced);
+    } else {
+      flushPendingState();
+      state.value = reduced;
     }
   }
 

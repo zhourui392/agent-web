@@ -1,6 +1,7 @@
 package com.example.agentweb.infra.capability;
 
 import com.example.agentweb.domain.capability.CapabilityCatalogException;
+import com.example.agentweb.domain.capability.RuleCatalog;
 import com.example.agentweb.domain.capability.RuleDefinition;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -86,20 +87,9 @@ class FileSystemRuleCatalogTest {
     }
 
     @Test
-    void useCaseResolutionShouldRemainCompatibleWithWorkbenchPhases() throws Exception {
-        writeRule(
-                "analysis", "analysis", "1.0.0", "PLATFORM", true,
-                "Workbench analysis Prompt Pack",
-                Collections.singletonList("ANALYSIS"),
-                "system", "system.md", true);
-
-        RuleDefinition definition = new FileSystemRuleCatalog(tempDir)
-                .resolve("analysis");
-
-        assertEquals("analysis", definition.getId());
-        assertTrue(definition.supports("ANALYSIS"));
-        assertEquals("rule content",
-                definition.requireResource("system").getContent());
+    void shouldNotExposeUseCaseResolution_WhenMultipleRulesMayApply() {
+        assertThrows(NoSuchMethodException.class,
+                () -> RuleCatalog.class.getMethod("resolve", String.class));
     }
 
     @Test

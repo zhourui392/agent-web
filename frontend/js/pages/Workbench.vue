@@ -1,16 +1,5 @@
 <template>
   <div class="workbench-shell">
-    <header class="workbench-topbar">
-      <button class="workbench-brand" type="button" @click="goHome">
-        <span class="workbench-brand-mark">W</span>
-        <span>本地开发 Workbench</span>
-      </button>
-      <span class="workbench-topbar-spacer"></span>
-      <span class="workbench-user">{{ username || '当前用户' }}</span>
-      <el-button plain @click="goHome">返回对话</el-button>
-      <el-button v-if="authEnabled" plain @click="doLogout">登出</el-button>
-    </header>
-
     <el-alert
       v-if="errorMessage"
       class="workbench-global-error"
@@ -24,9 +13,10 @@
     <div class="workbench-body">
       <aside class="workbench-sidebar">
         <div class="workbench-sidebar-actions">
+          <el-button text @click="goHome">← 返回对话</el-button>
           <el-button type="primary" @click="openCreateDialog">
             <el-icon><plus /></el-icon>
-            新建 Workbench
+            新建
           </el-button>
           <el-button text :loading="listLoading" title="刷新列表" @click="refreshList">
             <el-icon><refresh /></el-icon>
@@ -70,30 +60,25 @@
 
         <template v-else>
           <section class="workbench-detail-header">
-            <div class="workbench-detail-heading">
-              <div class="workbench-detail-eyebrow">
-                <el-popover placement="bottom-start" trigger="click" :width="360">
-                  <template #reference>
-                    <el-button text data-test="repository-scope-popover">
-                      {{ detail.repositoryScope.primaryRepositoryKey }}
-                      <span>·</span>
-                      {{ detail.repositoryScope.repositories.length }} 个仓库
-                    </el-button>
-                  </template>
-                  <ul aria-label="冻结 Repository Scope">
-                    <li
-                      v-for="repository in detail.repositoryScope.repositories"
-                      :key="repository.repositoryKey"
-                    >
-                      <strong>{{ repository.repositoryKey }}</strong>
-                      <span>{{ repositoryRelativePathLabel(repository.relativePath) }}</span>
-                      <el-tag v-if="repository.primary" size="small" type="success">主仓</el-tag>
-                    </li>
-                  </ul>
-                </el-popover>
-              </div>
-              <h1>{{ detail.title }}</h1>
-            </div>
+            <el-popover placement="bottom-start" trigger="click" :width="360">
+              <template #reference>
+                <el-button text data-test="repository-scope-popover">
+                  {{ detail.repositoryScope.primaryRepositoryKey }}
+                  <span>·</span>
+                  {{ detail.repositoryScope.repositories.length }} 个仓库
+                </el-button>
+              </template>
+              <ul aria-label="冻结 Repository Scope">
+                <li
+                  v-for="repository in detail.repositoryScope.repositories"
+                  :key="repository.repositoryKey"
+                >
+                  <strong>{{ repository.repositoryKey }}</strong>
+                  <span>{{ repositoryRelativePathLabel(repository.relativePath) }}</span>
+                  <el-tag v-if="repository.primary" size="small" type="success">主仓</el-tag>
+                </li>
+              </ul>
+            </el-popover>
             <div class="workbench-detail-badges">
               <span :class="['agent-tag', 'agent-tag-' + detail.agentType.toLowerCase()]">{{ detail.agentType === 'CLAUDE' ? 'Claude' : 'Codex' }}</span>
               <el-tag :type="detail.status === 'ARCHIVED' ? 'info' : 'success'">

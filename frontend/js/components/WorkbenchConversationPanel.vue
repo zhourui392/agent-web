@@ -1,18 +1,12 @@
 <template>
   <div class="workbench-conversation-panel">
-    <div class="workbench-panel-heading">
-      <div>
-        <span class="workbench-panel-kicker">阶段对话</span>
-        <h3>{{ phaseLabel }}</h3>
-      </div>
-      <div class="workbench-conversation-heading-actions">
-        <el-tag :type="connectionType" effect="plain">{{ connectionLabel }}</el-tag>
-        <el-tag v-if="runState?.status" :type="runStatusType">{{ runStatusLabel }}</el-tag>
-        <el-button v-if="mobile" text @click="emit('open-document-pane')">打开文档区</el-button>
-        <el-button v-else-if="documentCollapsed" text @click="emit('restore-document-pane')">
-          恢复文档区
-        </el-button>
-      </div>
+    <div class="workbench-conversation-heading-actions">
+      <el-tag :type="connectionType" effect="plain">{{ connectionLabel }}</el-tag>
+      <el-tag v-if="runState?.status" :type="runStatusType">{{ runStatusLabel }}</el-tag>
+      <el-button v-if="mobile" text @click="emit('open-document-pane')">打开文档区</el-button>
+      <el-button v-else-if="documentCollapsed" text @click="emit('restore-document-pane')">
+        恢复文档区
+      </el-button>
     </div>
 
     <slot name="review"></slot>
@@ -94,7 +88,7 @@
           <small>{{ formatTime(message.timestamp) }}</small>
         </header>
         <p v-if="message.role === 'user'">{{ message.content }}</p>
-        <div v-else v-html="renderMarkdown(message.content)"></div>
+        <div v-else class="md-body" v-html="renderMarkdown(message.content)"></div>
         <div v-if="message.documentReferences.length" class="workbench-agent-document-references">
           <el-button
             v-for="reference in message.documentReferences"
@@ -115,11 +109,11 @@
           :key="block.eventId"
           :class="['workbench-timeline-block', `kind-${block.kind}`]"
         >
-          <header>
+          <header v-if="block.kind === 'agent_chunk'">
             <span>{{ blockLabel(block.kind) }}</span>
             <small>#{{ block.eventId }}</small>
           </header>
-          <p v-if="block.content">{{ block.content }}</p>
+          <div v-if="block.content" class="md-body" v-html="renderMarkdown(block.content)"></div>
           <div v-if="block.documentReferences.length" class="workbench-agent-document-references">
             <el-button
               v-for="reference in block.documentReferences"
@@ -132,17 +126,26 @@
               {{ reference.repositoryKey }}/{{ reference.relativePath }}
             </el-button>
           </div>
-          <details v-if="!block.content">
-            <summary>{{ block.commandSummary || block.outputSummary || block.summary || block.tool || block.commandClass || block.eventType }}</summary>
-            <p v-if="block.outputSummary" data-test="workbench-command-output-summary">
-              {{ block.outputSummary }}
-            </p>
-            <dl>
-              <template v-if="block.repositoryKey"><dt>仓库</dt><dd>{{ block.repositoryKey }}</dd></template>
-              <template v-if="block.status"><dt>状态</dt><dd>{{ block.status }}</dd></template>
-              <template v-if="block.durationMs != null"><dt>耗时</dt><dd>{{ block.durationMs }} ms</dd></template>
-              <template v-if="block.exitCode != null"><dt>退出码</dt><dd>{{ block.exitCode }}</dd></template>
-            </dl>
+          <details v-if="block.kind === 'tool'" class="workbench-tool-block">
+            <summary>
+              <span class="workbench-tool-name">{{ block.tool || block.commandClass || 'tool' }}</span>
+              <el-tag
+                size="small"
+                :type="block.status === 'SUCCEEDED' ? 'success' : block.status === 'FAILED' ? 'danger' : 'primary'"
+              >
+                {{ block.status || 'RUNNING' }}
+              </el-tag>
+              <span v-if="block.durationMs != null" class="workbench-tool-duration">{{ block.durationMs }}ms</span>
+            </summary>
+            <div class="workbench-tool-body">
+              <p v-if="block.commandSummary" class="workbench-tool-command">{{ block.commandSummary }}</p>
+              <p v-if="block.outputSummary" data-test="workbench-command-output-summary" class="workbench-tool-output">{{ block.outputSummary }}</p>
+              <dl class="workbench-tool-meta">
+                <template v-if="block.repositoryKey"><dt>仓库</dt><dd>{{ block.repositoryKey }}</dd></template>
+                <template v-if="block.commandClass"><dt>类型</dt><dd>{{ block.commandClass }}</dd></template>
+                <template v-if="block.exitCode != null"><dt>退出码</dt><dd>{{ block.exitCode }}</dd></template>
+              </dl>
+            </div>
           </details>
         </article>
 
@@ -568,11 +571,7 @@ function uploadStatusLabel(status) {
 function blockLabel(kind) {
   return {
     agent_chunk: 'Agent',
-    tool_started: '工具开始',
-    tool_finished: '工具完成',
-    command_started: '命令开始',
-    command_finished: '命令完成',
-    generic: '运行事件',
+    tool: 'Tool',
   }[kind];
 }
 

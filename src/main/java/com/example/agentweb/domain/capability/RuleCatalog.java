@@ -8,7 +8,5 @@ package com.example.agentweb.domain.capability;
  */
 public interface RuleCatalog {
 
-    RuleDefinition resolve(String useCase);
-
     RuleDefinition resolveById(String logicalId);
 }

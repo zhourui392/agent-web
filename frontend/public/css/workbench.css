@@ -4,6 +4,7 @@
  * @author alex
  * @since 2026-08-01
  */
+@import url('markdown.css');
 :root {
   color: #1f2937;
   background: #f3f5f8;
@@ -40,53 +41,12 @@ input {
     #f4f6f9;
 }
 
-.workbench-topbar {
-  z-index: 3;
-  display: flex;
-  align-items: center;
-  min-height: 58px;
-  padding: 0 22px;
-  gap: 10px;
-  background: rgba(255, 255, 255, 0.96);
-  border-bottom: 1px solid #e5e9f0;
-  box-shadow: 0 1px 8px rgba(31, 41, 55, 0.04);
-}
-
-.workbench-brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0;
-  color: #172033;
-  font-weight: 720;
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-}
-
-.workbench-brand-mark,
 .workbench-welcome-mark {
   display: grid;
   place-items: center;
   color: #fff;
   background: linear-gradient(145deg, #2457d6, #6b43c7);
   box-shadow: 0 7px 18px rgba(61, 81, 181, 0.24);
-}
-
-.workbench-brand-mark {
-  width: 31px;
-  height: 31px;
-  border-radius: 9px;
-}
-
-.workbench-topbar-spacer {
-  flex: 1;
-}
-
-.workbench-user {
-  margin-right: 6px;
-  color: #6b7280;
-  font-size: 13px;
 }
 
 .workbench-global-error {
@@ -196,10 +156,12 @@ input {
 }
 
 .workbench-main {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
   min-height: 0;
-  padding: 24px 28px 30px;
-  overflow: auto;
+  padding: 12px 16px 12px;
+  overflow: hidden;
 }
 
 .workbench-welcome {
@@ -234,26 +196,11 @@ input {
 
 .workbench-detail-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 16px;
   margin-bottom: 10px;
-}
-
-.workbench-detail-eyebrow {
-  display: flex;
-  gap: 7px;
-  margin-bottom: 4px;
-  color: #526ba4;
-  font-size: 12px;
-  font-weight: 650;
-}
-
-.workbench-detail-heading h1 {
-  margin: 0;
-  color: #182135;
-  font-size: 22px;
-  letter-spacing: -0.025em;
+  flex: 0 0 auto;
 }
 
 .workbench-detail-badges {
@@ -277,6 +224,7 @@ input {
   background: #e9edf4;
   border-radius: 8px;
   margin-bottom: 10px;
+  flex: 0 0 auto;
 }
 
 .workbench-phase {
@@ -331,7 +279,8 @@ input {
   --workbench-document-pane-width: 35%;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 10px var(--workbench-document-pane-width);
-  min-height: 620px;
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
   background: #fff;
   border: 1px solid #dfe5ee;
@@ -350,6 +299,7 @@ input {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0;
   padding: 20px;
 }
 
@@ -399,6 +349,49 @@ input {
   font-weight: 650;
 }
 
+.workbench-run-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 4px;
+  color: #526ba4;
+  font-size: 14px;
+}
+
+.workbench-run-loading .loading-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.workbench-run-loading .loading-dots::before,
+.workbench-run-loading .loading-dots::after {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #409eff;
+  animation: workbench-dot-bounce 1.4s infinite ease-in-out both;
+}
+
+.workbench-run-loading .loading-dots::after {
+  animation-delay: 0.16s;
+}
+
+.workbench-run-loading .loading-dots {
+  position: relative;
+}
+
+.workbench-run-loading .loading-dots::before {
+  animation-delay: -0.32s;
+}
+
+@keyframes workbench-dot-bounce {
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+  40% { transform: scale(1); opacity: 1; }
+}
+
 .workbench-conversation-empty small {
   max-width: 500px;
   line-height: 1.6;
@@ -417,6 +410,83 @@ input {
 .workbench-timeline-block.kind-agent_chunk {
   background: #fff;
   border-color: #dbe3f2;
+}
+
+.workbench-timeline-block.kind-tool {
+  padding: 6px 10px;
+}
+
+.workbench-tool-block {
+  font-size: 11px;
+}
+
+.workbench-tool-block summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.workbench-tool-block summary::-webkit-details-marker {
+  display: none;
+}
+
+.workbench-tool-block summary::before {
+  content: '▶';
+  font-size: 8px;
+  color: #a0a7b3;
+  transition: transform 0.15s;
+}
+
+.workbench-tool-block[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.workbench-tool-name {
+  font-weight: 600;
+  color: #435066;
+}
+
+.workbench-tool-duration {
+  color: #a0a7b3;
+  font-size: 10px;
+  margin-left: auto;
+}
+
+.workbench-tool-body {
+  margin-top: 8px;
+  padding-left: 14px;
+}
+
+.workbench-tool-command {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 10px;
+  color: #526da7;
+  margin: 0 0 4px;
+}
+
+.workbench-tool-output {
+  font-size: 10px;
+  color: #6b7280;
+  white-space: pre-wrap;
+  margin: 0 0 6px;
+}
+
+.workbench-tool-meta {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 3px 8px;
+  font-size: 9px;
+}
+
+.workbench-tool-meta dt {
+  color: #8a93a3;
+}
+
+.workbench-tool-meta dd {
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .workbench-timeline-block header,
@@ -828,28 +898,15 @@ input {
   outline-offset: -2px;
 }
 
-.workbench-panel-heading {
+.workbench-conversation-heading-actions {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  padding-bottom: 15px;
-  border-bottom: 1px solid #edf0f4;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 5px;
 }
 
-.workbench-panel-kicker {
-  color: #8791a3;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-}
-
-.workbench-panel-heading h3 {
-  margin: 4px 0 0;
-  font-size: 16px;
-}
-
-.workbench-conversation-heading-actions,
 .workbench-document-actions {
   display: flex;
   align-items: center;
@@ -1337,14 +1394,6 @@ input {
 }
 
 @media (max-width: 820px) {
-  .workbench-topbar {
-    padding: 0 12px;
-  }
-
-  .workbench-user {
-    display: none;
-  }
-
   .workbench-body {
     display: flex;
     flex-direction: column;
@@ -1400,11 +1449,6 @@ input {
 }
 
 @media (max-width: 560px) {
-  .workbench-brand span:last-child,
-  .workbench-topbar .el-button span {
-    display: none;
-  }
-
   .workbench-phases,
   .workbench-future-features {
     grid-template-columns: 1fr;

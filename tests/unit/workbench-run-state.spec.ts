@@ -258,19 +258,18 @@ describe('workbench run SSE reducer', () => {
     expect(state.lastAppliedEventSeq).toBe(10);
     expect(state.blocks.map(block => block.kind)).toEqual([
       'agent_chunk',
-      'tool_started',
-      'tool_finished',
-      'command_started',
-      'command_finished',
+      'tool',
     ]);
-    expect(state.blocks[3]).toEqual(expect.objectContaining({
-      status: 'RUNNING',
-      commandSummary: '在仓库 agent-web 执行 TEST 类命令',
-    }));
-    expect(state.blocks[4]).toEqual(expect.objectContaining({
+    expect(state.blocks[1]).toEqual(expect.objectContaining({
+      tool: 'shell',
+      callId: 'tool-1',
       status: 'SUCCEEDED',
+      durationMs: 25,
+      repositoryKey: 'agent-web',
+      commandClass: 'TEST',
       commandSummary: '在仓库 agent-web 执行 TEST 类命令',
       outputSummary: 'TEST 类命令执行成功（退出码 0）',
+      exitCode: 0,
     }));
     expect(JSON.stringify(state.blocks)).not.toContain('./mvnw');
     expect(JSON.stringify(state.blocks)).not.toContain('/home/alex/secret');
@@ -295,7 +294,7 @@ describe('workbench run SSE reducer', () => {
     }));
   });
 
-  it('retains unknown events as bounded generic blocks without blocking later known events', () => {
+  it('skips unknown events without blocking later known events', () => {
     let state = createWorkbenchRunState(RUN_CONTEXT);
     state = reduce(state, 1, 'future_event', {
       detail: 'x'.repeat(WORKBENCH_RUN_LIMITS.genericSummaryChars + 100),
@@ -303,13 +302,8 @@ describe('workbench run SSE reducer', () => {
     state = reduce(state, 2, 'agent_chunk', { content: 'still applied' });
 
     expect(state.lastAppliedEventSeq).toBe(2);
+    expect(state.blocks).toHaveLength(1);
     expect(state.blocks[0]).toEqual(expect.objectContaining({
-      kind: 'generic',
-      eventType: 'future_event',
-    }));
-    expect(state.blocks[0].summary?.length)
-      .toBeLessThanOrEqual(WORKBENCH_RUN_LIMITS.genericSummaryChars);
-    expect(state.blocks[1]).toEqual(expect.objectContaining({
       kind: 'agent_chunk',
       content: 'still applied',
     }));
@@ -339,7 +333,11 @@ describe('workbench run SSE reducer', () => {
     let state = createWorkbenchRunState(RUN_CONTEXT);
     let id = 1;
     for (let index = 0; index < WORKBENCH_RUN_LIMITS.blocks + 20; index++) {
-      state = reduce(state, id++, 'agent_chunk', { content: `chunk-${index}` });
+      state = reduce(state, id++, 'tool_started', {
+        tool: `tool-${index}`,
+        callId: `call-${index}`,
+        status: 'RUNNING',
+      });
     }
     for (let index = 0; index < WORKBENCH_RUN_LIMITS.staleDocuments + 20; index++) {
       state = reduce(state, id++, 'file_changed', {
@@ -367,11 +365,35 @@ describe('workbench run SSE reducer', () => {
     }
 
     expect(state.blocks).toHaveLength(WORKBENCH_RUN_LIMITS.blocks);
-    expect(state.blocks[0]).toEqual(expect.objectContaining({ content: 'chunk-20' }));
     expect(state.staleDocuments).toHaveLength(WORKBENCH_RUN_LIMITS.staleDocuments);
     expect(state.staleDocuments[state.staleDocuments.length - 1]?.path)
       .toBe(`src/File${WORKBENCH_RUN_LIMITS.staleDocuments + 19}.java`);
     expect(state.testProgress).toHaveLength(WORKBENCH_RUN_LIMITS.testProgress);
     expect(state.operations).toHaveLength(WORKBENCH_RUN_LIMITS.operations);
+  });
+
+  it('accumulates consecutive agent_chunk content into a single block', () => {
+    let state = createWorkbenchRunState(RUN_CONTEXT);
+    state = reduce(state, 1, 'run_status', { status: 'RUNNING', runMode: 'MODIFY_WORKSPACE' });
+    state = reduce(state, 2, 'agent_chunk', { content: 'Hello' });
+    state = reduce(state, 3, 'agent_chunk', { content: ', ' });
+    state = reduce(state, 4, 'agent_chunk', { content: 'world!' });
+    state = reduce(state, 5, 'tool_started', { tool: 'shell', callId: 'c1', status: 'RUNNING' });
+    state = reduce(state, 6, 'agent_chunk', { content: 'After tool' });
+    state = reduce(state, 7, 'agent_chunk', { content: ' continues' });
+
+    expect(state.blocks).toHaveLength(3);
+    expect(state.blocks[0]).toEqual(expect.objectContaining({
+      kind: 'agent_chunk',
+      content: 'Hello, world!',
+    }));
+    expect(state.blocks[1]).toEqual(expect.objectContaining({
+      kind: 'tool',
+      tool: 'shell',
+    }));
+    expect(state.blocks[2]).toEqual(expect.objectContaining({
+      kind: 'agent_chunk',
+      content: 'After tool continues',
+    }));
   });
 });

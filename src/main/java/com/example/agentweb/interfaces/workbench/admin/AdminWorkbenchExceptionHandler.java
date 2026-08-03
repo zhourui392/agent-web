@@ -2,6 +2,8 @@ package com.example.agentweb.interfaces.workbench.admin;
 
 import com.example.agentweb.app.workbench.admin.AdminWorkbenchReconciliationException;
 import com.example.agentweb.app.workbench.admin.AdminWorkbenchRunNotFoundException;
+import com.example.agentweb.domain.workbench.WorkbenchDomainException;
+import com.example.agentweb.domain.workbench.WorkbenchErrorCode;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -19,7 +21,7 @@ import java.util.Map;
  * @author alex
  * @since 2026-08-01
  */
-@RestControllerAdvice(assignableTypes = AdminWorkbenchController.class)
+@RestControllerAdvice(basePackages = "com.example.agentweb.interfaces.workbench.admin")
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public final class AdminWorkbenchExceptionHandler {
 
@@ -50,7 +52,8 @@ public final class AdminWorkbenchExceptionHandler {
     }
 
     @ExceptionHandler({IllegalArgumentException.class,
-            HttpMessageNotReadableException.class})
+            HttpMessageNotReadableException.class,
+            AdminPhaseCapabilityRequestException.class})
     public ResponseEntity<Map<String, Object>> invalidRequest() {
         return error(HttpStatus.BAD_REQUEST,
                 "WORKBENCH_ADMIN_REQUEST_INVALID",
@@ -62,6 +65,19 @@ public final class AdminWorkbenchExceptionHandler {
         return error(HttpStatus.SERVICE_UNAVAILABLE,
                 "WORKBENCH_ADMIN_RECONCILIATION_FAILED",
                 "workbench run reconciliation failed");
+    }
+
+    @ExceptionHandler(WorkbenchDomainException.class)
+    public ResponseEntity<Map<String, Object>> workbenchDomain(
+            WorkbenchDomainException failure) {
+        if (failure.getCode() == WorkbenchErrorCode.VERSION_CONFLICT) {
+            return error(HttpStatus.CONFLICT,
+                    "WORKBENCH_CAPABILITY_VERSION_CONFLICT",
+                    failure.getMessage());
+        }
+        return error(HttpStatus.BAD_REQUEST,
+                failure.getCode().name(),
+                failure.getMessage());
     }
 
     @ExceptionHandler(RuntimeException.class)

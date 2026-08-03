@@ -1257,17 +1257,6 @@ class PhaseCapabilityBindingResolverTest {
         }
 
         @Override
-        public RuleDefinition resolve(String useCase) {
-            List<RuleDefinition> matches = new ArrayList<RuleDefinition>();
-            for (RuleDefinition definition : definitions) {
-                if (definition.supports(useCase)) {
-                    matches.add(definition);
-                }
-            }
-            return requireSingle(matches);
-        }
-
-        @Override
         public RuleDefinition resolveById(String logicalId) {
             List<RuleDefinition> matches = new ArrayList<RuleDefinition>();
             for (RuleDefinition definition : definitions) {

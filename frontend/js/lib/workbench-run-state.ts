@@ -105,10 +105,7 @@ export interface WorkbenchRunSseEvent {
 
 export type WorkbenchRunBlockKind =
   | 'agent_chunk'
-  | 'tool_started'
-  | 'tool_finished'
-  | 'command_started'
-  | 'command_finished'
+  | 'tool'
   | 'generic';
 
 /**
@@ -401,7 +398,7 @@ export function applyWorkbenchRunEvent(
     case 'terminal':
       return reduceTerminal(state, envelope, sequence);
     default:
-      return reduceGeneric(state, envelope, sequence, eventType);
+      return state;
   }
 }
 
@@ -432,6 +429,23 @@ function reduceAgentChunk(
 ): WorkbenchRunState {
   const content = requiredText(envelope.data.content, WORKBENCH_RUN_LIMITS.textChars);
   if (content == null) return state;
+  const last = state.blocks.length > 0
+    ? state.blocks[state.blocks.length - 1] : null;
+  if (last && last.kind === 'agent_chunk') {
+    const merged: WorkbenchRunBlock = {
+      ...last,
+      content: truncate(
+        (last.content || '') + content,
+        WORKBENCH_RUN_LIMITS.textChars,
+      ),
+      eventId: sequence,
+    };
+    return {
+      ...state,
+      lastAppliedEventSeq: sequence,
+      blocks: [...state.blocks.slice(0, -1), merged],
+    };
+  }
   return withBlock(state, sequence, {
     kind: 'agent_chunk',
     eventId: sequence,
@@ -454,8 +468,33 @@ function reduceTool(
     ? undefined
     : finiteNonNegativeInteger(envelope.data.durationMs);
   if (envelope.data.durationMs != null && durationMs == null) return state;
+
+  if (kind === 'tool_started') {
+    return withBlock(state, sequence, {
+      kind: 'tool',
+      eventId: sequence,
+      occurredAt: envelope.occurredAt,
+      tool,
+      callId,
+      status: status || 'RUNNING',
+      durationMs: undefined,
+    });
+  }
+  // tool_finished: merge into the existing tool block matched by callId
+  const blocks = [...state.blocks];
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const b = blocks[i];
+    if (b.kind === 'tool' && b.callId === callId) {
+      blocks[i] = {
+        ...b,
+        status: status || b.status,
+        durationMs: durationMs == null ? b.durationMs : durationMs,
+      };
+      return { ...state, lastAppliedEventSeq: sequence, blocks };
+    }
+  }
   return withBlock(state, sequence, {
-    kind,
+    kind: 'tool',
     eventId: sequence,
     occurredAt: envelope.occurredAt,
     tool,
@@ -489,17 +528,49 @@ function reduceCommand(
     ? undefined
     : safeInteger(envelope.data.exitCode);
   if (envelope.data.exitCode != null && exitCode == null) return state;
-  return withBlock(state, sequence, {
-    kind,
-    eventId: sequence,
-    occurredAt: envelope.occurredAt,
-    repositoryKey,
-    commandClass,
-    status: status || undefined,
-    exitCode: exitCode == null ? undefined : exitCode,
-    commandSummary: commandSummary || undefined,
-    outputSummary: outputSummary || undefined,
-  });
+
+  const blocks = [...state.blocks];
+  if (kind === 'command_started') {
+    // Merge into the most recent tool block that has no commandClass yet
+    for (let i = blocks.length - 1; i >= 0; i--) {
+      const b = blocks[i];
+      if (b.kind === 'tool' && !b.commandClass) {
+        blocks[i] = {
+          ...b,
+          repositoryKey,
+          commandClass,
+          commandSummary: commandSummary || b.commandSummary,
+          status: status || b.status,
+        };
+        return { ...state, lastAppliedEventSeq: sequence, blocks };
+      }
+    }
+    // No matching tool block — create standalone
+    return withBlock(state, sequence, {
+      kind: 'tool',
+      eventId: sequence,
+      occurredAt: envelope.occurredAt,
+      repositoryKey,
+      commandClass,
+      status: status || undefined,
+      commandSummary: commandSummary || undefined,
+    });
+  }
+  // command_finished: merge into the matching tool block
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const b = blocks[i];
+    if (b.kind === 'tool' && b.repositoryKey === repositoryKey
+      && b.commandClass === commandClass && b.status !== 'SUCCEEDED' && b.status !== 'FAILED') {
+      blocks[i] = {
+        ...b,
+        status: status || b.status,
+        exitCode: exitCode == null ? b.exitCode : exitCode,
+        outputSummary: outputSummary || b.outputSummary,
+      };
+      return { ...state, lastAppliedEventSeq: sequence, blocks };
+    }
+  }
+  return state;
 }
 
 function reduceFileChanged(

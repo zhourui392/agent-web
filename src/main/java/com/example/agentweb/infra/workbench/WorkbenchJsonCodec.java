@@ -15,6 +15,8 @@ import com.example.agentweb.domain.workbench.HighImpactOperationTarget;
 import com.example.agentweb.domain.workbench.HighImpactOperationType;
 import com.example.agentweb.domain.workbench.LocalDeployTarget;
 import com.example.agentweb.domain.workbench.OpenQuestion;
+import com.example.agentweb.domain.workbench.PhaseCapabilityReference;
+import com.example.agentweb.domain.workbench.PhaseCapabilityType;
 import com.example.agentweb.domain.workbench.ProductionWriteTarget;
 import com.example.agentweb.domain.workbench.PromptPartSnapshot;
 import com.example.agentweb.domain.workbench.PushTarget;
@@ -164,6 +166,31 @@ final class WorkbenchJsonCodec {
                 stringSet(root, "selectedOptionalRuleIds"),
                 additionalRule == null
                         ? null : AdditionalCapabilityRule.restore(additionalRule));
+    }
+
+    String writePhaseCapabilityReferences(
+            List<PhaseCapabilityReference> references) {
+        ArrayNode root = mapper.createArrayNode();
+        for (PhaseCapabilityReference reference : references) {
+            ObjectNode node = root.addObject();
+            node.put("id", reference.getId());
+            node.put("type", reference.getType().name());
+            node.put("required", reference.isRequired());
+        }
+        return write(root);
+    }
+
+    List<PhaseCapabilityReference> readPhaseCapabilityReferences(String json) {
+        List<PhaseCapabilityReference> result =
+                new ArrayList<PhaseCapabilityReference>();
+        for (JsonNode node : array(json, "phase capability references")) {
+            requireObject(node, "phase capability reference");
+            result.add(new PhaseCapabilityReference(
+                    text(node, "id"),
+                    PhaseCapabilityType.valueOf(text(node, "type")),
+                    bool(node, "required")));
+        }
+        return result;
     }
 
     String writeCapabilityBinding(ResolvedCapabilityBinding binding) {

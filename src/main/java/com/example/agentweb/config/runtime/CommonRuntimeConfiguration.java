@@ -119,7 +119,10 @@ public class CommonRuntimeConfiguration {
     @Bean
     public RuntimeEventDecoder commonRuntimeEventDecoder(
             RuntimeOutputRedactor outputRedactor) {
-        return new RuntimeEventDecoder(outputRedactor);
+        return new RuntimeEventDecoder(
+                outputRedactor,
+                com.example.agentweb.domain.runtime.RuntimeCommandPolicy.platformDefault(),
+                new com.example.agentweb.infra.cli.CodexEventNormalizer());
     }
 
     @Bean

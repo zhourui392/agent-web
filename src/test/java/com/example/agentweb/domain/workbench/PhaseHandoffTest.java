@@ -74,7 +74,7 @@ class PhaseHandoffTest {
 
         handoff.update(
                 0L, "方案取舍已更新",
-                Collections.singletonList(Decision.confirmed("使用独立 Workbench", "避免 Harness 耦合")),
+                Collections.singletonList(Decision.confirmed("使用独立 Workbench", "保持上下文边界清晰")),
                 Collections.<OpenQuestion>emptyList(),
                 Collections.singletonList(DocumentReference.of("agent-web", "docs/design.md")),
                 Collections.singletonList(WorkbenchRunReference.of(
@@ -110,7 +110,7 @@ class PhaseHandoffTest {
         handoff.update(
                 0L, "方案取舍已更新",
                 Collections.singletonList(
-                        Decision.confirmed("使用独立 Workbench", "避免 Harness 耦合")),
+                        Decision.confirmed("使用独立 Workbench", "保持上下文边界清晰")),
                 Collections.<OpenQuestion>emptyList(),
                 Collections.singletonList(
                         DocumentReference.of("agent-web", "docs/design.md")),

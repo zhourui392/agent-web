@@ -17,8 +17,6 @@ import org.springframework.stereotype.Component;
 @Setter
 public class WorkbenchCapabilityProperties {
 
-    private String profileRoot = "src/main/resources/workbench/profiles";
     private String policyVersion = "workbench-policy@1";
     private int maxAdditionalRuleChars = 4000;
-    private boolean hotReloadEnabled = true;
 }

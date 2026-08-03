@@ -4,10 +4,6 @@ import com.example.agentweb.domain.capability.CapabilityCatalogException;
 import com.example.agentweb.domain.capability.CapabilityKind;
 import com.example.agentweb.domain.capability.SkillPackage;
 import com.example.agentweb.domain.capability.SkillTrustSource;
-import com.example.agentweb.domain.workbench.PhaseCapabilityProfile;
-import com.example.agentweb.domain.workbench.PhaseCapabilityReference;
-import com.example.agentweb.domain.workbench.PhaseCapabilityType;
-import com.example.agentweb.domain.workbench.WorkbenchPhase;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -85,13 +81,14 @@ class FileSystemSkillCatalogTest {
     }
 
     @Test
-    void shouldRejectLegacyStagesManifest()
+    void shouldRejectLegacyStagesManifest_WhenApplicableUseCasesAreAlsoPresent()
             throws IOException {
         Path skillDir = writeSkill(
                 tempDir, "legacy-stages", "references/rules.md");
         replaceManifestDeclaration(
                 skillDir, "applicableUseCases: [ANALYSIS]\n",
-                "stages: [ANALYSIS]\n");
+                "applicableUseCases: [ANALYSIS]\n"
+                        + "stages: [ANALYSIS]\n");
 
         CapabilityCatalogException failure = assertThrows(
                 CapabilityCatalogException.class,
@@ -151,35 +148,6 @@ class FileSystemSkillCatalogTest {
         CapabilityCatalogException trustError = assertThrows(CapabilityCatalogException.class,
                 () -> new FileSystemSkillCatalog(trustedRoot, SkillTrustSource.PLATFORM).discover());
         assertEquals("CATALOG_TRUST_SOURCE_MISMATCH", trustError.getCode());
-    }
-
-    @Test
-    void builtInSkillsShouldCoverEveryWorkbenchProfileUseCaseThatReferencesThem() {
-        List<SkillPackage> packages = new FileSystemSkillCatalog(
-                Paths.get("src/main/resources/capability/skills"),
-                SkillTrustSource.PLATFORM).discover();
-        FileSystemPhaseCapabilityProfileCatalog profiles =
-                new FileSystemPhaseCapabilityProfileCatalog(
-                        Paths.get("src/main/resources/workbench/profiles"));
-        int matchedReferences = 0;
-
-        for (WorkbenchPhase phase : WorkbenchPhase.values()) {
-            PhaseCapabilityProfile profile = profiles.requireProfile(phase);
-            for (PhaseCapabilityReference reference : profile.getCapabilities()) {
-                if (reference.getType() != PhaseCapabilityType.SKILL) {
-                    continue;
-                }
-                SkillPackage bundled = findSkill(packages, reference.getId());
-                if (bundled == null) {
-                    continue;
-                }
-                matchedReferences++;
-                assertTrue(bundled.getManifest().getApplicableUseCases()
-                                .contains(phase.name()),
-                        reference.getId() + " must support " + phase.name());
-            }
-        }
-        assertEquals(6, matchedReferences);
     }
 
     private Path writeSkill(Path root, String id, String resource) throws IOException {

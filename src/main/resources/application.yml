@@ -271,10 +271,8 @@ agent:
       max-output-bytes: ${AGENT_WORKBENCH_RUN_MAX_OUTPUT_BYTES:8388608}
       allowed-skill-trust-sources: ${AGENT_WORKBENCH_ALLOWED_SKILL_TRUST_SOURCES:PLATFORM}
     capability:
-      profile-root: ${AGENT_WORKBENCH_PROFILE_ROOT:src/main/resources/workbench/profiles}
       policy-version: ${AGENT_WORKBENCH_CAPABILITY_POLICY_VERSION:workbench-policy@1}
       max-additional-rule-chars: ${AGENT_WORKBENCH_MAX_ADDITIONAL_RULE_CHARS:4000}
-      hot-reload-enabled: ${AGENT_WORKBENCH_CAPABILITY_HOT_RELOAD_ENABLED:true}
     document:
       max-directory-entries: ${AGENT_WORKBENCH_DOCUMENT_MAX_DIRECTORY_ENTRIES:1000}
       max-text-bytes: ${AGENT_WORKBENCH_DOCUMENT_MAX_TEXT_BYTES:2097152}

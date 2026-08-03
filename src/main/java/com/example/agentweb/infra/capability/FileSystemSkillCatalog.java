@@ -71,6 +71,9 @@ public class FileSystemSkillCatalog implements SkillCatalog {
                 CapabilityCatalogFiles.readManifest(realRoot, manifestPath);
         CatalogYaml yaml = CatalogYaml.parse(manifestFile.getBytes(), manifestPath.toString());
         requireSchemaVersion(yaml);
+        yaml.requireOnlyKeys("schemaVersion", "id", "version", "description",
+                "applicableUseCases", "techTags", "explicitTriggers", "entry", "resources",
+                "dependencies", "conflicts", "runtimes", "trustSource", "capabilities");
         requireTrustSource(yaml, trustedSource);
         String entryPath = yaml.requiredString("entry");
         Set<String> resourcePaths = new LinkedHashSet<String>(yaml.stringList("resources"));

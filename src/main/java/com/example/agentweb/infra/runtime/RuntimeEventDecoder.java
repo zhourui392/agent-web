@@ -8,6 +8,7 @@ import com.example.agentweb.domain.runtime.RuntimeCommandAssessment;
 import com.example.agentweb.domain.runtime.RuntimeCommandClass;
 import com.example.agentweb.domain.runtime.RuntimeCommandPolicy;
 import com.example.agentweb.domain.shared.CanonicalHashing;
+import com.example.agentweb.infra.cli.CodexEventNormalizer;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Getter;
@@ -23,17 +24,18 @@ import java.util.regex.Pattern;
 /**
  * 将 Provider JSONL 输出解码为已脱敏、有界的公共 Runtime Event。
  *
+ * <p>事件识别委托给 {@link CodexEventNormalizer}（与 Chat 路径复用同一套归一化逻辑），
+ * 未识别事件直接跳过（返回 {@link DecodedEvent#skipped()}），不产生 RuntimeEvent。
+ * Workbench 特有的 {@code file_change} / {@code mcp_tool_call} 语义在识别后额外提取。</p>
+ *
  * @author alex
  * @since 2026-08-01
  */
 public final class RuntimeEventDecoder {
 
     private static final String TURN_FAILED = "turn.failed";
-    private static final String PROVIDER_ERROR = "error";
     private static final String ITEM_STARTED = "item.started";
     private static final String ITEM_COMPLETED = "item.completed";
-    private static final String AGENT_MESSAGE = "agent_message";
-    private static final String COMMAND_EXECUTION = "command_execution";
     private static final String MCP_TOOL_CALL = "mcp_tool_call";
     private static final String FILE_CHANGE = "file_change";
     private static final String BLOCK_REASON =
@@ -46,17 +48,27 @@ public final class RuntimeEventDecoder {
 
     private final RuntimeOutputRedactor outputRedactor;
     private final RuntimeCommandPolicy commandPolicy;
+    private final CodexEventNormalizer codexNormalizer;
 
     public RuntimeEventDecoder(RuntimeOutputRedactor outputRedactor) {
-        this(outputRedactor, RuntimeCommandPolicy.platformDefault());
+        this(outputRedactor, RuntimeCommandPolicy.platformDefault(),
+                new CodexEventNormalizer());
     }
 
     public RuntimeEventDecoder(RuntimeOutputRedactor outputRedactor,
                                RuntimeCommandPolicy commandPolicy) {
+        this(outputRedactor, commandPolicy, new CodexEventNormalizer());
+    }
+
+    public RuntimeEventDecoder(RuntimeOutputRedactor outputRedactor,
+                               RuntimeCommandPolicy commandPolicy,
+                               CodexEventNormalizer codexNormalizer) {
         this.outputRedactor = Objects.requireNonNull(
                 outputRedactor, "outputRedactor");
         this.commandPolicy = Objects.requireNonNull(
                 commandPolicy, "commandPolicy");
+        this.codexNormalizer = Objects.requireNonNull(
+                codexNormalizer, "codexNormalizer");
     }
 
     public DecodedEvent decode(String executionId, long sequence,
@@ -77,9 +89,17 @@ public final class RuntimeEventDecoder {
         Objects.requireNonNull(providerLine, "providerLine");
         JsonNode root = parseObject(providerLine);
         String providerEventType = providerEventType(root);
+
+        boolean chatRecognized = !codexNormalizer.normalize(providerLine)
+                .isEmpty();
+        boolean workbenchRecognized = !chatRecognized
+                && isWorkbenchSpecificEvent(root, providerEventType);
+        if (!chatRecognized && !workbenchRecognized) {
+            return DecodedEvent.skipped();
+        }
+
         boolean turnFailed = TURN_FAILED.equals(providerEventType);
-        RuntimeEventType eventType = providerEventType.isEmpty()
-                || turnFailed || PROVIDER_ERROR.equals(providerEventType)
+        RuntimeEventType eventType = turnFailed
                 ? RuntimeEventType.DIAGNOSTIC : RuntimeEventType.OUTPUT;
         String assistantText = normalizedAssistantText(
                 root, providerEventType, capabilities);
@@ -88,7 +108,7 @@ public final class RuntimeEventDecoder {
                 : SemanticProjection.empty();
         String safePayload = providerEventType.isEmpty()
                 ? "unstructured provider output suppressed"
-                : "codex event received: " + providerEventType;
+                : providerEventType;
         return new DecodedEvent(new RuntimeEvent(
                 executionId, sequence, eventType, safePayload,
                 assistantText, projection.getEvents()),
@@ -98,6 +118,24 @@ public final class RuntimeEventDecoder {
 
     public String providerEventType(String providerLine) {
         return providerEventType(parseObject(providerLine));
+    }
+
+    private boolean isWorkbenchSpecificEvent(
+            JsonNode root, String providerEventType) {
+        if (root == null) {
+            return false;
+        }
+        if (!ITEM_STARTED.equals(providerEventType)
+                && !ITEM_COMPLETED.equals(providerEventType)) {
+            return false;
+        }
+        JsonNode item = root.get("item");
+        if (item == null || !item.isObject()) {
+            return false;
+        }
+        String itemType = item.path("type").asText("");
+        return MCP_TOOL_CALL.equals(itemType)
+                || FILE_CHANGE.equals(itemType);
     }
 
     private String providerEventType(JsonNode root) {
@@ -126,7 +164,7 @@ public final class RuntimeEventDecoder {
         }
         JsonNode item = root.get("item");
         JsonNode text = item == null ? null : item.get("text");
-        if (item == null || !AGENT_MESSAGE.equals(item.path("type").asText())
+        if (item == null || !"agent_message".equals(item.path("type").asText())
                 || text == null || !text.isTextual()
                 || text.asText().trim().isEmpty()) {
             return null;
@@ -152,7 +190,7 @@ public final class RuntimeEventDecoder {
         }
         String itemType = item.path("type").asText("");
         try {
-            if (COMMAND_EXECUTION.equals(itemType)) {
+            if ("command_execution".equals(itemType)) {
                 return commandSemantics(
                         providerEventType, item, workspaceLayout);
             }
@@ -292,7 +330,6 @@ public final class RuntimeEventDecoder {
                         resolved.getRepositoryKey(), resolved.getRelativePath(),
                         changeType, contentVersion));
             } catch (IllegalArgumentException ignored) {
-                // Scope 外或非法路径不形成可点击事件，也不透传原始路径。
             }
         }
         return SemanticProjection.of(events);
@@ -360,6 +397,13 @@ public final class RuntimeEventDecoder {
             this.providerEventType = providerEventType;
             this.turnFailed = turnFailed;
             this.operationBlocked = operationBlocked;
+        }
+
+        /**
+         * 未识别事件：不产生 RuntimeEvent，不发送到 sink。
+         */
+        public static DecodedEvent skipped() {
+            return new DecodedEvent(null, "", false, false);
         }
     }
 

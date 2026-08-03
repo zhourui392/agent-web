@@ -29,6 +29,7 @@ public class AdminProperties {
             "/api/admin-workflow-executions",
             "/api/admin-settings",
             "/api/admin/workbenches",
+            "/api/admin/workbench-capabilities",
             "/api/refinery"
     ));
 }

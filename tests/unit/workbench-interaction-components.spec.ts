@@ -56,16 +56,7 @@ describe('Workbench interactive panels', () => {
     expect(panel).toContain('scrollToLatest');
   });
 
-  it('keeps safe command output summaries bounded and collapsed by default', async () => {
-    const panel = await source('frontend/js/components/WorkbenchConversationPanel.vue');
-
-    expect(panel).toContain('block.commandSummary || block.outputSummary');
-    expect(panel).toContain('v-if="block.outputSummary"');
-    expect(panel).toContain('{{ block.outputSummary }}');
-    expect(panel).not.toContain('<details open');
-  });
-
-  it('renders persisted Phase messages before current Run events with safe Markdown and no live duplication', async () => {
+  it('shows a loading indicator instead of streaming blocks and renders persisted messages with Markdown', async () => {
     const panel = await source('frontend/js/components/WorkbenchConversationPanel.vue');
     const page = await source('frontend/js/pages/Workbench.vue');
     const messages = panel.indexOf('v-for="message in visibleMessages"');

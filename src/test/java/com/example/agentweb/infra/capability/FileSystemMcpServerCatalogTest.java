@@ -58,11 +58,12 @@ class FileSystemMcpServerCatalogTest {
     }
 
     @Test
-    void shouldRejectLegacyStagesManifest()
+    void shouldRejectLegacyStagesManifest_WhenApplicableUseCasesAreAlsoPresent()
             throws Exception {
         writeManifest("reader", validManifest().replace(
                 "applicableUseCases: [ANALYSIS, DESIGN]\n",
-                "stages: [ANALYSIS, DESIGN]\n"));
+                "applicableUseCases: [ANALYSIS, DESIGN]\n"
+                        + "stages: [ANALYSIS, DESIGN]\n"));
 
         CapabilityCatalogException failure = assertThrows(
                 CapabilityCatalogException.class,
