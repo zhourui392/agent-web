@@ -22,6 +22,7 @@ public class CommonRuntimeProperties {
     private boolean chatEnabled;
     private boolean workbenchEnabled;
     private String codexCommand = "codex";
+    private boolean sandboxBypass = false;
     private String tempRoot = "data/runtime";
     private String compatibilityMatrixVersion = "m0-2026-07-22";
     private long versionProbeTimeoutSeconds = 5L;

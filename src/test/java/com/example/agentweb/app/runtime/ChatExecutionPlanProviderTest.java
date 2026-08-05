@@ -158,7 +158,7 @@ class ChatExecutionPlanProviderTest {
                 ChatRunId.of("workbench-run-1"), "session-1", 1L,
                 "submit-workbench", false, RunOrigin.WORKBENCH,
                 ExecutionContextReference.of(
-                        "workbench-1:IMPLEMENT_TEST", "workbench-run-1"), NOW);
+                        "workbench-1:stage-implementation", "workbench-run-1"), NOW);
 
         assertThrows(RuntimeException.class,
                 () -> provider.prepare(run));

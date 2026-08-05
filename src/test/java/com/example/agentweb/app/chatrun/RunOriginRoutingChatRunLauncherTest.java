@@ -119,6 +119,6 @@ class RunOriginRoutingChatRunLauncherTest {
                 ChatRunId.of("workbench-run"), "session-1", 1L,
                 "workbench-key", false, RunOrigin.WORKBENCH,
                 ExecutionContextReference.of(
-                        "workbench-1:IMPLEMENT_TEST", "workbench-run"), NOW);
+                        "workbench-1:stage-implementation", "workbench-run"), NOW);
     }
 }

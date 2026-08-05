@@ -18,7 +18,6 @@ import com.example.agentweb.domain.workbench.RunMode;
 import com.example.agentweb.domain.workbench.WorkbenchAdminAction;
 import com.example.agentweb.domain.workbench.WorkbenchAdministrator;
 import com.example.agentweb.domain.workbench.WorkbenchId;
-import com.example.agentweb.domain.workbench.WorkbenchPhase;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -142,7 +141,7 @@ class AdminWorkbenchControllerTest {
     }
 
     @Test
-    void mutationBodyAndOwnerOnlyCapabilitiesShouldNotExistOnAdminApi()
+    void mutationBodiesShouldBeStrictlyValidated()
             throws Exception {
         mvc.perform(post("/api/admin/workbenches/workbench-1/runs/run-1/stop")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -160,18 +159,6 @@ class AdminWorkbenchControllerTest {
                         "WORKBENCH_ADMIN_REQUEST_INVALID"));
         verify(runAppService, never()).reconcile(any(), any(), any());
 
-        mvc.perform(post("/api/admin/workbenches/workbench-1/phases/IMPLEMENT_TEST/runs")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{}"))
-                .andExpect(status().isNotFound());
-        mvc.perform(post("/api/admin/workbenches/workbench-1/handoffs")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{}"))
-                .andExpect(status().isNotFound());
-        mvc.perform(post("/api/admin/workbenches/workbench-1/operations/op-1/decision")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{}"))
-                .andExpect(status().isNotFound());
     }
 
     @Test
@@ -245,21 +232,22 @@ class AdminWorkbenchControllerTest {
                         new AdminWorkbenchDetailView.RepositoryView(
                                 "agent-web", "agent-web", true)),
                 Collections.singletonList(
-                        new AdminWorkbenchDetailView.PhaseView(
-                                "IMPLEMENT_TEST", 2, "IN_PROGRESS",
+                        new AdminWorkbenchDetailView.StageView(
+                                "stage-implement", "implementation", 1L,
+                                2, "IN_PROGRESS",
                                 "run-1", "MODIFY_WORKSPACE", 2L, null)));
     }
 
     private AdminWorkbenchRunListItemView runListItem() {
         return new AdminWorkbenchRunListItemView(
-                "run-1", "workbench-1", WorkbenchPhase.IMPLEMENT_TEST,
+                "run-1", "workbench-1", "stage-implement",
                 ChatRunStatus.RUNNING, RunMode.MODIFY_WORKSPACE,
                 7L, 1L, 2L, null, null, null);
     }
 
     private AdminWorkbenchRunDetailView runDetail() {
         return new AdminWorkbenchRunDetailView(
-                "run-1", "workbench-1", WorkbenchPhase.IMPLEMENT_TEST,
+                "run-1", "workbench-1", "stage-implement",
                 ChatRunStatus.RUNNING, RunMode.MODIFY_WORKSPACE,
                 7L, 1L, 2L, null, null, null, null,
                 hash('a'), hash('b'), hash('c'), true);

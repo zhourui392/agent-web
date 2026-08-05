@@ -1,9 +1,7 @@
 package com.example.agentweb.infra.workbench.metrics;
 
 import com.example.agentweb.app.workbench.document.DocumentKind;
-import com.example.agentweb.domain.workbench.HighImpactOperationType;
 import com.example.agentweb.domain.workbench.RunMode;
-import com.example.agentweb.domain.workbench.WorkbenchPhase;
 import io.micrometer.prometheusmetrics.PrometheusConfig;
 import io.micrometer.prometheusmetrics.PrometheusMeterRegistry;
 import org.junit.jupiter.api.Test;
@@ -35,11 +33,11 @@ class WorkbenchPrometheusExporterContractTest {
                 Long.class)).thenReturn(Long.valueOf(3L));
         MicrometerWorkbenchTelemetry telemetry =
                 new MicrometerWorkbenchTelemetry(registry);
-        new WorkbenchActiveGauge(registry, jdbc);
+        // Keep a strong reference so Micrometer's weak-ref Gauge doesn't go NaN under GC.
+        WorkbenchActiveGauge activeGauge = new WorkbenchActiveGauge(registry, jdbc);
 
         telemetry.workbenchCreated("SUCCESS");
         telemetry.runTerminal(
-                WorkbenchPhase.IMPLEMENT_TEST,
                 RunMode.MODIFY_WORKSPACE, "SUCCEEDED",
                 Duration.ofMillis(1250L));
         telemetry.writeConflict();
@@ -49,9 +47,6 @@ class WorkbenchPrometheusExporterContractTest {
         telemetry.capabilityVersionChanged();
         telemetry.workspaceScopeViolation();
         telemetry.documentRead(DocumentKind.PLAIN_TEXT, "SUCCESS");
-        telemetry.handoffConflict();
-        telemetry.operation(
-                HighImpactOperationType.GIT_COMMIT, "AUTHORIZED");
         telemetry.recoveryReconciliation("TERMINAL_RECONCILED");
 
         String scrape = registry.scrape();
@@ -66,19 +61,15 @@ class WorkbenchPrometheusExporterContractTest {
                 () -> assertSeries(scrape,
                         "# TYPE workbench_run_total counter",
                         "workbench_run_total{mode=\"MODIFY_WORKSPACE\","
-                                + "phase=\"IMPLEMENT_TEST\","
                                 + "status=\"SUCCEEDED\"} 1.0"),
                 () -> assertSeries(scrape,
                         "# TYPE workbench_run_duration_seconds summary",
                         "workbench_run_duration_seconds_count{"
-                                + "mode=\"MODIFY_WORKSPACE\","
-                                + "phase=\"IMPLEMENT_TEST\"} 1",
+                                + "mode=\"MODIFY_WORKSPACE\"} 1",
                         "workbench_run_duration_seconds_sum{"
-                                + "mode=\"MODIFY_WORKSPACE\","
-                                + "phase=\"IMPLEMENT_TEST\"} 1.25",
+                                + "mode=\"MODIFY_WORKSPACE\"} 1.25",
                         "workbench_run_duration_seconds_max{"
-                                + "mode=\"MODIFY_WORKSPACE\","
-                                + "phase=\"IMPLEMENT_TEST\"} 1.25"),
+                                + "mode=\"MODIFY_WORKSPACE\"} 1.25"),
                 () -> assertSeries(scrape,
                         "workbench_write_conflict_total 1.0"),
                 () -> assertSeries(scrape,
@@ -99,11 +90,6 @@ class WorkbenchPrometheusExporterContractTest {
                 () -> assertSeries(scrape,
                         "workbench_document_read_total{kind=\"PLAIN_TEXT\","
                                 + "result=\"SUCCESS\"} 1.0"),
-                () -> assertSeries(scrape,
-                        "workbench_handoff_conflict_total 1.0"),
-                () -> assertSeries(scrape,
-                        "workbench_operation_total{status=\"AUTHORIZED\","
-                                + "type=\"GIT_COMMIT\"} 1.0"),
                 () -> assertSeries(scrape,
                         "workbench_recovery_reconciliation_total{"
                                 + "result=\"TERMINAL_RECONCILED\"} 1.0"),

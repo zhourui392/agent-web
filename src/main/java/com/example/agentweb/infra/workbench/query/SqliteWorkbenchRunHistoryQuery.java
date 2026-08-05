@@ -9,7 +9,6 @@ import com.example.agentweb.app.workbench.run.WorkbenchRunListRequest;
 import com.example.agentweb.domain.chatrun.ChatRunStatus;
 import com.example.agentweb.domain.workbench.RunMode;
 import com.example.agentweb.domain.workbench.WorkbenchId;
-import com.example.agentweb.domain.workbench.WorkbenchPhase;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,7 +23,7 @@ import java.util.Optional;
 /**
  * SQLite Workbench Run 历史 CQRS 投影。
  *
- * <p>查询要求 Workbench、不可变 Snapshot、ChatRun 来源引用和 Phase
+ * <p>查询要求 Workbench、不可变 Snapshot、ChatRun 来源引用和 Stage
  * Conversation 同时匹配；任何损坏或跨 Workbench 绑定均不会进入读模型。</p>
  *
  * @author alex
@@ -36,25 +35,36 @@ public class SqliteWorkbenchRunHistoryQuery
         implements WorkbenchRunHistoryQuery {
 
     private static final String EXACT_RUN_FROM =
-            " FROM workbench_run_snapshot s "
+            " FROM workbench_stage_run_snapshot s "
                     + "JOIN workbench w ON w.id=s.workbench_id "
                     + "AND w.repository_scope_hash=s.repository_scope_hash "
                     + "JOIN chat_run r ON r.id=s.run_id "
                     + "AND r.run_origin='WORKBENCH' "
-                    + "AND r.origin_reference=(s.workbench_id || ':' || s.phase) "
+                    + "AND r.origin_reference=(s.workbench_id || ':' || "
+                    + "s.stage_instance_identifier) "
                     + "AND r.execution_context_id=s.run_id "
-                    + "JOIN workbench_phase_conversation c "
+                    + "JOIN workbench_stage_conversation c "
                     + "ON c.workbench_id=s.workbench_id "
-                    + "AND c.phase=s.phase AND c.session_id=r.session_id ";
+                    + "AND c.stage_instance_identifier="
+                    + "s.stage_instance_identifier "
+                    + "AND c.session_id=r.session_id "
+                    + "JOIN chat_session cs ON cs.id=r.session_id "
+                    + "AND cs.session_kind='WORKBENCH_STAGE' "
+                    + "AND cs.context_id=(s.workbench_id || ':' || "
+                    + "s.stage_instance_identifier) "
+                    + "AND cs.user_id=w.owner_id "
+                    + "AND cs.user_name=w.owner_name ";
 
     private static final String LIST_COLUMNS =
-            "SELECT r.id AS run_id, s.workbench_id, s.phase, "
+            "SELECT r.id AS run_id, s.workbench_id, "
+                    + "s.stage_instance_identifier, "
                     + "r.session_id, r.status, s.run_mode, "
                     + "r.last_event_seq, r.created_at, r.started_at, "
                     + "r.finished_at, r.failure_code ";
 
     private static final String DETAIL_COLUMNS =
-            "SELECT r.id AS run_id, s.workbench_id, s.phase, "
+            "SELECT r.id AS run_id, s.workbench_id, "
+                    + "s.stage_instance_identifier, "
                     + "r.session_id, r.status, s.run_mode, "
                     + "r.last_event_seq, COALESCE((SELECT MIN(e.seq) "
                     + "FROM chat_run_event e WHERE e.run_id=r.id), "
@@ -83,9 +93,9 @@ public class SqliteWorkbenchRunHistoryQuery
         List<Object> arguments = new ArrayList<Object>();
         arguments.add(workbenchId.getValue());
         arguments.add(repositoryScopeHash);
-        if (request.getPhase() != null) {
-            sql.append(" AND s.phase=?");
-            arguments.add(request.getPhase().name());
+        if (request.getStageInstanceIdentifier() != null) {
+            sql.append(" AND s.stage_instance_identifier=?");
+            arguments.add(request.getStageInstanceIdentifier());
         }
         WorkbenchRunListCursor cursor = request.getCursor();
         if (cursor != null) {
@@ -138,7 +148,7 @@ public class SqliteWorkbenchRunHistoryQuery
         return new WorkbenchRunListItemView(
                 resultSet.getString("run_id"),
                 resultSet.getString("workbench_id"),
-                WorkbenchPhase.valueOf(resultSet.getString("phase")),
+                resultSet.getString("stage_instance_identifier"),
                 resultSet.getString("session_id"),
                 ChatRunStatus.valueOf(resultSet.getString("status")),
                 RunMode.valueOf(resultSet.getString("run_mode")),
@@ -154,7 +164,7 @@ public class SqliteWorkbenchRunHistoryQuery
         return new WorkbenchRunDetailView(
                 resultSet.getString("run_id"),
                 resultSet.getString("workbench_id"),
-                WorkbenchPhase.valueOf(resultSet.getString("phase")),
+                resultSet.getString("stage_instance_identifier"),
                 resultSet.getString("session_id"),
                 ChatRunStatus.valueOf(resultSet.getString("status")),
                 RunMode.valueOf(resultSet.getString("run_mode")),

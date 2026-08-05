@@ -1,6 +1,6 @@
 package com.example.agentweb.interfaces.workbench;
 
-import com.example.agentweb.app.workbench.run.SubmitWorkbenchRunCommand;
+import com.example.agentweb.app.workbench.run.SubmitWorkbenchStageRunCommand;
 import com.example.agentweb.app.workbench.run.WorkbenchRunAppService;
 import com.example.agentweb.domain.workbench.WorkbenchRunAttachmentReference;
 import com.example.agentweb.app.workbench.run.WorkbenchRunCursorExpiredException;
@@ -16,11 +16,14 @@ import com.example.agentweb.app.workbench.run.WorkbenchRunListRequest;
 import com.example.agentweb.app.workbench.run.WorkbenchRunStopResult;
 import com.example.agentweb.app.workbench.run.WorkbenchRunStreamHandle;
 import com.example.agentweb.app.workbench.run.WorkbenchRunStreamSink;
-import com.example.agentweb.app.workbench.run.WorkbenchRunSubmissionResult;
+import com.example.agentweb.app.workbench.run.WorkbenchStageRunAppService;
+import com.example.agentweb.app.workbench.run.WorkbenchStageRunSubmissionResult;
+import com.example.agentweb.app.workbench.stage.WorkbenchStageCommandQueryService;
+import com.example.agentweb.app.workbench.stage.WorkbenchStageCommandView;
 import com.example.agentweb.domain.auth.CurrentUserProvider;
 import com.example.agentweb.domain.workbench.OwnerReference;
 import com.example.agentweb.domain.workbench.WorkbenchId;
-import com.example.agentweb.domain.workbench.WorkbenchPhase;
+import com.example.agentweb.interfaces.dto.CommandDto;
 import com.example.agentweb.interfaces.workbench.dto.SubmitWorkbenchRunRequest;
 import com.example.agentweb.interfaces.workbench.dto.WorkbenchRunAttachmentRequest;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -45,7 +48,6 @@ import java.net.URI;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -66,35 +68,56 @@ public class WorkbenchRunController {
     private static final int DEFAULT_EVENT_PAGE_LIMIT = 200;
 
     private final WorkbenchRunAppService appService;
+    private final WorkbenchStageRunAppService stageRunAppService;
     private final WorkbenchRunHistoryAppService historyAppService;
     private final CurrentUserProvider currentUserProvider;
+    private final WorkbenchStageCommandQueryService stageCommandQueryService;
 
     public WorkbenchRunController(
             WorkbenchRunAppService appService,
+            WorkbenchStageRunAppService stageRunAppService,
             WorkbenchRunHistoryAppService historyAppService,
-            CurrentUserProvider currentUserProvider) {
+            CurrentUserProvider currentUserProvider,
+            WorkbenchStageCommandQueryService stageCommandQueryService) {
         this.appService = appService;
+        this.stageRunAppService = stageRunAppService;
         this.historyAppService = historyAppService;
         this.currentUserProvider = currentUserProvider;
+        this.stageCommandQueryService = stageCommandQueryService;
     }
 
-    @PostMapping("/phases/{phase}/runs")
-    public ResponseEntity<WorkbenchRunSubmissionResult> submit(
+    @GetMapping("/stages/{stageInstanceIdentifier}/commands")
+    public List<CommandDto> listStageCommands(
             @PathVariable("workbenchId") String workbenchId,
-            @PathVariable("phase") String phase,
+            @PathVariable("stageInstanceIdentifier")
+            String stageInstanceIdentifier) {
+        List<WorkbenchStageCommandView> commands =
+                stageCommandQueryService.list(
+                        currentOwner(), WorkbenchId.of(workbenchId),
+                        stageInstanceIdentifier);
+        return commands.stream()
+                .map(command -> new CommandDto(
+                        command.getIdentifier(), command.getDescription(),
+                        command.getArgumentHint()))
+                .collect(java.util.stream.Collectors.toList());
+    }
+
+    @PostMapping("/stages/{stageInstanceIdentifier}/runs")
+    public ResponseEntity<WorkbenchStageRunSubmissionResult> submit(
+            @PathVariable("workbenchId") String workbenchId,
+            @PathVariable("stageInstanceIdentifier")
+            String stageInstanceIdentifier,
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestHeader("If-Match") long expectedVersion,
             @Valid @RequestBody SubmitWorkbenchRunRequest request) {
         WorkbenchId id = WorkbenchId.of(workbenchId);
-        SubmitWorkbenchRunCommand command =
-                SubmitWorkbenchRunCommand.fromExternal(
-                        id, parsePhase(phase), expectedVersion,
+        SubmitWorkbenchStageRunCommand command =
+                SubmitWorkbenchStageRunCommand.fromExternal(
+                        id, stageInstanceIdentifier, expectedVersion,
                         idempotencyKey, request.getMessage(),
                         request.getRunMode(),
-                        request.getHandoffSourceVersion(),
-                        request.getReviewConfirmationId(),
                         attachments(request.getAttachments()));
-        WorkbenchRunSubmissionResult result = appService.submit(
+        WorkbenchStageRunSubmissionResult result = stageRunAppService.submit(
                 currentOwner(), command);
         return ResponseEntity.accepted()
                 .location(URI.create(
@@ -106,8 +129,8 @@ public class WorkbenchRunController {
     @GetMapping("/runs")
     public WorkbenchRunListPage list(
             @PathVariable("workbenchId") String workbenchId,
-            @RequestParam(value = "phase", required = false)
-                    String phase,
+            @RequestParam(value = "stageInstanceIdentifier", required = false)
+                    String stageInstanceIdentifier,
             @RequestParam(value = "cursorCreatedAt", required = false)
                     Long cursorCreatedAt,
             @RequestParam(value = "cursorRunId", required = false)
@@ -118,7 +141,7 @@ public class WorkbenchRunController {
         return historyAppService.list(
                 currentOwner(), WorkbenchId.of(workbenchId),
                 new WorkbenchRunListRequest(
-                        parseOptionalPhase(phase),
+                        stageInstanceIdentifier,
                         parseListCursor(cursorCreatedAt, cursorRunId),
                         limit));
     }
@@ -201,18 +224,6 @@ public class WorkbenchRunController {
         return OwnerReference.of(
                 currentUserProvider.currentUserId(),
                 currentUserProvider.currentUserName());
-    }
-
-    private WorkbenchPhase parsePhase(String value) {
-        return WorkbenchPhase.valueOf(
-                value.trim().toUpperCase(Locale.ROOT));
-    }
-
-    private WorkbenchPhase parseOptionalPhase(String value) {
-        if (value == null || value.trim().isEmpty()) {
-            return null;
-        }
-        return parsePhase(value);
     }
 
     private WorkbenchRunListCursor parseListCursor(

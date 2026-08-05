@@ -10,13 +10,14 @@ public enum WorkbenchPromptPartType {
     PLATFORM_SAFETY(true),
     ENVIRONMENT_GUARDRAIL(true),
     REPOSITORY_SCOPE(true),
-    PHASE_RULES(true),
+    STAGE_DEFINITION(false),
+    STAGE_RULES(false),
     SELECTED_CAPABILITIES(true),
-    UPSTREAM_HANDOFF(false),
+    GLOBAL_CONTEXT(false),
     WORKSPACE_CONTEXT(true),
     ORIGINAL_GOAL(true),
     ATTACHMENTS(false),
-    PHASE_HISTORY(false),
+    STAGE_HISTORY(false),
     USER_INPUT(true),
     OUTPUT_INSTRUCTION(true);
 

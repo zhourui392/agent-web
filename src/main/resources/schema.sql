@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS chat_session (
     context_id       TEXT,
     retired_at       TEXT,
     CHECK ((session_kind = 'CHAT' AND context_id IS NULL AND retired_at IS NULL)
-        OR (session_kind = 'WORKBENCH_PHASE'
+        OR (session_kind = 'WORKBENCH_STAGE'
             AND context_id IS NOT NULL AND length(trim(context_id)) > 0)),
     CHECK (retired_at IS NULL OR retired_at >= created_at)
 );
@@ -552,6 +552,164 @@ CREATE INDEX IF NOT EXISTS idx_workspace_snapshot_anomaly_kind
     ON workspace_snapshot_anomaly(kind, snapshot_id);
 
 -- Local Development Workbench 写模型。Workbench 是状态唯一来源；归档只读保留，不提供物理删除端口。
+CREATE TABLE IF NOT EXISTS workbench_capability_source_configuration (
+    singleton_id               INTEGER PRIMARY KEY CHECK(singleton_id = 1),
+    command_directories_json   TEXT    NOT NULL,
+    skill_directories_json     TEXT    NOT NULL,
+    mcp_configuration_json     TEXT    NOT NULL,
+    configuration_hash         TEXT    NOT NULL,
+    updated_by_id              TEXT    NOT NULL,
+    updated_by_name            TEXT    NOT NULL,
+    updated_at                 INTEGER NOT NULL,
+    version                    INTEGER NOT NULL CHECK(version >= 1),
+    CHECK (length(configuration_hash) = 64
+        AND configuration_hash NOT GLOB '*[^0-9a-f]*')
+);
+
+CREATE TABLE IF NOT EXISTS workbench_command_definition_revision (
+    command_identifier TEXT    NOT NULL,
+    command_version    TEXT    NOT NULL,
+    definition_json    TEXT    NOT NULL,
+    content_hash       TEXT    NOT NULL,
+    payload_hash       TEXT    NOT NULL,
+    created_at         INTEGER NOT NULL,
+    PRIMARY KEY(command_identifier, command_version),
+    CHECK (length(content_hash) = 64 AND content_hash NOT GLOB '*[^0-9a-f]*'),
+    CHECK (length(payload_hash) = 64 AND payload_hash NOT GLOB '*[^0-9a-f]*')
+);
+
+CREATE TABLE IF NOT EXISTS workbench_skill_package_revision (
+    skill_identifier TEXT    NOT NULL,
+    skill_version    TEXT    NOT NULL,
+    manifest_json    TEXT    NOT NULL,
+    manifest_hash    TEXT    NOT NULL,
+    package_hash     TEXT    NOT NULL,
+    artifact_key     TEXT    NOT NULL,
+    artifact_size    INTEGER NOT NULL CHECK(artifact_size > 0),
+    created_at       INTEGER NOT NULL,
+    PRIMARY KEY(skill_identifier, skill_version),
+    UNIQUE(artifact_key),
+    CHECK (length(manifest_hash) = 64 AND manifest_hash NOT GLOB '*[^0-9a-f]*'),
+    CHECK (length(package_hash) = 64 AND package_hash NOT GLOB '*[^0-9a-f]*')
+);
+
+CREATE TABLE IF NOT EXISTS workbench_mcp_server_definition_revision (
+    server_identifier TEXT    NOT NULL,
+    server_version    TEXT    NOT NULL,
+    definition_json   TEXT    NOT NULL,
+    definition_hash   TEXT    NOT NULL,
+    payload_hash      TEXT    NOT NULL,
+    created_at        INTEGER NOT NULL,
+    PRIMARY KEY(server_identifier, server_version),
+    CHECK (length(definition_hash) = 64
+        AND definition_hash NOT GLOB '*[^0-9a-f]*'),
+    CHECK (length(payload_hash) = 64 AND payload_hash NOT GLOB '*[^0-9a-f]*')
+);
+
+CREATE TABLE IF NOT EXISTS workbench_stage_catalog (
+    singleton_id    INTEGER PRIMARY KEY CHECK(singleton_id = 1),
+    catalog_version INTEGER NOT NULL CHECK(catalog_version >= 1),
+    updated_at      INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS workbench_stage_definition (
+    definition_identifier      TEXT    PRIMARY KEY,
+    current_published_revision INTEGER,
+    disabled                   INTEGER NOT NULL CHECK(disabled IN (0, 1)),
+    created_by_id              TEXT    NOT NULL,
+    created_by_name            TEXT    NOT NULL,
+    created_at                 INTEGER NOT NULL,
+    updated_by_id              TEXT    NOT NULL,
+    updated_by_name            TEXT    NOT NULL,
+    updated_at                 INTEGER NOT NULL,
+    version                    INTEGER NOT NULL CHECK(version >= 1)
+);
+
+CREATE TABLE IF NOT EXISTS workbench_stage_draft (
+    definition_identifier        TEXT PRIMARY KEY,
+    based_on_published_revision  INTEGER,
+    draft_content_json           TEXT    NOT NULL,
+    draft_hash                   TEXT    NOT NULL,
+    saved_by_id                  TEXT    NOT NULL,
+    saved_by_name                TEXT    NOT NULL,
+    saved_at                     INTEGER NOT NULL,
+    FOREIGN KEY(definition_identifier)
+        REFERENCES workbench_stage_definition(definition_identifier) ON DELETE CASCADE,
+    CHECK (length(draft_hash) = 64 AND draft_hash NOT GLOB '*[^0-9a-f]*')
+);
+
+CREATE TABLE IF NOT EXISTS workbench_stage_definition_revision (
+    definition_identifier TEXT    NOT NULL,
+    revision_number       INTEGER NOT NULL CHECK(revision_number >= 1),
+    sequence_number       INTEGER NOT NULL CHECK(sequence_number >= 1),
+    display_name          TEXT    NOT NULL,
+    description           TEXT    NOT NULL,
+    stage_rules           TEXT    NOT NULL,
+    allowed_run_modes_json TEXT   NOT NULL,
+    definition_hash       TEXT    NOT NULL,
+    created_by_id         TEXT    NOT NULL,
+    created_by_name       TEXT    NOT NULL,
+    created_at            INTEGER NOT NULL,
+    published_at          INTEGER NOT NULL,
+    PRIMARY KEY(definition_identifier, revision_number),
+    FOREIGN KEY(definition_identifier)
+        REFERENCES workbench_stage_definition(definition_identifier) ON DELETE RESTRICT,
+    CHECK (length(definition_hash) = 64
+        AND definition_hash NOT GLOB '*[^0-9a-f]*')
+);
+
+CREATE TABLE IF NOT EXISTS workbench_stage_definition_command (
+    definition_identifier TEXT    NOT NULL,
+    revision_number       INTEGER NOT NULL,
+    command_order         INTEGER NOT NULL CHECK(command_order >= 0),
+    capability_identifier TEXT    NOT NULL,
+    capability_version    TEXT    NOT NULL,
+    capability_hash       TEXT    NOT NULL,
+    PRIMARY KEY(definition_identifier, revision_number, command_order),
+    UNIQUE(definition_identifier, revision_number, capability_identifier),
+    FOREIGN KEY(definition_identifier, revision_number)
+        REFERENCES workbench_stage_definition_revision(
+            definition_identifier, revision_number) ON DELETE CASCADE,
+    CHECK (length(capability_hash) = 64
+        AND capability_hash NOT GLOB '*[^0-9a-f]*')
+);
+
+CREATE TABLE IF NOT EXISTS workbench_stage_definition_skill (
+    definition_identifier TEXT    NOT NULL,
+    revision_number       INTEGER NOT NULL,
+    skill_order           INTEGER NOT NULL CHECK(skill_order >= 0),
+    capability_identifier TEXT    NOT NULL,
+    capability_version    TEXT    NOT NULL,
+    capability_hash       TEXT    NOT NULL,
+    required              INTEGER NOT NULL CHECK(required IN (0, 1)),
+    PRIMARY KEY(definition_identifier, revision_number, skill_order),
+    UNIQUE(definition_identifier, revision_number, capability_identifier),
+    FOREIGN KEY(definition_identifier, revision_number)
+        REFERENCES workbench_stage_definition_revision(
+            definition_identifier, revision_number) ON DELETE CASCADE,
+    CHECK (length(capability_hash) = 64
+        AND capability_hash NOT GLOB '*[^0-9a-f]*')
+);
+
+CREATE TABLE IF NOT EXISTS workbench_stage_definition_mcp_server (
+    definition_identifier TEXT    NOT NULL,
+    revision_number       INTEGER NOT NULL,
+    mcp_order             INTEGER NOT NULL CHECK(mcp_order >= 0),
+    capability_identifier TEXT    NOT NULL,
+    capability_version    TEXT    NOT NULL,
+    capability_hash       TEXT    NOT NULL,
+    required              INTEGER NOT NULL CHECK(required IN (0, 1)),
+    maximum_access        TEXT    NOT NULL CHECK(maximum_access IN ('READ', 'WRITE')),
+    transport             TEXT    NOT NULL CHECK(transport IN ('STDIO', 'STREAMABLE_HTTP')),
+    PRIMARY KEY(definition_identifier, revision_number, mcp_order),
+    UNIQUE(definition_identifier, revision_number, capability_identifier),
+    FOREIGN KEY(definition_identifier, revision_number)
+        REFERENCES workbench_stage_definition_revision(
+            definition_identifier, revision_number) ON DELETE CASCADE,
+    CHECK (length(capability_hash) = 64
+        AND capability_hash NOT GLOB '*[^0-9a-f]*')
+);
+
 CREATE TABLE IF NOT EXISTS workbench (
     id                                TEXT    PRIMARY KEY,
     owner_id                          TEXT    NOT NULL,
@@ -616,27 +774,36 @@ CREATE TABLE IF NOT EXISTS workbench_repository_scope (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_workbench_scope_one_primary
     ON workbench_repository_scope(workbench_id) WHERE primary_repository = 1;
 
-CREATE TABLE IF NOT EXISTS workbench_phase (
-    workbench_id               TEXT    NOT NULL,
-    phase                      TEXT    NOT NULL,
-    phase_order                INTEGER NOT NULL,
-    status                     TEXT    NOT NULL,
-    conversation_generation    INTEGER NOT NULL,
-    active_run_id              TEXT,
-    active_run_mode            TEXT,
-    active_run_prepared_at     INTEGER,
-    review_confirmation_id     TEXT,
-    review_opinion_version     INTEGER,
-    review_opinion_hash        TEXT,
-    last_activity_at           INTEGER,
-    completed_at               INTEGER,
-    PRIMARY KEY(workbench_id, phase),
-    UNIQUE(workbench_id, phase_order),
+-- Workbench Stage Instance。Stage Snapshot 创建后不可变，不回查当前 Stage Catalog。
+CREATE TABLE IF NOT EXISTS workbench_stage (
+    workbench_id                TEXT    NOT NULL,
+    stage_instance_identifier   TEXT    NOT NULL,
+    definition_identifier       TEXT    NOT NULL,
+    definition_revision         INTEGER NOT NULL,
+    definition_hash             TEXT    NOT NULL,
+    sequence_number             INTEGER NOT NULL,
+    stage_snapshot_json         TEXT    NOT NULL,
+    stage_snapshot_hash         TEXT    NOT NULL,
+    status                      TEXT    NOT NULL,
+    conversation_generation     INTEGER NOT NULL,
+    active_run_id               TEXT,
+    active_run_mode             TEXT,
+    active_run_prepared_at      INTEGER,
+    last_activity_at            INTEGER,
+    completed_at                INTEGER,
+    PRIMARY KEY(workbench_id, stage_instance_identifier),
+    UNIQUE(workbench_id, definition_identifier),
+    UNIQUE(workbench_id, sequence_number),
     FOREIGN KEY(workbench_id) REFERENCES workbench(id) ON DELETE CASCADE,
-    CHECK ((phase = 'REQUIREMENT_ANALYSIS' AND phase_order = 0)
-        OR (phase = 'SOLUTION_DESIGN' AND phase_order = 1)
-        OR (phase = 'IMPLEMENT_TEST' AND phase_order = 2)
-        OR (phase = 'REVIEW_REFACTOR' AND phase_order = 3)),
+    CHECK (length(stage_instance_identifier) BETWEEN 1 AND 128),
+    CHECK (length(definition_identifier) BETWEEN 1 AND 128),
+    CHECK (definition_revision >= 1),
+    CHECK (sequence_number >= 1),
+    CHECK (length(definition_hash) = 64
+        AND definition_hash NOT GLOB '*[^0-9a-f]*'),
+    CHECK (length(stage_snapshot_json) >= 2),
+    CHECK (length(stage_snapshot_hash) = 64
+        AND stage_snapshot_hash NOT GLOB '*[^0-9a-f]*'),
     CHECK (status IN ('NOT_STARTED', 'IN_PROGRESS', 'HUMAN_COMPLETED')),
     CHECK (conversation_generation >= 0),
     CHECK (active_run_mode IS NULL
@@ -645,33 +812,27 @@ CREATE TABLE IF NOT EXISTS workbench_phase (
             AND active_run_prepared_at IS NULL)
         OR (active_run_id IS NOT NULL AND active_run_mode IS NOT NULL
             AND active_run_prepared_at IS NOT NULL)),
-    CHECK ((review_confirmation_id IS NULL AND review_opinion_version IS NULL
-            AND review_opinion_hash IS NULL)
-        OR (review_confirmation_id IS NOT NULL AND review_opinion_version >= 1
-            AND length(review_opinion_hash) = 64
-            AND review_opinion_hash NOT GLOB '*[^0-9a-f]*'
-            AND phase = 'REVIEW_REFACTOR'
-            AND active_run_mode = 'MODIFY_WORKSPACE')),
     CHECK (status = 'HUMAN_COMPLETED' OR completed_at IS NULL),
     CHECK (status <> 'HUMAN_COMPLETED' OR completed_at IS NOT NULL)
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_workbench_one_modify_run
-    ON workbench_phase(workbench_id) WHERE active_run_mode = 'MODIFY_WORKSPACE';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_workbench_stage_one_modify_run
+    ON workbench_stage(workbench_id) WHERE active_run_mode = 'MODIFY_WORKSPACE';
 
-CREATE TABLE IF NOT EXISTS workbench_phase_conversation (
-    workbench_id   TEXT    NOT NULL,
-    phase          TEXT    NOT NULL,
-    generation     INTEGER NOT NULL,
-    session_id     TEXT    NOT NULL,
-    created_by_id  TEXT    NOT NULL,
-    created_by_name TEXT   NOT NULL,
-    created_at     INTEGER NOT NULL,
-    retired_at     INTEGER,
-    PRIMARY KEY(workbench_id, phase, generation),
+CREATE TABLE IF NOT EXISTS workbench_stage_conversation (
+    workbench_id                TEXT    NOT NULL,
+    stage_instance_identifier   TEXT    NOT NULL,
+    generation                  INTEGER NOT NULL,
+    session_id                  TEXT    NOT NULL,
+    created_by_id               TEXT    NOT NULL,
+    created_by_name             TEXT    NOT NULL,
+    created_at                  INTEGER NOT NULL,
+    retired_at                  INTEGER,
+    PRIMARY KEY(workbench_id, stage_instance_identifier, generation),
     UNIQUE(session_id),
-    FOREIGN KEY(workbench_id, phase)
-        REFERENCES workbench_phase(workbench_id, phase) ON DELETE CASCADE,
+    FOREIGN KEY(workbench_id, stage_instance_identifier)
+        REFERENCES workbench_stage(
+            workbench_id, stage_instance_identifier) ON DELETE CASCADE,
     CHECK (generation >= 0),
     CHECK (length(session_id) BETWEEN 1 AND 128),
     CHECK (length(created_by_id) BETWEEN 1 AND 128),
@@ -679,175 +840,51 @@ CREATE TABLE IF NOT EXISTS workbench_phase_conversation (
     CHECK (retired_at IS NULL OR retired_at >= created_at)
 );
 
-CREATE TABLE IF NOT EXISTS workbench_phase_handoff (
-    workbench_id         TEXT    NOT NULL,
-    phase                TEXT    NOT NULL,
-    summary              TEXT    NOT NULL,
-    decisions_json       TEXT    NOT NULL,
-    open_questions_json  TEXT    NOT NULL,
-    pinned_files_json    TEXT    NOT NULL,
-    referenced_runs_json TEXT    NOT NULL,
-    content_hash         TEXT    NOT NULL,
-    updated_by_id        TEXT    NOT NULL,
-    updated_by_name      TEXT    NOT NULL,
-    updated_at           INTEGER NOT NULL,
-    version              INTEGER NOT NULL,
-    PRIMARY KEY(workbench_id, phase),
-    FOREIGN KEY(workbench_id, phase)
-        REFERENCES workbench_phase(workbench_id, phase) ON DELETE RESTRICT,
-    CHECK (length(summary) <= 8000),
-    CHECK (length(content_hash) = 64
-        AND content_hash NOT GLOB '*[^0-9a-f]*'),
-    CHECK (version >= 0)
-);
+CREATE UNIQUE INDEX IF NOT EXISTS
+    idx_workbench_stage_conversation_exact_binding
+    ON workbench_stage_conversation(
+        workbench_id, stage_instance_identifier, generation, session_id);
 
-CREATE TABLE IF NOT EXISTS workbench_phase_handoff_revision (
-    workbench_id         TEXT    NOT NULL,
-    phase                TEXT    NOT NULL,
-    summary              TEXT    NOT NULL,
-    decisions_json       TEXT    NOT NULL,
-    open_questions_json  TEXT    NOT NULL,
-    pinned_files_json    TEXT    NOT NULL,
-    referenced_runs_json TEXT    NOT NULL,
-    content_hash         TEXT    NOT NULL,
-    updated_by_id        TEXT    NOT NULL,
-    updated_by_name      TEXT    NOT NULL,
-    updated_at           INTEGER NOT NULL,
-    version              INTEGER NOT NULL,
-    PRIMARY KEY(workbench_id, phase, version),
-    FOREIGN KEY(workbench_id, phase)
-        REFERENCES workbench_phase_handoff(workbench_id, phase) ON DELETE RESTRICT,
-    CHECK (length(summary) <= 8000),
-    CHECK (length(content_hash) = 64
-        AND content_hash NOT GLOB '*[^0-9a-f]*'),
-    CHECK (version >= 0)
-);
-
-CREATE INDEX IF NOT EXISTS idx_workbench_handoff_revision_exact
-    ON workbench_phase_handoff_revision(
-        workbench_id, phase, version, content_hash
-    );
-
-CREATE TABLE IF NOT EXISTS workbench_handoff_reception (
-    workbench_id     TEXT    NOT NULL,
-    target_phase     TEXT    NOT NULL,
-    source_phase     TEXT    NOT NULL,
-    source_version   INTEGER NOT NULL,
-    source_hash      TEXT    NOT NULL,
-    accepted_by_id   TEXT    NOT NULL,
-    accepted_by_name TEXT    NOT NULL,
-    accepted_at      INTEGER NOT NULL,
-    PRIMARY KEY(workbench_id, target_phase, source_phase),
-    FOREIGN KEY(workbench_id, target_phase)
-        REFERENCES workbench_phase(workbench_id, phase) ON DELETE RESTRICT,
-    FOREIGN KEY(workbench_id, source_phase)
-        REFERENCES workbench_phase_handoff(workbench_id, phase) ON DELETE RESTRICT,
-    CHECK (source_version >= 0),
-    CHECK (length(source_hash) = 64
-        AND source_hash NOT GLOB '*[^0-9a-f]*')
-);
-
-CREATE TABLE IF NOT EXISTS workbench_phase_capability_config (
-    workbench_id        TEXT    NOT NULL,
-    phase               TEXT    NOT NULL,
-    base_profile_id     TEXT    NOT NULL,
-    base_profile_version TEXT   NOT NULL,
-    override_json       TEXT    NOT NULL,
-    updated_by_id       TEXT    NOT NULL,
-    updated_by_name     TEXT    NOT NULL,
-    updated_at          INTEGER NOT NULL,
-    version             INTEGER NOT NULL,
-    PRIMARY KEY(workbench_id, phase),
-    FOREIGN KEY(workbench_id, phase)
-        REFERENCES workbench_phase(workbench_id, phase) ON DELETE RESTRICT,
-    CHECK (version >= 0)
-);
-
-CREATE TABLE IF NOT EXISTS workbench_phase_capability_profile (
-    phase               TEXT    NOT NULL PRIMARY KEY,
-    profile_id          TEXT    NOT NULL,
-    profile_version     TEXT    NOT NULL,
-    profile_hash        TEXT    NOT NULL,
-    capabilities_json   TEXT    NOT NULL,
-    updated_by_id       TEXT    NOT NULL,
-    updated_by_name     TEXT    NOT NULL,
-    updated_at          INTEGER NOT NULL,
-    version             INTEGER NOT NULL,
-    CHECK (version >= 1),
-    CHECK (length(profile_hash) = 64
-        AND profile_hash NOT GLOB '*[^0-9a-f]*')
-);
-
-CREATE TABLE IF NOT EXISTS workbench_review_opinion (
-    workbench_id    TEXT    NOT NULL,
-    opinion_version INTEGER NOT NULL,
-    opinion_content TEXT,
-    content_hash    TEXT    NOT NULL,
-    reviewed_by_id  TEXT    NOT NULL,
-    reviewed_by_name TEXT  NOT NULL,
-    reviewed_at     INTEGER NOT NULL,
-    PRIMARY KEY(workbench_id, opinion_version),
-    FOREIGN KEY(workbench_id) REFERENCES workbench(id) ON DELETE RESTRICT,
-    CHECK (opinion_version >= 1),
-    CHECK (opinion_content IS NULL
-        OR length(trim(opinion_content)) BETWEEN 1 AND 16000),
-    CHECK (length(content_hash) = 64
-        AND content_hash NOT GLOB '*[^0-9a-f]*')
-);
-
-CREATE TABLE IF NOT EXISTS workbench_review_modify_confirmation (
-    confirmation_id   TEXT    PRIMARY KEY,
-    workbench_id      TEXT    NOT NULL,
-    opinion_version   INTEGER NOT NULL,
-    opinion_hash      TEXT    NOT NULL,
-    confirmed_by_id   TEXT    NOT NULL,
-    confirmed_by_name TEXT    NOT NULL,
-    confirmed_at      INTEGER NOT NULL,
-    FOREIGN KEY(workbench_id, opinion_version)
-        REFERENCES workbench_review_opinion(workbench_id, opinion_version)
-        ON DELETE RESTRICT,
-    CHECK (length(confirmation_id) BETWEEN 1 AND 128),
-    CHECK (opinion_version >= 1),
-    CHECK (length(opinion_hash) = 64
-        AND opinion_hash NOT GLOB '*[^0-9a-f]*')
-);
-
-CREATE TABLE IF NOT EXISTS workbench_run_snapshot (
-    run_id                          TEXT    PRIMARY KEY,
-    workbench_id                    TEXT    NOT NULL,
-    phase                           TEXT    NOT NULL,
-    submission_idempotency_key      TEXT    NOT NULL,
-    submission_request_hash         TEXT    NOT NULL,
-    run_mode                        TEXT    NOT NULL,
-    repository_scope_hash           TEXT    NOT NULL,
-    workspace_snapshot_id           TEXT    NOT NULL,
-    workspace_snapshot_topology_hash TEXT   NOT NULL,
-    workspace_snapshot_state_hash   TEXT    NOT NULL,
+-- Stage Run 只引用冻结 Stage Snapshot 和精确 Stage Instance。
+CREATE TABLE IF NOT EXISTS workbench_stage_run_snapshot (
+    run_id                           TEXT    PRIMARY KEY,
+    workbench_id                     TEXT    NOT NULL,
+    stage_instance_identifier        TEXT    NOT NULL,
+    stage_definition_identifier      TEXT    NOT NULL,
+    stage_definition_revision        INTEGER NOT NULL,
+    stage_snapshot_hash              TEXT    NOT NULL,
+    submission_idempotency_key       TEXT    NOT NULL,
+    submission_request_hash          TEXT    NOT NULL,
+    run_mode                         TEXT    NOT NULL,
+    repository_scope_hash            TEXT    NOT NULL,
+    workspace_snapshot_id            TEXT    NOT NULL,
+    workspace_snapshot_topology_hash TEXT    NOT NULL,
+    workspace_snapshot_state_hash    TEXT    NOT NULL,
     workspace_snapshot_repository_count INTEGER NOT NULL,
-    profile_id                      TEXT    NOT NULL,
-    profile_version                 TEXT    NOT NULL,
-    override_version                INTEGER,
-    capability_bindings_json        TEXT    NOT NULL,
-    capability_snapshot_hash        TEXT    NOT NULL,
-    handoff_source_phase            TEXT,
-    handoff_source_version          INTEGER,
-    handoff_source_hash             TEXT,
-    prompt_parts_json               TEXT    NOT NULL,
-    prompt_hash                     TEXT    NOT NULL,
-    attachments_json                TEXT    NOT NULL DEFAULT '[]',
-    runtime_enforcement_json        TEXT    NOT NULL,
-    review_confirmation_id          TEXT,
-    review_opinion_version          INTEGER,
-    review_opinion_hash             TEXT,
-    created_at                      INTEGER NOT NULL,
+    capability_bindings_json         TEXT    NOT NULL,
+    capability_snapshot_hash         TEXT    NOT NULL,
+    command_binding_json             TEXT,
+    command_binding_hash             TEXT,
+    context_version                  INTEGER NOT NULL,
+    context_hash                     TEXT    NOT NULL,
+    context_documents_json           TEXT    NOT NULL,
+    prompt_parts_json                TEXT    NOT NULL,
+    prompt_hash                      TEXT    NOT NULL,
+    attachments_json                 TEXT    NOT NULL DEFAULT '[]',
+    runtime_enforcement_json         TEXT    NOT NULL,
+    created_at                       INTEGER NOT NULL,
     FOREIGN KEY(workbench_id) REFERENCES workbench(id) ON DELETE RESTRICT,
+    FOREIGN KEY(workbench_id, stage_instance_identifier)
+        REFERENCES workbench_stage(workbench_id, stage_instance_identifier)
+        ON DELETE RESTRICT,
     FOREIGN KEY(workspace_snapshot_id)
         REFERENCES workspace_snapshot(snapshot_id) ON DELETE RESTRICT,
-    FOREIGN KEY(review_confirmation_id)
-        REFERENCES workbench_review_modify_confirmation(confirmation_id)
-        ON DELETE RESTRICT,
-    CHECK (phase IN ('REQUIREMENT_ANALYSIS', 'SOLUTION_DESIGN',
-        'IMPLEMENT_TEST', 'REVIEW_REFACTOR')),
+    UNIQUE(workbench_id, stage_instance_identifier,
+        submission_idempotency_key),
+    CHECK (length(stage_instance_identifier) BETWEEN 1 AND 128),
+    CHECK (stage_definition_revision >= 1),
+    CHECK (length(stage_snapshot_hash) = 64
+        AND stage_snapshot_hash NOT GLOB '*[^0-9a-f]*'),
     CHECK (length(submission_idempotency_key) BETWEEN 1 AND 128),
     CHECK (length(submission_request_hash) = 64
         AND submission_request_hash NOT GLOB '*[^0-9a-f]*'),
@@ -859,36 +896,35 @@ CREATE TABLE IF NOT EXISTS workbench_run_snapshot (
     CHECK (length(workspace_snapshot_state_hash) = 64
         AND workspace_snapshot_state_hash NOT GLOB '*[^0-9a-f]*'),
     CHECK (workspace_snapshot_repository_count >= 1),
-    CHECK (override_version IS NULL OR override_version >= 0),
     CHECK (length(capability_snapshot_hash) = 64
         AND capability_snapshot_hash NOT GLOB '*[^0-9a-f]*'),
-    CHECK ((handoff_source_phase IS NULL AND handoff_source_version IS NULL
-            AND handoff_source_hash IS NULL)
-        OR (handoff_source_phase IS NOT NULL AND handoff_source_version >= 0
-            AND length(handoff_source_hash) = 64
-            AND handoff_source_hash NOT GLOB '*[^0-9a-f]*')),
+    CHECK ((command_binding_json IS NULL AND command_binding_hash IS NULL)
+        OR (command_binding_json IS NOT NULL
+            AND length(command_binding_hash) = 64
+            AND command_binding_hash NOT GLOB '*[^0-9a-f]*')),
+    CHECK (context_version >= 0),
+    CHECK (length(context_hash) = 64
+        AND context_hash NOT GLOB '*[^0-9a-f]*'),
     CHECK (length(prompt_hash) = 64
-        AND prompt_hash NOT GLOB '*[^0-9a-f]*'),
-    CHECK ((review_confirmation_id IS NULL AND review_opinion_version IS NULL
-            AND review_opinion_hash IS NULL)
-        OR (review_confirmation_id IS NOT NULL AND review_opinion_version >= 1
-            AND length(review_opinion_hash) = 64
-            AND review_opinion_hash NOT GLOB '*[^0-9a-f]*'
-            AND phase = 'REVIEW_REFACTOR' AND run_mode = 'MODIFY_WORKSPACE'))
+        AND prompt_hash NOT GLOB '*[^0-9a-f]*')
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_workbench_run_snapshot_prompt_binding
-    ON workbench_run_snapshot(run_id, prompt_hash, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS
+    idx_workbench_stage_run_snapshot_prompt_binding
+    ON workbench_stage_run_snapshot(run_id, prompt_hash, created_at);
 
--- Runtime 真正接收的私有 Prompt；公开 API 只暴露 Snapshot Hash，不读取本表正文。
-CREATE TABLE IF NOT EXISTS workbench_run_prompt_payload (
+CREATE INDEX IF NOT EXISTS idx_workbench_stage_run_snapshot_workbench
+    ON workbench_stage_run_snapshot(workbench_id, created_at DESC);
+
+-- Stage Runtime 的私有 Prompt；公开 API 只暴露 Snapshot Hash。
+CREATE TABLE IF NOT EXISTS workbench_stage_run_prompt_payload (
     run_id            TEXT    PRIMARY KEY,
     final_prompt      TEXT    NOT NULL,
     prompt_hash       TEXT    NOT NULL,
     history_delivery  TEXT    NOT NULL,
     created_at        INTEGER NOT NULL,
     FOREIGN KEY(run_id, prompt_hash, created_at)
-        REFERENCES workbench_run_snapshot(run_id, prompt_hash, created_at)
+        REFERENCES workbench_stage_run_snapshot(run_id, prompt_hash, created_at)
         ON DELETE RESTRICT,
     CHECK (length(trim(final_prompt)) >= 1),
     CHECK (length(prompt_hash) = 64
@@ -896,78 +932,10 @@ CREATE TABLE IF NOT EXISTS workbench_run_prompt_payload (
     CHECK (history_delivery IN ('PROMPT_PREFIX', 'PROVIDER_RESUME', 'TYPED'))
 );
 
-CREATE TABLE IF NOT EXISTS workbench_high_impact_operation (
-    operation_id             TEXT    PRIMARY KEY,
-    workbench_id             TEXT    NOT NULL,
-    source_run_id            TEXT    NOT NULL,
-    source_run_safe_summary  TEXT    NOT NULL,
-    phase                    TEXT    NOT NULL,
-    operation_type           TEXT    NOT NULL,
-    target_json              TEXT    NOT NULL,
-    requested_payload_hash   TEXT    NOT NULL,
-    safe_summary             TEXT    NOT NULL,
-    status                   TEXT    NOT NULL,
-    proposed_by_id           TEXT    NOT NULL,
-    proposed_by_name         TEXT    NOT NULL,
-    proposed_at              INTEGER NOT NULL,
-    decided_by_id            TEXT,
-    decided_by_name          TEXT,
-    decision_reason          TEXT,
-    decided_at               INTEGER,
-    authorization_expires_at INTEGER,
-    preflight_hash           TEXT,
-    execution_reference      TEXT,
-    failure_code             TEXT,
-    updated_at               INTEGER NOT NULL,
-    version                  INTEGER NOT NULL,
-    FOREIGN KEY(workbench_id) REFERENCES workbench(id) ON DELETE RESTRICT,
-    CHECK (phase IN ('REQUIREMENT_ANALYSIS', 'SOLUTION_DESIGN',
-        'IMPLEMENT_TEST', 'REVIEW_REFACTOR')),
-    CHECK (operation_type IN ('GIT_COMMIT', 'GIT_PUSH',
-        'LOCAL_DEPLOY', 'PRODUCTION_WRITE')),
-    CHECK (length(requested_payload_hash) = 64
-        AND requested_payload_hash NOT GLOB '*[^0-9a-f]*'),
-    CHECK (status IN ('PROPOSED', 'AUTHORIZED', 'EXECUTING', 'SUCCEEDED',
-        'FAILED', 'RECONCILIATION_REQUIRED', 'REJECTED', 'EXPIRED')),
-    CHECK ((decided_by_id IS NULL AND decided_by_name IS NULL)
-        OR (decided_by_id IS NOT NULL AND decided_by_name IS NOT NULL)),
-    CHECK (authorization_expires_at IS NULL OR decided_at IS NOT NULL),
-    CHECK (preflight_hash IS NULL OR (length(preflight_hash) = 64
-        AND preflight_hash NOT GLOB '*[^0-9a-f]*')),
-    CHECK (updated_at >= proposed_at),
-    CHECK (version >= 0)
-);
-
 CREATE INDEX IF NOT EXISTS idx_workbench_owner_updated
     ON workbench(owner_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_workbench_status_updated
     ON workbench(status, updated_at DESC);
-CREATE INDEX IF NOT EXISTS idx_workbench_run_snapshot_workbench
-    ON workbench_run_snapshot(workbench_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_workbench_operation_workbench
-    ON workbench_high_impact_operation(workbench_id, proposed_at DESC);
-CREATE INDEX IF NOT EXISTS idx_workbench_operation_status
-    ON workbench_high_impact_operation(status, updated_at);
-
-CREATE TABLE IF NOT EXISTS workbench_high_impact_operation_proposal (
-    owner_id        TEXT    NOT NULL,
-    owner_name      TEXT    NOT NULL,
-    workbench_id    TEXT    NOT NULL,
-    idempotency_key TEXT    NOT NULL,
-    request_hash    TEXT    NOT NULL,
-    operation_id    TEXT    NOT NULL,
-    created_at      INTEGER NOT NULL,
-    PRIMARY KEY(owner_id, workbench_id, idempotency_key),
-    UNIQUE(operation_id),
-    FOREIGN KEY(workbench_id) REFERENCES workbench(id) ON DELETE RESTRICT,
-    FOREIGN KEY(operation_id) REFERENCES workbench_high_impact_operation(operation_id)
-        ON DELETE RESTRICT,
-    CHECK (length(owner_id) BETWEEN 1 AND 128),
-    CHECK (length(owner_name) BETWEEN 1 AND 256),
-    CHECK (length(idempotency_key) BETWEEN 1 AND 128),
-    CHECK (length(request_hash) = 64
-        AND request_hash NOT GLOB '*[^0-9a-f]*')
-);
 
 -- Admin 对异常 Workbench Run 的停止/对账动作只追加审计，不借用 Owner 身份。
 CREATE TABLE IF NOT EXISTS workbench_admin_audit (
@@ -992,33 +960,36 @@ CREATE TABLE IF NOT EXISTS workbench_admin_audit (
 CREATE INDEX IF NOT EXISTS idx_workbench_admin_audit_workbench
     ON workbench_admin_audit(workbench_id, occurred_at DESC, audit_id DESC);
 
--- 浏览器上传附件只保存逻辑身份和不可逆摘要；storage_key 是服务端生成的不透明键。
-CREATE TABLE IF NOT EXISTS workbench_uploaded_attachment (
-    attachment_id           TEXT    PRIMARY KEY,
-    owner_id                TEXT    NOT NULL,
-    owner_name              TEXT    NOT NULL,
-    workbench_id            TEXT    NOT NULL,
-    phase                   TEXT    NOT NULL,
-    conversation_id         TEXT    NOT NULL,
-    conversation_generation INTEGER NOT NULL,
-    display_name            TEXT    NOT NULL,
-    media_type              TEXT    NOT NULL,
-    size_bytes              INTEGER NOT NULL,
-    sha256                  TEXT    NOT NULL,
-    storage_key             TEXT    NOT NULL UNIQUE,
-    status                  TEXT    NOT NULL,
-    bound_run_id            TEXT,
-    created_at              INTEGER NOT NULL,
-    expires_at              INTEGER NOT NULL,
-    updated_at              INTEGER NOT NULL,
-    version                 INTEGER NOT NULL,
-    FOREIGN KEY(workbench_id, phase)
-        REFERENCES workbench_phase(workbench_id, phase) ON DELETE RESTRICT,
+-- Stage 上传附件只保存逻辑身份和不可逆摘要；storage_key 是服务端不透明键。
+CREATE TABLE IF NOT EXISTS workbench_stage_uploaded_attachment (
+    attachment_id              TEXT    PRIMARY KEY,
+    owner_id                   TEXT    NOT NULL,
+    owner_name                 TEXT    NOT NULL,
+    workbench_id               TEXT    NOT NULL,
+    stage_instance_identifier  TEXT    NOT NULL,
+    conversation_id            TEXT    NOT NULL,
+    conversation_generation    INTEGER NOT NULL,
+    display_name               TEXT    NOT NULL,
+    media_type                 TEXT    NOT NULL,
+    size_bytes                 INTEGER NOT NULL,
+    sha256                     TEXT    NOT NULL,
+    storage_key                TEXT    NOT NULL UNIQUE,
+    status                     TEXT    NOT NULL,
+    bound_run_id               TEXT,
+    created_at                 INTEGER NOT NULL,
+    expires_at                 INTEGER NOT NULL,
+    updated_at                 INTEGER NOT NULL,
+    version                    INTEGER NOT NULL,
+    FOREIGN KEY(
+        workbench_id, stage_instance_identifier,
+        conversation_generation, conversation_id)
+        REFERENCES workbench_stage_conversation(
+            workbench_id, stage_instance_identifier,
+            generation, session_id) ON DELETE RESTRICT,
     CHECK (length(attachment_id) BETWEEN 1 AND 128),
     CHECK (length(owner_id) BETWEEN 1 AND 128),
     CHECK (length(owner_name) BETWEEN 1 AND 256),
-    CHECK (phase IN ('REQUIREMENT_ANALYSIS', 'SOLUTION_DESIGN',
-        'IMPLEMENT_TEST', 'REVIEW_REFACTOR')),
+    CHECK (length(stage_instance_identifier) BETWEEN 1 AND 128),
     CHECK (length(conversation_id) BETWEEN 1 AND 128),
     CHECK (conversation_generation >= 0),
     CHECK (length(display_name) BETWEEN 1 AND 255),
@@ -1026,25 +997,27 @@ CREATE TABLE IF NOT EXISTS workbench_uploaded_attachment (
         AND instr(display_name, char(92)) = 0),
     CHECK (length(media_type) BETWEEN 1 AND 160),
     CHECK (size_bytes BETWEEN 1 AND 2147483647),
-    CHECK (length(sha256) = 64 AND sha256 NOT GLOB '*[^0-9a-f]*'),
+    CHECK (length(sha256) = 64
+        AND sha256 NOT GLOB '*[^0-9a-f]*'),
     CHECK (length(storage_key) = 64
         AND storage_key NOT GLOB '*[^0-9a-f]*'),
     CHECK (status IN ('AVAILABLE', 'BOUND', 'RELEASE_PENDING')),
     CHECK ((status = 'AVAILABLE' AND bound_run_id IS NULL)
-        OR (status IN ('BOUND', 'RELEASE_PENDING') AND bound_run_id IS NOT NULL)),
+        OR (status = 'BOUND' AND bound_run_id IS NOT NULL)
+        OR status = 'RELEASE_PENDING'),
     CHECK (expires_at >= created_at),
     CHECK (updated_at >= created_at),
     CHECK (version >= 0)
 );
 
-CREATE INDEX IF NOT EXISTS idx_workbench_uploaded_attachment_quota
-    ON workbench_uploaded_attachment(
-        owner_id, workbench_id, phase, conversation_id,
-        conversation_generation, status, expires_at
-    );
+CREATE INDEX IF NOT EXISTS idx_workbench_stage_uploaded_attachment_quota
+    ON workbench_stage_uploaded_attachment(
+        owner_id, workbench_id, stage_instance_identifier,
+        conversation_id, conversation_generation, status, expires_at);
 
-CREATE INDEX IF NOT EXISTS idx_workbench_uploaded_attachment_cleanup
-    ON workbench_uploaded_attachment(status, expires_at, attachment_id);
+CREATE INDEX IF NOT EXISTS idx_workbench_stage_uploaded_attachment_cleanup
+    ON workbench_stage_uploaded_attachment(
+        status, expires_at, attachment_id);
 
 CREATE TABLE IF NOT EXISTS workbench_creation_request (
     owner_id        TEXT    NOT NULL,
@@ -1063,28 +1036,30 @@ CREATE TABLE IF NOT EXISTS workbench_creation_request (
         AND request_hash NOT GLOB '*[^0-9a-f]*')
 );
 
-CREATE TABLE IF NOT EXISTS workbench_phase_conversation_restart_receipt (
-    owner_id               TEXT    NOT NULL,
-    owner_name             TEXT    NOT NULL,
-    idempotency_key        TEXT    NOT NULL,
-    workbench_id           TEXT    NOT NULL,
-    phase                  TEXT    NOT NULL,
-    previous_session_id    TEXT    NOT NULL,
-    session_id             TEXT    NOT NULL,
-    conversation_generation INTEGER NOT NULL,
-    workbench_version      INTEGER NOT NULL,
-    created_at             INTEGER NOT NULL,
+CREATE TABLE IF NOT EXISTS workbench_stage_conversation_restart_receipt (
+    owner_id                   TEXT    NOT NULL,
+    owner_name                 TEXT    NOT NULL,
+    idempotency_key            TEXT    NOT NULL,
+    workbench_id               TEXT    NOT NULL,
+    stage_instance_identifier  TEXT    NOT NULL,
+    previous_session_id        TEXT    NOT NULL,
+    session_id                 TEXT    NOT NULL,
+    conversation_generation    INTEGER NOT NULL,
+    workbench_version          INTEGER NOT NULL,
+    created_at                 INTEGER NOT NULL,
     PRIMARY KEY(owner_id, idempotency_key),
     UNIQUE(session_id),
-    FOREIGN KEY(workbench_id, phase)
-        REFERENCES workbench_phase(workbench_id, phase) ON DELETE RESTRICT,
-    FOREIGN KEY(previous_session_id) REFERENCES chat_session(id) ON DELETE RESTRICT,
-    FOREIGN KEY(session_id) REFERENCES chat_session(id) ON DELETE RESTRICT,
+    FOREIGN KEY(workbench_id, stage_instance_identifier)
+        REFERENCES workbench_stage(
+            workbench_id, stage_instance_identifier) ON DELETE RESTRICT,
+    FOREIGN KEY(previous_session_id)
+        REFERENCES chat_session(id) ON DELETE RESTRICT,
+    FOREIGN KEY(session_id)
+        REFERENCES chat_session(id) ON DELETE RESTRICT,
     CHECK (length(owner_id) BETWEEN 1 AND 128),
     CHECK (length(owner_name) BETWEEN 1 AND 256),
     CHECK (length(idempotency_key) BETWEEN 1 AND 128),
-    CHECK (phase IN ('REQUIREMENT_ANALYSIS', 'SOLUTION_DESIGN',
-        'IMPLEMENT_TEST', 'REVIEW_REFACTOR')),
+    CHECK (length(stage_instance_identifier) BETWEEN 1 AND 128),
     CHECK (length(previous_session_id) BETWEEN 1 AND 128),
     CHECK (length(session_id) BETWEEN 1 AND 128),
     CHECK (previous_session_id <> session_id),
@@ -1092,5 +1067,6 @@ CREATE TABLE IF NOT EXISTS workbench_phase_conversation_restart_receipt (
     CHECK (workbench_version >= 0)
 );
 
-CREATE INDEX IF NOT EXISTS idx_workbench_conversation_restart_created
-    ON workbench_phase_conversation_restart_receipt(workbench_id, phase, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_workbench_stage_conversation_restart_created
+    ON workbench_stage_conversation_restart_receipt(
+        workbench_id, stage_instance_identifier, created_at DESC);

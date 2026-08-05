@@ -3,8 +3,8 @@ id: workbench/human-opinion-first
 version: 1.0.0
 source: PLATFORM
 mandatory: true
-summary: 评审与重构阶段先提交人工可审核意见
+summary: 需要人工决策的 Stage 先提交可审核意见
 applicableUseCases:
-  - REVIEW_REFACTOR
+  - WORKBENCH_STAGE
 resources:
   rule: rule.md

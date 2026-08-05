@@ -90,37 +90,47 @@ public class ChatSession {
     }
 
     /**
-     * 由可信服务端事实创建 Workbench Phase 会话；调用方负责生成稳定 ID 并解析真实主仓库目录。
+     * 由可信服务端事实创建动态 Workbench Stage 会话。
      */
-    public static ChatSession createWorkbenchPhase(String id, AgentType agentType,
-                                                    String workingDir, String contextId,
-                                                    String ownerId, String ownerName,
-                                                    Instant now) {
+    public static ChatSession createWorkbenchStage(
+            String id, AgentType agentType, String workingDir,
+            String contextId, String ownerId, String ownerName,
+            Instant now) {
+        return createWorkbenchConversation(
+                id, agentType, workingDir, contextId, ownerId, ownerName, now);
+    }
+
+    private static ChatSession createWorkbenchConversation(
+            String id, AgentType agentType, String workingDir,
+            String contextId, String ownerId, String ownerName,
+            Instant now) {
         String stableId = DomainText.require(id, "session id", 128);
         if (agentType == null) {
             throw new IllegalArgumentException("agent type must not be null");
         }
         String resolvedWorkingDir = DomainText.require(workingDir, "working directory", 4096);
-        String phaseContextId = DomainText.require(contextId, "session context id", 512);
+        String stageContextId = DomainText.require(
+                contextId, "session context id", 512);
         String resolvedOwnerId = DomainText.require(ownerId, "session owner id", 128);
         String resolvedOwnerName = DomainText.require(ownerName, "session owner name", 256);
         Instant createdAt = DomainText.requireTime(now, "session created at");
         ChatSession session = new ChatSession(
                 stableId, agentType, resolvedWorkingDir, createdAt, null,
-                SessionKind.WORKBENCH_PHASE, phaseContextId, null);
+                SessionKind.WORKBENCH_STAGE, stageContextId, null);
         session.setUserId(resolvedOwnerId);
         session.setUserName(resolvedOwnerName);
         return session;
     }
 
     /**
-     * 退役 Workbench Phase 会话并保留只读历史；重复退役不改写首次时间。
+     * 退役 Workbench Stage 会话并保留只读历史；重复退役不改写首次时间。
      *
      * @return 本次是否首次退役
      */
     public boolean retire(Instant now) {
-        if (sessionKind != SessionKind.WORKBENCH_PHASE) {
-            throw new IllegalStateException("Only workbench phase sessions can be retired");
+        if (sessionKind == SessionKind.CHAT) {
+            throw new IllegalStateException(
+                    "Only Workbench conversations can be retired");
         }
         Instant retirementTime = DomainText.requireTime(now, "session retired at");
         if (retirementTime.isBefore(createdAt)) {
@@ -143,14 +153,28 @@ public class ChatSession {
     }
 
     /**
-     * 一次核验已绑定 Phase Conversation 的全部稳定事实，避免 Application 用 getter 重组信任规则。
+     * 一次核验动态 Stage Conversation 的全部稳定事实。
      */
-    public void requireActiveWorkbenchPhase(
+    public void requireActiveWorkbenchStage(
             String expectedSessionId, AgentType expectedAgentType,
             String expectedWorkingDir, String expectedEnvironment,
             String expectedContextId, String expectedOwnerId,
             String expectedOwnerName, Instant expectedCreatedAt) {
-        String stableSessionId = DomainText.require(expectedSessionId, "expected session id", 128);
+        requireActiveWorkbenchConversation(
+                expectedSessionId,
+                expectedAgentType, expectedWorkingDir, expectedEnvironment,
+                expectedContextId, expectedOwnerId, expectedOwnerName,
+                expectedCreatedAt);
+    }
+
+    private void requireActiveWorkbenchConversation(
+            String expectedSessionId,
+            AgentType expectedAgentType, String expectedWorkingDir,
+            String expectedEnvironment, String expectedContextId,
+            String expectedOwnerId, String expectedOwnerName,
+            Instant expectedCreatedAt) {
+        String stableSessionId = DomainText.require(
+                expectedSessionId, "expected session id", 128);
         if (expectedAgentType == null) {
             throw new IllegalArgumentException("expected agent type must not be null");
         }
@@ -162,7 +186,7 @@ public class ChatSession {
         String stableOwnerName = DomainText.require(expectedOwnerName, "expected owner name", 256);
         Instant stableCreatedAt = DomainText.requireTime(
                 expectedCreatedAt, "expected session created at");
-        if (sessionKind != SessionKind.WORKBENCH_PHASE
+        if (sessionKind != SessionKind.WORKBENCH_STAGE
                 || retiredAt != null
                 || !Objects.equals(id, stableSessionId)
                 || agentType != expectedAgentType
@@ -172,7 +196,8 @@ public class ChatSession {
                 || !Objects.equals(userId, stableOwnerId)
                 || !Objects.equals(userName, stableOwnerName)
                 || !createdAt.equals(stableCreatedAt)) {
-            throw new IllegalStateException("Workbench phase session facts do not match");
+            throw new IllegalStateException(
+                    "Workbench conversation facts do not match");
         }
     }
 
@@ -183,7 +208,8 @@ public class ChatSession {
             }
             return null;
         }
-        return DomainText.require(contextId, "workbench phase session context id", 512);
+        return DomainText.require(
+                contextId, "Workbench conversation context id", 512);
     }
 
     private static Instant requireConsistentRetirement(SessionKind sessionKind,

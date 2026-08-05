@@ -82,14 +82,14 @@ public class ChatAppServiceImplShareTest {
 
     @Test
     public void shareSessionShouldHideWorkbenchSessionWithoutCreatingToken() {
-        ChatSession session = ChatSession.createWorkbenchPhase(
-                "phase-session", AgentType.CODEX, "/tmp/wd",
-                "workbench-1:IMPLEMENT_TEST", "owner-1", "Alex",
+        ChatSession session = ChatSession.createWorkbenchStage(
+                "stage-session", AgentType.CODEX, "/tmp/wd",
+                "workbench-1:stage-implementation", "owner-1", "Alex",
                 Instant.parse("2026-08-01T10:00:00Z"));
-        when(sessionRepository.findById("phase-session")).thenReturn(session);
+        when(sessionRepository.findById("stage-session")).thenReturn(session);
 
         assertThrows(ChatSessionNotFoundException.class,
-                () -> service.shareSession("phase-session"));
+                () -> service.shareSession("stage-session"));
 
         verify(sessionRepository, never()).setShareToken(anyString(), anyString());
     }

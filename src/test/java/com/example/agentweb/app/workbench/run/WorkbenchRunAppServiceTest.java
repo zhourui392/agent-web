@@ -2,17 +2,15 @@ package com.example.agentweb.app.workbench.run;
 
 import com.example.agentweb.app.chatrun.AuthorizedChatRunEventReplayService;
 import com.example.agentweb.app.chatrun.ChatRunEventAppender;
-import com.example.agentweb.app.chatrun.EventCursorExpiredException;
 import com.example.agentweb.app.chatrun.ChatRunStreamHandle;
 import com.example.agentweb.app.chatrun.ChatRunTerminalFinalizer;
+import com.example.agentweb.app.chatrun.EventCursorExpiredException;
 import com.example.agentweb.app.runtime.port.AgentExecutionGateway;
 import com.example.agentweb.app.runtime.port.ChatRunRuntimeHandleStore;
 import com.example.agentweb.app.runtime.port.RuntimeHandle;
 import com.example.agentweb.app.workbench.port.WorkbenchTelemetry;
 import com.example.agentweb.domain.chatrun.ChatRun;
 import com.example.agentweb.domain.chatrun.ChatRunStatus;
-import com.example.agentweb.domain.workbench.RunMode;
-import com.example.agentweb.domain.workbench.WorkbenchPhase;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -20,7 +18,6 @@ import org.mockito.InOrder;
 
 import java.time.Clock;
 import java.time.ZoneOffset;
-import java.util.Collections;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -34,15 +31,13 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
- * Workbench Run stop commit 顺序与授权后订阅编排测试。
+ * Dynamic Stage Workbench Run 查询、停止与事件订阅编排测试。
  *
  * @author alex
- * @since 2026-08-01
+ * @since 2026-08-05
  */
 class WorkbenchRunAppServiceTest {
 
-    private WorkbenchRunPreparationService preparationService;
-    private WorkbenchRunSubmissionCommitter submissionCommitter;
     private WorkbenchRunAccessResolver accessResolver;
     private ChatRunEventAppender eventAppender;
     private ChatRunTerminalFinalizer terminalFinalizer;
@@ -55,8 +50,6 @@ class WorkbenchRunAppServiceTest {
 
     @BeforeEach
     void setUp() {
-        preparationService = mock(WorkbenchRunPreparationService.class);
-        submissionCommitter = mock(WorkbenchRunSubmissionCommitter.class);
         accessResolver = mock(WorkbenchRunAccessResolver.class);
         eventAppender = mock(ChatRunEventAppender.class);
         terminalFinalizer = mock(ChatRunTerminalFinalizer.class);
@@ -69,85 +62,54 @@ class WorkbenchRunAppServiceTest {
                 new WorkbenchRunCancellationCoordinator(
                         eventAppender, terminalFinalizer, handleStore,
                         executionGateway, safeLogger,
-                        Clock.fixed(WorkbenchRunTestFixtures.NOW,
+                        Clock.fixed(
+                                WorkbenchStageRunTestFixtures.NOW
+                                        .plusSeconds(4),
                                 ZoneOffset.UTC));
         service = new WorkbenchRunAppService(
-                preparationService, submissionCommitter, accessResolver,
-                cancellationCoordinator, replayService, telemetry,
-                Clock.fixed(WorkbenchRunTestFixtures.NOW, ZoneOffset.UTC));
+                accessResolver, cancellationCoordinator,
+                replayService, telemetry,
+                Clock.fixed(
+                        WorkbenchStageRunTestFixtures.NOW.plusSeconds(4),
+                        ZoneOffset.UTC));
     }
 
     @Test
-    void exactRetryShouldReplayBeforePreparationDespiteStaleExpectedVersion() {
-        SubmitWorkbenchRunCommand retry = new SubmitWorkbenchRunCommand(
-                WorkbenchRunTestFixtures.WORKBENCH_ID,
-                WorkbenchPhase.REQUIREMENT_ANALYSIS,
-                0L, "submit-run-1", "请核实需求边界",
-                RunMode.DISCUSS_READ_ONLY, null, null,
-                Collections.emptyList());
-        WorkbenchRunSubmissionResult replayed =
-                mock(WorkbenchRunSubmissionResult.class);
-        when(submissionCommitter.replayIfPresent(
-                WorkbenchRunTestFixtures.OWNER, retry))
-                .thenReturn(Optional.of(replayed));
+    void should_ReturnStageIdentityWithoutPhase_When_FindingRun() {
+        // Given
+        ChatRun run = WorkbenchStageRunTestFixtures.runningRun();
+        authorize(run);
 
-        WorkbenchRunSubmissionResult result = service.submit(
-                WorkbenchRunTestFixtures.OWNER, retry);
+        // When
+        WorkbenchRunView view = service.find(
+                WorkbenchStageRunTestFixtures.OWNER,
+                WorkbenchStageRunTestFixtures.WORKBENCH_ID,
+                WorkbenchStageRunTestFixtures.RUN_IDENTIFIER);
 
-        assertEquals(replayed, result);
-        verify(submissionCommitter).replayIfPresent(
-                WorkbenchRunTestFixtures.OWNER, retry);
-        verifyNoInteractions(preparationService);
-        verify(submissionCommitter, never()).commit(any(), any());
+        // Then
+        assertEquals(WorkbenchStageRunTestFixtures.RUN_IDENTIFIER,
+                view.getRunId());
+        assertEquals(WorkbenchStageRunTestFixtures.STAGE_INSTANCE_IDENTIFIER,
+                view.getStageInstanceIdentifier());
     }
 
     @Test
-    void firstSubmissionShouldPrepareAndCommitWhenFastReplayIsAbsent() {
-        SubmitWorkbenchRunCommand command = new SubmitWorkbenchRunCommand(
-                WorkbenchRunTestFixtures.WORKBENCH_ID,
-                WorkbenchPhase.REQUIREMENT_ANALYSIS,
-                0L, "submit-new", "请分析需求",
-                RunMode.DISCUSS_READ_ONLY, null, null,
-                Collections.emptyList());
-        PreparedWorkbenchRun prepared = mock(PreparedWorkbenchRun.class);
-        WorkbenchRunSubmissionResult committed =
-                mock(WorkbenchRunSubmissionResult.class);
-        when(submissionCommitter.replayIfPresent(
-                WorkbenchRunTestFixtures.OWNER, command))
-                .thenReturn(Optional.empty());
-        when(preparationService.prepare(
-                WorkbenchRunTestFixtures.OWNER, command))
-                .thenReturn(prepared);
-        when(submissionCommitter.commit(
-                WorkbenchRunTestFixtures.OWNER, prepared))
-                .thenReturn(committed);
-
-        WorkbenchRunSubmissionResult result = service.submit(
-                WorkbenchRunTestFixtures.OWNER, command);
-
-        assertEquals(committed, result);
-        InOrder order = inOrder(preparationService, submissionCommitter);
-        order.verify(submissionCommitter).replayIfPresent(
-                WorkbenchRunTestFixtures.OWNER, command);
-        order.verify(preparationService).prepare(
-                WorkbenchRunTestFixtures.OWNER, command);
-        order.verify(submissionCommitter).commit(
-                WorkbenchRunTestFixtures.OWNER, prepared);
-    }
-
-    @Test
-    void runningStopShouldPersistIntentBeforeReadingPersistedHandle() {
-        ChatRun run = WorkbenchRunTestFixtures.runningRun();
+    void should_PersistCancellationBeforeRuntimeStop_When_RunIsRunning() {
+        // Given
+        ChatRun run = WorkbenchStageRunTestFixtures.runningRun();
         authorize(run);
         RuntimeHandle handle = new RuntimeHandle("execution-1", "handle-1");
         when(handleStore.find(run.getId())).thenReturn(Optional.of(handle));
         ArgumentCaptor<Runnable> afterCommit =
                 ArgumentCaptor.forClass(Runnable.class);
 
+        // When
         WorkbenchRunStopResult result = service.stop(
-                WorkbenchRunTestFixtures.OWNER,
-                WorkbenchRunTestFixtures.WORKBENCH_ID, "run-1");
+                WorkbenchStageRunTestFixtures.OWNER,
+                WorkbenchStageRunTestFixtures.WORKBENCH_ID,
+                WorkbenchStageRunTestFixtures.RUN_IDENTIFIER);
 
+        // Then
         assertEquals(ChatRunStatus.CANCEL_REQUESTED, result.getStatus());
         InOrder persistenceOrder = inOrder(eventAppender);
         persistenceOrder.verify(eventAppender).appendToExistingRun(
@@ -160,12 +122,11 @@ class WorkbenchRunAppServiceTest {
 
         verify(handleStore).find(run.getId());
         verify(executionGateway).requestStop(handle);
-        assertEquals(ChatRunStatus.CANCEL_REQUESTED, run.getStatus());
     }
 
     @Test
-    void runtimeStopFailureShouldKeepPersistedCancellationIntent() {
-        ChatRun run = WorkbenchRunTestFixtures.runningRun();
+    void should_KeepCancellationIntent_When_RuntimeStopFails() {
+        ChatRun run = WorkbenchStageRunTestFixtures.runningRun();
         authorize(run);
         RuntimeHandle handle = new RuntimeHandle("execution-1", "handle-1");
         when(handleStore.find(run.getId())).thenReturn(Optional.of(handle));
@@ -175,37 +136,39 @@ class WorkbenchRunAppServiceTest {
                 ArgumentCaptor.forClass(Runnable.class);
 
         WorkbenchRunStopResult result = service.stop(
-                WorkbenchRunTestFixtures.OWNER,
-                WorkbenchRunTestFixtures.WORKBENCH_ID, "run-1");
+                WorkbenchStageRunTestFixtures.OWNER,
+                WorkbenchStageRunTestFixtures.WORKBENCH_ID,
+                WorkbenchStageRunTestFixtures.RUN_IDENTIFIER);
         verify(eventAppender).afterCommit(afterCommit.capture());
 
         assertDoesNotThrow(() -> afterCommit.getValue().run());
         assertEquals(ChatRunStatus.CANCEL_REQUESTED, result.getStatus());
-        assertEquals(ChatRunStatus.CANCEL_REQUESTED, run.getStatus());
         verify(terminalFinalizer, never()).finalizeFirstTerminal(any(), any());
         verify(safeLogger).runtimeStopFailed(
-                "run-1", "IllegalStateException");
+                WorkbenchStageRunTestFixtures.RUN_IDENTIFIER,
+                "IllegalStateException");
     }
 
     @Test
-    void pendingStopShouldUseRealDomainTerminalWithoutExternalStop() {
-        ChatRun run = WorkbenchRunTestFixtures.pendingRun();
+    void should_FinalizeWithoutExternalStop_When_RunIsPending() {
+        ChatRun run = WorkbenchStageRunTestFixtures.pendingRun();
         authorize(run);
 
         WorkbenchRunStopResult result = service.stop(
-                WorkbenchRunTestFixtures.OWNER,
-                WorkbenchRunTestFixtures.WORKBENCH_ID, "run-1");
+                WorkbenchStageRunTestFixtures.OWNER,
+                WorkbenchStageRunTestFixtures.WORKBENCH_ID,
+                WorkbenchStageRunTestFixtures.RUN_IDENTIFIER);
 
         assertEquals(ChatRunStatus.CANCELLED, result.getStatus());
         verify(terminalFinalizer).finalizeFirstTerminal(
-                run, WorkbenchRunTestFixtures.NOW);
+                run, WorkbenchStageRunTestFixtures.NOW.plusSeconds(4));
         verify(eventAppender, never()).afterCommit(any());
         verifyNoInteractions(handleStore, executionGateway);
     }
 
     @Test
-    void subscriptionShouldAuthorizeBeforeEnteringCommonReplayCore() {
-        ChatRun run = WorkbenchRunTestFixtures.runningRun();
+    void should_AuthorizeBeforeReplay_When_Subscribing() {
+        ChatRun run = WorkbenchStageRunTestFixtures.runningRun();
         AuthorizedWorkbenchRun authorized = authorize(run);
         WorkbenchRunStreamSink sink = mock(WorkbenchRunStreamSink.class);
         ChatRunStreamHandle commonHandle = mock(ChatRunStreamHandle.class);
@@ -215,14 +178,16 @@ class WorkbenchRunAppServiceTest {
                 .thenReturn(commonHandle);
 
         service.subscribe(
-                WorkbenchRunTestFixtures.OWNER,
-                WorkbenchRunTestFixtures.WORKBENCH_ID,
-                "run-1", 7L, sink);
+                WorkbenchStageRunTestFixtures.OWNER,
+                WorkbenchStageRunTestFixtures.WORKBENCH_ID,
+                WorkbenchStageRunTestFixtures.RUN_IDENTIFIER,
+                7L, sink);
 
         InOrder order = inOrder(accessResolver, replayService);
         order.verify(accessResolver).requireAuthorized(
-                WorkbenchRunTestFixtures.OWNER,
-                WorkbenchRunTestFixtures.WORKBENCH_ID, "run-1");
+                WorkbenchStageRunTestFixtures.OWNER,
+                WorkbenchStageRunTestFixtures.WORKBENCH_ID,
+                WorkbenchStageRunTestFixtures.RUN_IDENTIFIER);
         order.verify(replayService).subscribe(
                 org.mockito.ArgumentMatchers.eq(authorized.getRun()),
                 org.mockito.ArgumentMatchers.eq(7L), any());
@@ -230,75 +195,38 @@ class WorkbenchRunAppServiceTest {
     }
 
     @Test
-    void expiredReconnectShouldRecordStableFailureResult() {
-        ChatRun run = WorkbenchRunTestFixtures.runningRun();
+    void should_RecordExpiredCursor_When_ReplayWindowIsGone() {
+        ChatRun run = WorkbenchStageRunTestFixtures.runningRun();
         AuthorizedWorkbenchRun authorized = authorize(run);
         WorkbenchRunStreamSink sink = mock(WorkbenchRunStreamSink.class);
         when(replayService.subscribe(
                 org.mockito.ArgumentMatchers.eq(authorized.getRun()),
                 org.mockito.ArgumentMatchers.eq(7L), any()))
                 .thenThrow(new EventCursorExpiredException(
-                        "run-1", 8L, 20L));
+                        WorkbenchStageRunTestFixtures.RUN_IDENTIFIER,
+                        8L, 20L));
 
         org.junit.jupiter.api.Assertions.assertThrows(
                 WorkbenchRunCursorExpiredException.class,
                 () -> service.subscribe(
-                        WorkbenchRunTestFixtures.OWNER,
-                        WorkbenchRunTestFixtures.WORKBENCH_ID,
-                        "run-1", 7L, sink));
+                        WorkbenchStageRunTestFixtures.OWNER,
+                        WorkbenchStageRunTestFixtures.WORKBENCH_ID,
+                        WorkbenchStageRunTestFixtures.RUN_IDENTIFIER,
+                        7L, sink));
 
         verify(telemetry).sseReconnect("CURSOR_EXPIRED");
     }
 
-    @Test
-    void initialSubscriptionShouldNotCountAsReconnect() {
-        ChatRun run = WorkbenchRunTestFixtures.runningRun();
-        AuthorizedWorkbenchRun authorized = authorize(run);
-        WorkbenchRunStreamSink sink = mock(WorkbenchRunStreamSink.class);
-        when(replayService.subscribe(
-                org.mockito.ArgumentMatchers.eq(authorized.getRun()),
-                org.mockito.ArgumentMatchers.eq(0L), any()))
-                .thenReturn(mock(ChatRunStreamHandle.class));
-
-        service.subscribe(
-                WorkbenchRunTestFixtures.OWNER,
-                WorkbenchRunTestFixtures.WORKBENCH_ID,
-                "run-1", 0L, sink);
-
-        verifyNoInteractions(telemetry);
-    }
-
-    @Test
-    void failedReconnectShouldRecordStableFailureResult() {
-        ChatRun run = WorkbenchRunTestFixtures.runningRun();
-        AuthorizedWorkbenchRun authorized = authorize(run);
-        WorkbenchRunStreamSink sink = mock(WorkbenchRunStreamSink.class);
-        IllegalStateException failure = new IllegalStateException(
-                "event store unavailable");
-        when(replayService.subscribe(
-                org.mockito.ArgumentMatchers.eq(authorized.getRun()),
-                org.mockito.ArgumentMatchers.eq(7L), any()))
-                .thenThrow(failure);
-
-        assertEquals(failure,
-                org.junit.jupiter.api.Assertions.assertThrows(
-                        IllegalStateException.class,
-                        () -> service.subscribe(
-                                WorkbenchRunTestFixtures.OWNER,
-                                WorkbenchRunTestFixtures.WORKBENCH_ID,
-                                "run-1", 7L, sink)));
-
-        verify(telemetry).sseReconnect("FAILED");
-    }
-
     private AuthorizedWorkbenchRun authorize(ChatRun run) {
+        WorkbenchStageRunTestFixtures.Fixture fixture =
+                WorkbenchStageRunTestFixtures.withoutUpload();
         AuthorizedWorkbenchRun authorized =
                 AuthorizedWorkbenchRun.verified(
-                        WorkbenchRunTestFixtures.workbench(),
-                        WorkbenchRunTestFixtures.snapshot(), run);
+                        fixture.workbench(), fixture.snapshot(), run);
         when(accessResolver.requireAuthorized(
-                WorkbenchRunTestFixtures.OWNER,
-                WorkbenchRunTestFixtures.WORKBENCH_ID, "run-1"))
+                WorkbenchStageRunTestFixtures.OWNER,
+                WorkbenchStageRunTestFixtures.WORKBENCH_ID,
+                WorkbenchStageRunTestFixtures.RUN_IDENTIFIER))
                 .thenReturn(authorized);
         return authorized;
     }

@@ -29,7 +29,7 @@ public final class AdminWorkbenchDetailView {
     private final long updatedAt;
     private final long version;
     private final List<RepositoryView> repositories;
-    private final List<PhaseView> phases;
+    private final List<StageView> stages;
 
     public AdminWorkbenchDetailView(
             String workbenchId, String ownerId, String ownerName,
@@ -38,7 +38,7 @@ public final class AdminWorkbenchDetailView {
             String repositoryScopeHash, String activeWriteRunId,
             long createdAt, long updatedAt, long version,
             List<RepositoryView> repositories,
-            List<PhaseView> phases) {
+            List<StageView> stages) {
         this.workbenchId = workbenchId;
         this.ownerId = ownerId;
         this.ownerName = ownerName;
@@ -53,7 +53,7 @@ public final class AdminWorkbenchDetailView {
         this.updatedAt = updatedAt;
         this.version = version;
         this.repositories = immutable(repositories, "repositories");
-        this.phases = immutable(phases, "phases");
+        this.stages = immutable(stages, "stages");
     }
 
     private static <T> List<T> immutable(List<T> values, String name) {
@@ -82,22 +82,29 @@ public final class AdminWorkbenchDetailView {
 
     /** 只含状态和活动 Run 逻辑引用的阶段投影。 */
     @Getter
-    public static final class PhaseView {
+    public static final class StageView {
 
-        private final String phase;
-        private final int phaseOrder;
+        private final String stageInstanceIdentifier;
+        private final String definitionIdentifier;
+        private final long definitionRevision;
+        private final int sequenceNumber;
         private final String status;
         private final String activeRunId;
         private final String activeRunMode;
         private final Long lastActivityAt;
         private final Long completedAt;
 
-        public PhaseView(
-                String phase, int phaseOrder, String status,
+        public StageView(
+                String stageInstanceIdentifier,
+                String definitionIdentifier,
+                long definitionRevision,
+                int sequenceNumber, String status,
                 String activeRunId, String activeRunMode,
                 Long lastActivityAt, Long completedAt) {
-            this.phase = phase;
-            this.phaseOrder = phaseOrder;
+            this.stageInstanceIdentifier = stageInstanceIdentifier;
+            this.definitionIdentifier = definitionIdentifier;
+            this.definitionRevision = definitionRevision;
+            this.sequenceNumber = sequenceNumber;
             this.status = status;
             this.activeRunId = activeRunId;
             this.activeRunMode = activeRunMode;

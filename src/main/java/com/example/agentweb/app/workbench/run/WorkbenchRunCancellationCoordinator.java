@@ -9,7 +9,7 @@ import com.example.agentweb.app.runtime.port.RuntimeHandle;
 import com.example.agentweb.domain.chatrun.ChatRun;
 import com.example.agentweb.domain.chatrun.ChatRunCancellationDecision;
 import com.example.agentweb.domain.chatrun.ChatRunId;
-import com.example.agentweb.domain.workbench.WorkbenchRunSnapshot;
+import com.example.agentweb.domain.workbench.WorkbenchStageRunSnapshot;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
@@ -56,7 +56,7 @@ public final class WorkbenchRunCancellationCoordinator {
     }
 
     public WorkbenchRunCancellationResult cancel(
-            WorkbenchRunSnapshot snapshot, ChatRun run) {
+            WorkbenchStageRunSnapshot snapshot, ChatRun run) {
         Objects.requireNonNull(snapshot, "snapshot");
         Objects.requireNonNull(run, "run");
         Instant now = clock.instant();

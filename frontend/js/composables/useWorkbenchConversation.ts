@@ -1,5 +1,5 @@
 /**
- * Workbench Phase Run 提交、可恢复 SSE 和停止编排。
+ * Workbench Stage Run 提交、可恢复 SSE 和停止编排。
  *
  * @author alex
  * @since 2026-08-01
@@ -9,9 +9,9 @@ import {
   WorkbenchRunApiError,
   createWorkbenchRunApiClient,
   normalizeWorkbenchRunAttachments,
-  type WorkbenchPhaseConversation,
-  type WorkbenchPhaseConversationMessage,
-  type WorkbenchPhaseConversationRestart,
+  type WorkbenchStageConversation,
+  type WorkbenchStageConversationMessage,
+  type WorkbenchStageConversationRestart,
   type WorkbenchRepositoryDocumentAttachment,
   type WorkbenchRunAttachment,
   type WorkbenchRunApiClient,
@@ -26,22 +26,20 @@ import type {
   WorkbenchRunMarkerIdentity,
   WorkbenchRunMode,
 } from '../lib/workbench-run-state.js';
-import type { WorkbenchPhase, WorkbenchPhaseStatus } from '../lib/workbench-state.js';
+import type { WorkbenchStageStatus } from '../lib/workbench-state.js';
 
 export interface UseWorkbenchConversationOptions {
   ownerId: Ref<string>;
   workbenchId: Ref<string | null>;
-  phase: Ref<WorkbenchPhase>;
+  stageInstanceIdentifier: Ref<string | null>;
   conversationGeneration: Ref<number>;
   currentConversationId?: Ref<string | null>;
   activeRunId: Ref<string | null>;
   activeWriteRunId?: Ref<string | null>;
   expectedVersion: Ref<number | null>;
-  phaseStatus?: Ref<WorkbenchPhaseStatus>;
+  allowedRunModes: Ref<ReadonlyArray<WorkbenchRunMode>>;
+  stageStatus?: Ref<WorkbenchStageStatus>;
   archived?: Ref<boolean>;
-  handoffRequired: Ref<boolean>;
-  handoffSourceVersion: Ref<number | null>;
-  reviewConfirmationId: Ref<string | null>;
   apiClient?: WorkbenchRunApiClient;
   stream?: UseWorkbenchRunStream;
   onSubmitted?: (
@@ -49,8 +47,8 @@ export interface UseWorkbenchConversationOptions {
     mode: WorkbenchRunMode,
     attachments: ReadonlyArray<WorkbenchRunAttachment>,
   ) => void;
-  onConversationEnsured?: (conversation: WorkbenchPhaseConversation) => void;
-  onConversationRestarted?: (conversation: WorkbenchPhaseConversationRestart) => void;
+  onConversationEnsured?: (conversation: WorkbenchStageConversation) => void;
+  onConversationRestarted?: (conversation: WorkbenchStageConversationRestart) => void;
   onTerminal?: (runId: string) => void;
 }
 
@@ -66,18 +64,44 @@ export type PendingWorkbenchAttachment =
   | WorkbenchRepositoryDocumentAttachment
   | PendingUploadedWorkbenchAttachment;
 
+interface WorkbenchConversationIdentity {
+  userId: string;
+  workbenchId: string;
+  stageInstanceIdentifier: string;
+  conversationGeneration: number;
+}
+
 export function useWorkbenchConversation(options: UseWorkbenchConversationOptions) {
   const apiClient = options.apiClient ?? createWorkbenchRunApiClient();
-  const identity = computed<WorkbenchRunMarkerIdentity | null>(() => {
+  const conversationIdentity = computed<WorkbenchConversationIdentity | null>(() => {
     const userId = options.ownerId.value?.trim();
     const workbenchId = options.workbenchId.value?.trim();
     const generation = options.conversationGeneration.value;
-    return userId && workbenchId && Number.isSafeInteger(generation) && generation >= 0
-      ? { userId, workbenchId, phase: options.phase.value, conversationGeneration: generation }
+    const stageInstanceIdentifier =
+      options.stageInstanceIdentifier.value?.trim();
+    return userId && workbenchId && stageInstanceIdentifier
+      && Number.isSafeInteger(generation) && generation >= 0
+      ? {
+          userId,
+          workbenchId,
+          stageInstanceIdentifier,
+          conversationGeneration: generation,
+        }
+      : null;
+  });
+  const runIdentity = computed<WorkbenchRunMarkerIdentity | null>(() => {
+    const current = conversationIdentity.value;
+    return current
+      ? {
+          userId: current.userId,
+          workbenchId: current.workbenchId,
+          stageInstanceIdentifier: current.stageInstanceIdentifier,
+          conversationGeneration: current.conversationGeneration,
+        }
       : null;
   });
   const stream = options.stream ?? useWorkbenchRunStream({
-    identity,
+    identity: runIdentity,
     eventUrl: (workbenchId, runId) => apiClient.eventsUrl(workbenchId, runId),
   });
   const composerText = ref('');
@@ -86,12 +110,18 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
   const messagesLoading = ref(false);
   const olderMessagesLoading = ref(false);
   const restarting = ref(false);
-  const conversationMessages = ref<WorkbenchPhaseConversationMessage[]>([]);
+  const conversationMessages = ref<WorkbenchStageConversationMessage[]>([]);
   const olderMessagesCursor = ref<number | null>(null);
   const pendingAttachments = ref<PendingWorkbenchAttachment[]>([]);
   const conversationError = ref<string | null>(null);
   const conversationNotice = ref<string | null>(null);
   const localRunId = ref<string | null>(null);
+  const allowedRunModes = computed(() => normalizeAllowedRunModes(
+    options.allowedRunModes.value,
+  ));
+  const selectedRunMode = ref<WorkbenchRunMode | null>(
+    initialRunMode(allowedRunModes.value),
+  );
   let failedSubmission: { fingerprint: string; idempotencyKey: string } | null = null;
   let failedRestart: { fingerprint: string; idempotencyKey: string } | null = null;
   let submitRequestToken = 0;
@@ -100,9 +130,7 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
   let lastTerminalKey = '';
 
   const conversationReadOnly = computed(() => options.archived?.value ?? false);
-  const identityReady = computed(() => identity.value != null);
-  const handoffReady = computed(() =>
-    !options.handoffRequired.value || options.handoffSourceVersion.value != null);
+  const identityReady = computed(() => conversationIdentity.value != null);
   const currentRunId = computed(() =>
     options.activeRunId.value || localRunId.value || stream.state.value?.context.runId || null);
   const runActive = computed(() => Boolean(
@@ -112,17 +140,17 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
   ));
   const conversationCanSubmit = computed(() =>
     !conversationReadOnly.value &&
-    identityReady.value &&
+    runIdentity.value != null &&
+    selectedRunMode.value != null &&
     !submitting.value &&
     !runActive.value &&
-    handoffReady.value &&
     Boolean(composerText.value.trim()),
   );
   const canRestartConversation = computed(() => {
     const expectedVersion = options.expectedVersion.value;
     return !conversationReadOnly.value
       && identityReady.value
-      && options.phaseStatus?.value === 'IN_PROGRESS'
+      && options.stageStatus?.value === 'IN_PROGRESS'
       && !runActive.value
       && !submitting.value
       && !stopping.value
@@ -135,22 +163,25 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
   const hasOlderConversationMessages = computed(() => olderMessagesCursor.value != null);
 
   async function refreshConversationMessages(): Promise<void> {
-    const currentIdentity = identity.value;
+    const currentIdentity = conversationIdentity.value;
     const workbenchId = currentIdentity?.workbenchId;
-    const phase = currentIdentity?.phase;
+    const stageInstanceIdentifier = currentIdentity?.stageInstanceIdentifier;
     const generation = currentIdentity?.conversationGeneration;
     const sessionId = options.currentConversationId?.value?.trim() || null;
     const requestToken = ++messageRequestToken;
-    conversationMessages.value = [];
-    olderMessagesCursor.value = null;
-    olderMessagesLoading.value = false;
-    if (!currentIdentity || !workbenchId || !phase || generation == null) {
+    if (!currentIdentity || !workbenchId
+      || !stageInstanceIdentifier || generation == null) {
+      conversationMessages.value = [];
+      olderMessagesCursor.value = null;
+      olderMessagesLoading.value = false;
       messagesLoading.value = false;
       return;
     }
     messagesLoading.value = true;
     try {
-      const response = await apiClient.getConversationMessages(workbenchId, phase);
+      const response = await apiClient.getStageConversationMessages(
+        workbenchId, stageInstanceIdentifier,
+      );
       if (requestToken !== messageRequestToken) return;
       if (response.generation !== generation
         || options.currentConversationId && response.sessionId !== sessionId) {
@@ -168,27 +199,28 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
   }
 
   async function loadOlderConversationMessages(): Promise<void> {
-    const currentIdentity = identity.value;
+    const currentIdentity = conversationIdentity.value;
     const workbenchId = currentIdentity?.workbenchId;
-    const phase = currentIdentity?.phase;
+    const stageInstanceIdentifier = currentIdentity?.stageInstanceIdentifier;
     const generation = currentIdentity?.conversationGeneration;
     const sessionId = options.currentConversationId?.value?.trim() || null;
     const cursor = olderMessagesCursor.value;
     const requestToken = messageRequestToken;
-    if (!currentIdentity || !workbenchId || !phase || generation == null
+    if (!currentIdentity || !workbenchId
+      || !stageInstanceIdentifier || generation == null
       || !sessionId || cursor == null || olderMessagesLoading.value) return;
     olderMessagesLoading.value = true;
     conversationError.value = null;
     try {
-      const response = await apiClient.getConversationMessages(
-        workbenchId, phase, cursor,
+      const response = await apiClient.getStageConversationMessages(
+        workbenchId, stageInstanceIdentifier, cursor,
       );
       if (requestToken !== messageRequestToken) return;
       if (response.generation !== generation || response.sessionId !== sessionId
         || response.messages.some(message => message.messageId >= cursor)) {
         return;
       }
-      const merged = new Map<number, WorkbenchPhaseConversationMessage>();
+      const merged = new Map<number, WorkbenchStageConversationMessage>();
       for (const message of response.messages) merged.set(message.messageId, message);
       for (const message of conversationMessages.value) merged.set(message.messageId, message);
       conversationMessages.value = Array.from(merged.values())
@@ -209,6 +241,17 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
     conversationError.value = null;
     conversationNotice.value = null;
     if (failedSubmission?.fingerprint !== submissionFingerprintOrNull()) failedSubmission = null;
+  }
+
+  function selectRunMode(mode: WorkbenchRunMode): boolean {
+    if (!allowedRunModes.value.includes(mode)) return false;
+    selectedRunMode.value = mode;
+    conversationError.value = null;
+    conversationNotice.value = null;
+    if (failedSubmission?.fingerprint !== submissionFingerprintOrNull()) {
+      failedSubmission = null;
+    }
+    return true;
   }
 
   function addAttachment(attachment: WorkbenchRunAttachment): boolean {
@@ -271,7 +314,7 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
     const workbenchId = options.workbenchId.value?.trim();
     const expectedVersion = options.expectedVersion.value;
     const message = composerText.value;
-    const submissionIdentity = identity.value;
+    const submissionIdentity = runIdentity.value;
     if (!workbenchId || conversationReadOnly.value || submitting.value) return;
     conversationError.value = null;
     conversationNotice.value = null;
@@ -287,17 +330,18 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
       conversationError.value = '当前阶段已有活动 Run，请等待终态或先停止当前 Run。';
       return;
     }
-    if (!handoffReady.value) {
-      conversationError.value = '请先预览并接受上游阶段交接版本。';
+    const submissionRunMode = selectedRunMode.value;
+    if (!submissionRunMode
+      || !allowedRunModes.value.includes(submissionRunMode)) {
+      conversationError.value = '请选择当前阶段允许的运行模式。';
       return;
     }
     if (!Number.isSafeInteger(expectedVersion) || expectedVersion == null || expectedVersion < 0) {
       conversationError.value = 'Workbench 版本不可用，请刷新后重试。';
       return;
     }
-    const submissionPhase = submissionIdentity.phase;
-    const submissionRunMode: WorkbenchRunMode = 'MODIFY_WORKSPACE';
-    const submissionHandoffVersion = options.handoffSourceVersion.value;
+    const submissionStageInstanceIdentifier =
+      submissionIdentity.stageInstanceIdentifier;
     const requestToken = ++submitRequestToken;
     submitting.value = true;
     try {
@@ -305,8 +349,8 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
       let submissionVersion = expectedVersion;
       if (options.currentConversationId
         && !options.currentConversationId.value?.trim()) {
-        const ensured = await apiClient.ensureConversation(
-          workbenchId, submissionPhase, expectedVersion,
+        const ensured = await apiClient.ensureStageConversation(
+          workbenchId, submissionStageInstanceIdentifier, expectedVersion,
         );
         if (!isCurrentSubmission(requestToken, submissionIdentity)) return;
         submissionVersion = ensured.workbenchVersion;
@@ -317,8 +361,6 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
         submissionVersion,
         message,
         submissionRunMode,
-        submissionHandoffVersion,
-        null,
         attachments,
       );
       const idempotencyKey = failedSubmission?.fingerprint === fingerprint
@@ -328,13 +370,11 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
       const request = {
         message,
         runMode: submissionRunMode,
-        ...(submissionHandoffVersion == null
-          ? {} : { handoffSourceVersion: submissionHandoffVersion }),
         ...(attachments.length === 0 ? {} : { attachments }),
       };
       const submitted = await apiClient.submitRun({
         workbenchId,
-        phase: submissionPhase,
+        stageInstanceIdentifier: submissionStageInstanceIdentifier,
         expectedVersion: submissionVersion,
         idempotencyKey,
         request,
@@ -364,7 +404,7 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
     expectedIdentity: WorkbenchRunMarkerIdentity,
   ): boolean {
     return requestToken === submitRequestToken
-      && sameRunIdentity(identity.value, expectedIdentity);
+      && sameRunIdentity(runIdentity.value, expectedIdentity);
   }
 
   async function restartConversation(): Promise<void> {
@@ -374,7 +414,7 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
     const currentSessionId = options.currentConversationId?.value?.trim();
     if (!workbenchId || expectedVersion == null || !currentSessionId) return;
     const fingerprint = restartFingerprint(
-      identity.value,
+      conversationIdentity.value,
       currentSessionId,
       expectedVersion,
     );
@@ -387,9 +427,12 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
     conversationError.value = null;
     conversationNotice.value = null;
     try {
-      const restarted = await apiClient.restartConversation(
+      const stageInstanceIdentifier =
+        conversationIdentity.value?.stageInstanceIdentifier;
+      if (!stageInstanceIdentifier) return;
+      const restarted = await apiClient.restartStageConversation(
         workbenchId,
-        options.phase.value,
+        stageInstanceIdentifier,
         expectedVersion,
         idempotencyKey,
       );
@@ -430,7 +473,7 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
       && Boolean(currentSessionId)
       && currentVersion != null
       && restartFingerprint(
-        identity.value,
+        conversationIdentity.value,
         currentSessionId as string,
         currentVersion,
       ) === fingerprint;
@@ -456,25 +499,31 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
   function submissionFingerprintOrNull(): string | null {
     const workbenchId = options.workbenchId.value?.trim();
     const version = options.expectedVersion.value;
-    if (!workbenchId || version == null) return null;
+    const runMode = selectedRunMode.value;
+    if (!workbenchId || version == null || !runMode) return null;
     return submissionFingerprint(
       workbenchId,
       version,
       composerText.value,
-      'MODIFY_WORKSPACE' as WorkbenchRunMode,
-      options.handoffSourceVersion.value,
-      options.reviewConfirmationId.value,
+      runMode,
       pendingAttachments.value,
     );
   }
 
   watch(
     () => [
-      identity.value?.userId ?? '',
-      identity.value?.workbenchId ?? '',
-      options.phase.value,
-      options.conversationGeneration.value,
+      options.stageInstanceIdentifier.value ?? '',
+      allowedRunModes.value.join(','),
     ].join('\u0000'),
+    () => {
+      selectedRunMode.value = initialRunMode(allowedRunModes.value);
+      failedSubmission = null;
+    },
+    { flush: 'sync' },
+  );
+
+  watch(
+    () => conversationIdentityFingerprint(conversationIdentity.value),
     () => {
       composerText.value = '';
       pendingAttachments.value = [];
@@ -499,10 +548,7 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
 
   watch(
     () => [
-      identity.value?.userId ?? '',
-      identity.value?.workbenchId ?? '',
-      options.phase.value,
-      options.conversationGeneration.value,
+      conversationIdentityFingerprint(conversationIdentity.value),
       options.currentConversationId?.value ?? '',
     ].join('\u0000'),
     () => {
@@ -512,9 +558,9 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
   );
 
   watch(
-    () => `${identity.value?.workbenchId ?? ''}\u0000${options.activeRunId.value ?? ''}`,
+    () => `${runIdentity.value?.workbenchId ?? ''}\u0000${options.activeRunId.value ?? ''}`,
     () => {
-      if (!identity.value) return;
+      if (!runIdentity.value) return;
       const activeRunId = options.activeRunId.value;
       if (activeRunId) {
         localRunId.value = activeRunId;
@@ -570,14 +616,16 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
     pendingAttachments,
     conversationError,
     conversationNotice,
+    allowedRunModes,
+    selectedRunMode,
     conversationReadOnly,
     identityReady,
-    handoffReady,
     currentRunId,
     runActive,
     conversationCanSubmit,
     canRestartConversation,
     updateComposerText,
+    selectRunMode,
     addAttachment,
     removeAttachment,
     removeUploadedAttachment,
@@ -590,18 +638,45 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
   };
 }
 
+function normalizeAllowedRunModes(
+  candidates: ReadonlyArray<WorkbenchRunMode> | null | undefined,
+): WorkbenchRunMode[] {
+  if (!Array.isArray(candidates)) return [];
+  const allowed = new Set(candidates);
+  return (['DISCUSS_READ_ONLY', 'MODIFY_WORKSPACE'] as WorkbenchRunMode[])
+    .filter(mode => allowed.has(mode));
+}
+
+function initialRunMode(
+  allowedRunModes: ReadonlyArray<WorkbenchRunMode>,
+): WorkbenchRunMode | null {
+  return allowedRunModes.length === 1 ? allowedRunModes[0] : null;
+}
+
 function restartFingerprint(
-  identity: WorkbenchRunMarkerIdentity | null,
+  identity: WorkbenchConversationIdentity | null,
   currentSessionId: string,
   expectedVersion: number,
 ): string {
   return JSON.stringify([
     identity?.userId ?? '',
     identity?.workbenchId ?? '',
-    identity?.phase ?? '',
+    identity?.stageInstanceIdentifier ?? '',
     identity?.conversationGeneration ?? -1,
     currentSessionId,
     expectedVersion,
+  ]);
+}
+
+function conversationIdentityFingerprint(
+  identity: WorkbenchConversationIdentity | null,
+): string {
+  if (!identity) return '';
+  return JSON.stringify([
+    identity.userId,
+    identity.workbenchId,
+    identity.stageInstanceIdentifier,
+    identity.conversationGeneration,
   ]);
 }
 
@@ -612,12 +687,8 @@ function sameRunIdentity(
   return current != null
     && current.userId === expected.userId
     && current.workbenchId === expected.workbenchId
-    && current.phase === expected.phase
+    && current.stageInstanceIdentifier === expected.stageInstanceIdentifier
     && current.conversationGeneration === expected.conversationGeneration;
-}
-
-function defaultRunMode(phase: WorkbenchPhase): WorkbenchRunMode {
-  return phase === 'IMPLEMENT_TEST' ? 'MODIFY_WORKSPACE' : 'DISCUSS_READ_ONLY';
 }
 
 function newIdempotencyKey(): string {
@@ -630,8 +701,6 @@ function submissionFingerprint(
   expectedVersion: number,
   message: string,
   runMode: WorkbenchRunMode,
-  handoffSourceVersion: number | null,
-  reviewConfirmationId: string | null,
   attachments: ReadonlyArray<WorkbenchRunAttachment>,
 ): string {
   const normalizedAttachments = normalizeWorkbenchRunAttachments(attachments);
@@ -640,8 +709,6 @@ function submissionFingerprint(
     expectedVersion,
     message,
     runMode,
-    handoffSourceVersion,
-    reviewConfirmationId,
     normalizedAttachments.map(attachment => attachment.type === 'UPLOADED_CONVERSATION'
       ? [attachment.type, attachment.attachmentId, attachment.contentHash]
       : ['REPOSITORY_DOCUMENT', attachment.repositoryKey,
@@ -726,7 +793,7 @@ function conversationErrorMessage(error: unknown): string {
     case 'VALIDATION_ERROR':
     case 'INVALID_REQUEST':
       return 'Run 请求不符合当前阶段或能力约束。';
-    case 'WORKBENCH_PHASE_MESSAGE_TOO_LARGE':
+    case 'WORKBENCH_STAGE_MESSAGE_TOO_LARGE':
       return '消息内容过长，请缩短后重试。';
     case 'RUNTIME_UNAVAILABLE':
     case 'WORKBENCH_RUN_UNAVAILABLE':

@@ -13,7 +13,6 @@ import com.example.agentweb.app.workbench.admin.AdminWorkbenchRunListPage;
 import com.example.agentweb.app.workbench.admin.AdminWorkbenchRunListRequest;
 import com.example.agentweb.domain.chatrun.ChatRunStatus;
 import com.example.agentweb.domain.workbench.RunMode;
-import com.example.agentweb.domain.workbench.WorkbenchPhase;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,9 +36,11 @@ public class SqliteAdminWorkbenchQueryService
         implements AdminWorkbenchQueryService {
 
     private static final String EXACT_RUN_FROM =
-            "FROM workbench_run_snapshot s JOIN chat_run r ON r.id=s.run_id "
+            "FROM workbench_stage_run_snapshot s "
+                    + "JOIN chat_run r ON r.id=s.run_id "
                     + "AND r.run_origin='WORKBENCH' "
-                    + "AND r.origin_reference=s.workbench_id || ':' || s.phase "
+                    + "AND r.origin_reference=s.workbench_id || ':' "
+                    + "|| s.stage_instance_identifier "
                     + "AND r.execution_context_id=s.run_id ";
 
     private final JdbcTemplate jdbc;
@@ -114,7 +115,7 @@ public class SqliteAdminWorkbenchQueryService
                         resultSet.getLong("created_at"),
                         resultSet.getLong("updated_at"),
                         resultSet.getLong("version"),
-                        loadRepositories(id), loadPhases(id)),
+                        loadRepositories(id), loadStages(id)),
                 id);
         return rows.isEmpty()
                 ? Optional.<AdminWorkbenchDetailView>empty()
@@ -127,7 +128,8 @@ public class SqliteAdminWorkbenchQueryService
         String id = requireId(workbenchId, "workbenchId");
         Objects.requireNonNull(request, "request");
         StringBuilder sql = new StringBuilder(
-                "SELECT r.id run_id, s.workbench_id, s.phase, r.status, "
+                "SELECT r.id run_id, s.workbench_id, "
+                        + "s.stage_instance_identifier, r.status, "
                         + "s.run_mode, r.last_event_seq, r.created_at, "
                         + "r.started_at, r.cancel_requested_at, r.finished_at, "
                         + "r.failure_code ")
@@ -171,7 +173,8 @@ public class SqliteAdminWorkbenchQueryService
         String id = requireId(workbenchId, "workbenchId");
         String validRunId = requireId(runId, "runId");
         List<AdminWorkbenchRunDetailView> rows = jdbc.query(
-                "SELECT r.id run_id, s.workbench_id, s.phase, r.status, "
+                "SELECT r.id run_id, s.workbench_id, "
+                        + "s.stage_instance_identifier, r.status, "
                         + "s.run_mode, r.last_event_seq, r.created_at, "
                         + "r.started_at, r.cancel_requested_at, r.finished_at, "
                         + "r.exit_code, r.failure_code, s.repository_scope_hash, "
@@ -218,17 +221,23 @@ public class SqliteAdminWorkbenchQueryService
                 workbenchId);
     }
 
-    private List<AdminWorkbenchDetailView.PhaseView> loadPhases(
+    private List<AdminWorkbenchDetailView.StageView> loadStages(
             String workbenchId) {
         return jdbc.query(
-                "SELECT phase, phase_order, status, active_run_id, "
+                "SELECT stage_instance_identifier, definition_identifier, "
+                        + "definition_revision, sequence_number, status, "
+                        + "active_run_id, "
                         + "active_run_mode, last_activity_at, completed_at "
-                        + "FROM workbench_phase WHERE workbench_id=? "
-                        + "ORDER BY phase_order ASC",
+                        + "FROM workbench_stage WHERE workbench_id=? "
+                        + "ORDER BY sequence_number ASC",
                 (resultSet, rowNumber) ->
-                        new AdminWorkbenchDetailView.PhaseView(
-                                resultSet.getString("phase"),
-                                resultSet.getInt("phase_order"),
+                        new AdminWorkbenchDetailView.StageView(
+                                resultSet.getString(
+                                        "stage_instance_identifier"),
+                                resultSet.getString(
+                                        "definition_identifier"),
+                                resultSet.getLong("definition_revision"),
+                                resultSet.getInt("sequence_number"),
                                 resultSet.getString("status"),
                                 resultSet.getString("active_run_id"),
                                 resultSet.getString("active_run_mode"),
@@ -242,7 +251,7 @@ public class SqliteAdminWorkbenchQueryService
         return new AdminWorkbenchRunListItemView(
                 resultSet.getString("run_id"),
                 resultSet.getString("workbench_id"),
-                WorkbenchPhase.valueOf(resultSet.getString("phase")),
+                resultSet.getString("stage_instance_identifier"),
                 ChatRunStatus.valueOf(resultSet.getString("status")),
                 RunMode.valueOf(resultSet.getString("run_mode")),
                 resultSet.getLong("last_event_seq"),
@@ -258,7 +267,7 @@ public class SqliteAdminWorkbenchQueryService
         return new AdminWorkbenchRunDetailView(
                 resultSet.getString("run_id"),
                 resultSet.getString("workbench_id"),
-                WorkbenchPhase.valueOf(resultSet.getString("phase")),
+                resultSet.getString("stage_instance_identifier"),
                 ChatRunStatus.valueOf(resultSet.getString("status")),
                 RunMode.valueOf(resultSet.getString("run_mode")),
                 resultSet.getLong("last_event_seq"),

@@ -27,11 +27,12 @@ function api(): AdminWorkbenchApiClient {
       primaryRepositoryKey: 'agent-web', repositoryScopeHash: hash('a'),
       activeWriteRunId: 'run-1', createdAt: 1, updatedAt: 2, version: 3,
       repositories: [{ repositoryKey: 'agent-web', primary: true }],
-      phases: [],
+      stages: [],
     }),
     listRuns: vi.fn().mockResolvedValue({
       items: [{
-        runId: 'run-1', workbenchId: 'workbench-1', phase: 'IMPLEMENT_TEST',
+        runId: 'run-1', workbenchId: 'workbench-1',
+        stageInstanceIdentifier: 'stage-implementation',
         status: 'RUNNING', runMode: 'MODIFY_WORKSPACE', lastEventSeq: 7,
         createdAt: 1, startedAt: 2, cancelRequestedAt: null, finishedAt: null,
         failureCode: null,
@@ -39,7 +40,8 @@ function api(): AdminWorkbenchApiClient {
       nextCursor: null,
     }),
     getRun: vi.fn().mockResolvedValue({
-      runId: 'run-1', workbenchId: 'workbench-1', phase: 'IMPLEMENT_TEST',
+      runId: 'run-1', workbenchId: 'workbench-1',
+      stageInstanceIdentifier: 'stage-implementation',
       status: 'RUNNING', runMode: 'MODIFY_WORKSPACE', lastEventSeq: 7,
       createdAt: 1, startedAt: 2, cancelRequestedAt: null, finishedAt: null,
       exitCode: null, failureCode: null, repositoryScopeHash: hash('a'),
@@ -101,7 +103,7 @@ describe('useAdminWorkbenches', () => {
         workbenchId: 'workbench-2', ownerId: 'owner-2', ownerName: 'Owner Two',
         title: 'Two', status: 'ACTIVE', agentType: 'CODEX', environment: 'local',
         primaryRepositoryKey: 'two', repositoryScopeHash: hash('a'), activeWriteRunId: null,
-        createdAt: 1, updatedAt: 2, version: 1, repositories: [], phases: [],
+        createdAt: 1, updatedAt: 2, version: 1, repositories: [], stages: [],
       });
     client.listRuns = vi.fn().mockResolvedValue({ items: [], nextCursor: null });
     const state = useAdminWorkbenches({ apiClient: client });
@@ -115,7 +117,7 @@ describe('useAdminWorkbenches', () => {
       workbenchId: 'workbench-1', ownerId: 'owner-1', ownerName: 'Owner One',
       title: 'One', status: 'ACTIVE', agentType: 'CODEX', environment: 'local',
       primaryRepositoryKey: 'one', repositoryScopeHash: hash('a'), activeWriteRunId: null,
-      createdAt: 1, updatedAt: 2, version: 1, repositories: [], phases: [],
+      createdAt: 1, updatedAt: 2, version: 1, repositories: [], stages: [],
     });
     await Promise.all([initial, second]);
 

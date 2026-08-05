@@ -7,6 +7,9 @@ server:
   servlet:
     context-path: ""     # e2e 走根路径，Playwright baseURL 不带前缀
 
+management:
+  port: 18094            # 独立 management 端口避开生产 18093
+
 agent:
   # e2e 的 chat 链路依赖 Codex JSON stub(输出"诊断结论"); 前端现会「强制全员跟随」服务端
   # 对话默认模型(/api/chat/agent-default → 此 default-type), 故 e2e 默认须为 CODEX,

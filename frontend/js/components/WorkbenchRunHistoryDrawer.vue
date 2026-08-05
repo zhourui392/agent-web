@@ -151,7 +151,6 @@
                 <dt>Profile</dt><dd>{{ capability.profileId }} @ {{ capability.profileVersion }}</dd>
                 <dt>Policy</dt><dd>{{ capability.policyVersion }}</dd>
                 <dt>Runtime</dt><dd>{{ capability.runtimeCompatibility }}</dd>
-                <dt>Override</dt><dd>v{{ capability.overrideVersion }}</dd>
                 <dt>Scope Hash</dt><dd><code :title="capability.repositoryScopeHash">{{ shortHash(capability.repositoryScopeHash) }}</code></dd>
               </dl>
               <section

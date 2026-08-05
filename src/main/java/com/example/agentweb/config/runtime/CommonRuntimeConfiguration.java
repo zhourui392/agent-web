@@ -25,8 +25,8 @@ import com.example.agentweb.domain.chatrun.ChatRunRepository;
 import com.example.agentweb.domain.chatrun.RunOrigin;
 import com.example.agentweb.domain.shared.CanonicalHashing;
 import com.example.agentweb.domain.workbench.WorkbenchRepository;
-import com.example.agentweb.domain.workbench.WorkbenchRunPromptPayloadRepository;
-import com.example.agentweb.domain.workbench.WorkbenchRunSnapshotRepository;
+import com.example.agentweb.domain.workbench.WorkbenchStageRunPromptPayloadRepository;
+import com.example.agentweb.domain.workbench.WorkbenchStageRunSnapshotRepository;
 import com.example.agentweb.infra.runtime.AgentProcessKernel;
 import com.example.agentweb.infra.runtime.CodexRuntimeCompatibilityMatrix;
 import com.example.agentweb.infra.runtime.CodexRuntimePreflightGateway;
@@ -74,7 +74,8 @@ public class CommonRuntimeConfiguration {
     @Bean
     public RuntimeCommandFactory commonRuntimeCommandFactory(
             CommonRuntimeProperties properties) {
-        return new RuntimeCommandFactory(properties.getCodexCommand());
+        return new RuntimeCommandFactory(
+                properties.getCodexCommand(), properties.isSandboxBypass());
     }
 
     @Bean
@@ -209,8 +210,8 @@ public class CommonRuntimeConfiguration {
 
     @Bean
     public WorkbenchExecutionPlanProvider workbenchExecutionPlanProvider(
-            WorkbenchRunSnapshotRepository snapshotRepository,
-            WorkbenchRunPromptPayloadRepository promptRepository,
+            WorkbenchStageRunSnapshotRepository snapshotRepository,
+            WorkbenchStageRunPromptPayloadRepository promptRepository,
             WorkbenchRepository workbenchRepository) {
         return new WorkbenchExecutionPlanProvider(
                 snapshotRepository, promptRepository, workbenchRepository);

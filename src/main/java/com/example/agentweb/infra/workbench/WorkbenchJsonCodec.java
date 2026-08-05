@@ -6,30 +6,18 @@ import com.example.agentweb.domain.capability.ResolvedCapabilityBinding;
 import com.example.agentweb.domain.capability.ResolvedMcpServerBinding;
 import com.example.agentweb.domain.capability.ResolvedRuleBinding;
 import com.example.agentweb.domain.capability.ResolvedSkillBinding;
-import com.example.agentweb.domain.workbench.AdditionalCapabilityRule;
-import com.example.agentweb.domain.workbench.CapabilityOverride;
-import com.example.agentweb.domain.workbench.CommitTarget;
-import com.example.agentweb.domain.workbench.Decision;
+import com.example.agentweb.domain.capability.ResolvedCommandBinding;
 import com.example.agentweb.domain.workbench.DocumentReference;
-import com.example.agentweb.domain.workbench.HighImpactOperationTarget;
-import com.example.agentweb.domain.workbench.HighImpactOperationType;
-import com.example.agentweb.domain.workbench.LocalDeployTarget;
-import com.example.agentweb.domain.workbench.OpenQuestion;
-import com.example.agentweb.domain.workbench.PhaseCapabilityReference;
-import com.example.agentweb.domain.workbench.PhaseCapabilityType;
-import com.example.agentweb.domain.workbench.ProductionWriteTarget;
 import com.example.agentweb.domain.workbench.PromptPartSnapshot;
-import com.example.agentweb.domain.workbench.PushTarget;
 import com.example.agentweb.domain.workbench.RunMode;
 import com.example.agentweb.domain.workbench.RuntimeEnforcementSnapshot;
+import com.example.agentweb.domain.workbench.VerifiedWorkbenchStageUploadedConversationAttachment;
 import com.example.agentweb.domain.workbench.VerifiedWorkbenchRunAttachment;
-import com.example.agentweb.domain.workbench.VerifiedUploadedConversationAttachment;
-import com.example.agentweb.domain.workbench.UploadedAttachmentBinding;
 import com.example.agentweb.domain.workbench.OwnerReference;
 import com.example.agentweb.domain.workbench.WorkbenchId;
-import com.example.agentweb.domain.workbench.WorkbenchId;
-import com.example.agentweb.domain.workbench.WorkbenchPhase;
-import com.example.agentweb.domain.workbench.WorkbenchRunReference;
+import com.example.agentweb.domain.workbench.WorkbenchStageUploadedAttachmentBinding;
+import com.example.agentweb.domain.workbench.context.WorkbenchContextDocumentContentState;
+import com.example.agentweb.domain.workbench.context.WorkbenchContextDocumentSnapshot;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -38,9 +26,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 
 /**
  * Workbench SQLite JSON 值对象 Codec；所有 Hash 和业务不变量仍由 Domain restore 校验。
@@ -51,147 +37,6 @@ import java.util.Set;
 final class WorkbenchJsonCodec {
 
     private final ObjectMapper mapper = new ObjectMapper();
-
-    String writeDecisions(List<Decision> decisions) {
-        ArrayNode result = mapper.createArrayNode();
-        for (Decision decision : decisions) {
-            ObjectNode node = result.addObject();
-            node.put("text", decision.getText());
-            putNullable(node, "rationale", decision.getRationale());
-            node.put("status", decision.getStatus().name());
-        }
-        return write(result);
-    }
-
-    List<Decision> readDecisions(String json) {
-        List<Decision> result = new ArrayList<Decision>();
-        for (JsonNode node : array(json, "decisions")) {
-            requireObject(node, "decision");
-            String status = text(node, "status");
-            if (!Decision.Status.CONFIRMED.name().equals(status)) {
-                throw invalid("unsupported decision status: " + status, null);
-            }
-            result.add(Decision.confirmed(
-                    text(node, "text"), optionalText(node, "rationale")));
-        }
-        return result;
-    }
-
-    String writeOpenQuestions(List<OpenQuestion> questions) {
-        ArrayNode result = mapper.createArrayNode();
-        for (OpenQuestion question : questions) {
-            ObjectNode node = result.addObject();
-            node.put("text", question.getText());
-            putNullable(node, "ownerHint", question.getOwnerHint());
-        }
-        return write(result);
-    }
-
-    List<OpenQuestion> readOpenQuestions(String json) {
-        List<OpenQuestion> result = new ArrayList<OpenQuestion>();
-        for (JsonNode node : array(json, "open questions")) {
-            requireObject(node, "open question");
-            result.add(OpenQuestion.of(
-                    text(node, "text"), optionalText(node, "ownerHint")));
-        }
-        return result;
-    }
-
-    String writeDocuments(List<DocumentReference> documents) {
-        ArrayNode result = mapper.createArrayNode();
-        for (DocumentReference document : documents) {
-            ObjectNode node = result.addObject();
-            node.put("repositoryKey", document.getRepositoryKey());
-            node.put("relativePath", document.getRelativePath());
-        }
-        return write(result);
-    }
-
-    List<DocumentReference> readDocuments(String json) {
-        return readDocuments(array(json, "documents"));
-    }
-
-    String writeRunReferences(List<WorkbenchRunReference> runs) {
-        ArrayNode result = mapper.createArrayNode();
-        for (WorkbenchRunReference run : runs) {
-            ObjectNode node = result.addObject();
-            node.put("runId", run.getRunId());
-            node.put("workbenchId", run.getWorkbenchId().getValue());
-            node.put("phase", run.getPhase().name());
-            node.put("safeSummary", run.getSafeSummary());
-        }
-        return write(result);
-    }
-
-    List<WorkbenchRunReference> readRunReferences(String json) {
-        List<WorkbenchRunReference> result = new ArrayList<WorkbenchRunReference>();
-        for (JsonNode node : array(json, "run references")) {
-            requireObject(node, "run reference");
-            result.add(WorkbenchRunReference.of(
-                    text(node, "runId"), WorkbenchId.of(text(node, "workbenchId")),
-                    WorkbenchPhase.valueOf(text(node, "phase")),
-                    text(node, "safeSummary")));
-        }
-        return result;
-    }
-
-    String writeCapabilityOverride(CapabilityOverride override) {
-        ObjectNode root = mapper.createObjectNode();
-        root.set("addedOptionalSkillIds", stringArray(override.getAddedOptionalSkillIds()));
-        root.set("removedOptionalSkillIds", stringArray(override.getRemovedOptionalSkillIds()));
-        root.set("selectedOptionalMcpIds", stringArray(override.getSelectedOptionalMcpIds()));
-        root.put("explicitOptionalMcpSelection",
-                override.hasExplicitOptionalMcpSelection());
-        root.set("selectedOptionalRuleIds", stringArray(override.getSelectedOptionalRuleIds()));
-        putNullable(root, "additionalRule",
-                override.getAdditionalRule() == null
-                        ? null : override.getAdditionalRule().getValue());
-        return write(root);
-    }
-
-    CapabilityOverride readCapabilityOverride(String json) {
-        JsonNode root = object(json, "capability override");
-        String additionalRule = optionalText(root, "additionalRule");
-        Set<String> selectedOptionalMcpIds =
-                stringSet(root, "selectedOptionalMcpIds");
-        boolean explicitOptionalMcpSelection =
-                root.has("explicitOptionalMcpSelection")
-                        ? bool(root, "explicitOptionalMcpSelection")
-                        : !selectedOptionalMcpIds.isEmpty();
-        return CapabilityOverride.restore(
-                stringSet(root, "addedOptionalSkillIds"),
-                stringSet(root, "removedOptionalSkillIds"),
-                selectedOptionalMcpIds,
-                explicitOptionalMcpSelection,
-                stringSet(root, "selectedOptionalRuleIds"),
-                additionalRule == null
-                        ? null : AdditionalCapabilityRule.restore(additionalRule));
-    }
-
-    String writePhaseCapabilityReferences(
-            List<PhaseCapabilityReference> references) {
-        ArrayNode root = mapper.createArrayNode();
-        for (PhaseCapabilityReference reference : references) {
-            ObjectNode node = root.addObject();
-            node.put("id", reference.getId());
-            node.put("type", reference.getType().name());
-            node.put("required", reference.isRequired());
-        }
-        return write(root);
-    }
-
-    List<PhaseCapabilityReference> readPhaseCapabilityReferences(String json) {
-        List<PhaseCapabilityReference> result =
-                new ArrayList<PhaseCapabilityReference>();
-        for (JsonNode node : array(json, "phase capability references")) {
-            requireObject(node, "phase capability reference");
-            result.add(new PhaseCapabilityReference(
-                    text(node, "id"),
-                    PhaseCapabilityType.valueOf(text(node, "type")),
-                    bool(node, "required")));
-        }
-        return result;
-    }
 
     String writeCapabilityBinding(ResolvedCapabilityBinding binding) {
         ObjectNode root = mapper.createObjectNode();
@@ -278,6 +123,70 @@ final class WorkbenchJsonCodec {
                 text(root, "runtimeCompatibility"), text(root, "bindingHash"));
     }
 
+    String writeCommandBinding(ResolvedCommandBinding binding) {
+        ObjectNode root = mapper.createObjectNode();
+        root.put("identifier", binding.getIdentifier());
+        root.put("version", binding.getVersion());
+        root.put("contentHash", binding.getContentHash());
+        root.put("expandedPrompt", binding.getExpandedPrompt());
+        root.put("expandedPromptHash", binding.getExpandedPromptHash());
+        return write(root);
+    }
+
+    ResolvedCommandBinding readCommandBinding(String json) {
+        JsonNode root = object(json, "resolved Command binding");
+        return ResolvedCommandBinding.restore(
+                text(root, "identifier"), text(root, "version"),
+                text(root, "contentHash"), text(root, "expandedPrompt"),
+                text(root, "expandedPromptHash"));
+    }
+
+    String writeContextDocumentSnapshots(
+            List<WorkbenchContextDocumentSnapshot> documents) {
+        ArrayNode result = mapper.createArrayNode();
+        for (WorkbenchContextDocumentSnapshot document : documents) {
+            ObjectNode node = result.addObject();
+            node.put("contextDocumentIdentifier",
+                    document.getContextDocumentIdentifier());
+            node.put("sourceStageInstanceIdentifier",
+                    document.getSourceStageInstanceIdentifier());
+            putNullable(node, "sourceRunIdentifier",
+                    document.getSourceRunIdentifier());
+            node.put("documentName", document.getDocumentName());
+            node.put("briefDescription", document.getBriefDescription());
+            node.put("repositoryKey",
+                    document.getDocumentReference().getRepositoryKey());
+            node.put("relativePath",
+                    document.getDocumentReference().getRelativePath());
+            node.put("publishedContentHash",
+                    document.getPublishedContentHash());
+            node.put("contentState", document.getContentState().name());
+        }
+        return write(result);
+    }
+
+    List<WorkbenchContextDocumentSnapshot> readContextDocumentSnapshots(
+            String json) {
+        List<WorkbenchContextDocumentSnapshot> result =
+                new ArrayList<WorkbenchContextDocumentSnapshot>();
+        for (JsonNode node : array(json, "Context Document snapshots")) {
+            requireObject(node, "Context Document snapshot");
+            result.add(new WorkbenchContextDocumentSnapshot(
+                    text(node, "contextDocumentIdentifier"),
+                    text(node, "sourceStageInstanceIdentifier"),
+                    optionalText(node, "sourceRunIdentifier"),
+                    text(node, "documentName"),
+                    text(node, "briefDescription"),
+                    DocumentReference.of(
+                            text(node, "repositoryKey"),
+                            text(node, "relativePath")),
+                    text(node, "publishedContentHash"),
+                    WorkbenchContextDocumentContentState.valueOf(
+                            text(node, "contentState"))));
+        }
+        return result;
+    }
+
     String writePromptParts(List<PromptPartSnapshot> promptParts) {
         ArrayNode result = mapper.createArrayNode();
         for (PromptPartSnapshot part : promptParts) {
@@ -301,55 +210,6 @@ final class WorkbenchJsonCodec {
         return result;
     }
 
-    String writeVerifiedAttachments(
-            List<VerifiedWorkbenchRunAttachment> attachments) {
-        return writeVerifiedAttachments(
-                attachments,
-                java.util.Collections
-                        .<VerifiedUploadedConversationAttachment>emptyList());
-    }
-
-    String writeVerifiedAttachments(
-            List<VerifiedWorkbenchRunAttachment> attachments,
-            List<VerifiedUploadedConversationAttachment> uploadedAttachments) {
-        ArrayNode result = mapper.createArrayNode();
-        for (VerifiedWorkbenchRunAttachment attachment : attachments) {
-            ObjectNode node = result.addObject();
-            node.put("type", "REPOSITORY_DOCUMENT");
-            node.put("repositoryKey", attachment.getDocumentReference()
-                    .getRepositoryKey());
-            node.put("relativePath", attachment.getDocumentReference()
-                    .getRelativePath());
-            node.put("contentVersion", attachment.getContentVersion());
-            node.put("mediaType", attachment.getMediaType());
-            node.put("size", attachment.getSize());
-        }
-        for (VerifiedUploadedConversationAttachment attachment
-                : uploadedAttachments) {
-            ObjectNode node = result.addObject();
-            node.put("type", "UPLOADED_CONVERSATION");
-            node.put("attachmentId", attachment.getAttachmentId());
-            node.put("ownerId", attachment.getBinding().getOwner().getOwnerId());
-            node.put("ownerName", attachment.getBinding().getOwner().getOwnerName());
-            node.put("workbenchId",
-                    attachment.getBinding().getWorkbenchId().getValue());
-            node.put("phase", attachment.getBinding().getPhase().name());
-            node.put("conversationId",
-                    attachment.getBinding().getConversationId());
-            node.put("conversationGeneration",
-                    attachment.getBinding().getConversationGeneration());
-            node.put("displayName", attachment.getDisplayName());
-            node.put("mediaType", attachment.getMediaType());
-            node.put("size", attachment.getSize());
-            node.put("contentHash", attachment.getContentHash());
-            node.put("storageKey", attachment.getStorageKey());
-            node.put("runtimeFileName", attachment.getRuntimeFileName());
-            node.put("expiresAt", attachment.getExpiresAt().toEpochMilli());
-            node.put("attachmentVersion", attachment.getAttachmentVersion());
-        }
-        return write(result);
-    }
-
     List<VerifiedWorkbenchRunAttachment> readVerifiedAttachments(
             String json) {
         List<VerifiedWorkbenchRunAttachment> result =
@@ -369,30 +229,83 @@ final class WorkbenchJsonCodec {
         return result;
     }
 
-    List<VerifiedUploadedConversationAttachment>
-            readVerifiedUploadedAttachments(String json) {
-        List<VerifiedUploadedConversationAttachment> result =
-                new ArrayList<VerifiedUploadedConversationAttachment>();
-        for (JsonNode node : array(json, "verified attachments")) {
-            requireObject(node, "verified attachment");
+    String writeVerifiedStageAttachments(
+            List<VerifiedWorkbenchRunAttachment> attachments,
+            List<VerifiedWorkbenchStageUploadedConversationAttachment>
+                    uploadedAttachments) {
+        ArrayNode result = mapper.createArrayNode();
+        for (VerifiedWorkbenchRunAttachment attachment : attachments) {
+            ObjectNode node = result.addObject();
+            node.put("type", "REPOSITORY_DOCUMENT");
+            node.put("repositoryKey", attachment.getDocumentReference()
+                    .getRepositoryKey());
+            node.put("relativePath", attachment.getDocumentReference()
+                    .getRelativePath());
+            node.put("contentVersion", attachment.getContentVersion());
+            node.put("mediaType", attachment.getMediaType());
+            node.put("size", attachment.getSize());
+        }
+        for (VerifiedWorkbenchStageUploadedConversationAttachment attachment
+                : uploadedAttachments) {
+            WorkbenchStageUploadedAttachmentBinding binding =
+                    attachment.getBinding();
+            ObjectNode node = result.addObject();
+            node.put("type", "UPLOADED_CONVERSATION");
+            node.put("attachmentId", attachment.getAttachmentId());
+            node.put("ownerId", binding.getOwner().getOwnerId());
+            node.put("ownerName", binding.getOwner().getOwnerName());
+            node.put("workbenchId", binding.getWorkbenchId().getValue());
+            node.put("stageInstanceIdentifier",
+                    binding.getStageInstanceIdentifier());
+            node.put("conversationId", binding.getConversationId());
+            node.put("conversationGeneration",
+                    binding.getConversationGeneration());
+            node.put("displayName", attachment.getDisplayName());
+            node.put("mediaType", attachment.getMediaType());
+            node.put("size", attachment.getSize());
+            node.put("contentHash", attachment.getContentHash());
+            node.put("storageKey", attachment.getStorageKey());
+            node.put("runtimeFileName", attachment.getRuntimeFileName());
+            node.put("expiresAt", attachment.getExpiresAt().toEpochMilli());
+            node.put("attachmentVersion", attachment.getAttachmentVersion());
+        }
+        return write(result);
+    }
+
+    List<VerifiedWorkbenchStageUploadedConversationAttachment>
+            readVerifiedStageUploadedAttachments(String json) {
+        List<VerifiedWorkbenchStageUploadedConversationAttachment> result =
+                new ArrayList<
+                        VerifiedWorkbenchStageUploadedConversationAttachment>();
+        for (JsonNode node : array(json, "verified Stage attachments")) {
+            requireObject(node, "verified Stage attachment");
             if (!"UPLOADED_CONVERSATION".equals(attachmentType(node))) {
                 continue;
             }
-            result.add(VerifiedUploadedConversationAttachment.restore(
-                    text(node, "attachmentId"),
-                    new UploadedAttachmentBinding(
-                            OwnerReference.of(
-                                    text(node, "ownerId"),
-                                    text(node, "ownerName")),
-                            WorkbenchId.of(text(node, "workbenchId")),
-                            WorkbenchPhase.valueOf(text(node, "phase")),
-                            text(node, "conversationId"),
-                            integer(node, "conversationGeneration")),
-                    text(node, "displayName"), text(node, "mediaType"),
-                    longValue(node, "size"), text(node, "contentHash"),
-                    text(node, "storageKey"), text(node, "runtimeFileName"),
-                    java.time.Instant.ofEpochMilli(longValue(node, "expiresAt")),
-                    longValue(node, "attachmentVersion")));
+            result.add(
+                    VerifiedWorkbenchStageUploadedConversationAttachment
+                            .restore(
+                                    text(node, "attachmentId"),
+                                    new WorkbenchStageUploadedAttachmentBinding(
+                                            OwnerReference.of(
+                                                    text(node, "ownerId"),
+                                                    text(node, "ownerName")),
+                                            WorkbenchId.of(
+                                                    text(node, "workbenchId")),
+                                            text(node,
+                                                    "stageInstanceIdentifier"),
+                                            text(node, "conversationId"),
+                                            integer(node,
+                                                    "conversationGeneration")),
+                                    text(node, "displayName"),
+                                    text(node, "mediaType"),
+                                    longValue(node, "size"),
+                                    text(node, "contentHash"),
+                                    text(node, "storageKey"),
+                                    text(node, "runtimeFileName"),
+                                    java.time.Instant.ofEpochMilli(
+                                            longValue(node, "expiresAt")),
+                                    longValue(node, "attachmentVersion")));
         }
         return result;
     }
@@ -447,107 +360,6 @@ final class WorkbenchJsonCodec {
                 longValue(root, "outputLimitBytes"));
     }
 
-    String writeOperationTarget(HighImpactOperationTarget target) {
-        ObjectNode root = mapper.createObjectNode();
-        root.put("type", target.getType().name());
-        if (target instanceof CommitTarget) {
-            CommitTarget commit = (CommitTarget) target;
-            root.put("repositoryKey", commit.getRepositoryKey());
-            root.put("branch", commit.getBranch());
-            root.put("expectedHead", commit.getExpectedHead());
-            root.put("expectedStateHash", commit.getExpectedStateHash());
-            root.set("includedPaths", documentsArray(commit.getIncludedPaths()));
-            root.put("messageHash", commit.getMessageHash());
-            root.put("safeMessagePreview", commit.getSafeMessagePreview());
-        } else if (target instanceof PushTarget) {
-            PushTarget push = (PushTarget) target;
-            root.put("repositoryKey", push.getRepositoryKey());
-            root.put("remoteName", push.getRemoteName());
-            root.put("localBranch", push.getLocalBranch());
-            root.put("remoteRef", push.getRemoteRef());
-            root.put("expectedLocalHead", push.getExpectedLocalHead());
-        } else if (target instanceof LocalDeployTarget) {
-            LocalDeployTarget deploy = (LocalDeployTarget) target;
-            root.put("templateId", deploy.getTemplateId());
-            root.put("templateVersion", deploy.getTemplateVersion());
-            root.put("templateHash", deploy.getTemplateHash());
-            root.set("repositoryTargets", stringArray(deploy.getRepositoryTargets()));
-            root.put("environment", deploy.getEnvironment().name());
-            root.put("expectedWorkspaceStateHash", deploy.getExpectedWorkspaceStateHash());
-            root.put("rollbackSummary", deploy.getRollbackSummary());
-        } else if (target instanceof ProductionWriteTarget) {
-            ProductionWriteTarget production = (ProductionWriteTarget) target;
-            root.put("environment", production.getEnvironment());
-            root.put("resourceReference", production.getResourceReference());
-            root.put("expectedProductionStateHash",
-                    production.getExpectedProductionStateHash());
-        } else {
-            throw new IllegalArgumentException(
-                    "unsupported high-impact target: " + target.getClass().getName());
-        }
-        return write(root);
-    }
-
-    HighImpactOperationTarget readOperationTarget(String json,
-                                                  HighImpactOperationType storedType) {
-        JsonNode root = object(json, "high-impact target");
-        HighImpactOperationType encodedType = HighImpactOperationType.valueOf(
-                text(root, "type"));
-        if (encodedType != storedType) {
-            throw invalid("operation target type does not match its column", null);
-        }
-        switch (encodedType) {
-            case GIT_COMMIT:
-                return CommitTarget.create(
-                        text(root, "repositoryKey"), text(root, "branch"),
-                        text(root, "expectedHead"), text(root, "expectedStateHash"),
-                        readDocuments(childArray(root, "includedPaths")),
-                        text(root, "messageHash"), text(root, "safeMessagePreview"));
-            case GIT_PUSH:
-                return PushTarget.create(
-                        text(root, "repositoryKey"), text(root, "remoteName"),
-                        text(root, "localBranch"), text(root, "remoteRef"),
-                        text(root, "expectedLocalHead"));
-            case LOCAL_DEPLOY:
-                String environment = text(root, "environment");
-                if (!LocalDeployTarget.Environment.LOCAL.name().equals(environment)) {
-                    throw invalid("local deploy target has non-local environment", null);
-                }
-                return LocalDeployTarget.create(
-                        text(root, "templateId"), text(root, "templateVersion"),
-                        text(root, "templateHash"),
-                        stringList(root, "repositoryTargets"),
-                        text(root, "expectedWorkspaceStateHash"),
-                        text(root, "rollbackSummary"));
-            case PRODUCTION_WRITE:
-                return ProductionWriteTarget.describe(
-                        text(root, "environment"), text(root, "resourceReference"),
-                        text(root, "expectedProductionStateHash"));
-            default:
-                throw invalid("unsupported operation target type: " + encodedType, null);
-        }
-    }
-
-    private ArrayNode documentsArray(List<DocumentReference> documents) {
-        ArrayNode result = mapper.createArrayNode();
-        for (DocumentReference document : documents) {
-            ObjectNode node = result.addObject();
-            node.put("repositoryKey", document.getRepositoryKey());
-            node.put("relativePath", document.getRelativePath());
-        }
-        return result;
-    }
-
-    private List<DocumentReference> readDocuments(JsonNode array) {
-        List<DocumentReference> result = new ArrayList<DocumentReference>();
-        for (JsonNode node : array) {
-            requireObject(node, "document reference");
-            result.add(DocumentReference.of(
-                    text(node, "repositoryKey"), text(node, "relativePath")));
-        }
-        return result;
-    }
-
     private ArrayNode stringArray(Iterable<String> values) {
         List<String> ordered = new ArrayList<String>();
         for (String value : values) {
@@ -559,10 +371,6 @@ final class WorkbenchJsonCodec {
             result.add(value);
         }
         return result;
-    }
-
-    private Set<String> stringSet(JsonNode parent, String name) {
-        return new HashSet<String>(stringList(parent, name));
     }
 
     private List<String> stringList(JsonNode parent, String name) {

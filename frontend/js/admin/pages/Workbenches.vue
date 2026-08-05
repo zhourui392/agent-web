@@ -155,18 +155,23 @@
 
                 <div class="admin-workbench-safe-section">
                   <h3>阶段状态</h3>
-                  <div class="admin-workbench-phase-grid">
+                  <div class="admin-workbench-stage-grid">
                     <div
-                      v-for="phase in state.selectedWorkbench.value.phases"
-                      :key="phase.phase"
-                      class="admin-workbench-phase"
+                      v-for="stage in state.selectedWorkbench.value.stages"
+                      :key="stage.stageInstanceIdentifier"
+                      class="admin-workbench-stage"
                     >
-                      <span class="admin-workbench-phase-name">{{ phaseLabel(phase.phase) }}</span>
-                      <el-tag size="small" :type="phaseStatusType(phase.status)">
-                        {{ phaseStatusLabel(phase.status) }}
+                      <span class="admin-workbench-stage-name">
+                        {{ stage.definitionIdentifier }} · r{{ stage.definitionRevision }}
+                      </span>
+                      <span class="admin-workbench-stage-identifier mono-text">
+                        {{ stage.stageInstanceIdentifier }}
+                      </span>
+                      <el-tag size="small" :type="stageStatusType(stage.status)">
+                        {{ stageStatusLabel(stage.status) }}
                       </el-tag>
-                      <span class="admin-workbench-phase-run mono-text">
-                        {{ phase.activeRunId || '无活动 Run' }}
+                      <span class="admin-workbench-stage-run mono-text">
+                        {{ stage.activeRunId || '无活动 Run' }}
                       </span>
                     </div>
                   </div>
@@ -212,7 +217,9 @@
                   <template #default="{ row }"><span class="mono-text">{{ row.runId }}</span></template>
                 </el-table-column>
                 <el-table-column label="阶段" min-width="130">
-                  <template #default="{ row }">{{ phaseLabel(row.phase) }}</template>
+                  <template #default="{ row }">
+                    <span class="mono-text">{{ row.stageInstanceIdentifier }}</span>
+                  </template>
                 </el-table-column>
                 <el-table-column label="模式" min-width="120">
                   <template #default="{ row }">{{ runModeLabel(row.runMode) }}</template>
@@ -270,7 +277,9 @@
               <el-descriptions-item label="Workbench">
                 <span class="mono-text">{{ state.selectedRun.value.workbenchId }}</span>
               </el-descriptions-item>
-              <el-descriptions-item label="阶段">{{ phaseLabel(state.selectedRun.value.phase) }}</el-descriptions-item>
+              <el-descriptions-item label="阶段">
+                <span class="mono-text">{{ state.selectedRun.value.stageInstanceIdentifier }}</span>
+              </el-descriptions-item>
               <el-descriptions-item label="模式">{{ runModeLabel(state.selectedRun.value.runMode) }}</el-descriptions-item>
               <el-descriptions-item label="事件序号">{{ state.selectedRun.value.lastEventSeq }}</el-descriptions-item>
               <el-descriptions-item label="创建">{{ fmtTime(state.selectedRun.value.createdAt) }}</el-descriptions-item>
@@ -346,11 +355,10 @@ import { computed, ref } from 'vue';
 import { ElMessageBox } from 'element-plus';
 import { useAdminWorkbenches } from '../composables/useAdminWorkbenches.js';
 import type {
-  AdminWorkbenchPhase,
-  AdminWorkbenchPhaseStatus,
   AdminWorkbenchRunListItem,
   AdminWorkbenchRunMode,
   AdminWorkbenchRunStatus,
+  AdminWorkbenchStageStatus,
   AdminWorkbenchStatus,
 } from '../api/workbench.js';
 
@@ -404,18 +412,8 @@ function workbenchStatusType(status: AdminWorkbenchStatus): 'success' | 'info' {
   return status === 'ACTIVE' ? 'success' : 'info';
 }
 
-function phaseLabel(phase: AdminWorkbenchPhase): string {
-  const labels: Record<AdminWorkbenchPhase, string> = {
-    REQUIREMENT_ANALYSIS: '需求分析',
-    SOLUTION_DESIGN: '方案设计',
-    IMPLEMENT_TEST: '开发测试',
-    REVIEW_REFACTOR: 'Review 重构',
-  };
-  return labels[phase];
-}
-
-function phaseStatusLabel(status: AdminWorkbenchPhaseStatus): string {
-  const labels: Record<AdminWorkbenchPhaseStatus, string> = {
+function stageStatusLabel(status: AdminWorkbenchStageStatus): string {
+  const labels: Record<AdminWorkbenchStageStatus, string> = {
     NOT_STARTED: '未开始',
     IN_PROGRESS: '进行中',
     HUMAN_COMPLETED: '人工完成',
@@ -423,7 +421,7 @@ function phaseStatusLabel(status: AdminWorkbenchPhaseStatus): string {
   return labels[status];
 }
 
-function phaseStatusType(status: AdminWorkbenchPhaseStatus): 'info' | 'primary' | 'success' {
+function stageStatusType(status: AdminWorkbenchStageStatus): 'info' | 'primary' | 'success' {
   if (status === 'HUMAN_COMPLETED') return 'success';
   if (status === 'IN_PROGRESS') return 'primary';
   return 'info';

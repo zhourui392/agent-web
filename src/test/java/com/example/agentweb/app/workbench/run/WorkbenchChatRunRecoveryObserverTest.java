@@ -61,7 +61,7 @@ class WorkbenchChatRunRecoveryObserverTest {
                 ChatRunId.of("workbench-run"), "session-workbench", 1L,
                 "key-workbench", false, RunOrigin.WORKBENCH,
                 ExecutionContextReference.of(
-                        "workbench-1:IMPLEMENT_TEST", "workbench-run"),
+                        "workbench-1:stage-implementation", "workbench-run"),
                 NOW);
     }
 }

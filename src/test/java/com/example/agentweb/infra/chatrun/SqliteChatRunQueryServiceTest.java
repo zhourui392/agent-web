@@ -81,8 +81,8 @@ class SqliteChatRunQueryServiceTest {
     void activeChatQueryShouldFilterRunOriginAndSessionKindIndependently() {
         insertSession("s-chat", "user-1", "CHAT");
         insertSession("s-origin-workbench", "user-1", "CHAT");
-        insertSession("s-kind-workbench", "user-1", "WORKBENCH_PHASE");
-        insertSession("s-both-workbench", "user-1", "WORKBENCH_PHASE");
+        insertSession("s-kind-workbench", "user-1", "WORKBENCH_STAGE");
+        insertSession("s-both-workbench", "user-1", "WORKBENCH_STAGE");
         insertMessage("s-chat", "user", "chat");
         insertMessage("s-origin-workbench", "user", "corrupt origin");
         insertMessage("s-kind-workbench", "user", "corrupt kind");
@@ -124,8 +124,8 @@ class SqliteChatRunQueryServiceTest {
     void chatExecutionContextShouldFilterRunOriginAndSessionKindIndependently() {
         insertSession("s-chat", "user-1", "CHAT");
         insertSession("s-origin-workbench", "user-1", "CHAT");
-        insertSession("s-kind-workbench", "user-1", "WORKBENCH_PHASE");
-        insertSession("s-both-workbench", "user-1", "WORKBENCH_PHASE");
+        insertSession("s-kind-workbench", "user-1", "WORKBENCH_STAGE");
+        insertSession("s-both-workbench", "user-1", "WORKBENCH_STAGE");
         insertMessage("s-chat", "user", "chat");
         insertMessage("s-origin-workbench", "user", "corrupt origin");
         insertMessage("s-kind-workbench", "user", "corrupt kind");
@@ -147,7 +147,7 @@ class SqliteChatRunQueryServiceTest {
     @Test
     void active_count_should_include_all_users_and_only_active_statuses() {
         insertSession("s1", "user-1");
-        insertSession("s2", "user-2", "WORKBENCH_PHASE");
+        insertSession("s2", "user-2", "WORKBENCH_STAGE");
         insertSession("s3", "user-1");
         insertMessage("s1", "user", "q1");
         insertMessage("s2", "user", "q2");
@@ -164,7 +164,7 @@ class SqliteChatRunQueryServiceTest {
     @Test
     void active_run_ids_should_return_all_orphans_without_user_filter() {
         insertSession("s1", "user-1");
-        insertSession("s2", "user-2", "WORKBENCH_PHASE");
+        insertSession("s2", "user-2", "WORKBENCH_STAGE");
         insertSession("s3", "user-1");
         insertMessage("s1", "user", "q1");
         insertMessage("s2", "user", "q2");
@@ -217,7 +217,7 @@ class SqliteChatRunQueryServiceTest {
     private void insertRun(String id, String sessionId, long messageId, String status,
                            long lastSeq, int recallEnabled, String runOrigin) {
         String originReference = "WORKBENCH".equals(runOrigin)
-                ? "workbench-1:IMPLEMENT_TEST" : null;
+                ? "workbench-1:stage-implementation" : null;
         String executionContextId = "WORKBENCH".equals(runOrigin) ? id : null;
         jdbc.update("INSERT INTO chat_run (id, session_id, user_message_id, idempotency_key, recall_enabled, "
                         + "run_origin, origin_reference, execution_context_id, status, last_event_seq, "

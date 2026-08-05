@@ -26,13 +26,13 @@ type MemoryStorage = {
 const MARKER_IDENTITY: WorkbenchRunMarkerIdentity = {
   userId: 'user/a',
   workbenchId: 'workbench:1',
-  phase: 'IMPLEMENT_TEST',
+  stageInstanceIdentifier: 'stage-implementation',
   conversationGeneration: 2,
 };
 
 const RUN_CONTEXT: WorkbenchRunContext = {
   workbenchId: MARKER_IDENTITY.workbenchId,
-  phase: MARKER_IDENTITY.phase,
+  stageInstanceIdentifier: MARKER_IDENTITY.stageInstanceIdentifier,
   runId: 'run-1',
 };
 
@@ -54,7 +54,7 @@ function event(
     schemaVersion: string;
     runId: string;
     workbenchId: string;
-    phase: string;
+    stageInstanceIdentifier: string;
     occurredAt: number;
   }> = {},
 ) {
@@ -65,7 +65,7 @@ function event(
       schemaVersion: overrides.schemaVersion ?? 'workbench-run-event@1',
       runId: overrides.runId ?? RUN_CONTEXT.runId,
       workbenchId: overrides.workbenchId ?? RUN_CONTEXT.workbenchId,
-      phase: overrides.phase ?? RUN_CONTEXT.phase,
+      stageInstanceIdentifier: overrides.stageInstanceIdentifier ?? RUN_CONTEXT.stageInstanceIdentifier,
       occurredAt: overrides.occurredAt ?? Number(id) * 100,
       data,
     }),
@@ -82,7 +82,7 @@ function reduce(
 }
 
 describe('workbench run browser marker', () => {
-  it('isolates markers by authenticated user, workbench, phase, and conversation generation', () => {
+  it('isolates markers by authenticated user, workbench, stageInstanceIdentifier, and conversation generation', () => {
     const base = workbenchRunMarkerStorageKey(MARKER_IDENTITY);
 
     expect(base).not.toBe(workbenchRunMarkerStorageKey({
@@ -95,7 +95,7 @@ describe('workbench run browser marker', () => {
     }));
     expect(base).not.toBe(workbenchRunMarkerStorageKey({
       ...MARKER_IDENTITY,
-      phase: 'REVIEW_REFACTOR',
+      stageInstanceIdentifier: 'stage-review',
     }));
     expect(base).not.toBe(workbenchRunMarkerStorageKey({
       ...MARKER_IDENTITY,
@@ -114,7 +114,7 @@ describe('workbench run browser marker', () => {
     store.save('run-1', 17);
 
     expect(store.load()).toEqual({
-      schemaVersion: 'workbench-run-marker@1',
+      schemaVersion: 'workbench-stage-run-marker@1',
       ...MARKER_IDENTITY,
       runId: 'run-1',
       lastAppliedEventSeq: 17,
@@ -137,7 +137,7 @@ describe('workbench run browser marker', () => {
     expect(storage.values[key]).toBeUndefined();
 
     storage.values[key] = JSON.stringify({
-      schemaVersion: 'workbench-run-marker@1',
+      schemaVersion: 'workbench-stage-run-marker@1',
       ...MARKER_IDENTITY,
       userId: 'another-user',
       runId: 'run-foreign',
@@ -146,7 +146,7 @@ describe('workbench run browser marker', () => {
     expect(store.load()).toBeNull();
 
     storage.values[key] = JSON.stringify({
-      schemaVersion: 'workbench-run-marker@1',
+      schemaVersion: 'workbench-stage-run-marker@1',
       ...MARKER_IDENTITY,
       runId: 'run-1',
       lastAppliedEventSeq: -1,
@@ -184,7 +184,7 @@ describe('workbench run SSE reducer', () => {
     const candidates = [
       event(1, 'run_status', { status: 'RUNNING' }, { schemaVersion: 'unknown@9' }),
       event(1, 'run_status', { status: 'RUNNING' }, { workbenchId: 'foreign' }),
-      event(1, 'run_status', { status: 'RUNNING' }, { phase: 'SOLUTION_DESIGN' }),
+      event(1, 'run_status', { status: 'RUNNING' }, { stageInstanceIdentifier: 'SOLUTION_DESIGN' }),
       event(1, 'run_status', { status: 'RUNNING' }, { runId: 'another-run' }),
       { id: '1', type: 'run_status', data: '{broken-json' },
     ];
@@ -195,7 +195,7 @@ describe('workbench run SSE reducer', () => {
     expect(initial.lastAppliedEventSeq).toBe(0);
   });
 
-  it('reduces lifecycle, text, tool, command, file, test, operation, and terminal events', () => {
+  it('reduces lifecycle, text, tool, command, file, test, and terminal events', () => {
     let state = createWorkbenchRunState(RUN_CONTEXT);
     state = reduce(state, 1, 'run_status', {
       status: 'RUNNING',
@@ -241,12 +241,6 @@ describe('workbench run SSE reducer', () => {
       status: 'PASSED',
       summary: '12 tests passed',
     });
-    state = reduce(state, 9, 'operation_proposed', {
-      operationId: 'operation-1',
-      type: 'GIT_PUSH',
-      target: { repositoryKey: 'agent-web', branch: 'master' },
-      summary: 'Push reviewed commit',
-    });
     state = reduce(state, 10, 'terminal', {
       status: 'SUCCEEDED',
       failureCode: null,
@@ -283,10 +277,6 @@ describe('workbench run SSE reducer', () => {
     expect(state.testProgress).toEqual([expect.objectContaining({
       suite: 'WorkbenchRunStateTest',
       status: 'PASSED',
-    })]);
-    expect(state.operations).toEqual([expect.objectContaining({
-      operationId: 'operation-1',
-      type: 'GIT_PUSH',
     })]);
     expect(state.terminal).toEqual(expect.objectContaining({
       status: 'SUCCEEDED',
@@ -355,21 +345,11 @@ describe('workbench run SSE reducer', () => {
         summary: 'ok',
       });
     }
-    for (let index = 0; index < WORKBENCH_RUN_LIMITS.operations + 20; index++) {
-      state = reduce(state, id++, 'operation_proposed', {
-        operationId: `operation-${index}`,
-        type: 'GIT_COMMIT',
-        target: { repositoryKey: 'agent-web' },
-        summary: 'commit',
-      });
-    }
-
     expect(state.blocks).toHaveLength(WORKBENCH_RUN_LIMITS.blocks);
     expect(state.staleDocuments).toHaveLength(WORKBENCH_RUN_LIMITS.staleDocuments);
     expect(state.staleDocuments[state.staleDocuments.length - 1]?.path)
       .toBe(`src/File${WORKBENCH_RUN_LIMITS.staleDocuments + 19}.java`);
     expect(state.testProgress).toHaveLength(WORKBENCH_RUN_LIMITS.testProgress);
-    expect(state.operations).toHaveLength(WORKBENCH_RUN_LIMITS.operations);
   });
 
   it('accumulates consecutive agent_chunk content into a single block', () => {

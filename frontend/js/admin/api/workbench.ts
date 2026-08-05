@@ -17,13 +17,7 @@ const STABLE_CODE = /^[A-Z][A-Z0-9_]*$/;
 
 const WORKBENCH_STATUSES = new Set<AdminWorkbenchStatus>(['ACTIVE', 'ARCHIVED']);
 const AGENT_TYPES = new Set<AdminWorkbenchAgentType>(['CODEX', 'CLAUDE', 'NATIVE']);
-const PHASES = new Set<AdminWorkbenchPhase>([
-  'REQUIREMENT_ANALYSIS',
-  'SOLUTION_DESIGN',
-  'IMPLEMENT_TEST',
-  'REVIEW_REFACTOR',
-]);
-const PHASE_STATUSES = new Set<AdminWorkbenchPhaseStatus>([
+const STAGE_STATUSES = new Set<AdminWorkbenchStageStatus>([
   'NOT_STARTED',
   'IN_PROGRESS',
   'HUMAN_COMPLETED',
@@ -42,13 +36,6 @@ const RUN_MODES = new Set<AdminWorkbenchRunMode>([
   'MODIFY_WORKSPACE',
 ]);
 const ADMIN_ACTIONS = new Set<AdminWorkbenchRunAction>(['STOP', 'RECONCILE']);
-const PHASE_ORDER: Readonly<Record<AdminWorkbenchPhase, number>> = {
-  REQUIREMENT_ANALYSIS: 0,
-  SOLUTION_DESIGN: 1,
-  IMPLEMENT_TEST: 2,
-  REVIEW_REFACTOR: 3,
-};
-
 export type AdminWorkbenchFetch = (
   input: RequestInfo | URL,
   init?: RequestInit,
@@ -56,12 +43,7 @@ export type AdminWorkbenchFetch = (
 
 export type AdminWorkbenchStatus = 'ACTIVE' | 'ARCHIVED';
 export type AdminWorkbenchAgentType = 'CODEX' | 'CLAUDE' | 'NATIVE';
-export type AdminWorkbenchPhase =
-  | 'REQUIREMENT_ANALYSIS'
-  | 'SOLUTION_DESIGN'
-  | 'IMPLEMENT_TEST'
-  | 'REVIEW_REFACTOR';
-export type AdminWorkbenchPhaseStatus =
+export type AdminWorkbenchStageStatus =
   | 'NOT_STARTED'
   | 'IN_PROGRESS'
   | 'HUMAN_COMPLETED';
@@ -97,10 +79,12 @@ export interface AdminWorkbenchRepositoryView {
   primary: boolean;
 }
 
-export interface AdminWorkbenchPhaseView {
-  phase: AdminWorkbenchPhase;
-  phaseOrder: number;
-  status: AdminWorkbenchPhaseStatus;
+export interface AdminWorkbenchStageView {
+  stageInstanceIdentifier: string;
+  definitionIdentifier: string;
+  definitionRevision: number;
+  sequenceNumber: number;
+  status: AdminWorkbenchStageStatus;
   activeRunId: string | null;
   activeRunMode: AdminWorkbenchRunMode | null;
   lastActivityAt: number | null;
@@ -122,7 +106,7 @@ export interface AdminWorkbenchDetail {
   updatedAt: number;
   version: number;
   repositories: AdminWorkbenchRepositoryView[];
-  phases: AdminWorkbenchPhaseView[];
+  stages: AdminWorkbenchStageView[];
 }
 
 export interface AdminWorkbenchListCursor {
@@ -145,7 +129,7 @@ export interface AdminWorkbenchListQuery {
 export interface AdminWorkbenchRunListItem {
   runId: string;
   workbenchId: string;
-  phase: AdminWorkbenchPhase;
+  stageInstanceIdentifier: string;
   status: AdminWorkbenchRunStatus;
   runMode: AdminWorkbenchRunMode;
   lastEventSeq: number;
@@ -329,7 +313,7 @@ function parseRepository(value: unknown): AdminWorkbenchRepositoryView {
   };
 }
 
-function parsePhase(value: unknown): AdminWorkbenchPhaseView {
+function parseStage(value: unknown): AdminWorkbenchStageView {
   const input = record(value);
   const activeRunId = input.activeRunId == null ? null : identifier(input.activeRunId);
   const activeRunMode = input.activeRunMode == null
@@ -337,9 +321,11 @@ function parsePhase(value: unknown): AdminWorkbenchPhaseView {
     : enumValue(input.activeRunMode, RUN_MODES);
   if ((activeRunId == null) !== (activeRunMode == null)) return invalid();
   return {
-    phase: enumValue(input.phase, PHASES),
-    phaseOrder: integer(input.phaseOrder),
-    status: enumValue(input.status, PHASE_STATUSES),
+    stageInstanceIdentifier: identifier(input.stageInstanceIdentifier),
+    definitionIdentifier: identifier(input.definitionIdentifier),
+    definitionRevision: integer(input.definitionRevision, 1),
+    sequenceNumber: integer(input.sequenceNumber, 1),
+    status: enumValue(input.status, STAGE_STATUSES),
     activeRunId,
     activeRunMode,
     lastActivityAt: nullableInteger(input.lastActivityAt),
@@ -349,18 +335,17 @@ function parsePhase(value: unknown): AdminWorkbenchPhaseView {
 
 function parseWorkbenchDetail(value: unknown): AdminWorkbenchDetail {
   const input = record(value);
-  if (!Array.isArray(input.repositories) || !Array.isArray(input.phases)) return invalid();
+  if (!Array.isArray(input.repositories) || !Array.isArray(input.stages)) return invalid();
   const repositories = input.repositories.map(parseRepository);
-  const phases = input.phases.map(parsePhase);
+  const stages = input.stages.map(parseStage);
   const primaryRepositoryKey = repositoryKey(input.primaryRepositoryKey);
   if (repositories.length === 0 || repositories.length > PAGE_LIMIT_MAX
     || new Set(repositories.map(item => item.repositoryKey)).size !== repositories.length
     || repositories.filter(item => item.primary).length !== 1
     || !repositories.some(item => item.primary && item.repositoryKey === primaryRepositoryKey)
-    || phases.length !== 4
-    || new Set(phases.map(item => item.phase)).size !== 4
-    || new Set(phases.map(item => item.phaseOrder)).size !== 4
-    || phases.some(item => PHASE_ORDER[item.phase] !== item.phaseOrder)) {
+    || stages.length === 0
+    || new Set(stages.map(item => item.stageInstanceIdentifier)).size !== stages.length
+    || new Set(stages.map(item => item.sequenceNumber)).size !== stages.length) {
     return invalid();
   }
   return {
@@ -378,7 +363,7 @@ function parseWorkbenchDetail(value: unknown): AdminWorkbenchDetail {
     updatedAt: integer(input.updatedAt),
     version: integer(input.version),
     repositories,
-    phases: phases.sort((left, right) => left.phaseOrder - right.phaseOrder),
+    stages: stages.sort((left, right) => left.sequenceNumber - right.sequenceNumber),
   };
 }
 
@@ -387,7 +372,7 @@ function parseRunListItem(value: unknown): AdminWorkbenchRunListItem {
   return {
     runId: identifier(input.runId),
     workbenchId: identifier(input.workbenchId),
-    phase: enumValue(input.phase, PHASES),
+    stageInstanceIdentifier: identifier(input.stageInstanceIdentifier),
     status: enumValue(input.status, RUN_STATUSES),
     runMode: enumValue(input.runMode, RUN_MODES),
     lastEventSeq: integer(input.lastEventSeq),

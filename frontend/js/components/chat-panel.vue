@@ -29,19 +29,23 @@ type="button" class="feedback-chip feedback-chip--incorrect"
     </div>
     <!-- 聊天消息区 -->
     <div ref="chatContainer" class="chat-messages">
-      <MessageItem
-        v-for="(msg, index) in messages"
-        :key="msg.id != null ? 'm-' + msg.id : 'tmp-' + index"
-        :msg="msg"
-        :index="index"
-        :isLast="index === messages.length - 1"
-        :sending="sending"
-        :reconnecting="reconnecting"
-        :isToolExpanded="isToolExpanded"
-        :toggleTool="toggleTool"
-        @rewind="rewindToMessage"
-      />
-      <el-empty v-if="messages.length === 0" description="请选择工作目录，输入问题即可开始对话" :image-size="120"></el-empty>
+      <ConversationTimeline
+        :messages="conversationMessages"
+        @open-document="() => {}"
+      >
+        <template #message-actions="{ view }">
+          <button
+            v-if="view.role === 'USER' && view.persistedMessageId != null"
+            class="rewind-btn"
+            type="button"
+            title="从这里重开 (删除此条及之后, 清空 resumeId, 回填输入框)"
+            @click="rewindByMessageId(view.persistedMessageId)"
+          >↩</button>
+        </template>
+        <template #empty>
+          <el-empty description="请选择工作目录，输入问题即可开始对话" :image-size="120"></el-empty>
+        </template>
+      </ConversationTimeline>
     </div>
 
     <!-- 输入区 -->
@@ -75,16 +79,20 @@ import { useFeedback } from '../composables/useFeedback.js';
 import { useImageUpload } from '../composables/useImageUpload.js';
 import { useSlashCommand } from '../composables/useSlashCommand.js';
 import { useResumableRun } from '../composables/useResumableRun.js';
-import { ref, reactive, computed, onMounted, nextTick, watch, provide } from 'vue';
+import { ref, computed, onMounted, nextTick, watch, provide } from 'vue';
 import { ElMessageBox, ElMessage } from 'element-plus';
-import MessageItem from './MessageItem.vue';
+import ConversationTimeline from './conversation/ConversationTimeline.vue';
 import InputArea from './InputArea.vue';
 import CommandPopup from './CommandPopup.vue';
 import PendingImageList from './PendingImageList.vue';
+import {
+  toMessageRole,
+  persistedMessageKey,
+} from '../lib/conversation-message-view.js';
 
 const ChatPanel = {
     name: 'ChatPanel',
-    components: { MessageItem, InputArea, CommandPopup, PendingImageList },
+    components: { ConversationTimeline, InputArea, CommandPopup, PendingImageList },
     props: {
       workingDir: { type: String, default: '' },
       agentType: { type: String, default: 'CODEX' },
@@ -103,7 +111,6 @@ const ChatPanel = {
       const sessionId = ref('');
       const resumeId = ref('');
       const chatContainer = ref(null);
-      const toolStates = reactive({});
       const ragRecall = ref(localStorage.getItem('ragRecall') !== 'false');
 
       const workingDirRef = computed(() => props.workingDir);
@@ -142,13 +149,68 @@ const ChatPanel = {
         }
       };
 
-      const isToolExpanded = (msgIndex, segIndex) => {
-        const key = msgIndex + '-' + segIndex;
-        return key in toolStates ? toolStates[key] : false;
-      };
-      const toggleTool = (msgIndex, segIndex) => {
-        const key = msgIndex + '-' + segIndex;
-        toolStates[key] = !(toolStates[key] === true);
+      // ===== 共享消息视图映射 =====
+      const conversationMessages = computed(() => {
+        const msgs = messages.value;
+        const lastIndex = msgs.length - 1;
+        const result = msgs.map((msg, index) => {
+          const role = toMessageRole(msg.role);
+          const messageKey = msg.id != null ? persistedMessageKey(msg.id) : 'tmp-' + index;
+          const isLastAgent = msg.role === 'agent' && index === lastIndex;
+          const segments = msg.segments
+            ? msg.segments.map(seg => ({
+                type: seg.type,
+                content: seg.content || '',
+                toolName: seg.name,
+                commandSummary: seg.commandSummary,
+                outputSummary: seg.outputSummary,
+                status: seg.status,
+                durationMs: seg.durationMs,
+                repositoryKey: seg.repositoryKey,
+                commandClass: seg.commandClass,
+                exitCode: seg.exitCode,
+                relativePath: seg.relativePath,
+                changeType: seg.changeType,
+                suiteName: seg.suiteName,
+                summary: seg.summary,
+              }))
+            : [];
+          return {
+            messageKey,
+            persistedMessageId: msg.id != null ? msg.id : null,
+            role,
+            bodyText: msg.bodyText || msg.text || '',
+            images: msg.images || [],
+            segments,
+            createdAt: null,
+            recall: msg.recall || null,
+            documentReferences: [],
+            streaming: isLastAgent && sending.value,
+          };
+        });
+        // 连接中断提示
+        if (sending.value && reconnecting.value && msgs.length > 0) {
+          result.push({
+            messageKey: 'reconnecting-notice',
+            persistedMessageId: null,
+            role: 'SYSTEM',
+            bodyText: '连接中断，正在恢复...',
+            images: [],
+            segments: [],
+            createdAt: null,
+            recall: null,
+            documentReferences: [],
+            streaming: false,
+          });
+        }
+        return result;
+      });
+
+      const rewindByMessageId = (msgId) => {
+        const index = messages.value.findIndex(m => m.id === msgId);
+        if (index >= 0) {
+          rewindToMessage(messages.value[index], index);
+        }
       };
 
       // ===== 会话生命周期 =====
@@ -385,7 +447,7 @@ const ChatPanel = {
 
       return {
         // state
-        messages, userInput, sending, sessionId, activeRunId, runStatus, reconnecting, chatContainer,
+        messages, conversationMessages, userInput, sending, sessionId, activeRunId, runStatus, reconnecting, chatContainer,
         feedback, feedbackDialogVisible, feedbackCommentDraft, feedbackSaving,
         showCommandPopup, selectedCommandIdx, filteredCommands,
         pendingImages, maxImagesPerMessage, pendingFile,
@@ -396,7 +458,7 @@ const ChatPanel = {
         renderMarkdown, imageUrl,
         // methods
         setRating, openFeedbackDialog, submitFeedbackComment, shareSession,
-        rewindToMessage, copySegment, isToolExpanded, toggleTool,
+        rewindToMessage, rewindByMessageId, copySegment,
         handleEnter, handleArrowUp, handleArrowDown, handleTab, selectCommand, hideCommandPopup, insertNewline, handlePaste,
         clearContext, stopSession, sendMessageStream,
         uploadChatImage, beforeChatImageUpload, removePendingImage,

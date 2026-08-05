@@ -8,10 +8,10 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Workbench Owner 详情读模型。仅返回仓库逻辑身份，不暴露绝对路径或根指纹。
+ * Stage-only Workbench Owner 详情读模型。
  *
  * @author alex
- * @since 2026-08-01
+ * @since 2026-08-05
  */
 @Getter
 public final class WorkbenchDetailView {
@@ -28,22 +28,16 @@ public final class WorkbenchDetailView {
     private final long version;
     private final RepositoryScopeView repositoryScope;
     private final CreationSnapshotView creationSnapshot;
-    private final List<PhaseView> phases;
+    private final List<StageView> stages;
 
     public WorkbenchDetailView(
-            String id,
-            String title,
-            String originalGoal,
-            String agentType,
-            String environment,
-            String activeWriteRunId,
-            String status,
-            long createdAt,
-            long updatedAt,
-            long version,
+            String id, String title, String originalGoal,
+            String agentType, String environment,
+            String activeWriteRunId, String status,
+            long createdAt, long updatedAt, long version,
             RepositoryScopeView repositoryScope,
             CreationSnapshotView creationSnapshot,
-            List<PhaseView> phases) {
+            List<StageView> stages) {
         this.id = id;
         this.title = title;
         this.originalGoal = originalGoal;
@@ -54,12 +48,15 @@ public final class WorkbenchDetailView {
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
         this.version = version;
-        this.repositoryScope = Objects.requireNonNull(repositoryScope, "repositoryScope");
-        this.creationSnapshot = Objects.requireNonNull(creationSnapshot, "creationSnapshot");
-        this.phases = immutable(phases, "phases");
+        this.repositoryScope = Objects.requireNonNull(
+                repositoryScope, "repositoryScope");
+        this.creationSnapshot = Objects.requireNonNull(
+                creationSnapshot, "creationSnapshot");
+        this.stages = immutable(stages, "stages");
     }
 
-    private static <T> List<T> immutable(List<T> values, String name) {
+    private static <T> List<T> immutable(
+            List<T> values, String name) {
         return Collections.unmodifiableList(new ArrayList<T>(
                 Objects.requireNonNull(values, name)));
     }
@@ -70,19 +67,21 @@ public final class WorkbenchDetailView {
 
         private final String scopeHash;
         private final String primaryRepositoryKey;
+        private final String workspaceRoot;
         private final List<RepositoryView> repositories;
 
         public RepositoryScopeView(
-                String scopeHash,
-                String primaryRepositoryKey,
+                String scopeHash, String primaryRepositoryKey,
+                String workspaceRoot,
                 List<RepositoryView> repositories) {
             this.scopeHash = scopeHash;
             this.primaryRepositoryKey = primaryRepositoryKey;
+            this.workspaceRoot = workspaceRoot;
             this.repositories = immutable(repositories, "repositories");
         }
     }
 
-    /** 单个仓库的逻辑身份，不包含 repository_root 和 root_fingerprint。 */
+    /** 单个仓库的逻辑身份。 */
     @Getter
     public static final class RepositoryView {
 
@@ -91,8 +90,7 @@ public final class WorkbenchDetailView {
         private final boolean primary;
 
         public RepositoryView(
-                String repositoryKey,
-                String relativePath,
+                String repositoryKey, String relativePath,
                 boolean primary) {
             this.repositoryKey = repositoryKey;
             this.relativePath = relativePath;
@@ -110,10 +108,8 @@ public final class WorkbenchDetailView {
         private final int repositoryCount;
 
         public CreationSnapshotView(
-                String snapshotId,
-                String topologyHash,
-                String stateHash,
-                int repositoryCount) {
+                String snapshotId, String topologyHash,
+                String stateHash, int repositoryCount) {
             this.snapshotId = snapshotId;
             this.topologyHash = topologyHash;
             this.stateHash = stateHash;
@@ -121,12 +117,19 @@ public final class WorkbenchDetailView {
         }
     }
 
-    /** 固定 Phase、会话代际与当前活动 Run 的恢复投影。 */
+    /** 冻结 Stage Snapshot 与实例状态的安全投影。 */
     @Getter
-    public static final class PhaseView {
+    public static final class StageView {
 
-        private final String phase;
-        private final int phaseOrder;
+        private final String stageInstanceIdentifier;
+        private final String definitionIdentifier;
+        private final long definitionRevision;
+        private final String definitionHash;
+        private final String snapshotHash;
+        private final int sequenceNumber;
+        private final String displayName;
+        private final String description;
+        private final List<String> allowedRunModes;
         private final String status;
         private final int conversationGeneration;
         private final ConversationView currentConversation;
@@ -135,18 +138,29 @@ public final class WorkbenchDetailView {
         private final Long lastActivityAt;
         private final Long completedAt;
 
-        public PhaseView(
-                String phase,
-                int phaseOrder,
+        public StageView(
+                String stageInstanceIdentifier,
+                String definitionIdentifier,
+                long definitionRevision,
+                String definitionHash, String snapshotHash,
+                int sequenceNumber, String displayName,
+                String description, List<String> allowedRunModes,
                 String status,
                 int conversationGeneration,
                 ConversationView currentConversation,
                 List<ConversationView> conversationHistory,
                 ActiveRunView activeRun,
-                Long lastActivityAt,
-                Long completedAt) {
-            this.phase = phase;
-            this.phaseOrder = phaseOrder;
+                Long lastActivityAt, Long completedAt) {
+            this.stageInstanceIdentifier = stageInstanceIdentifier;
+            this.definitionIdentifier = definitionIdentifier;
+            this.definitionRevision = definitionRevision;
+            this.definitionHash = definitionHash;
+            this.snapshotHash = snapshotHash;
+            this.sequenceNumber = sequenceNumber;
+            this.displayName = displayName;
+            this.description = description;
+            this.allowedRunModes = immutable(
+                    allowedRunModes, "allowedRunModes");
             this.status = status;
             this.conversationGeneration = conversationGeneration;
             this.currentConversation = currentConversation;
@@ -158,7 +172,7 @@ public final class WorkbenchDetailView {
         }
     }
 
-    /** Phase 的一个稳定会话代际。 */
+    /** Stage 的一个稳定会话代际。 */
     @Getter
     public static final class ConversationView {
 
@@ -168,10 +182,8 @@ public final class WorkbenchDetailView {
         private final Long retiredAt;
 
         public ConversationView(
-                String sessionId,
-                int generation,
-                long createdAt,
-                Long retiredAt) {
+                String sessionId, int generation,
+                long createdAt, Long retiredAt) {
             this.sessionId = sessionId;
             this.generation = generation;
             this.createdAt = createdAt;
@@ -179,30 +191,19 @@ public final class WorkbenchDetailView {
         }
     }
 
-    /** Phase 当前活动 Run 及 Review 写意图证明。 */
+    /** Stage 当前活动 Run。 */
     @Getter
     public static final class ActiveRunView {
 
         private final String runId;
         private final String runMode;
         private final long preparedAt;
-        private final String reviewConfirmationId;
-        private final Long reviewOpinionVersion;
-        private final String reviewOpinionHash;
 
         public ActiveRunView(
-                String runId,
-                String runMode,
-                long preparedAt,
-                String reviewConfirmationId,
-                Long reviewOpinionVersion,
-                String reviewOpinionHash) {
+                String runId, String runMode, long preparedAt) {
             this.runId = runId;
             this.runMode = runMode;
             this.preparedAt = preparedAt;
-            this.reviewConfirmationId = reviewConfirmationId;
-            this.reviewOpinionVersion = reviewOpinionVersion;
-            this.reviewOpinionHash = reviewOpinionHash;
         }
     }
 }

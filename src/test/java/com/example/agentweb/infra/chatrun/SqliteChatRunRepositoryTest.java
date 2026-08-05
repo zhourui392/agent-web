@@ -76,10 +76,10 @@ class SqliteChatRunRepositoryTest {
     @Test
     void workbench_origin_and_execution_context_should_round_trip_losslessly() {
         ChatRun run = ChatRun.submit(
-                ChatRunId.of("run-workbench-1"), "phase-session-1", 21L,
+                ChatRunId.of("run-workbench-1"), "stage-session-1", 21L,
                 "key-workbench-1", false, RunOrigin.WORKBENCH,
                 ExecutionContextReference.of(
-                        "workbench-1:IMPLEMENT_TEST", "run-workbench-1"),
+                        "workbench-1:stage-implementation", "run-workbench-1"),
                 CREATED_AT);
 
         repository.add(run);
@@ -87,7 +87,7 @@ class SqliteChatRunRepositoryTest {
         ChatRun loaded = repository.findById(run.getId())
                 .orElseThrow(AssertionError::new);
         assertEquals(RunOrigin.WORKBENCH, loaded.getRunOrigin());
-        assertEquals("workbench-1:IMPLEMENT_TEST",
+        assertEquals("workbench-1:stage-implementation",
                 loaded.getExecutionContextReference().getOriginReference());
         assertEquals("run-workbench-1",
                 loaded.getExecutionContextReference().getExecutionContextId());

@@ -26,21 +26,22 @@ class RunSessionOriginPolicyTest {
         ChatSession chatSession = new ChatSession(
                 "session-1", AgentType.CODEX, "/workspace", NOW,
                 Collections.emptyList());
-        ChatSession workbenchSession = ChatSession.createWorkbenchPhase(
+        ChatSession workbenchStageSession = ChatSession.createWorkbenchStage(
                 "session-1", AgentType.CODEX, "/workspace",
-                "workbench-1:IMPLEMENT_TEST", "owner-1", "Alex", NOW);
+                "workbench-1:stage-implementation", "owner-1", "Alex", NOW);
         ChatRun chatRun = ChatRun.submit(
                 ChatRunId.of("chat-run"), "session-1", 1L, "chat-key", NOW);
         ChatRun workbenchRun = ChatRun.submit(
                 ChatRunId.of("workbench-run"), "session-1", 2L,
                 "workbench-key", false, RunOrigin.WORKBENCH,
                 ExecutionContextReference.of(
-                        "workbench-1:IMPLEMENT_TEST", "workbench-run"), NOW);
+                        "workbench-1:stage-implementation",
+                        "workbench-run"), NOW);
 
         assertDoesNotThrow(() -> RunSessionOriginPolicy.requireCompatible(
                 chatSession, chatRun));
         assertDoesNotThrow(() -> RunSessionOriginPolicy.requireCompatible(
-                workbenchSession, workbenchRun));
+                workbenchStageSession, workbenchRun));
         ChatRunNotFoundException chatWithWorkbench = assertThrows(
                 ChatRunNotFoundException.class,
                 () -> RunSessionOriginPolicy.requireCompatible(
@@ -48,7 +49,7 @@ class RunSessionOriginPolicyTest {
         ChatRunNotFoundException workbenchWithChat = assertThrows(
                 ChatRunNotFoundException.class,
                 () -> RunSessionOriginPolicy.requireCompatible(
-                        workbenchSession, chatRun));
+                        workbenchStageSession, chatRun));
         assertFalse(chatWithWorkbench.getMessage().contains("WORKBENCH"));
         assertFalse(workbenchWithChat.getMessage().contains("WORKBENCH"));
     }

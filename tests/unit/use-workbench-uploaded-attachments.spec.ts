@@ -53,7 +53,7 @@ describe('useWorkbenchUploadedAttachments', () => {
     const revoke = vi.fn();
     const attachments = useWorkbenchUploadedAttachments({
       workbenchId: ref('wb-1'),
-      phase: ref('SOLUTION_DESIGN'),
+      stageInstanceIdentifier: ref('SOLUTION_DESIGN'),
       conversationGeneration: ref(2),
       archived: ref(false),
       combinedAttachmentCount: ref(0),
@@ -97,7 +97,7 @@ describe('useWorkbenchUploadedAttachments', () => {
     const onAvailable = vi.fn().mockReturnValue(true);
     const attachments = useWorkbenchUploadedAttachments({
       workbenchId: ref('wb-1'),
-      phase: ref('REQUIREMENT_ANALYSIS'),
+      stageInstanceIdentifier: ref('REQUIREMENT_ANALYSIS'),
       conversationGeneration: ref(0),
       archived: ref(false),
       combinedAttachmentCount: ref(1),
@@ -134,7 +134,7 @@ describe('useWorkbenchUploadedAttachments', () => {
     const revoke = vi.fn();
     const attachments = useWorkbenchUploadedAttachments({
       workbenchId: ref('wb-1'),
-      phase: ref('IMPLEMENT_TEST'),
+      stageInstanceIdentifier: ref('stage-delivery'),
       conversationGeneration: ref(5),
       archived: ref(false),
       combinedAttachmentCount: ref(0),
@@ -158,7 +158,7 @@ describe('useWorkbenchUploadedAttachments', () => {
     await attachments.remove(clientId);
 
     expect(client.release).toHaveBeenNthCalledWith(
-      2, 'wb-1', 'IMPLEMENT_TEST', 5, 'attachment-1',
+      2, 'wb-1', 'stage-delivery', 5, 'attachment-1',
     );
     expect(attachments.items.value).toEqual([]);
     expect(onReleased).toHaveBeenCalledWith('attachment-1');
@@ -177,7 +177,7 @@ describe('useWorkbenchUploadedAttachments', () => {
     const revoke = vi.fn();
     const attachments = useWorkbenchUploadedAttachments({
       workbenchId: ref('wb-1'),
-      phase: ref('IMPLEMENT_TEST'),
+      stageInstanceIdentifier: ref('stage-delivery'),
       conversationGeneration: ref(5),
       archived: ref(false),
       combinedAttachmentCount: ref(0),
@@ -192,7 +192,7 @@ describe('useWorkbenchUploadedAttachments', () => {
     await attachments.remove(clientId);
 
     expect(client.release).toHaveBeenCalledWith(
-      'wb-1', 'IMPLEMENT_TEST', 5, 'attachment-1',
+      'wb-1', 'stage-delivery', 5, 'attachment-1',
     );
     expect(attachments.items.value).toEqual([]);
     expect(onReleased).toHaveBeenCalledWith('attachment-1');
@@ -203,12 +203,12 @@ describe('useWorkbenchUploadedAttachments', () => {
     const late = deferred<WorkbenchUploadedAttachment>();
     const client = api({ upload: vi.fn().mockReturnValue(late.promise) });
     const workbenchId = ref<string | null>('wb-old');
-    const phase = ref<'REQUIREMENT_ANALYSIS' | 'SOLUTION_DESIGN'>('REQUIREMENT_ANALYSIS');
+    const stageInstanceIdentifier = ref<'REQUIREMENT_ANALYSIS' | 'SOLUTION_DESIGN'>('REQUIREMENT_ANALYSIS');
     const generation = ref(1);
     const onAvailable = vi.fn().mockReturnValue(true);
     const attachments = useWorkbenchUploadedAttachments({
       workbenchId,
-      phase,
+      stageInstanceIdentifier,
       conversationGeneration: generation,
       archived: ref(false),
       combinedAttachmentCount: ref(0),
@@ -222,7 +222,7 @@ describe('useWorkbenchUploadedAttachments', () => {
     );
 
     workbenchId.value = 'wb-new';
-    phase.value = 'SOLUTION_DESIGN';
+    stageInstanceIdentifier.value = 'SOLUTION_DESIGN';
     generation.value = 2;
     await nextTick();
     late.resolve(projection('attachment-late'));
@@ -235,13 +235,13 @@ describe('useWorkbenchUploadedAttachments', () => {
     expect(attachments.items.value).toEqual([]);
   });
 
-  it('best-effort releases available files and clears all local state on Phase generation change', async () => {
+  it('best-effort releases available files and clears all local state on Stage generation change', async () => {
     const client = api();
     const generation = ref(1);
     const onReleased = vi.fn();
     const attachments = useWorkbenchUploadedAttachments({
       workbenchId: ref('wb-1'),
-      phase: ref('REQUIREMENT_ANALYSIS'),
+      stageInstanceIdentifier: ref('REQUIREMENT_ANALYSIS'),
       conversationGeneration: generation,
       archived: ref(false),
       combinedAttachmentCount: ref(0),
@@ -267,7 +267,7 @@ describe('useWorkbenchUploadedAttachments', () => {
     const count = ref(0);
     const attachments = useWorkbenchUploadedAttachments({
       workbenchId: ref('wb-1'),
-      phase: ref('REQUIREMENT_ANALYSIS'),
+      stageInstanceIdentifier: ref('REQUIREMENT_ANALYSIS'),
       conversationGeneration: ref(0),
       archived,
       combinedAttachmentCount: count,
@@ -298,7 +298,7 @@ describe('useWorkbenchUploadedAttachments', () => {
     const onReleased = vi.fn();
     const attachments = useWorkbenchUploadedAttachments({
       workbenchId: ref('wb-1'),
-      phase: ref('IMPLEMENT_TEST'),
+      stageInstanceIdentifier: ref('stage-delivery'),
       conversationGeneration: ref(1),
       archived: ref(false),
       combinedAttachmentCount: ref(0),

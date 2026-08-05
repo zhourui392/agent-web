@@ -41,11 +41,18 @@ function detail(): Record<string, unknown> {
       primary: true,
       repositoryRoot: '/home/private/agent-web',
     }],
-    phases: [
-      { phase: 'REQUIREMENT_ANALYSIS', phaseOrder: 0, status: 'HUMAN_COMPLETED', activeRunId: null, activeRunMode: null, lastActivityAt: 11, completedAt: 12 },
-      { phase: 'SOLUTION_DESIGN', phaseOrder: 1, status: 'HUMAN_COMPLETED', activeRunId: null, activeRunMode: null, lastActivityAt: 13, completedAt: 14 },
-      { phase: 'IMPLEMENT_TEST', phaseOrder: 2, status: 'IN_PROGRESS', activeRunId: 'run-1', activeRunMode: 'MODIFY_WORKSPACE', lastActivityAt: 15, completedAt: null },
-      { phase: 'REVIEW_REFACTOR', phaseOrder: 3, status: 'NOT_STARTED', activeRunId: null, activeRunMode: null, lastActivityAt: null, completedAt: null },
+    stages: [
+      {
+        stageInstanceIdentifier: 'stage-implementation', definitionIdentifier: 'implementation',
+        definitionRevision: 3, sequenceNumber: 20, status: 'IN_PROGRESS',
+        activeRunId: 'run-1', activeRunMode: 'MODIFY_WORKSPACE', lastActivityAt: 15,
+        completedAt: null, privateSnapshot: 'drop',
+      },
+      {
+        stageInstanceIdentifier: 'stage-design', definitionIdentifier: 'solution-design',
+        definitionRevision: 2, sequenceNumber: 10, status: 'HUMAN_COMPLETED',
+        activeRunId: null, activeRunMode: null, lastActivityAt: 11, completedAt: 12,
+      },
     ],
     workspaceRoot: '/home/private',
     originalGoal: 'private requirement body',
@@ -57,7 +64,7 @@ function runDetail(): Record<string, unknown> {
   return {
     runId: 'run-1',
     workbenchId: 'workbench-1',
-    phase: 'IMPLEMENT_TEST',
+    stageInstanceIdentifier: 'stage-implementation',
     status: 'RUNNING',
     runMode: 'MODIFY_WORKSPACE',
     lastEventSeq: 7,
@@ -86,7 +93,7 @@ describe('Admin Workbench API', () => {
           ...detail(),
           repositoryCount: 1,
           repositories: undefined,
-          phases: undefined,
+          stages: undefined,
         }],
         nextCursor: { updatedAt: 20, workbenchId: 'workbench-1', secret: 'drop' },
       }))
@@ -106,7 +113,11 @@ describe('Admin Workbench API', () => {
     );
     expect(fetchMock.mock.calls[1][0]).toBe('/api/admin/workbenches/workbench-1');
     expect(loaded.repositories).toEqual([{ repositoryKey: 'agent-web', primary: true }]);
-    expect(loaded.phases).toHaveLength(4);
+    expect(loaded.stages.map(stage => stage.stageInstanceIdentifier)).toEqual([
+      'stage-design',
+      'stage-implementation',
+    ]);
+    expect(loaded.stages[1]).not.toHaveProperty('privateSnapshot');
     expect(JSON.stringify({ page, loaded })).not.toMatch(
       /workspaceRoot|repositoryRoot|rootFingerprint|originalGoal|private requirement|home\/private|secret/i,
     );

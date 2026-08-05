@@ -32,10 +32,10 @@ final class RuntimeExecPolicyMaterializer {
     private static final Set<PosixFilePermission> FILE_PERMISSIONS =
             PosixFilePermissions.fromString("rw-------");
     private static final String JUSTIFICATION =
-            "Use the Workbench typed high-impact operation flow.";
+            "High-impact commands are unavailable in Workbench Runtime.";
     private static final String OPAQUE_SHELL_JUSTIFICATION =
-            "Use a linear command without shell indirection or the Workbench "
-                    + "typed high-impact operation flow.";
+            "Use a linear command without shell indirection; high-impact "
+                    + "commands are unavailable in Workbench Runtime.";
     private static final List<String> EXECUTABLE_SUFFIXES =
             Collections.unmodifiableList(java.util.Arrays.asList(
                     "", ".exe", ".cmd", ".bat"));

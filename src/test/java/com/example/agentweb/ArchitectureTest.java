@@ -50,18 +50,42 @@ public class ArchitectureTest {
                     "com.example.agentweb.app.runtime.port.RuntimePreflightException",
                     "com.example.agentweb.domain.capability.CapabilityCatalogException",
                     "com.example.agentweb.domain.capability.CapabilityResolutionException",
+                    "com.example.agentweb.domain.capability.CapabilityAccess",
+                    "com.example.agentweb.domain.capability.CapabilityArtifactIntegrityException",
+                    "com.example.agentweb.domain.capability.CapabilityConfigurationEditor",
+                    "com.example.agentweb.domain.capability.CapabilitySourceConfiguration",
+                    "com.example.agentweb.domain.capability.CapabilitySourceVersionConflictException",
+                    "com.example.agentweb.domain.capability.CommandCatalogDirectory",
+                    "com.example.agentweb.domain.capability.SkillCatalogDirectory",
+                    "com.example.agentweb.domain.capability.SkillTrustSource",
                     "com.example.agentweb.domain.shared.AgentType",
                     "com.example.agentweb.domain.workbench.WorkbenchDomainException",
                     "com.example.agentweb.domain.workbench.WorkbenchErrorCode",
                     "com.example.agentweb.domain.workbench.DocumentReference",
-                    "com.example.agentweb.domain.workbench.HighImpactOperationDecision",
                     "com.example.agentweb.domain.workbench.WorkbenchId",
                     "com.example.agentweb.domain.workbench.OwnerReference",
                     "com.example.agentweb.domain.workbench.WorkbenchRunAttachmentReference",
                     "com.example.agentweb.domain.workbench.WorkbenchRunAttachmentType",
                     "com.example.agentweb.domain.workbench.WorkbenchAdministrator",
-                    "com.example.agentweb.domain.workbench.WorkbenchPhase",
-                    "com.example.agentweb.domain.workbench.WorkbenchPhaseStatus",
+                    "com.example.agentweb.domain.workbench.RunMode",
+                    "com.example.agentweb.domain.workbench.stage.StageCatalogEditor",
+                    "com.example.agentweb.domain.workbench.stage.StageCatalogException",
+                    "com.example.agentweb.domain.workbench.stage.StageCommandReference",
+                    "com.example.agentweb.domain.workbench.stage.StageCommandSelection",
+                    "com.example.agentweb.domain.workbench.stage.StageLifecycleStatus",
+                    "com.example.agentweb.domain.workbench.stage.StageMcpServerReference",
+                    "com.example.agentweb.domain.workbench.stage.StageMcpServerSelection",
+                    "com.example.agentweb.domain.workbench.stage.StageSkillReference",
+                    "com.example.agentweb.domain.workbench.stage.StageSkillSelection",
+                    "com.example.agentweb.domain.workbench.stage.WorkbenchStageCatalog",
+                    "com.example.agentweb.domain.workbench.stage.WorkbenchStageDefinition",
+                    "com.example.agentweb.domain.workbench.stage.WorkbenchStageDefinitionRevision",
+                    "com.example.agentweb.domain.workbench.stage.WorkbenchStageDraft",
+                    "com.example.agentweb.domain.workbench.stage.WorkbenchStageDraftContent",
+                    "com.example.agentweb.domain.workbench.stage.WorkbenchStageStatus",
+                    "com.example.agentweb.domain.slashcommand.SlashCommand",
+                    "com.example.agentweb.domain.slashcommand.SlashCommandExpander",
+                    "com.example.agentweb.interfaces.dto.CommandDto",
                     "com.example.agentweb.domain.workbench.WorkbenchStatus")));
 
     private static final DescribedPredicate<JavaClass>
@@ -69,7 +93,8 @@ public class ArchitectureTest {
             resideOutsideOfPackage("com.example.agentweb..")
                     .or(resideInAnyPackage(
                             "com.example.agentweb.interfaces.workbench..",
-                            "com.example.agentweb.app.workbench.."))
+                            "com.example.agentweb.app.workbench..",
+                            "com.example.agentweb.app.capability.."))
                     .or(DescribedPredicate.describe(
                             "be an explicitly approved Workbench boundary type",
                             javaClass -> WORKBENCH_INTERFACE_DOMAIN_TYPES.contains(

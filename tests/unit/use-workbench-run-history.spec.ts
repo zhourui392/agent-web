@@ -17,7 +17,7 @@ function envelope(runId: string, type: string, data: Record<string, unknown>): s
     schemaVersion: 'workbench-run-event@1',
     runId,
     workbenchId: 'wb-1',
-    phase: 'IMPLEMENT_TEST',
+    stageInstanceIdentifier: 'stage-delivery',
     occurredAt: 1_786_000_000_000,
     data: { ...data, projectedType: type },
   });
@@ -25,14 +25,14 @@ function envelope(runId: string, type: string, data: Record<string, unknown>): s
 
 function api(): WorkbenchRunApiClient {
   return {
-    getConversationMessages: vi.fn(),
-    ensureConversation: vi.fn(),
-    restartConversation: vi.fn(),
+    getStageConversationMessages: vi.fn(),
+    ensureStageConversation: vi.fn(),
+    restartStageConversation: vi.fn(),
     submitRun: vi.fn(),
     getRun: vi.fn().mockResolvedValue({
       runId: 'run-history',
       workbenchId: 'wb-1',
-      phase: 'IMPLEMENT_TEST',
+      stageInstanceIdentifier: 'stage-delivery',
       sessionId: 'session-1',
       status: 'SUCCEEDED',
       runMode: 'MODIFY_WORKSPACE',
@@ -49,7 +49,7 @@ function api(): WorkbenchRunApiClient {
       items: [{
         runId: 'run-history',
         workbenchId: 'wb-1',
-        phase: 'IMPLEMENT_TEST',
+        stageInstanceIdentifier: 'stage-delivery',
         sessionId: 'session-1',
         status: 'SUCCEEDED',
         runMode: 'MODIFY_WORKSPACE',
@@ -94,10 +94,9 @@ function api(): WorkbenchRunApiClient {
     getRunCapability: vi.fn().mockResolvedValue({
       runId: 'run-history',
       workbenchId: 'wb-1',
-      phase: 'IMPLEMENT_TEST',
+      stageInstanceIdentifier: 'stage-delivery',
       runMode: 'MODIFY_WORKSPACE',
       createdAt: 1_786_000_000_000,
-      overrideVersion: 2,
       policyVersion: 'workbench-policy@1',
       profileId: 'implement',
       profileVersion: '1.0.0',
@@ -117,14 +116,14 @@ describe('useWorkbenchRunHistory', () => {
     const client = api();
     const history = useWorkbenchRunHistory({
       workbenchId: ref('wb-1'),
-      phase: ref('IMPLEMENT_TEST'),
+      stageInstanceIdentifier: ref('stage-delivery'),
       apiClient: client,
     });
 
     await history.open();
 
     expect(client.listRuns).toHaveBeenCalledWith('wb-1', {
-      phase: 'IMPLEMENT_TEST',
+      stageInstanceIdentifier: 'stage-delivery',
       limit: 20,
     });
     expect(history.runs.value).toHaveLength(1);
@@ -149,16 +148,16 @@ describe('useWorkbenchRunHistory', () => {
     expect(history.hasMoreEvents.value).toBe(false);
   });
 
-  it('discards stale async results when the Workbench or Phase changes', async () => {
+  it('discards stale async results when the Workbench or Stage changes', async () => {
     let resolveList: (value: unknown) => void = () => undefined;
     const client = api();
     client.listRuns = vi.fn().mockReturnValue(new Promise(resolve => { resolveList = resolve; }));
     const workbenchId = ref<string | null>('wb-1');
-    const phase = ref<'IMPLEMENT_TEST' | 'SOLUTION_DESIGN'>('IMPLEMENT_TEST');
-    const history = useWorkbenchRunHistory({ workbenchId, phase, apiClient: client });
+    const stageInstanceIdentifier = ref<'stage-delivery' | 'stage-design'>('stage-delivery');
+    const history = useWorkbenchRunHistory({ workbenchId, stageInstanceIdentifier, apiClient: client });
 
     const opening = history.open();
-    phase.value = 'SOLUTION_DESIGN';
+    stageInstanceIdentifier.value = 'stage-design';
     resolveList({ items: [], nextCursor: null });
     await opening;
 

@@ -128,11 +128,15 @@ export function isStreamJson(content: string | null | undefined): boolean {
 }
 
 /**
- * 把已落库的 stream-json blob 解析成渲染用的 segment 数组(text / tool / tool_result)。
- * 纯函数,无副作用,供 ChatPanel(恢复会话)、主控台历史抽屉、诊断详情共用。
+ * 把已落库的 stream-json blob 解析成渲染用的 segment 数组(text / tool / file_change / mcp_tool_call / tool_result)。
+ * 纯函数,无副作用,供 ChatPanel(恢复会话)、主控台历史抽屉、诊断详情、Workbench 共用。
  * 与 app.js 原内联实现行为等价 -- 任何差异都会让历史/诊断渲染回归。
  */
-export type StreamSegment = { type: 'text'; content: string } | { type: 'tool'; name: string; content: string };
+export type StreamSegment =
+  | { type: 'text'; content: string }
+  | { type: 'tool'; name: string; content: string }
+  | { type: 'file_change'; content: string; relativePath?: string; changeType?: string; repositoryKey?: string }
+  | { type: 'mcp_tool_call'; name: string; content: string };
 
 export function parseStreamJson(raw: string | null | undefined): StreamSegment[] {
   if (!raw) return [];
@@ -158,13 +162,23 @@ export function parseStreamJson(raw: string | null | undefined): StreamSegment[]
         if (evt.type === 'content_block_start' && evt.content_block) {
           if (evt.content_block.type === 'tool_use') {
             segments.push({ type: 'tool', name: evt.content_block.name, content: '' });
+          } else if (evt.content_block.type === 'mcp_tool_call') {
+            segments.push({ type: 'mcp_tool_call', name: evt.content_block.name || 'mcp_tool', content: '' });
+          } else if (evt.content_block.type === 'file_change') {
+            segments.push({
+              type: 'file_change',
+              content: '',
+              relativePath: evt.content_block.relativePath || '',
+              changeType: evt.content_block.changeType || '',
+              repositoryKey: evt.content_block.repositoryKey || '',
+            });
           }
         } else if (evt.type === 'content_block_delta' && evt.delta) {
           if (evt.delta.type === 'text_delta' && evt.delta.text) {
             appendText(evt.delta.text);
           } else if (evt.delta.type === 'input_json_delta' && evt.delta.partial_json) {
             for (var j = segments.length - 1; j >= 0; j--) {
-              if (segments[j].type === 'tool') {
+              if (segments[j].type === 'tool' || segments[j].type === 'mcp_tool_call') {
                 segments[j].content += evt.delta.partial_json;
                 break;
               }
@@ -187,7 +201,7 @@ export function parseStreamJson(raw: string | null | undefined): StreamSegment[]
               }
               var merged = false;
               for (var k = segments.length - 1; k >= 0; k--) {
-                if (segments[k].type === 'tool') {
+                if (segments[k].type === 'tool' || segments[k].type === 'mcp_tool_call') {
                   segments[k].content = (segments[k].content || '') + '\n' + result;
                   merged = true;
                   break;

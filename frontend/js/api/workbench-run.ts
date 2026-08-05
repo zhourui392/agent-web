@@ -7,7 +7,10 @@
  * @since 2026-08-01
  */
 import type { WorkbenchRunMode, WorkbenchRunStatus } from '../lib/workbench-run-state.js';
-import { isWorkbenchPhase, type WorkbenchPhase, type WorkbenchPhaseStatus } from '../lib/workbench-state.js';
+import {
+  isWorkbenchStageInstanceIdentifier,
+  type WorkbenchStageStatus,
+} from '../lib/workbench-state.js';
 
 const IDENTIFIER_MAX_LENGTH = 128;
 const HASH_MAX_LENGTH = 256;
@@ -27,6 +30,7 @@ const RUN_REPOSITORY_KEY_MAX_LENGTH = 512;
 const RUN_REPOSITORY_RELATIVE_PATH_MAX_LENGTH = 4_096;
 const RUN_REPOSITORY_MAX_COUNT = 50;
 const LOWERCASE_SHA_256 = /^[a-f0-9]{64}$/;
+const STAGE_INSTANCE_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 
 const RUN_STATUSES = new Set<WorkbenchRunStatus>([
   'PENDING',
@@ -40,7 +44,9 @@ const RUN_STATUSES = new Set<WorkbenchRunStatus>([
 
 const RUN_MODES = new Set<WorkbenchRunMode>(['DISCUSS_READ_ONLY', 'MODIFY_WORKSPACE']);
 
-const PHASE_STATUSES = new Set<WorkbenchPhaseStatus>(['NOT_STARTED', 'IN_PROGRESS', 'HUMAN_COMPLETED']);
+const STAGE_STATUSES = new Set<WorkbenchStageStatus>([
+  'NOT_STARTED', 'IN_PROGRESS', 'HUMAN_COMPLETED',
+]);
 
 const RUN_REPOSITORY_ACCESSES = new Set<WorkbenchRunRepositoryAccess>(['READ', 'WRITE']);
 const RUN_REPOSITORY_FIELDS = new Set(['repositoryKey', 'relativePath', 'primary', 'access']);
@@ -75,6 +81,10 @@ const ERROR_DETAILS: Readonly<Record<number, { code: string; message: string }>>
   410: {
     code: 'WORKBENCH_RUN_CURSOR_EXPIRED',
     message: 'Workbench Run event cursor has expired',
+  },
+  413: {
+    code: 'WORKBENCH_RUN_REQUEST_TOO_LARGE',
+    message: 'Workbench Stage conversation message is too large',
   },
   422: {
     code: 'WORKBENCH_RUN_INVALID',
@@ -115,7 +125,7 @@ const SAFE_SERVER_ERROR_CODES = new Set([
   'WORKBENCH_RUN_UNAVAILABLE',
   'RUNTIME_UNAVAILABLE',
   'SERVICE_UNAVAILABLE',
-  'WORKBENCH_PHASE_MESSAGE_TOO_LARGE',
+  'WORKBENCH_STAGE_MESSAGE_TOO_LARGE',
   'WORKBENCH_ATTACHMENT_STORAGE_UNAVAILABLE',
 ]);
 
@@ -141,14 +151,12 @@ export type WorkbenchRunAttachment =
 export interface SubmitWorkbenchRunRequest {
   message: string;
   runMode: WorkbenchRunMode;
-  handoffSourceVersion?: number;
-  reviewConfirmationId?: string | null;
   attachments?: ReadonlyArray<WorkbenchRunAttachment>;
 }
 
 export interface SubmitWorkbenchRunCommand {
   workbenchId: string;
-  phase: WorkbenchPhase;
+  stageInstanceIdentifier: string;
   expectedVersion: number;
   idempotencyKey: string;
   request: SubmitWorkbenchRunRequest;
@@ -158,21 +166,21 @@ export interface WorkbenchRunSubmission {
   runId: string;
   sessionId: string;
   status: WorkbenchRunStatus;
-  phaseStatus: WorkbenchPhaseStatus;
+  stageStatus: WorkbenchStageStatus;
   workbenchVersion: number;
   capabilitySnapshotHash: string;
   repositoryScopeHash: string;
   replayed: boolean;
 }
 
-export interface WorkbenchPhaseConversation {
+export interface WorkbenchStageConversation {
   sessionId: string;
   generation: number;
   workbenchVersion: number;
   created: boolean;
 }
 
-export interface WorkbenchPhaseConversationMessage {
+export interface WorkbenchStageConversationMessage {
   messageId: number;
   role: 'user' | 'assistant';
   content: string;
@@ -180,15 +188,15 @@ export interface WorkbenchPhaseConversationMessage {
   runId: string | null;
 }
 
-export interface WorkbenchPhaseConversationMessages {
+export interface WorkbenchStageConversationMessages {
   sessionId: string | null;
   generation: number;
   workbenchVersion: number;
-  messages: WorkbenchPhaseConversationMessage[];
+  messages: WorkbenchStageConversationMessage[];
   nextCursor: number | null;
 }
 
-export interface WorkbenchPhaseConversationRestart {
+export interface WorkbenchStageConversationRestart {
   sessionId: string;
   previousSessionId: string;
   generation: number;
@@ -199,7 +207,7 @@ export interface WorkbenchPhaseConversationRestart {
 export interface WorkbenchRunDetail {
   runId: string;
   workbenchId: string;
-  phase: WorkbenchPhase;
+  stageInstanceIdentifier: string;
   sessionId: string;
   status: WorkbenchRunStatus;
   runMode: WorkbenchRunMode;
@@ -214,7 +222,7 @@ export interface WorkbenchRunDetail {
 export interface WorkbenchRunHistoryItem {
   runId: string;
   workbenchId: string;
-  phase: WorkbenchPhase;
+  stageInstanceIdentifier: string;
   sessionId: string;
   status: WorkbenchRunStatus;
   runMode: WorkbenchRunMode;
@@ -232,7 +240,7 @@ export interface WorkbenchRunHistoryCursor {
 }
 
 export interface WorkbenchRunHistoryQuery {
-  phase?: WorkbenchPhase;
+  stageInstanceIdentifier?: string;
   cursorCreatedAt?: number;
   cursorRunId?: string;
   limit?: number;
@@ -306,10 +314,9 @@ export interface WorkbenchRunRepository {
 export interface WorkbenchRunCapability {
   runId: string;
   workbenchId: string;
-  phase: WorkbenchPhase;
+  stageInstanceIdentifier: string;
   runMode: WorkbenchRunMode;
   createdAt: number;
-  overrideVersion: number;
   policyVersion: string;
   profileId: string;
   profileVersion: string;
@@ -344,22 +351,22 @@ export class WorkbenchRunApiError extends Error {
 }
 
 export interface WorkbenchRunApiClient {
-  getConversationMessages(
+  getStageConversationMessages(
     workbenchId: string,
-    phase: WorkbenchPhase,
+    stageInstanceIdentifier: string,
     beforeMessageId?: number,
-  ): Promise<WorkbenchPhaseConversationMessages>;
-  ensureConversation(
+  ): Promise<WorkbenchStageConversationMessages>;
+  ensureStageConversation(
     workbenchId: string,
-    phase: WorkbenchPhase,
+    stageInstanceIdentifier: string,
     expectedVersion: number,
-  ): Promise<WorkbenchPhaseConversation>;
-  restartConversation(
+  ): Promise<WorkbenchStageConversation>;
+  restartStageConversation(
     workbenchId: string,
-    phase: WorkbenchPhase,
+    stageInstanceIdentifier: string,
     expectedVersion: number,
     idempotencyKey: string,
-  ): Promise<WorkbenchPhaseConversationRestart>;
+  ): Promise<WorkbenchStageConversationRestart>;
   submitRun(command: SubmitWorkbenchRunCommand): Promise<WorkbenchRunSubmission>;
   getRun(workbenchId: string, runId: string): Promise<WorkbenchRunDetail>;
   stopRun(workbenchId: string, runId: string): Promise<WorkbenchRunStopResponse>;
@@ -440,7 +447,7 @@ function submissionProjection(body: unknown): WorkbenchRunSubmission | null {
   const runId = boundedString(body.runId, IDENTIFIER_MAX_LENGTH);
   const sessionId = boundedString(body.sessionId, IDENTIFIER_MAX_LENGTH);
   const status = knownValue(body.status, RUN_STATUSES);
-  const phaseStatus = knownValue(body.phaseStatus, PHASE_STATUSES);
+  const stageStatus = knownValue(body.stageStatus, STAGE_STATUSES);
   const workbenchVersion = nonNegativeInteger(body.workbenchVersion);
   const capabilitySnapshotHash = boundedString(body.capabilitySnapshotHash, HASH_MAX_LENGTH);
   const repositoryScopeHash = boundedString(body.repositoryScopeHash, HASH_MAX_LENGTH);
@@ -448,7 +455,7 @@ function submissionProjection(body: unknown): WorkbenchRunSubmission | null {
     !runId ||
     !sessionId ||
     !status ||
-    !phaseStatus ||
+    !stageStatus ||
     workbenchVersion == null ||
     !capabilitySnapshotHash ||
     !repositoryScopeHash ||
@@ -460,7 +467,7 @@ function submissionProjection(body: unknown): WorkbenchRunSubmission | null {
     runId,
     sessionId,
     status,
-    phaseStatus,
+    stageStatus,
     workbenchVersion,
     capabilitySnapshotHash,
     repositoryScopeHash,
@@ -468,7 +475,7 @@ function submissionProjection(body: unknown): WorkbenchRunSubmission | null {
   };
 }
 
-function conversationProjection(body: unknown): WorkbenchPhaseConversation | null {
+function conversationProjection(body: unknown): WorkbenchStageConversation | null {
   if (!isRecord(body)) return null;
   const sessionId = boundedString(body.sessionId, IDENTIFIER_MAX_LENGTH);
   const generation = nonNegativeInteger(body.generation);
@@ -485,7 +492,7 @@ function conversationProjection(body: unknown): WorkbenchPhaseConversation | nul
   };
 }
 
-function conversationMessageProjection(body: unknown): WorkbenchPhaseConversationMessage | null {
+function conversationMessageProjection(body: unknown): WorkbenchStageConversationMessage | null {
   if (!isRecord(body)) return null;
   const messageId = positiveInteger(body.messageId);
   const role = body.role === 'user' || body.role === 'assistant' ? body.role : null;
@@ -500,7 +507,7 @@ function conversationMessageProjection(body: unknown): WorkbenchPhaseConversatio
   return { messageId, role, content, timestamp, runId };
 }
 
-function conversationMessagesProjection(body: unknown): WorkbenchPhaseConversationMessages | null {
+function conversationMessagesProjection(body: unknown): WorkbenchStageConversationMessages | null {
   if (!isRecord(body) || !Array.isArray(body.messages)
     || body.messages.length > CONVERSATION_MESSAGE_MAX_COUNT) {
     return null;
@@ -515,7 +522,7 @@ function conversationMessagesProjection(body: unknown): WorkbenchPhaseConversati
     || sessionId === null && (body.messages.length > 0 || nextCursor != null)) {
     return null;
   }
-  const messages: WorkbenchPhaseConversationMessage[] = [];
+  const messages: WorkbenchStageConversationMessage[] = [];
   let previousMessageId = 0;
   for (const candidate of body.messages) {
     const message = conversationMessageProjection(candidate);
@@ -530,7 +537,7 @@ function conversationMessagesProjection(body: unknown): WorkbenchPhaseConversati
   return { sessionId, generation, workbenchVersion, messages, nextCursor };
 }
 
-function conversationRestartProjection(body: unknown): WorkbenchPhaseConversationRestart | null {
+function conversationRestartProjection(body: unknown): WorkbenchStageConversationRestart | null {
   if (!isRecord(body)) return null;
   const sessionId = boundedString(body.sessionId, IDENTIFIER_MAX_LENGTH);
   const previousSessionId = boundedString(body.previousSessionId, IDENTIFIER_MAX_LENGTH);
@@ -553,6 +560,9 @@ function detailProjection(body: unknown): WorkbenchRunDetail | null {
   if (!isRecord(body)) return null;
   const runId = boundedString(body.runId, IDENTIFIER_MAX_LENGTH);
   const workbenchId = boundedString(body.workbenchId, IDENTIFIER_MAX_LENGTH);
+  const stageInstanceIdentifier = boundedString(
+    body.stageInstanceIdentifier, IDENTIFIER_MAX_LENGTH,
+  );
   const sessionId = boundedString(body.sessionId, IDENTIFIER_MAX_LENGTH);
   const status = knownValue(body.status, RUN_STATUSES);
   const runMode = knownValue(body.runMode, RUN_MODES);
@@ -560,7 +570,8 @@ function detailProjection(body: unknown): WorkbenchRunDetail | null {
   if (
     !runId ||
     !workbenchId ||
-    !isWorkbenchPhase(body.phase) ||
+    !stageInstanceIdentifier
+    || !isWorkbenchStageInstanceIdentifier(stageInstanceIdentifier) ||
     !sessionId ||
     !status ||
     !runMode ||
@@ -571,7 +582,7 @@ function detailProjection(body: unknown): WorkbenchRunDetail | null {
   const projected: WorkbenchRunDetail = {
     runId,
     workbenchId,
-    phase: body.phase,
+    stageInstanceIdentifier,
     sessionId,
     status,
     runMode,
@@ -608,7 +619,7 @@ function historyItemProjection(body: unknown): WorkbenchRunHistoryItem | null {
   return {
     runId: detail.runId,
     workbenchId: detail.workbenchId,
-    phase: detail.phase,
+    stageInstanceIdentifier: detail.stageInstanceIdentifier,
     sessionId: detail.sessionId,
     status: detail.status,
     runMode: detail.runMode,
@@ -784,9 +795,11 @@ function capabilityProjection(body: unknown): WorkbenchRunCapability | null {
   if (!isRecord(body)) return null;
   const runId = boundedString(body.runId, IDENTIFIER_MAX_LENGTH);
   const workbenchId = boundedString(body.workbenchId, IDENTIFIER_MAX_LENGTH);
+  const stageInstanceIdentifier = boundedString(
+    body.stageInstanceIdentifier, IDENTIFIER_MAX_LENGTH,
+  );
   const runMode = knownValue(body.runMode, RUN_MODES);
   const createdAt = nonNegativeInteger(body.createdAt);
-  const overrideVersion = nonNegativeInteger(body.overrideVersion);
   const policyVersion = boundedString(body.policyVersion, IDENTIFIER_MAX_LENGTH);
   const profileId = boundedString(body.profileId, IDENTIFIER_MAX_LENGTH);
   const profileVersion = boundedString(body.profileVersion, IDENTIFIER_MAX_LENGTH);
@@ -798,14 +811,16 @@ function capabilityProjection(body: unknown): WorkbenchRunCapability | null {
   const skills = projectArray(body.skills, capabilitySkillProjection);
   const mcpServers = projectArray(body.mcpServers, capabilityMcpProjection);
   const rejected = projectArray(body.rejected, rejectedCapabilityProjection);
-  if (!runId || !workbenchId || !isWorkbenchPhase(body.phase) || !runMode || createdAt == null
-    || overrideVersion == null || !policyVersion || !profileId || !profileVersion || !profileHash
+  if (!runId || !workbenchId || !stageInstanceIdentifier
+    || !isWorkbenchStageInstanceIdentifier(stageInstanceIdentifier)
+    || !runMode || createdAt == null
+    || !policyVersion || !profileId || !profileVersion || !profileHash
     || !bindingHash || !runtimeCompatibility || !repositoryScope
     || !rules || !skills || !mcpServers || !rejected) {
     return null;
   }
   return {
-    runId, workbenchId, phase: body.phase, runMode, createdAt, overrideVersion,
+    runId, workbenchId, stageInstanceIdentifier, runMode, createdAt,
     policyVersion, profileId, profileVersion, profileHash, bindingHash,
     runtimeCompatibility, ...repositoryScope, rules, skills, mcpServers, rejected,
   };
@@ -868,6 +883,13 @@ function encodedPathSegment(value: string, name: string): string {
     throw new Error(`${name} path segment is invalid`);
   }
   return encodeURIComponent(normalized);
+}
+
+function encodedStageInstanceIdentifier(value: string): string {
+  if (typeof value !== 'string' || !STAGE_INSTANCE_IDENTIFIER.test(value)) {
+    throw new Error('stageInstanceIdentifier path segment is invalid');
+  }
+  return encodeURIComponent(value);
 }
 
 function scopedRunUrl(workbenchId: string, runId: string): string {
@@ -965,28 +987,10 @@ function submitPayload(request: SubmitWorkbenchRunRequest): Record<string, unkno
     message: request.message,
     runMode: request.runMode,
   };
-  if (request.handoffSourceVersion !== undefined) {
-    payload.handoffSourceVersion = request.handoffSourceVersion;
-  }
-  if (request.reviewConfirmationId !== undefined) {
-    payload.reviewConfirmationId = request.reviewConfirmationId;
-  }
   if (request.attachments !== undefined) {
     payload.attachments = normalizeWorkbenchRunAttachments(request.attachments);
   }
   return payload;
-}
-
-function requireReviewConfirmation(phase: WorkbenchPhase, request: SubmitWorkbenchRunRequest): void {
-  const rawConfirmationId = request.reviewConfirmationId;
-  const confirmationId = rawConfirmationId == null ? null : boundedString(rawConfirmationId, IDENTIFIER_MAX_LENGTH);
-  if (rawConfirmationId != null && !confirmationId) {
-    throw new Error('review confirmation id is invalid');
-  }
-  const reviewModify = phase === 'REVIEW_REFACTOR' && request.runMode === 'MODIFY_WORKSPACE';
-  if (!reviewModify && confirmationId) {
-    throw new Error('review confirmation is only valid for a Review modify run');
-  }
 }
 
 function requireExpectedVersion(value: number): void {
@@ -1012,9 +1016,13 @@ function requireLimit(value: number | undefined, maximum: number, name: string):
 
 function historyQuery(filters: WorkbenchRunHistoryQuery): string {
   const params = new URLSearchParams();
-  if (filters.phase !== undefined) {
-    if (!isWorkbenchPhase(filters.phase)) throw new Error('phase is invalid');
-    params.set('phase', filters.phase);
+  if (filters.stageInstanceIdentifier !== undefined) {
+    if (!isWorkbenchStageInstanceIdentifier(
+      filters.stageInstanceIdentifier,
+    )) {
+      throw new Error('stageInstanceIdentifier is invalid');
+    }
+    params.set('stageInstanceIdentifier', filters.stageInstanceIdentifier);
   }
   const hasCreatedAt = filters.cursorCreatedAt !== undefined;
   const hasRunId = filters.cursorRunId !== undefined;
@@ -1068,15 +1076,15 @@ export function createWorkbenchRunApiClient(
   }
 
   return {
-    async getConversationMessages(
+    async getStageConversationMessages(
       workbenchId,
-      phase,
+      stageInstanceIdentifier,
       beforeMessageId,
-    ): Promise<WorkbenchPhaseConversationMessages> {
+    ): Promise<WorkbenchStageConversationMessages> {
       let url = '/api/workbenches/'
         + encodedPathSegment(workbenchId, 'workbenchId')
-        + '/phases/'
-        + encodedPathSegment(phase, 'phase')
+        + '/stages/'
+        + encodedStageInstanceIdentifier(stageInstanceIdentifier)
         + '/conversation/messages';
       if (beforeMessageId !== undefined) {
         const cursor = positiveInteger(beforeMessageId);
@@ -1089,7 +1097,7 @@ export function createWorkbenchRunApiClient(
         }
         url += `?beforeMessageId=${cursor}`;
       }
-      return request<WorkbenchPhaseConversationMessages>(
+      return request<WorkbenchStageConversationMessages>(
         url,
         { method: 'GET' },
         200,
@@ -1098,18 +1106,18 @@ export function createWorkbenchRunApiClient(
       );
     },
 
-    async ensureConversation(
+    async ensureStageConversation(
       workbenchId,
-      phase,
+      stageInstanceIdentifier,
       expectedVersion,
-    ): Promise<WorkbenchPhaseConversation> {
+    ): Promise<WorkbenchStageConversation> {
       requireExpectedVersion(expectedVersion);
       const url = '/api/workbenches/'
         + encodedPathSegment(workbenchId, 'workbenchId')
-        + '/phases/'
-        + encodedPathSegment(phase, 'phase')
+        + '/stages/'
+        + encodedStageInstanceIdentifier(stageInstanceIdentifier)
         + '/conversation';
-      return request<WorkbenchPhaseConversation>(
+      return request<WorkbenchStageConversation>(
         url,
         {
           method: 'POST',
@@ -1120,20 +1128,20 @@ export function createWorkbenchRunApiClient(
       );
     },
 
-    async restartConversation(
+    async restartStageConversation(
       workbenchId,
-      phase,
+      stageInstanceIdentifier,
       expectedVersion,
       idempotencyKey,
-    ): Promise<WorkbenchPhaseConversationRestart> {
+    ): Promise<WorkbenchStageConversationRestart> {
       requireExpectedVersion(expectedVersion);
       const normalizedIdempotencyKey = requireIdempotencyKey(idempotencyKey);
       const url = '/api/workbenches/'
         + encodedPathSegment(workbenchId, 'workbenchId')
-        + '/phases/'
-        + encodedPathSegment(phase, 'phase')
+        + '/stages/'
+        + encodedStageInstanceIdentifier(stageInstanceIdentifier)
         + '/conversation/restart';
-      return request<WorkbenchPhaseConversationRestart>(
+      return request<WorkbenchStageConversationRestart>(
         url,
         {
           method: 'POST',
@@ -1151,12 +1159,11 @@ export function createWorkbenchRunApiClient(
     async submitRun(command): Promise<WorkbenchRunSubmission> {
       requireExpectedVersion(command.expectedVersion);
       const idempotencyKey = requireIdempotencyKey(command.idempotencyKey);
-      requireReviewConfirmation(command.phase, command.request);
       const url =
         '/api/workbenches/' +
         encodedPathSegment(command.workbenchId, 'workbenchId') +
-        '/phases/' +
-        encodedPathSegment(command.phase, 'phase') +
+        '/stages/' +
+        encodedStageInstanceIdentifier(command.stageInstanceIdentifier) +
         '/runs';
       return request<WorkbenchRunSubmission>(
         url,

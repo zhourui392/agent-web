@@ -27,6 +27,20 @@ class EnvironmentRuntimeSecretResolverTest {
     }
 
     @Test
+    void resolvesPlatformEnvironmentReferenceWithoutTreatingPrefixAsVariableName() {
+        // Given
+        EnvironmentRuntimeSecretResolver resolver =
+                new EnvironmentRuntimeSecretResolver(
+                        name -> "MCP_TOKEN".equals(name) ? "secret-value" : null);
+
+        // When
+        char[] resolved = resolver.resolve("environment:MCP_TOKEN");
+
+        // Then
+        assertArrayEquals("secret-value".toCharArray(), resolved);
+    }
+
+    @Test
     void failsClosedForBlankUnsafeOrUnavailableReference() {
         EnvironmentRuntimeSecretResolver resolver =
                 new EnvironmentRuntimeSecretResolver(name -> null);

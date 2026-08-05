@@ -10,6 +10,11 @@ import com.example.agentweb.domain.workbench.WorkbenchCreationReceipt;
 import com.example.agentweb.domain.workbench.WorkbenchCreationRepository;
 import com.example.agentweb.domain.workbench.WorkbenchId;
 import com.example.agentweb.domain.workbench.WorkbenchRepository;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageCatalog;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageCatalogRepository;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageDefinitionRevision;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageSnapshot;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageState;
 import com.example.agentweb.domain.workspace.RepositoryScope;
 import com.example.agentweb.domain.workspace.SnapshotPurpose;
 import com.example.agentweb.domain.workspace.WorkspaceSnapshot;
@@ -17,6 +22,8 @@ import org.springframework.stereotype.Service;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -37,6 +44,9 @@ public class WorkbenchCreationAppService {
     private final WorkspaceSnapshotGateway snapshotGateway;
     private final WorkbenchIdGenerator workbenchIdGenerator;
     private final WorkspaceSnapshotIdGenerator snapshotIdGenerator;
+    private final WorkbenchStageCatalogRepository stageCatalogRepository;
+    private final WorkbenchStageInstanceIdentifierGenerator
+            stageInstanceIdentifierGenerator;
     private final WorkbenchCreationCommitter committer;
     private final AgentCatalogService agentCatalogService;
     private final WorkbenchReleasePolicy releasePolicy;
@@ -50,6 +60,9 @@ public class WorkbenchCreationAppService {
             WorkspaceSnapshotGateway snapshotGateway,
             WorkbenchIdGenerator workbenchIdGenerator,
             WorkspaceSnapshotIdGenerator snapshotIdGenerator,
+            WorkbenchStageCatalogRepository stageCatalogRepository,
+            WorkbenchStageInstanceIdentifierGenerator
+                    stageInstanceIdentifierGenerator,
             WorkbenchCreationCommitter committer,
             AgentCatalogService agentCatalogService,
             WorkbenchReleasePolicy releasePolicy,
@@ -60,6 +73,8 @@ public class WorkbenchCreationAppService {
         this.snapshotGateway = snapshotGateway;
         this.workbenchIdGenerator = workbenchIdGenerator;
         this.snapshotIdGenerator = snapshotIdGenerator;
+        this.stageCatalogRepository = stageCatalogRepository;
+        this.stageInstanceIdentifierGenerator = stageInstanceIdentifierGenerator;
         this.committer = committer;
         this.agentCatalogService = agentCatalogService;
         this.releasePolicy = releasePolicy;
@@ -99,6 +114,11 @@ public class WorkbenchCreationAppService {
 
         agentCatalogService.requireWorkbenchAvailable(
                 command.getAgentType(), command.getEnvironment());
+        WorkbenchStageCatalog stageCatalog = stageCatalogRepository.find();
+        List<WorkbenchStageDefinitionRevision> selectedStageRevisions =
+                stageCatalog.selectPublishedRevisions(
+                        command.getStageDefinitionIdentifiers(),
+                        command.getExpectedStageCatalogVersion());
         RepositoryScope scope = scopeGateway.resolve(
                 command.getWorkspaceRoot(), command.getRepositorySelection());
         String snapshotId = snapshotIdGenerator.nextId();
@@ -109,12 +129,24 @@ public class WorkbenchCreationAppService {
         Workbench workbench = Workbench.create(
                 workbenchId, actor, command.getTitle(), command.getOriginalGoal(),
                 command.getAgentType(), command.getEnvironment(), scope,
-                snapshot.reference(), now);
+                snapshot.reference(), stageStates(selectedStageRevisions), now);
         WorkbenchCreationReceipt receipt = WorkbenchCreationReceipt.record(
                 actor, command.getIdempotencyKey(), command.getRequestHash(),
                 workbenchId, now);
         return committer.commit(
                 new PreparedWorkbenchCreation(workbench, snapshot, receipt));
+    }
+
+    private List<WorkbenchStageState> stageStates(
+            List<WorkbenchStageDefinitionRevision> revisions) {
+        List<WorkbenchStageState> stages =
+                new ArrayList<WorkbenchStageState>(revisions.size());
+        for (WorkbenchStageDefinitionRevision revision : revisions) {
+            stages.add(WorkbenchStageState.initial(
+                    stageInstanceIdentifierGenerator.nextIdentifier(),
+                    WorkbenchStageSnapshot.fromPublishedRevision(revision)));
+        }
+        return stages;
     }
 
     private Workbench requireWorkbench(WorkbenchId workbenchId) {

@@ -1,35 +1,44 @@
 package com.example.agentweb.infra.workbench;
 
+import com.example.agentweb.domain.capability.CapabilityAccess;
+import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.workbench.RunMode;
-import com.example.agentweb.domain.workbench.ReviewModifyConfirmation;
-import com.example.agentweb.domain.workbench.ReviewOpinion;
 import com.example.agentweb.domain.workbench.Workbench;
-import com.example.agentweb.domain.workbench.WorkbenchDomainException;
-import com.example.agentweb.domain.workbench.WorkbenchErrorCode;
 import com.example.agentweb.domain.workbench.WorkbenchId;
-import com.example.agentweb.domain.workbench.WorkbenchPhase;
-import com.example.agentweb.domain.workbench.WorkbenchPhaseState;
-import com.example.agentweb.domain.workbench.WorkbenchPhaseStatus;
-import com.example.agentweb.domain.workbench.WorkbenchStatus;
+import com.example.agentweb.domain.workbench.stage.ResolvedStageCapabilities;
+import com.example.agentweb.domain.workbench.stage.StageCatalogEditor;
+import com.example.agentweb.domain.workbench.stage.StageCommandReference;
+import com.example.agentweb.domain.workbench.stage.StageCommandSelection;
+import com.example.agentweb.domain.workbench.stage.StageMcpServerReference;
+import com.example.agentweb.domain.workbench.stage.StageMcpServerSelection;
+import com.example.agentweb.domain.workbench.stage.StageSkillReference;
+import com.example.agentweb.domain.workbench.stage.StageSkillSelection;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageCatalog;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageDefinitionRevision;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageDraftContent;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageSnapshot;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageState;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageStatus;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
+import java.util.Set;
 
 import static com.example.agentweb.infra.workbench.WorkbenchPersistenceFixtures.NOW;
 import static com.example.agentweb.infra.workbench.WorkbenchPersistenceFixtures.OWNER;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Workbench 聚合、Repository Scope、固定 Phase 与会话代际的真实 SQLite 测试。
+ * Dynamic Stage Workbench 聚合、Repository Scope 与会话代际的真实 SQLite 测试。
  *
  * @author alex
  * @since 2026-08-01
@@ -53,235 +62,314 @@ class SqliteWorkbenchRepositoryTest {
     }
 
     @Test
-    void addAndFindShouldRoundTripScopeFourPhasesConversationGenerationsAndWriteLease() {
-        Workbench source = activeWorkbench("workbench-round-trip");
+    void should_RoundTripImmutableStageSnapshots() {
+        // Given
+        Workbench source = dynamicWorkbench("workbench-dynamic-round-trip");
 
+        // When
         repository.add(source);
-
         Workbench restored = repository.findById(source.getId())
                 .orElseThrow(AssertionError::new);
-        assertWorkbench(source, restored);
-        assertEquals(4, restored.getPhases().size());
-        WorkbenchPhaseState analysis = restored.phase(
-                WorkbenchPhase.REQUIREMENT_ANALYSIS);
-        assertEquals(2, analysis.getConversationHistory().size());
-        assertEquals(1, analysis.getConversationGeneration());
-        assertEquals("analysis-v1-workbench-round-trip",
-                analysis.currentConversation().getConversationId());
-        assertNotNull(analysis.getConversationHistory().get(0).getRetiredAt());
-        assertNotNull(restored.getActiveWriteRunReference());
-        assertEquals("implement-run-workbench-round-trip",
-                restored.getActiveWriteRunReference().getRunId());
-        assertEquals(RunMode.MODIFY_WORKSPACE,
-                restored.getActiveWriteRunReference().getRunMode());
+
+        // Then
+        assertEquals(2, restored.getStages().size());
+        assertEquals(List.of("requirement-analysis", "implementation"),
+                restored.getStages().stream()
+                        .map(stage -> stage.getSnapshot().getDefinitionIdentifier())
+                        .toList());
+        for (int index = 0; index < source.getStages().size(); index++) {
+            assertStage(source.getStages().get(index), restored.getStages().get(index));
+        }
+        assertEquals(2, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM workbench_stage WHERE workbench_id=?",
+                Integer.class, source.getId().getValue()));
     }
 
     @Test
-    void updateShouldUseOptimisticVersionAndKeepWinnerChildrenAtomically() {
-        Workbench source = activeWorkbench("workbench-lock");
+    void should_RoundTripDynamicStageCompletionAndReopen_WithWorkbenchVersion() {
+        // Given
+        Workbench source = dynamicWorkbench("workbench-dynamic-lifecycle");
         repository.add(source);
-        Workbench winner = repository.findById(source.getId())
+        Workbench toComplete = repository.findById(source.getId())
                 .orElseThrow(AssertionError::new);
-        Workbench stale = repository.findById(source.getId())
-                .orElseThrow(AssertionError::new);
-        winner.finishRun(WorkbenchPhase.IMPLEMENT_TEST,
-                "implement-run-workbench-lock", NOW.plusSeconds(7));
-        stale.finishRun(WorkbenchPhase.IMPLEMENT_TEST,
-                "implement-run-workbench-lock", NOW.plusSeconds(7));
+        long initialVersion = toComplete.getVersion();
 
-        repository.update(winner);
+        // When
+        toComplete.completeStage(
+                "stage-implementation", OWNER, initialVersion, NOW.plusSeconds(1));
+        repository.update(toComplete);
 
-        WorkbenchDomainException conflict = assertThrows(
-                WorkbenchDomainException.class, () -> repository.update(stale));
-        assertEquals(WorkbenchErrorCode.VERSION_CONFLICT, conflict.getCode());
-        Workbench restored = repository.findById(source.getId())
-                .orElseThrow(AssertionError::new);
-        assertNull(restored.getActiveWriteRunReference());
-        assertNull(restored.phase(WorkbenchPhase.IMPLEMENT_TEST).getActiveRunReference());
-        assertEquals(winner.getVersion(), restored.getVersion());
-    }
-
-    @Test
-    void notStartedReviewShouldRoundTripManualCompletionAndReopenWithoutInventingConversation() {
-        Workbench source = WorkbenchPersistenceFixtures.newWorkbench(
-                workspace, "workbench-idle-review");
-        repository.add(source);
+        // Then
         Workbench completed = repository.findById(source.getId())
                 .orElseThrow(AssertionError::new);
+        assertEquals(WorkbenchStageStatus.HUMAN_COMPLETED,
+                completed.stage("stage-implementation").getStatus());
+        assertEquals(NOW.plusSeconds(1),
+                completed.stage("stage-implementation").getCompletedAt());
+        assertEquals(initialVersion + 1L, completed.getVersion());
+        assertEquals("HUMAN_COMPLETED", jdbc.queryForObject(
+                "SELECT status FROM workbench_stage "
+                        + "WHERE workbench_id=? AND stage_instance_identifier=?",
+                String.class, source.getId().getValue(), "stage-implementation"));
+        assertEquals(NOW.plusSeconds(1).toEpochMilli(), jdbc.queryForObject(
+                "SELECT completed_at FROM workbench_stage "
+                        + "WHERE workbench_id=? AND stage_instance_identifier=?",
+                Long.class, source.getId().getValue(), "stage-implementation"));
 
-        completed.completePhase(
-                WorkbenchPhase.REVIEW_REFACTOR, OWNER, NOW.plusSeconds(1));
+        // When
+        completed.reopenStage(
+                "stage-implementation", OWNER, completed.getVersion(),
+                NOW.plusSeconds(2));
         repository.update(completed);
 
-        Workbench restoredCompleted = repository.findById(source.getId())
+        // Then
+        Workbench reopened = repository.findById(source.getId())
                 .orElseThrow(AssertionError::new);
-        assertEquals(WorkbenchPhaseStatus.HUMAN_COMPLETED,
-                restoredCompleted.phase(WorkbenchPhase.REVIEW_REFACTOR)
-                        .getStatus());
-        assertNull(restoredCompleted.phase(WorkbenchPhase.REVIEW_REFACTOR)
+        assertEquals(WorkbenchStageStatus.NOT_STARTED,
+                reopened.stage("stage-implementation").getStatus());
+        assertNull(reopened.stage("stage-implementation").getCompletedAt());
+        assertEquals(initialVersion + 2L, reopened.getVersion());
+        assertNull(jdbc.queryForObject(
+                "SELECT completed_at FROM workbench_stage "
+                        + "WHERE workbench_id=? AND stage_instance_identifier=?",
+                Long.class, source.getId().getValue(), "stage-implementation"));
+    }
+
+    @Test
+    void should_RoundTripIndependentDynamicStageConversationHistory() {
+        // Given
+        Workbench source = dynamicWorkbench("workbench-dynamic-conversation");
+        repository.add(source);
+        Workbench changed = repository.findById(source.getId())
+                .orElseThrow(AssertionError::new);
+        changed.bindStageConversation(
+                "stage-implementation", "stage-session-0", OWNER,
+                0L, NOW.plusSeconds(1));
+        repository.update(changed);
+        Workbench completed = repository.findById(source.getId())
+                .orElseThrow(AssertionError::new);
+        assertNotNull(completed.stage("stage-implementation")
                 .currentConversation());
-
-        restoredCompleted.reopenPhase(
-                WorkbenchPhase.REVIEW_REFACTOR, OWNER, NOW.plusSeconds(2));
-        repository.update(restoredCompleted);
-
-        Workbench restoredReopened = repository.findById(source.getId())
+        completed.completeStage(
+                "stage-implementation", OWNER, completed.getVersion(),
+                NOW.plusSeconds(2));
+        repository.update(completed);
+        Workbench reopened = repository.findById(source.getId())
                 .orElseThrow(AssertionError::new);
-        assertEquals(WorkbenchPhaseStatus.NOT_STARTED,
-                restoredReopened.phase(WorkbenchPhase.REVIEW_REFACTOR)
-                        .getStatus());
-        assertNull(restoredReopened.phase(WorkbenchPhase.REVIEW_REFACTOR)
-                .currentConversation());
-    }
-
-    @Test
-    void updateAndFindShouldRestoreActiveReviewModifyProofWithoutFabricatingOpinion() {
-        Workbench initial = WorkbenchPersistenceFixtures.newWorkbench(
-                workspace, "workbench-review-active");
-        repository.add(initial);
-        ReviewOpinion opinion = WorkbenchPersistenceFixtures.reviewOpinion(initial);
-        ReviewModifyConfirmation confirmation =
-                WorkbenchPersistenceFixtures.reviewConfirmation(initial);
-        new SqliteReviewOpinionRepository(jdbc).add(opinion);
-        new SqliteReviewModifyConfirmationRepository(jdbc).add(confirmation);
-        Workbench bound = repository.findById(initial.getId())
-                .orElseThrow(AssertionError::new);
-        bound.bindConversation(
-                WorkbenchPhase.REVIEW_REFACTOR, "review-v0", OWNER,
-                NOW.plusSeconds(8));
-        repository.update(bound);
-        Workbench prepared = repository.findById(initial.getId())
-                .orElseThrow(AssertionError::new);
-        prepared.prepareReviewRefactorRun(
-                "review-modify-run", RunMode.MODIFY_WORKSPACE,
-                confirmation, OWNER, NOW.plusSeconds(9));
-
-        repository.update(prepared);
-
-        Workbench restored = repository.findById(initial.getId())
-                .orElseThrow(AssertionError::new);
-        assertEquals(prepared.getActiveWriteRunReference(),
-                restored.getActiveWriteRunReference());
-        assertEquals("confirmation-1",
-                restored.getActiveWriteRunReference().getReviewConfirmationId());
-        assertEquals(2L, restored.getActiveWriteRunReference()
-                .getReviewOpinionVersion().longValue());
-        assertEquals(WorkbenchPersistenceFixtures.HASH_F,
-                restored.getActiveWriteRunReference().getReviewOpinionHash());
-    }
-
-    @Test
-    void schemaShouldEnforceForeignKeysAndOneModifyRunPerWorkbench() {
-        Workbench source = activeWorkbench("workbench-constraints");
-        repository.add(source);
-
-        assertEquals(1, jdbc.queryForObject("PRAGMA foreign_keys", Integer.class));
-        assertThrows(DataAccessException.class, () -> jdbc.update(
-                "INSERT INTO workbench_repository_scope "
-                        + "(workbench_id, repository_key, relative_path, repository_root, "
-                        + "root_fingerprint, primary_repository) VALUES (?,?,?,?,?,?)",
-                "missing-workbench", "orphan", "orphan", "/workspace/orphan",
-                WorkbenchPersistenceFixtures.HASH_A, 1));
-        assertThrows(DataAccessException.class, () -> jdbc.update(
-                "UPDATE workbench_phase SET active_run_id=?, active_run_mode=?, "
-                        + "active_run_prepared_at=? WHERE workbench_id=? AND phase=?",
-                "second-write", RunMode.MODIFY_WORKSPACE.name(), NOW.toEpochMilli(),
-                source.getId().getValue(), WorkbenchPhase.SOLUTION_DESIGN.name()));
-    }
-
-    @Test
-    void findShouldFailFastForMissingPhaseScopeHashAndLeaseMismatch() {
-        Workbench missingPhase = activeWorkbench("workbench-missing-phase");
-        repository.add(missingPhase);
-        jdbc.update("DELETE FROM workbench_phase WHERE workbench_id=? AND phase=?",
-                missingPhase.getId().getValue(), WorkbenchPhase.SOLUTION_DESIGN.name());
-        assertThrows(IllegalStateException.class,
-                () -> repository.findById(missingPhase.getId()));
-
-        Workbench badScope = activeWorkbench("workbench-bad-scope");
-        repository.add(badScope);
-        jdbc.update("UPDATE workbench SET repository_scope_hash=? WHERE id=?",
-                WorkbenchPersistenceFixtures.HASH_F, badScope.getId().getValue());
-        assertThrows(IllegalStateException.class,
-                () -> repository.findById(badScope.getId()));
-
-        Workbench badLease = activeWorkbench("workbench-bad-lease");
-        repository.add(badLease);
-        jdbc.update("UPDATE workbench SET active_write_run_id=NULL WHERE id=?",
-                badLease.getId().getValue());
-        assertThrows(IllegalStateException.class,
-                () -> repository.findById(badLease.getId()));
-    }
-
-    @Test
-    void findShouldFailFastWhenParentWriteLeaseMatchesNoActivePhaseRun() {
-        Workbench source = WorkbenchPersistenceFixtures.newWorkbench(
-                workspace, "workbench-ghost-write-lease");
-        repository.add(source);
-        jdbc.update("UPDATE workbench SET active_write_run_id=? WHERE id=?",
-                "ghost-run", source.getId().getValue());
-
-        assertThrows(IllegalStateException.class,
-                () -> repository.findById(source.getId()));
-    }
-
-    @Test
-    void archivedWorkbenchShouldRetainScopePhasesAndConversationHistory() {
-        Workbench source = activeWorkbench("workbench-archive");
-        repository.add(source);
-        Workbench loaded = repository.findById(source.getId())
-                .orElseThrow(AssertionError::new);
-        loaded.finishRun(
-                WorkbenchPhase.IMPLEMENT_TEST,
-                "implement-run-workbench-archive", NOW.plusSeconds(7));
-        repository.update(loaded);
-        loaded.archive(OWNER, NOW.plusSeconds(8));
-        repository.update(loaded);
-
-        Workbench archived = repository.findById(source.getId())
-                .orElseThrow(AssertionError::new);
-        assertEquals(WorkbenchStatus.ARCHIVED, archived.getStatus());
-        assertEquals(4, archived.getPhases().size());
-        assertEquals(2, archived.phase(WorkbenchPhase.REQUIREMENT_ANALYSIS)
-                .getConversationHistory().size());
-        assertEquals(2, archived.getRepositoryScope().repositoryCount());
-        assertTrue(jdbc.queryForObject(
-                "SELECT COUNT(*) FROM workbench_phase_conversation WHERE workbench_id=?",
-                Integer.class, source.getId().getValue()) >= 3);
-    }
-
-    @Test
-    void duplicateAddMustNotOverwriteAndMissingIdShouldBeEmpty() {
-        Workbench source = activeWorkbench("workbench-duplicate");
-        repository.add(source);
-
-        assertThrows(IllegalStateException.class, () -> repository.add(source));
-        assertFalse(repository.findById(WorkbenchId.of("missing")).isPresent());
-        assertEquals(source.getVersion(), repository.findById(source.getId())
-                .orElseThrow(AssertionError::new).getVersion());
-    }
-
-    private Workbench activeWorkbench(String id) {
-        Workbench workbench = WorkbenchPersistenceFixtures.newWorkbench(workspace, id);
-        workbench.bindConversation(
-                WorkbenchPhase.REQUIREMENT_ANALYSIS, "analysis-v0-" + id, OWNER,
-                NOW.plusSeconds(1));
-        workbench.prepareRun(
-                WorkbenchPhase.REQUIREMENT_ANALYSIS, "analysis-run-" + id,
-                RunMode.DISCUSS_READ_ONLY, OWNER, NOW.plusSeconds(2));
-        workbench.finishRun(
-                WorkbenchPhase.REQUIREMENT_ANALYSIS, "analysis-run-" + id,
+        reopened.reopenStage(
+                "stage-implementation", OWNER, reopened.getVersion(),
                 NOW.plusSeconds(3));
-        workbench.restartConversation(
-                WorkbenchPhase.REQUIREMENT_ANALYSIS, "analysis-v1-" + id, OWNER,
-                NOW.plusSeconds(4));
-        workbench.bindConversation(
-                WorkbenchPhase.IMPLEMENT_TEST, "implement-v0-" + id, OWNER,
-                NOW.plusSeconds(5));
-        workbench.prepareRun(
-                WorkbenchPhase.IMPLEMENT_TEST, "implement-run-" + id,
-                RunMode.MODIFY_WORKSPACE, OWNER, NOW.plusSeconds(6));
-        return workbench;
+        repository.update(reopened);
+        Workbench restarted = repository.findById(source.getId())
+                .orElseThrow(AssertionError::new);
+        restarted.restartStageConversation(
+                "stage-implementation", "stage-session-1", OWNER,
+                restarted.getVersion(), NOW.plusSeconds(4));
+
+        // When
+        repository.update(restarted);
+        Workbench restored = repository.findById(source.getId())
+                .orElseThrow(AssertionError::new);
+
+        // Then
+        WorkbenchStageState implementation = restored.stage(
+                "stage-implementation");
+        assertEquals(WorkbenchStageStatus.IN_PROGRESS,
+                implementation.getStatus());
+        assertEquals(1, implementation.getConversationGeneration());
+        assertEquals(2, implementation.getConversationHistory().size());
+        assertEquals("stage-session-0", implementation
+                .getConversationHistory().get(0).getConversationId());
+        assertEquals(NOW.plusSeconds(4), implementation
+                .getConversationHistory().get(0).getRetiredAt());
+        assertEquals("stage-session-1",
+                implementation.currentConversation().getConversationId());
+        assertEquals(2, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM workbench_stage_conversation "
+                        + "WHERE workbench_id=? AND stage_instance_identifier=?",
+                Integer.class, source.getId().getValue(),
+                "stage-implementation"));
+        assertEquals(0, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM workbench_stage_conversation "
+                        + "WHERE workbench_id=? AND stage_instance_identifier=?",
+                Integer.class, source.getId().getValue(),
+                "stage-requirement"));
+    }
+
+    @Test
+    void should_RoundTripDynamicStageActiveRunAndWorkbenchWriteLease() {
+        // Given
+        Workbench source = dynamicWorkbench("workbench-dynamic-run");
+        repository.add(source);
+        Workbench bound = repository.findById(source.getId())
+                .orElseThrow(AssertionError::new);
+        bound.bindStageConversation(
+                "stage-implementation", "stage-session-0", OWNER,
+                bound.getVersion(), NOW.plusSeconds(1));
+        repository.update(bound);
+        Workbench prepared = repository.findById(source.getId())
+                .orElseThrow(AssertionError::new);
+
+        // When
+        prepared.prepareStageRun(
+                "stage-implementation", "stage-run-1",
+                RunMode.MODIFY_WORKSPACE, OWNER, prepared.getVersion(),
+                NOW.plusSeconds(2));
+        repository.update(prepared);
+        Workbench restored = repository.findById(source.getId())
+                .orElseThrow(AssertionError::new);
+
+        // Then
+        assertEquals("stage-run-1", restored.stage("stage-implementation")
+                .getActiveRunReference().getRunIdentifier());
+        assertEquals(RunMode.MODIFY_WORKSPACE,
+                restored.stage("stage-implementation")
+                        .getActiveRunReference().getRunMode());
+        assertEquals(restored.stage("stage-implementation")
+                        .getActiveRunReference(),
+                restored.getActiveWriteRunReference());
+        assertEquals("stage-run-1", jdbc.queryForObject(
+                "SELECT active_write_run_id FROM workbench WHERE id=?",
+                String.class, source.getId().getValue()));
+        assertEquals("MODIFY_WORKSPACE", jdbc.queryForObject(
+                "SELECT active_run_mode FROM workbench_stage "
+                        + "WHERE workbench_id=? AND stage_instance_identifier=?",
+                String.class, source.getId().getValue(),
+                "stage-implementation"));
+
+        // When
+        restored.finishStageRun(
+                "stage-implementation", "stage-run-1",
+                NOW.plusSeconds(3));
+        repository.update(restored);
+        Workbench finished = repository.findById(source.getId())
+                .orElseThrow(AssertionError::new);
+
+        // Then
+        assertNull(finished.stage("stage-implementation")
+                .getActiveRunReference());
+        assertNull(finished.getActiveWriteRunReference());
+        assertNull(jdbc.queryForObject(
+                "SELECT active_write_run_id FROM workbench WHERE id=?",
+                String.class, source.getId().getValue()));
+    }
+
+    @Test
+    void should_FailClosed_When_DynamicStageSnapshotJsonOrHashIsCorrupted() {
+        // Given
+        Workbench hashCorrupted = dynamicWorkbench("workbench-stage-hash-corrupted");
+        Workbench jsonCorrupted = dynamicWorkbench("workbench-stage-json-corrupted");
+        repository.add(hashCorrupted);
+        repository.add(jsonCorrupted);
+
+        // When
+        jdbc.update("UPDATE workbench_stage SET stage_snapshot_hash=? "
+                        + "WHERE workbench_id=? AND stage_instance_identifier=?",
+                WorkbenchPersistenceFixtures.HASH_F,
+                hashCorrupted.getId().getValue(), "stage-requirement");
+        jdbc.update("UPDATE workbench_stage SET stage_snapshot_json=? "
+                        + "WHERE workbench_id=? AND stage_instance_identifier=?",
+                "{}", jsonCorrupted.getId().getValue(), "stage-implementation");
+
+        // Then
+        assertThrows(IllegalStateException.class,
+                () -> repository.findById(hashCorrupted.getId()));
+        assertThrows(IllegalStateException.class,
+                () -> repository.findById(jsonCorrupted.getId()));
+    }
+
+    private Workbench dynamicWorkbench(String id) {
+        WorkbenchStageSnapshot requirement = stageSnapshot(
+                "requirement-analysis", 10, "需求分析");
+        WorkbenchStageSnapshot implementation = stageSnapshot(
+                "implementation", 30, "开发测试",
+                Set.of(RunMode.DISCUSS_READ_ONLY,
+                        RunMode.MODIFY_WORKSPACE));
+        return Workbench.create(
+                WorkbenchId.of(id), OWNER, "Dynamic Workbench", "实现动态阶段",
+                AgentType.CODEX, "local", workspace.scope(),
+                workspace.snapshot().reference(),
+                Arrays.asList(
+                        WorkbenchStageState.initial(
+                                "stage-implementation", implementation),
+                        WorkbenchStageState.initial(
+                                "stage-requirement", requirement)),
+                NOW.plusMillis(30));
+    }
+
+    private WorkbenchStageSnapshot stageSnapshot(
+            String definitionIdentifier, int sequenceNumber, String displayName) {
+        return stageSnapshot(definitionIdentifier, sequenceNumber,
+                displayName, Set.of(RunMode.DISCUSS_READ_ONLY));
+    }
+
+    private WorkbenchStageSnapshot stageSnapshot(
+            String definitionIdentifier, int sequenceNumber,
+            String displayName, Set<RunMode> allowedRunModes) {
+        WorkbenchStageCatalog catalog = WorkbenchStageCatalog.empty();
+        StageCatalogEditor administrator =
+                StageCatalogEditor.create("admin-1", "Admin");
+        catalog.createDraft(definitionIdentifier, WorkbenchStageDraftContent.create(
+                        sequenceNumber, displayName, "阶段说明", "阶段规则",
+                        allowedRunModes,
+                        List.of(new StageCommandSelection(
+                                "architecture-review", "1.0.0")),
+                        List.of(new StageSkillSelection(
+                                "domain-modeling-audit", "1.0.0", false)),
+                        List.of(new StageMcpServerSelection(
+                                "repository-query", "1.0.0", true))),
+                administrator, NOW.minusSeconds(2));
+        WorkbenchStageDefinitionRevision revision = catalog.publishDraft(
+                definitionIdentifier, catalog.getCatalogVersion(), 1L,
+                new ResolvedStageCapabilities(
+                        List.of(new StageCommandReference(
+                                "architecture-review", "1.0.0",
+                                WorkbenchPersistenceFixtures.HASH_A)),
+                        List.of(new StageSkillReference(
+                                "domain-modeling-audit", "1.0.0",
+                                WorkbenchPersistenceFixtures.HASH_B, false)),
+                        List.of(new StageMcpServerReference(
+                                "repository-query", "1.0.0",
+                                WorkbenchPersistenceFixtures.HASH_C, true,
+                                CapabilityAccess.READ, "STDIO"))),
+                administrator, NOW.minusSeconds(1));
+        return WorkbenchStageSnapshot.fromPublishedRevision(revision);
+    }
+
+    private void assertStage(
+            WorkbenchStageState expected, WorkbenchStageState actual) {
+        assertEquals(expected.getStageInstanceIdentifier(),
+                actual.getStageInstanceIdentifier());
+        assertEquals(expected.getStatus(), actual.getStatus());
+        assertEquals(expected.getConversationGeneration(),
+                actual.getConversationGeneration());
+        assertEquals(expected.getActiveRunIdentifier(),
+                actual.getActiveRunIdentifier());
+        assertEquals(expected.getActiveRunMode(), actual.getActiveRunMode());
+        assertEquals(expected.getActiveRunReference(),
+                actual.getActiveRunReference());
+        assertEquals(expected.getActiveRunPreparedAt(),
+                actual.getActiveRunPreparedAt());
+        assertEquals(expected.getLastActivityAt(), actual.getLastActivityAt());
+        assertEquals(expected.getCompletedAt(), actual.getCompletedAt());
+        assertSnapshot(expected.getSnapshot(), actual.getSnapshot());
+    }
+
+    private void assertSnapshot(
+            WorkbenchStageSnapshot expected, WorkbenchStageSnapshot actual) {
+        assertEquals(expected.getDefinitionIdentifier(),
+                actual.getDefinitionIdentifier());
+        assertEquals(expected.getDefinitionRevision(), actual.getDefinitionRevision());
+        assertEquals(expected.getDefinitionHash(), actual.getDefinitionHash());
+        assertEquals(expected.getSequenceNumber(), actual.getSequenceNumber());
+        assertEquals(expected.getDisplayName(), actual.getDisplayName());
+        assertEquals(expected.getDescription(), actual.getDescription());
+        assertEquals(expected.getStageRules(), actual.getStageRules());
+        assertEquals(expected.getAllowedRunModes(), actual.getAllowedRunModes());
+        assertEquals(expected.getCommandReferences(), actual.getCommandReferences());
+        assertEquals(expected.getSkillReferences(), actual.getSkillReferences());
+        assertEquals(expected.getMcpServerReferences(), actual.getMcpServerReferences());
+        assertEquals(expected.getSnapshotHash(), actual.getSnapshotHash());
     }
 
     private void assertWorkbench(Workbench expected, Workbench actual) {
@@ -298,20 +386,12 @@ class SqliteWorkbenchRepositoryTest {
         assertEquals(expected.getCreatedAt(), actual.getCreatedAt());
         assertEquals(expected.getUpdatedAt(), actual.getUpdatedAt());
         assertEquals(expected.getVersion(), actual.getVersion());
-        for (WorkbenchPhase phase : WorkbenchPhase.values()) {
-            WorkbenchPhaseState expectedPhase = expected.phase(phase);
-            WorkbenchPhaseState actualPhase = actual.phase(phase);
-            assertEquals(expectedPhase.getStatus(), actualPhase.getStatus());
-            assertEquals(expectedPhase.getConversationGeneration(),
-                    actualPhase.getConversationGeneration());
-            assertEquals(expectedPhase.getConversationHistory(),
-                    actualPhase.getConversationHistory());
-            assertEquals(expectedPhase.getActiveRunReference(),
-                    actualPhase.getActiveRunReference());
-            assertEquals(expectedPhase.getLastActivityAt(), actualPhase.getLastActivityAt());
-            assertEquals(expectedPhase.getCompletedAt(), actualPhase.getCompletedAt());
+        assertEquals(expected.getActiveWriteRunReference(),
+                actual.getActiveWriteRunReference());
+        assertEquals(expected.getStages().size(), actual.getStages().size());
+        for (WorkbenchStageState expectedStage : expected.getStages()) {
+            assertStage(expectedStage, actual.stage(
+                    expectedStage.getStageInstanceIdentifier()));
         }
-        assertEquals(WorkbenchPhaseStatus.IN_PROGRESS,
-                actual.phase(WorkbenchPhase.REQUIREMENT_ANALYSIS).getStatus());
     }
 }

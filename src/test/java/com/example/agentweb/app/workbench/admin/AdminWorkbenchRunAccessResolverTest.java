@@ -6,7 +6,7 @@ import com.example.agentweb.domain.chatrun.ChatRunRepository;
 import com.example.agentweb.domain.chatrun.ExecutionContextReference;
 import com.example.agentweb.domain.chatrun.RunOrigin;
 import com.example.agentweb.domain.workbench.WorkbenchRepository;
-import com.example.agentweb.domain.workbench.WorkbenchRunSnapshotRepository;
+import com.example.agentweb.domain.workbench.WorkbenchStageRunSnapshotRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -18,7 +18,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * Admin Run 控制边界的 exact Workbench/Phase binding 测试。
+ * Admin Run 控制边界的 exact Workbench/Stage binding 测试。
  *
  * @author alex
  * @since 2026-08-01
@@ -26,14 +26,15 @@ import static org.mockito.Mockito.when;
 class AdminWorkbenchRunAccessResolverTest {
 
     private WorkbenchRepository workbenchRepository;
-    private WorkbenchRunSnapshotRepository snapshotRepository;
+    private WorkbenchStageRunSnapshotRepository snapshotRepository;
     private ChatRunRepository runRepository;
     private AdminWorkbenchRunAccessResolver resolver;
 
     @BeforeEach
     void setUp() {
         workbenchRepository = mock(WorkbenchRepository.class);
-        snapshotRepository = mock(WorkbenchRunSnapshotRepository.class);
+        snapshotRepository = mock(
+                WorkbenchStageRunSnapshotRepository.class);
         runRepository = mock(ChatRunRepository.class);
         resolver = new AdminWorkbenchRunAccessResolver(
                 workbenchRepository, snapshotRepository, runRepository);
@@ -58,7 +59,9 @@ class AdminWorkbenchRunAccessResolverTest {
                 ChatRunId.of("run-1"), "session-1", 1L, "submission-1",
                 false, RunOrigin.WORKBENCH,
                 ExecutionContextReference.of(
-                        "another-workbench:REQUIREMENT_ANALYSIS", "run-1"),
+                        "another-workbench:"
+                                + AdminWorkbenchRunTestFixtures.STAGE_IDENTIFIER,
+                        "run-1"),
                 AdminWorkbenchRunTestFixtures.NOW.minusSeconds(2));
         stubExact(mismatched);
 

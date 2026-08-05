@@ -68,20 +68,20 @@ class FileSystemRuleCatalogTest {
         writeRule(
                 "workbench-safety", "platform/workbench-safety", "1.0.0",
                 "PLATFORM", true, "公共安全边界",
-                Collections.singletonList("IMPLEMENT_TEST"),
+                Collections.singletonList("WORKBENCH_STAGE"),
                 "rules", "rules.md", true);
         writeRule(
                 "workbench-tdd", "workbench/tdd-minimal-change", "1.0.0",
                 "PLATFORM", true, "TDD 与最小修改",
-                Collections.singletonList("IMPLEMENT_TEST"),
+                Collections.singletonList("WORKBENCH_STAGE"),
                 "rules", "rules.md", true);
 
         FileSystemRuleCatalog catalog = new FileSystemRuleCatalog(tempDir);
         RuleDefinition safety = catalog.resolveById("platform/workbench-safety");
         RuleDefinition tdd = catalog.resolveById("workbench/tdd-minimal-change");
 
-        assertTrue(safety.supports("IMPLEMENT_TEST"));
-        assertTrue(tdd.supports("IMPLEMENT_TEST"));
+        assertTrue(safety.supports("WORKBENCH_STAGE"));
+        assertTrue(tdd.supports("WORKBENCH_STAGE"));
         assertEquals("platform/workbench-safety", safety.getId());
         assertEquals("workbench/tdd-minimal-change", tdd.getId());
     }
@@ -119,7 +119,7 @@ class FileSystemRuleCatalogTest {
         writeRule(
                 "escaping", "workbench/tdd-minimal-change", "1.0.0",
                 "PLATFORM", true, "Escaping resource",
-                Collections.singletonList("IMPLEMENT_TEST"),
+                Collections.singletonList("WORKBENCH_STAGE"),
                 "rules", "../outside.md", false);
 
         CapabilityCatalogException escape = assertThrows(
@@ -132,7 +132,7 @@ class FileSystemRuleCatalogTest {
         writeRule(
                 "missing", "workbench/human-opinion-first", "1.0.0",
                 "PLATFORM", true, "Missing resource",
-                Collections.singletonList("REVIEW_REFACTOR"),
+                Collections.singletonList("WORKBENCH_STAGE"),
                 "rules", "missing.md", false);
         CapabilityCatalogException missing = assertThrows(
                 CapabilityCatalogException.class,

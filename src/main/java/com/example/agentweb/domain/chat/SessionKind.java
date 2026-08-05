@@ -8,5 +8,5 @@ package com.example.agentweb.domain.chat;
  */
 public enum SessionKind {
     CHAT,
-    WORKBENCH_PHASE
+    WORKBENCH_STAGE
 }

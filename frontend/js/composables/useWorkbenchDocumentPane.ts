@@ -56,7 +56,6 @@ import {
   type WorkbenchDocumentViewState,
 } from '../lib/workbench-document-state';
 import { workbenchInlineImagePreviewSource } from '../lib/workbench-document-renderer';
-import type { WorkbenchPhase } from '../lib/workbench-state';
 
 const MOBILE_VIEWPORT_QUERY = '(max-width: 820px)';
 
@@ -95,7 +94,7 @@ export interface WorkbenchDocumentFileChangedEvent {
 interface UseWorkbenchDocumentPaneOptions {
   userId: Readonly<Ref<string>>;
   workbenchId: Readonly<Ref<string | null>>;
-  phase: Readonly<Ref<WorkbenchPhase>>;
+  stageInstanceIdentifier: Readonly<Ref<string | null>>;
   repositories?: Readonly<Ref<ReadonlyArray<WorkbenchDocumentRepositoryScopeItem>>>;
   apiClient?: WorkbenchDocumentApiClient;
   saveDownload?: WorkbenchDocumentDownloadSaver;
@@ -136,6 +135,7 @@ export interface UseWorkbenchDocumentPane {
   openDirectory: (relativePath: string) => Promise<void>;
   navigateToParentDirectory: () => Promise<void>;
   openDocument: (reference: DocumentReference) => Promise<void>;
+  closeDocument: () => void;
   refreshDocument: () => Promise<void>;
   downloadCurrent: () => Promise<void>;
   updateDocumentScrollTop: (scrollTop: number) => void;
@@ -151,6 +151,21 @@ function initialSessionState(): WorkbenchDocumentSessionState {
     currentDocument: null,
     recentDocuments: [],
   };
+}
+
+function currentDocumentStorageIdentity(
+  options: UseWorkbenchDocumentPaneOptions,
+): Pick<WorkbenchDocumentStorageIdentity, 'stageInstanceIdentifier'> | null {
+  const stageInstanceIdentifier =
+    options.stageInstanceIdentifier.value?.trim();
+  return stageInstanceIdentifier ? { stageInstanceIdentifier } : null;
+}
+
+function sameDocumentStorageIdentity(
+  left: Pick<WorkbenchDocumentStorageIdentity, 'stageInstanceIdentifier'>,
+  right: Pick<WorkbenchDocumentStorageIdentity, 'stageInstanceIdentifier'>,
+): boolean {
+  return left.stageInstanceIdentifier === right.stageInstanceIdentifier;
 }
 
 function browserStorage(): StorageLike | undefined {
@@ -362,6 +377,10 @@ export function useWorkbenchDocumentPane(
     activeInlineImageUrl = url;
     inlineImageEtag = etag;
     if (previous && previous !== url) safelyRevokeInlineImageUrl(previous);
+  }
+
+  function closeDocument(): void {
+    currentDocument.value = null;
   }
 
   function clearDocumentRequestState(): void {
@@ -615,7 +634,8 @@ export function useWorkbenchDocumentPane(
     clearDocumentRequestState();
     const userId = options.userId.value;
     const workbenchId = options.workbenchId.value;
-    if (!storage || !userId || !workbenchId) {
+    const storageIdentity = currentDocumentStorageIdentity(options);
+    if (!storage || !userId || !workbenchId || !storageIdentity) {
       retainedState = initialSessionState();
       applyLayout(layoutForViewport(retainedState.layout), false);
       void initializeDocumentScope(epoch);
@@ -624,7 +644,7 @@ export function useWorkbenchDocumentPane(
     const restored = restoreWorkbenchDocumentPaneSession(storage, {
       userId,
       workbenchId,
-      phase: options.phase.value,
+      ...storageIdentity,
     }, isMobile.value);
     activeStore = restored.store;
     retainedState = restored.state;
@@ -758,11 +778,12 @@ export function useWorkbenchDocumentPane(
   ): WorkbenchDocumentEventScope | null {
     const userId = options.userId.value;
     const workbenchId = options.workbenchId.value;
-    if (!userId || !workbenchId) return null;
+    const storageIdentity = currentDocumentStorageIdentity(options);
+    if (!userId || !workbenchId || !storageIdentity) return null;
     return Object.freeze({
       userId,
       workbenchId,
-      phase: options.phase.value,
+      ...storageIdentity,
       generation,
     });
   }
@@ -771,12 +792,14 @@ export function useWorkbenchDocumentPane(
     scope: WorkbenchDocumentEventScope | null,
     event: WorkbenchDocumentFileChangedEvent,
   ): boolean {
+    const storageIdentity = currentDocumentStorageIdentity(options);
     if (!scope
       || scope !== documentEventScope.value
       || scope.generation !== scopeEpoch
       || scope.userId !== options.userId.value
       || scope.workbenchId !== options.workbenchId.value
-      || scope.phase !== options.phase.value
+      || !storageIdentity
+      || !sameDocumentStorageIdentity(scope, storageIdentity)
       || !event
       || !currentDocument.value) {
       return false;
@@ -893,7 +916,7 @@ export function useWorkbenchDocumentPane(
 
   watch(options.userId, restoreIdentity, { flush: 'sync' });
   watch(options.workbenchId, restoreIdentity, { flush: 'sync' });
-  watch(options.phase, restoreIdentity, { flush: 'sync' });
+  watch(options.stageInstanceIdentifier, restoreIdentity, { flush: 'sync' });
   if (options.repositories) {
     watch(options.repositories, restoreIdentity, { flush: 'sync', deep: true });
   }
@@ -953,6 +976,7 @@ export function useWorkbenchDocumentPane(
     openDocument,
     refreshDocument,
     downloadCurrent,
+    closeDocument,
     updateDocumentScrollTop,
     receiveDocumentFileChanged,
   };

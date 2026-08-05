@@ -12,6 +12,14 @@ import com.example.agentweb.domain.workbench.WorkbenchCreationReceipt;
 import com.example.agentweb.domain.workbench.WorkbenchCreationRepository;
 import com.example.agentweb.domain.workbench.WorkbenchId;
 import com.example.agentweb.domain.workbench.WorkbenchRepository;
+import com.example.agentweb.domain.workbench.RunMode;
+import com.example.agentweb.domain.workbench.stage.ResolvedStageCapabilities;
+import com.example.agentweb.domain.workbench.stage.StageCatalogEditor;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageCatalog;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageCatalogRepository;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageDraftContent;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageSnapshot;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageState;
 import com.example.agentweb.domain.workspace.RepositoryBaseline;
 import com.example.agentweb.domain.workspace.RepositoryScope;
 import com.example.agentweb.domain.workspace.RepositorySelection;
@@ -31,6 +39,7 @@ import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -62,6 +71,8 @@ class WorkbenchCreationAppServiceTest {
     private WorkspaceSnapshotGateway snapshotGateway;
     private WorkbenchIdGenerator workbenchIdGenerator;
     private WorkspaceSnapshotIdGenerator snapshotIdGenerator;
+    private WorkbenchStageCatalogRepository stageCatalogRepository;
+    private WorkbenchStageInstanceIdentifierGenerator stageInstanceIdentifierGenerator;
     private AgentCatalogService agentCatalogService;
     private WorkbenchCreationCommitter committer;
     private WorkbenchReleasePolicy releasePolicy;
@@ -76,13 +87,20 @@ class WorkbenchCreationAppServiceTest {
         snapshotGateway = mock(WorkspaceSnapshotGateway.class);
         workbenchIdGenerator = mock(WorkbenchIdGenerator.class);
         snapshotIdGenerator = mock(WorkspaceSnapshotIdGenerator.class);
+        stageCatalogRepository = mock(WorkbenchStageCatalogRepository.class);
+        stageInstanceIdentifierGenerator = mock(
+                WorkbenchStageInstanceIdentifierGenerator.class);
         agentCatalogService = mock(AgentCatalogService.class);
         committer = mock(WorkbenchCreationCommitter.class);
         releasePolicy = mock(WorkbenchReleasePolicy.class);
         telemetry = mock(WorkbenchTelemetry.class);
+        when(stageCatalogRepository.find()).thenReturn(stageCatalog());
+        when(stageInstanceIdentifierGenerator.nextIdentifier())
+                .thenReturn("stage-requirement", "stage-implementation");
         service = new WorkbenchCreationAppService(
                 creationRepository, workbenchRepository, scopeGateway, snapshotGateway,
-                workbenchIdGenerator, snapshotIdGenerator, committer, agentCatalogService,
+                workbenchIdGenerator, snapshotIdGenerator, stageCatalogRepository,
+                stageInstanceIdentifierGenerator, committer, agentCatalogService,
                 releasePolicy, telemetry,
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
@@ -99,6 +117,7 @@ class WorkbenchCreationAppServiceTest {
         verifyNoInteractions(
                 creationRepository, workbenchRepository, scopeGateway,
                 snapshotGateway, workbenchIdGenerator, snapshotIdGenerator,
+                stageCatalogRepository, stageInstanceIdentifierGenerator,
                 committer, agentCatalogService);
         verify(telemetry, times(1)).workbenchCreated("FAILED");
     }
@@ -119,7 +138,8 @@ class WorkbenchCreationAppServiceTest {
         assertEquals("workbench-existing", result.getWorkbenchId());
         assertTrue(result.isReplayed());
         verifyNoInteractions(scopeGateway, snapshotGateway, workbenchIdGenerator,
-                snapshotIdGenerator, committer, agentCatalogService);
+                snapshotIdGenerator, stageCatalogRepository,
+                stageInstanceIdentifierGenerator, committer, agentCatalogService);
         verify(telemetry, times(1)).workbenchCreated("REPLAYED");
     }
 
@@ -155,6 +175,10 @@ class WorkbenchCreationAppServiceTest {
         assertEquals(command.getRequestHash(),
                 prepared.getValue().getReceipt().getRequestHash());
         assertEquals(scope, prepared.getValue().getWorkbench().getRepositoryScope());
+        assertEquals(Arrays.asList("requirement-analysis", "implementation"),
+                prepared.getValue().getWorkbench().getStages().stream()
+                        .map(stage -> stage.getSnapshot().getDefinitionIdentifier())
+                        .toList());
         InOrder order = inOrder(scopeGateway, snapshotGateway, committer);
         order.verify(scopeGateway).resolve(
                 command.getWorkspaceRoot(), command.getRepositorySelection());
@@ -268,7 +292,32 @@ class WorkbenchCreationAppServiceTest {
         return new CreateWorkbenchCommand(
                 "create-key-1", "Workbench MVP", "实现本地开发工作台",
                 AgentType.CODEX, "local", "/workspace", "agent-web",
-                Arrays.asList("agent-web", "shared-library"));
+                Arrays.asList("agent-web", "shared-library"),
+                Arrays.asList("implementation", "requirement-analysis"), 3L);
+    }
+
+    private static WorkbenchStageCatalog stageCatalog() {
+        WorkbenchStageCatalog catalog = WorkbenchStageCatalog.empty();
+        publishStage(catalog, "implementation", 30, "开发测试");
+        publishStage(catalog, "requirement-analysis", 10, "需求分析");
+        return catalog;
+    }
+
+    private static void publishStage(
+            WorkbenchStageCatalog catalog, String identifier,
+            int sequenceNumber, String displayName) {
+        StageCatalogEditor editor = StageCatalogEditor.create("admin-1", "Admin");
+        catalog.createDraft(identifier, WorkbenchStageDraftContent.create(
+                        sequenceNumber, displayName, "阶段说明", "阶段规则",
+                        Set.of(RunMode.DISCUSS_READ_ONLY), Collections.emptyList(),
+                        Collections.emptyList(), Collections.emptyList()),
+                editor, NOW.minusSeconds(60));
+        catalog.publishDraft(identifier, catalog.getCatalogVersion(),
+                catalog.requireDefinition(identifier).getVersion(),
+                new ResolvedStageCapabilities(
+                        Collections.emptyList(), Collections.emptyList(),
+                        Collections.emptyList()),
+                editor, NOW.minusSeconds(30));
     }
 
     private static RepositoryScope scope() {
@@ -303,10 +352,20 @@ class WorkbenchCreationAppServiceTest {
 
     private static Workbench workbench(
             String workbenchId, RepositoryScope scope, WorkspaceSnapshot snapshot) {
+        WorkbenchStageCatalog catalog = stageCatalog();
         return Workbench.create(
                 WorkbenchId.of(workbenchId), OWNER,
                 "Workbench MVP", "实现本地开发工作台", AgentType.CODEX, "local",
-                scope, snapshot.reference(), NOW);
+                scope, snapshot.reference(), Collections.singletonList(
+                        WorkbenchStageState.initial(
+                                "stage-implementation",
+                                WorkbenchStageSnapshot.fromPublishedRevision(
+                                        catalog.selectPublishedRevisions(
+                                                Collections.singletonList(
+                                                        "implementation"),
+                                                catalog.getCatalogVersion())
+                                                .get(0)))),
+                NOW);
     }
 
     private static String repeat(char value) {

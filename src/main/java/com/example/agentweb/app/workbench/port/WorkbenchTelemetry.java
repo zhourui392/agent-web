@@ -1,9 +1,7 @@
 package com.example.agentweb.app.workbench.port;
 
 import com.example.agentweb.app.workbench.document.DocumentKind;
-import com.example.agentweb.domain.workbench.HighImpactOperationType;
 import com.example.agentweb.domain.workbench.RunMode;
-import com.example.agentweb.domain.workbench.WorkbenchPhase;
 
 import java.time.Duration;
 
@@ -18,8 +16,7 @@ public interface WorkbenchTelemetry {
     void workbenchCreated(String result);
 
     void runTerminal(
-            WorkbenchPhase phase, RunMode mode,
-            String status, Duration duration);
+            RunMode mode, String status, Duration duration);
 
     void writeConflict();
 
@@ -34,10 +31,6 @@ public interface WorkbenchTelemetry {
     void workspaceScopeViolation();
 
     void documentRead(DocumentKind kind, String result);
-
-    void handoffConflict();
-
-    void operation(HighImpactOperationType type, String status);
 
     void recoveryReconciliation(String result);
 }

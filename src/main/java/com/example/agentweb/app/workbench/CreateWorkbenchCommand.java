@@ -9,6 +9,8 @@ import lombok.Getter;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -20,7 +22,7 @@ import java.util.List;
 @Getter
 public final class CreateWorkbenchCommand {
 
-    private static final String HASH_SCHEMA = "workbench-create-request@1";
+    private static final String HASH_SCHEMA = "workbench-create-request@2";
 
     private final String idempotencyKey;
     private final String title;
@@ -29,12 +31,16 @@ public final class CreateWorkbenchCommand {
     private final String environment;
     private final String workspaceRoot;
     private final RepositorySelection repositorySelection;
+    private final List<String> stageDefinitionIdentifiers;
+    private final long expectedStageCatalogVersion;
     private final String requestHash;
 
     public CreateWorkbenchCommand(
             String idempotencyKey, String title, String originalGoal,
             AgentType agentType, String environment, String workspaceRoot,
-            String primaryRepositoryKey, List<String> repositoryKeys) {
+            String primaryRepositoryKey, List<String> repositoryKeys,
+            List<String> stageDefinitionIdentifiers,
+            long expectedStageCatalogVersion) {
         this.idempotencyKey = DomainText.require(
                 idempotencyKey, "workbench creation idempotency key", 128);
         this.title = DomainText.require(title, "workbench title", 512);
@@ -48,6 +54,13 @@ public final class CreateWorkbenchCommand {
         this.workspaceRoot = normalizeAbsolutePath(workspaceRoot);
         this.repositorySelection = RepositorySelection.of(
                 primaryRepositoryKey, repositoryKeys);
+        this.stageDefinitionIdentifiers = normalizeStageDefinitions(
+                stageDefinitionIdentifiers);
+        if (expectedStageCatalogVersion < 1L) {
+            throw new IllegalArgumentException(
+                    "expected Stage Catalog version must be positive");
+        }
+        this.expectedStageCatalogVersion = expectedStageCatalogVersion;
         this.requestHash = computeRequestHash();
     }
 
@@ -66,7 +79,27 @@ public final class CreateWorkbenchCommand {
             CanonicalHashing.appendFramed(
                     canonical, "repositoryKey", repositoryKey);
         }
+        CanonicalHashing.appendFramed(canonical, "stageCatalogVersion",
+                expectedStageCatalogVersion);
+        for (String definitionIdentifier : stageDefinitionIdentifiers) {
+            CanonicalHashing.appendFramed(
+                    canonical, "stageDefinitionIdentifier", definitionIdentifier);
+        }
         return CanonicalHashing.sha256(canonical.toString());
+    }
+
+    private static List<String> normalizeStageDefinitions(List<String> source) {
+        if (source == null || source.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "at least one Stage Definition must be selected");
+        }
+        List<String> normalized = new ArrayList<String>(source.size());
+        for (String identifier : source) {
+            normalized.add(DomainText.require(
+                    identifier, "Stage Definition identifier", 128));
+        }
+        Collections.sort(normalized);
+        return Collections.unmodifiableList(normalized);
     }
 
     private static String normalizeOptional(String value) {

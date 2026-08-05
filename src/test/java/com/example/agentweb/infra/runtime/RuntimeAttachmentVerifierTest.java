@@ -77,10 +77,16 @@ class RuntimeAttachmentVerifierTest {
         Path attachment = repository.resolve("docs/design.md");
         byte[] original = "approved".getBytes(StandardCharsets.UTF_8);
         Files.write(attachment, original);
+        // Use delete + move-from-sibling instead of delete + write-in-place:
+        // on ext4, immediate delete+write can reuse the same inode and
+        // timestamps, making the replacement undetectable by metadata checks.
+        // Moving from a sibling guarantees a different inode.
         RuntimeAttachmentVerifier verifier = new RuntimeAttachmentVerifier(
                 path -> {
+                    Path sibling = path.resolveSibling("replacement.tmp");
+                    Files.write(sibling, original);
                     Files.delete(path);
-                    Files.write(path, original);
+                    Files.move(sibling, path);
                 });
 
         assertThrows(IllegalStateException.class,

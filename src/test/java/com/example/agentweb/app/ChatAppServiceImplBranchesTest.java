@@ -108,11 +108,11 @@ class ChatAppServiceImplBranchesTest {
 
     @Test
     void listCommandsShouldHideWorkbenchSessionBeforeScanningWorkspace() {
-        when(sessionCache.find("phase-session"))
-                .thenReturn(workbenchSession("phase-session"));
+        when(sessionCache.find("stage-session"))
+                .thenReturn(workbenchSession("stage-session"));
 
         assertThrows(ChatSessionNotFoundException.class,
-                () -> service.listCommands("phase-session"));
+                () -> service.listCommands("stage-session"));
 
         verifyNoInteractions(commandExpander);
     }
@@ -151,12 +151,12 @@ class ChatAppServiceImplBranchesTest {
 
     @Test
     void sendMessageShouldHideWorkbenchSessionBeforeMessageOrGatewaySideEffects() {
-        when(sessionCache.find("phase-session"))
-                .thenReturn(workbenchSession("phase-session"));
+        when(sessionCache.find("stage-session"))
+                .thenReturn(workbenchSession("stage-session"));
 
         assertThrows(ChatSessionNotFoundException.class,
                 () -> service.sendMessage(
-                        "phase-session", new SendMessageCommand("question")));
+                        "stage-session", new SendMessageCommand("question")));
 
         verify(sessionRepository, never()).addMessage(anyString(), any(ChatMessage.class));
         verifyNoInteractions(gateway);
@@ -244,11 +244,11 @@ class ChatAppServiceImplBranchesTest {
 
     @Test
     void truncateShouldHideWorkbenchSessionBeforeRunCheckOrPersistence() {
-        when(sessionRepository.findById("phase-session"))
-                .thenReturn(workbenchSession("phase-session"));
+        when(sessionRepository.findById("stage-session"))
+                .thenReturn(workbenchSession("stage-session"));
 
         assertThrows(ChatSessionNotFoundException.class,
-                () -> service.truncateFrom("phase-session", 1L));
+                () -> service.truncateFrom("stage-session", 1L));
 
         verifyNoInteractions(chatRunActivityGuard);
         verify(sessionRepository, never()).truncateFrom(anyString(), anyLong());
@@ -320,9 +320,10 @@ class ChatAppServiceImplBranchesTest {
     }
 
     private ChatSession workbenchSession(String id) {
-        return ChatSession.createWorkbenchPhase(
+        return ChatSession.createWorkbenchStage(
                 id, AgentType.CODEX, "/tmp/wd",
-                "workbench-1:IMPLEMENT_TEST", "owner-1", "Alex", Instant.now());
+                "workbench-1:stage-implementation",
+                "owner-1", "Alex", Instant.now());
     }
 
     private ChatSession sessionWithMessages(String id, String workingDir, ChatMessage... messages) {

@@ -15,6 +15,7 @@ import java.util.regex.Pattern;
 public final class EnvironmentRuntimeSecretResolver
         implements RuntimeSecretResolver {
 
+    private static final String ENVIRONMENT_REFERENCE_PREFIX = "environment:";
     private static final Pattern ENVIRONMENT_VARIABLE =
             Pattern.compile("[A-Za-z_][A-Za-z0-9_]{0,159}");
 
@@ -31,17 +32,29 @@ public final class EnvironmentRuntimeSecretResolver
 
     @Override
     public char[] resolve(String reference) {
-        if (reference == null
-                || !ENVIRONMENT_VARIABLE.matcher(reference.trim()).matches()) {
-            throw new IllegalArgumentException(
-                    "runtime Secret reference must be an environment variable name");
-        }
-        String value = environmentSource.resolve(reference.trim());
+        String environmentVariable = environmentVariable(reference);
+        String value = environmentSource.resolve(environmentVariable);
         if (value == null || value.isEmpty()) {
             throw new IllegalStateException(
                     "required runtime Secret reference is unavailable");
         }
         return value.toCharArray();
+    }
+
+    private String environmentVariable(String reference) {
+        if (reference == null) {
+            throw new IllegalArgumentException(
+                    "runtime Secret reference must be an environment variable name");
+        }
+        String normalized = reference.trim();
+        if (normalized.startsWith(ENVIRONMENT_REFERENCE_PREFIX)) {
+            normalized = normalized.substring(ENVIRONMENT_REFERENCE_PREFIX.length());
+        }
+        if (!ENVIRONMENT_VARIABLE.matcher(normalized).matches()) {
+            throw new IllegalArgumentException(
+                    "runtime Secret reference must be an environment variable name");
+        }
+        return normalized;
     }
 
     /**

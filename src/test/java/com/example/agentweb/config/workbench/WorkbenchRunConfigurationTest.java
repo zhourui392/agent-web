@@ -26,7 +26,7 @@ class WorkbenchRunConfigurationTest {
     void availabilityShouldRequireExplicitCommonRuntimeEnablement() {
         CommonRuntimeProperties runtime = new CommonRuntimeProperties();
         WorkbenchReleasePolicy release = new WorkbenchReleasePolicy(
-                true, false, false, false, false, false, false);
+                true, false, false);
         WorkbenchRunAvailability availability =
                 new WorkbenchRunConfiguration()
                         .workbenchRunAvailability(runtime, release);
@@ -42,7 +42,7 @@ class WorkbenchRunConfigurationTest {
                         RunMode.MODIFY_WORKSPACE));
 
         WorkbenchReleasePolicy writeEnabled = new WorkbenchReleasePolicy(
-                true, false, true, false, false, false, false);
+                true, false, true);
         WorkbenchRunAvailability writeAvailability =
                 new WorkbenchRunConfiguration()
                         .workbenchRunAvailability(runtime, writeEnabled);

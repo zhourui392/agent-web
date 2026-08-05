@@ -2,7 +2,6 @@ package com.example.agentweb.app.workbench.admin;
 
 import com.example.agentweb.domain.chatrun.ChatRunStatus;
 import com.example.agentweb.domain.workbench.RunMode;
-import com.example.agentweb.domain.workbench.WorkbenchPhase;
 import lombok.Getter;
 
 /**
@@ -16,7 +15,7 @@ public final class AdminWorkbenchRunDetailView {
 
     private final String runId;
     private final String workbenchId;
-    private final WorkbenchPhase phase;
+    private final String stageInstanceIdentifier;
     private final ChatRunStatus status;
     private final RunMode runMode;
     private final long lastEventSeq;
@@ -32,7 +31,8 @@ public final class AdminWorkbenchRunDetailView {
     private final boolean runtimeHandlePresent;
 
     public AdminWorkbenchRunDetailView(
-            String runId, String workbenchId, WorkbenchPhase phase,
+            String runId, String workbenchId,
+            String stageInstanceIdentifier,
             ChatRunStatus status, RunMode runMode, long lastEventSeq,
             long createdAt, Long startedAt, Long cancelRequestedAt,
             Long finishedAt, Integer exitCode, String failureCode,
@@ -40,7 +40,7 @@ public final class AdminWorkbenchRunDetailView {
             String promptHash, boolean runtimeHandlePresent) {
         this.runId = runId;
         this.workbenchId = workbenchId;
-        this.phase = phase;
+        this.stageInstanceIdentifier = stageInstanceIdentifier;
         this.status = status;
         this.runMode = runMode;
         this.lastEventSeq = lastEventSeq;

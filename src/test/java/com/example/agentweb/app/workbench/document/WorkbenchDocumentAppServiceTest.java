@@ -11,6 +11,14 @@ import com.example.agentweb.domain.workbench.OwnerReference;
 import com.example.agentweb.domain.workbench.Workbench;
 import com.example.agentweb.domain.workbench.WorkbenchId;
 import com.example.agentweb.domain.workbench.WorkbenchRepository;
+import com.example.agentweb.domain.workbench.RunMode;
+import com.example.agentweb.domain.workbench.stage.ResolvedStageCapabilities;
+import com.example.agentweb.domain.workbench.stage.StageCatalogEditor;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageCatalog;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageDefinitionRevision;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageDraftContent;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageSnapshot;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageState;
 import com.example.agentweb.domain.workspace.RepositoryScope;
 import com.example.agentweb.domain.workspace.RepositorySelection;
 import com.example.agentweb.domain.workspace.ResolvedRepository;
@@ -201,7 +209,31 @@ class WorkbenchDocumentAppServiceTest {
                 repeat('2'), 1);
         return Workbench.create(
                 WORKBENCH_ID, OWNER, "Workbench", "Read documents",
-                AgentType.CODEX, "local", scope, snapshot, NOW);
+                AgentType.CODEX, "local", scope, snapshot,
+                Collections.singletonList(stageState()), NOW);
+    }
+
+    private static WorkbenchStageState stageState() {
+        WorkbenchStageCatalog catalog = WorkbenchStageCatalog.empty();
+        StageCatalogEditor editor = StageCatalogEditor.create(
+                "admin-1", "Admin");
+        catalog.createDraft(
+                "document-review",
+                WorkbenchStageDraftContent.create(
+                        10, "文档审阅", "读取仓库文档", "仅在冻结范围内读取",
+                        Collections.singleton(RunMode.DISCUSS_READ_ONLY),
+                        Collections.emptyList(), Collections.emptyList(),
+                        Collections.emptyList()),
+                editor, NOW.minusSeconds(1));
+        WorkbenchStageDefinitionRevision revision = catalog.publishDraft(
+                "document-review", catalog.getCatalogVersion(), 1L,
+                new ResolvedStageCapabilities(
+                        Collections.emptyList(), Collections.emptyList(),
+                        Collections.emptyList()),
+                editor, NOW);
+        return WorkbenchStageState.initial(
+                "stage-document-review",
+                WorkbenchStageSnapshot.fromPublishedRevision(revision));
     }
 
     private static String repeat(char value) {

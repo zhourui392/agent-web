@@ -4,9 +4,7 @@ import com.example.agentweb.app.runtime.port.RuntimePreflightException;
 import com.example.agentweb.app.workbench.WorkbenchNotFoundException;
 import com.example.agentweb.app.workbench.WorkspaceFailureCode;
 import com.example.agentweb.app.workbench.WorkspaceOperationException;
-import com.example.agentweb.app.workbench.query.PhaseConversationMessageTooLargeException;
-import com.example.agentweb.app.workbench.capability.PhaseCapabilityApplicationErrorCode;
-import com.example.agentweb.app.workbench.capability.PhaseCapabilityApplicationException;
+import com.example.agentweb.app.workbench.query.WorkbenchStageConversationMessageTooLargeException;
 import com.example.agentweb.app.workbench.attachment.UploadedAttachmentStorageException;
 import com.example.agentweb.app.workbench.document.DocumentFailureCode;
 import com.example.agentweb.app.workbench.document.DocumentOperationException;
@@ -17,6 +15,7 @@ import com.example.agentweb.domain.capability.CapabilityCatalogException;
 import com.example.agentweb.domain.capability.CapabilityResolutionException;
 import com.example.agentweb.domain.workbench.WorkbenchDomainException;
 import com.example.agentweb.domain.workbench.WorkbenchErrorCode;
+import com.example.agentweb.domain.workbench.stage.StageCatalogException;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
@@ -45,9 +44,6 @@ public class WorkbenchExceptionHandler {
             workbenchStatusByCode();
     private static final Map<DocumentFailureCode, HttpStatus> DOCUMENT_STATUS_BY_CODE =
             documentStatusByCode();
-    private static final Map<PhaseCapabilityApplicationErrorCode,
-            CapabilityErrorContract> CAPABILITY_APPLICATION_ERROR_BY_CODE =
-            capabilityApplicationErrorByCode();
     private static final Map<String, CapabilityErrorContract>
             CAPABILITY_RESOLUTION_ERROR_BY_CODE =
             capabilityResolutionErrorByCode();
@@ -107,11 +103,11 @@ public class WorkbenchExceptionHandler {
         return ResponseEntity.status(HttpStatus.GONE).body(body);
     }
 
-    @ExceptionHandler(PhaseConversationMessageTooLargeException.class)
-    public ResponseEntity<Map<String, Object>> handlePhaseMessageTooLarge(
-            PhaseConversationMessageTooLargeException exception) {
+    @ExceptionHandler(WorkbenchStageConversationMessageTooLargeException.class)
+    public ResponseEntity<Map<String, Object>> handleStageMessageTooLarge(
+            WorkbenchStageConversationMessageTooLargeException exception) {
         return error(HttpStatus.PAYLOAD_TOO_LARGE,
-                "WORKBENCH_PHASE_MESSAGE_TOO_LARGE",
+                "WORKBENCH_STAGE_MESSAGE_TOO_LARGE",
                 exception.getMessage());
     }
 
@@ -137,14 +133,6 @@ public class WorkbenchExceptionHandler {
                 exception.getCode().name(), exception.getMessage());
     }
 
-    @ExceptionHandler(PhaseCapabilityApplicationException.class)
-    public ResponseEntity<Map<String, Object>> handleCapabilityApplication(
-            PhaseCapabilityApplicationException exception) {
-        CapabilityErrorContract contract =
-                CAPABILITY_APPLICATION_ERROR_BY_CODE.get(exception.getCode());
-        return error(contract.status, contract.code, exception.getMessage());
-    }
-
     @ExceptionHandler(CapabilityResolutionException.class)
     public ResponseEntity<Map<String, Object>> handleCapabilityResolution(
             CapabilityResolutionException exception) {
@@ -158,7 +146,14 @@ public class WorkbenchExceptionHandler {
     public ResponseEntity<Map<String, Object>> handleCapabilityCatalog(
             CapabilityCatalogException exception) {
         return error(PROFILE_UNAVAILABLE.status, PROFILE_UNAVAILABLE.code,
-                "phase capability profile is unavailable");
+                "Workbench capability catalog is unavailable");
+    }
+
+    @ExceptionHandler(StageCatalogException.class)
+    public ResponseEntity<Map<String, Object>> handleStageSelection(
+            StageCatalogException exception) {
+        return error(stageSelectionStatus(exception.getCode()),
+                exception.getCode(), exception.getMessage());
     }
 
     private ResponseEntity<Map<String, Object>> error(
@@ -167,6 +162,16 @@ public class WorkbenchExceptionHandler {
         body.put("code", code);
         body.put("message", message);
         return ResponseEntity.status(status).body(body);
+    }
+
+    private HttpStatus stageSelectionStatus(String code) {
+        if ("WORKBENCH_STAGE_CATALOG_CHANGED".equals(code)) {
+            return HttpStatus.CONFLICT;
+        }
+        if ("WORKBENCH_STAGE_NOT_SELECTABLE".equals(code)) {
+            return HttpStatus.UNPROCESSABLE_ENTITY;
+        }
+        return HttpStatus.BAD_REQUEST;
     }
 
     private static Map<WorkspaceFailureCode, HttpStatus> statusByCode() {
@@ -205,10 +210,11 @@ public class WorkbenchExceptionHandler {
         statuses.put(WorkbenchErrorCode.REQUEST_INVALID, HttpStatus.BAD_REQUEST);
         statuses.put(WorkbenchErrorCode.OWNER_REQUIRED, HttpStatus.NOT_FOUND);
         statuses.put(WorkbenchErrorCode.ARCHIVED, HttpStatus.GONE);
-        statuses.put(WorkbenchErrorCode.PHASE_RUN_ACTIVE, HttpStatus.CONFLICT);
         statuses.put(WorkbenchErrorCode.WRITE_RUN_ACTIVE, HttpStatus.CONFLICT);
-        statuses.put(WorkbenchErrorCode.PHASE_RESTART_INVALID, HttpStatus.CONFLICT);
-        statuses.put(WorkbenchErrorCode.PHASE_TRANSITION_INVALID, HttpStatus.CONFLICT);
+        statuses.put(WorkbenchErrorCode.STAGE_NOT_FOUND, HttpStatus.NOT_FOUND);
+        statuses.put(WorkbenchErrorCode.STAGE_RUN_ACTIVE, HttpStatus.CONFLICT);
+        statuses.put(WorkbenchErrorCode.STAGE_RESTART_INVALID, HttpStatus.CONFLICT);
+        statuses.put(WorkbenchErrorCode.STAGE_TRANSITION_INVALID, HttpStatus.CONFLICT);
         statuses.put(WorkbenchErrorCode.RUN_MODE_FORBIDDEN, HttpStatus.FORBIDDEN);
         statuses.put(WorkbenchErrorCode.CONVERSATION_CONFLICT, HttpStatus.CONFLICT);
         statuses.put(WorkbenchErrorCode.REPOSITORY_SCOPE_INVALID,
@@ -216,8 +222,6 @@ public class WorkbenchExceptionHandler {
         statuses.put(WorkbenchErrorCode.IDEMPOTENCY_CONFLICT, HttpStatus.CONFLICT);
         statuses.put(WorkbenchErrorCode.RUN_BINDING_CORRUPTED,
                 HttpStatus.INTERNAL_SERVER_ERROR);
-        statuses.put(WorkbenchErrorCode.HANDOFF_SECRET_DETECTED,
-                HttpStatus.UNPROCESSABLE_ENTITY);
         statuses.put(WorkbenchErrorCode.VERSION_CONFLICT, HttpStatus.CONFLICT);
         statuses.put(WorkbenchErrorCode.ATTACHMENT_INVALID,
                 HttpStatus.BAD_REQUEST);
@@ -227,12 +231,6 @@ public class WorkbenchExceptionHandler {
                 HttpStatus.CONFLICT);
         statuses.put(WorkbenchErrorCode.ATTACHMENT_UNAVAILABLE,
                 HttpStatus.GONE);
-        statuses.put(WorkbenchErrorCode.OPERATION_TRANSITION_INVALID,
-                HttpStatus.CONFLICT);
-        statuses.put(WorkbenchErrorCode.OPERATION_TARGET_CHANGED,
-                HttpStatus.CONFLICT);
-        statuses.put(WorkbenchErrorCode.OPERATION_EXECUTION_UNAVAILABLE,
-                HttpStatus.SERVICE_UNAVAILABLE);
         return Collections.unmodifiableMap(statuses);
     }
 
@@ -250,31 +248,6 @@ public class WorkbenchExceptionHandler {
         statuses.put(DocumentFailureCode.WORKBENCH_DOCUMENT_CHANGED_DURING_READ,
                 HttpStatus.CONFLICT);
         return Collections.unmodifiableMap(statuses);
-    }
-
-    private static Map<PhaseCapabilityApplicationErrorCode,
-            CapabilityErrorContract> capabilityApplicationErrorByCode() {
-        EnumMap<PhaseCapabilityApplicationErrorCode, CapabilityErrorContract>
-                errors = new EnumMap<PhaseCapabilityApplicationErrorCode,
-                CapabilityErrorContract>(
-                PhaseCapabilityApplicationErrorCode.class);
-        errors.put(PhaseCapabilityApplicationErrorCode.OVERRIDE_NOT_FOUND,
-                new CapabilityErrorContract(
-                        HttpStatus.NOT_FOUND,
-                        "WORKBENCH_CAPABILITY_OVERRIDE_NOT_FOUND"));
-        errors.put(PhaseCapabilityApplicationErrorCode.OVERRIDE_ALREADY_EXISTS,
-                new CapabilityErrorContract(
-                        HttpStatus.CONFLICT,
-                        "WORKBENCH_CAPABILITY_OVERRIDE_ALREADY_EXISTS"));
-        errors.put(PhaseCapabilityApplicationErrorCode.VERSION_CONFLICT,
-                new CapabilityErrorContract(
-                        HttpStatus.CONFLICT,
-                        "WORKBENCH_CAPABILITY_VERSION_CONFLICT"));
-        errors.put(PhaseCapabilityApplicationErrorCode.ESCALATION_DENIED,
-                new CapabilityErrorContract(
-                        HttpStatus.FORBIDDEN,
-                        "WORKBENCH_CAPABILITY_ESCALATION_DENIED"));
-        return Collections.unmodifiableMap(errors);
     }
 
     private static Map<String, CapabilityErrorContract>

@@ -7,8 +7,7 @@ import com.example.agentweb.domain.capability.ResolvedRuleBinding;
 import com.example.agentweb.domain.capability.ResolvedSkillBinding;
 import com.example.agentweb.domain.workbench.RunMode;
 import com.example.agentweb.domain.workbench.RunRepositoryScopeFact;
-import com.example.agentweb.domain.workbench.WorkbenchPhase;
-import com.example.agentweb.domain.workbench.WorkbenchRunSnapshot;
+import com.example.agentweb.domain.workbench.WorkbenchStageRunSnapshot;
 import com.example.agentweb.domain.workspace.RepositoryScope;
 import lombok.Getter;
 
@@ -30,10 +29,9 @@ public final class WorkbenchRunCapabilityView {
 
     private final String runId;
     private final String workbenchId;
-    private final WorkbenchPhase phase;
+    private final String stageInstanceIdentifier;
     private final RunMode runMode;
     private final long createdAt;
-    private final long overrideVersion;
     private final String policyVersion;
     private final String profileId;
     private final String profileVersion;
@@ -49,15 +47,15 @@ public final class WorkbenchRunCapabilityView {
     private final List<RejectedView> rejected;
 
     private WorkbenchRunCapabilityView(
-            WorkbenchRunSnapshot snapshot, RepositoryScope repositoryScope) {
+            WorkbenchStageRunSnapshot snapshot,
+            RepositoryScope repositoryScope) {
         ResolvedCapabilityBinding binding = snapshot.getCapabilityBinding();
         this.runId = snapshot.getRunId();
         this.workbenchId = snapshot.getWorkbenchId().getValue();
-        this.phase = snapshot.getPhase();
+        this.stageInstanceIdentifier =
+                snapshot.getStageInstanceIdentifier();
         this.runMode = snapshot.getRunMode();
         this.createdAt = snapshot.getCreatedAt().toEpochMilli();
-        this.overrideVersion = snapshot.getOverrideVersion() == null
-                ? 0L : snapshot.getOverrideVersion().longValue();
         this.policyVersion = binding.getPolicyVersion();
         this.profileId = binding.getProfileId();
         this.profileVersion = binding.getProfileVersion();
@@ -75,7 +73,7 @@ public final class WorkbenchRunCapabilityView {
     }
 
     public static WorkbenchRunCapabilityView from(
-            WorkbenchRunSnapshot snapshot,
+            WorkbenchStageRunSnapshot snapshot,
             RepositoryScope repositoryScope) {
         if (snapshot == null || repositoryScope == null) {
             throw new IllegalArgumentException(

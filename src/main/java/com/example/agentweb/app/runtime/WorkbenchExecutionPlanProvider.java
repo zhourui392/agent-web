@@ -18,11 +18,11 @@ import com.example.agentweb.domain.workbench.RuntimeEnforcementSnapshot;
 import com.example.agentweb.domain.workbench.Workbench;
 import com.example.agentweb.domain.workbench.WorkbenchRepository;
 import com.example.agentweb.domain.workbench.WorkbenchRunPromptPayload;
-import com.example.agentweb.domain.workbench.WorkbenchRunPromptPayloadRepository;
-import com.example.agentweb.domain.workbench.WorkbenchRunSnapshot;
-import com.example.agentweb.domain.workbench.WorkbenchRunSnapshotRepository;
+import com.example.agentweb.domain.workbench.WorkbenchStageRunPromptPayloadRepository;
+import com.example.agentweb.domain.workbench.WorkbenchStageRunSnapshot;
+import com.example.agentweb.domain.workbench.WorkbenchStageRunSnapshotRepository;
 import com.example.agentweb.domain.workbench.VerifiedWorkbenchRunAttachment;
-import com.example.agentweb.domain.workbench.VerifiedUploadedConversationAttachment;
+import com.example.agentweb.domain.workbench.VerifiedWorkbenchStageUploadedConversationAttachment;
 import com.example.agentweb.domain.workspace.RepositoryScope;
 import com.example.agentweb.domain.workspace.ResolvedRepository;
 
@@ -46,13 +46,13 @@ public final class WorkbenchExecutionPlanProvider
     private static final Map<RunMode, SandboxMode> SANDBOX_MODES =
             sandboxModes();
 
-    private final WorkbenchRunSnapshotRepository snapshotRepository;
-    private final WorkbenchRunPromptPayloadRepository promptRepository;
+    private final WorkbenchStageRunSnapshotRepository snapshotRepository;
+    private final WorkbenchStageRunPromptPayloadRepository promptRepository;
     private final WorkbenchRepository workbenchRepository;
 
     public WorkbenchExecutionPlanProvider(
-            WorkbenchRunSnapshotRepository snapshotRepository,
-            WorkbenchRunPromptPayloadRepository promptRepository,
+            WorkbenchStageRunSnapshotRepository snapshotRepository,
+            WorkbenchStageRunPromptPayloadRepository promptRepository,
             WorkbenchRepository workbenchRepository) {
         this.snapshotRepository = Objects.requireNonNull(
                 snapshotRepository, "snapshotRepository");
@@ -71,10 +71,12 @@ public final class WorkbenchExecutionPlanProvider
     public AgentExecutionPlan prepare(ChatRun run) {
         ChatRun requiredRun = Objects.requireNonNull(run, "run");
         String runId = requiredRun.getId().getValue();
-        WorkbenchRunSnapshot snapshot = snapshotRepository.findByRunId(runId)
+        WorkbenchStageRunSnapshot snapshot = snapshotRepository
+                .findByRunId(runId)
                 .orElseThrow(() -> new IllegalStateException(
                         "persisted Workbench Runtime snapshot is unavailable"));
-        WorkbenchRunPromptPayload prompt = promptRepository.findByRunId(runId)
+        WorkbenchRunPromptPayload prompt = promptRepository
+                .findByRunId(runId)
                 .orElseThrow(() -> new IllegalStateException(
                         "persisted Workbench Runtime prompt is unavailable"));
         snapshot.requirePromptPayload(prompt);
@@ -122,11 +124,26 @@ public final class WorkbenchExecutionPlanProvider
     }
 
     private List<RuntimeAttachmentExpectation> attachmentExpectations(
-            WorkbenchRunSnapshot snapshot, RepositoryScope scope) {
+            WorkbenchStageRunSnapshot snapshot, RepositoryScope scope) {
         List<RuntimeAttachmentExpectation> result =
                 new ArrayList<RuntimeAttachmentExpectation>();
-        for (VerifiedWorkbenchRunAttachment attachment
-                : snapshot.getVerifiedAttachments()) {
+        appendRepositoryAttachments(
+                result, snapshot.getVerifiedAttachments(), scope);
+        for (VerifiedWorkbenchStageUploadedConversationAttachment attachment
+                : snapshot.getVerifiedUploadedAttachments()) {
+            result.add(RuntimeAttachmentExpectation.uploadedConversation(
+                    attachment.getAttachmentId(), attachment.getStorageKey(),
+                    attachment.getRuntimeFileName(),
+                    attachment.getContentHash(), attachment.getSize()));
+        }
+        return result;
+    }
+
+    private void appendRepositoryAttachments(
+            List<RuntimeAttachmentExpectation> result,
+            List<VerifiedWorkbenchRunAttachment> attachments,
+            RepositoryScope scope) {
+        for (VerifiedWorkbenchRunAttachment attachment : attachments) {
             ResolvedRepository repository = scope.requireRepository(
                     attachment.getDocumentReference().getRepositoryKey());
             result.add(new RuntimeAttachmentExpectation(
@@ -135,14 +152,6 @@ public final class WorkbenchExecutionPlanProvider
                     attachment.getDocumentReference().getRelativePath(),
                     attachment.getContentVersion(), attachment.getSize()));
         }
-        for (VerifiedUploadedConversationAttachment attachment
-                : snapshot.getVerifiedUploadedAttachments()) {
-            result.add(RuntimeAttachmentExpectation.uploadedConversation(
-                    attachment.getAttachmentId(), attachment.getStorageKey(),
-                    attachment.getRuntimeFileName(),
-                    attachment.getContentHash(), attachment.getSize()));
-        }
-        return result;
     }
 
     private static Map<RunMode, SandboxMode> sandboxModes() {

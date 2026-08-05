@@ -54,21 +54,21 @@ class ChatRunTest {
     @Test
     void workbench_submit_should_require_and_freeze_execution_context() {
         ExecutionContextReference context = ExecutionContextReference.of(
-                "workbench-1:IMPLEMENT_TEST", "run-workbench-1");
+                "workbench-1:stage-implementation", "run-workbench-1");
 
         ChatRun run = ChatRun.submit(
-                ChatRunId.of("run-workbench-1"), "phase-session-1", 12L,
+                ChatRunId.of("run-workbench-1"), "stage-session-1", 12L,
                 "request-workbench-1", false, RunOrigin.WORKBENCH,
                 context, CREATED_AT);
 
         assertEquals(RunOrigin.WORKBENCH, run.getRunOrigin());
         assertEquals(context, run.getExecutionContextReference());
-        assertEquals("workbench-1:IMPLEMENT_TEST",
+        assertEquals("workbench-1:stage-implementation",
                 run.getExecutionContextReference().getOriginReference());
         assertEquals("run-workbench-1",
                 run.getExecutionContextReference().getExecutionContextId());
         assertThrows(IllegalArgumentException.class, () -> ChatRun.submit(
-                ChatRunId.of("run-workbench-2"), "phase-session-1", 13L,
+                ChatRunId.of("run-workbench-2"), "stage-session-1", 13L,
                 "request-workbench-2", false, RunOrigin.WORKBENCH,
                 ExecutionContextReference.none(), CREATED_AT));
         assertThrows(IllegalArgumentException.class, () -> ChatRun.submit(
@@ -76,10 +76,10 @@ class ChatRunTest {
                 "request-chat-context", true, RunOrigin.CHAT,
                 context, CREATED_AT));
         assertThrows(IllegalArgumentException.class, () -> ChatRun.submit(
-                ChatRunId.of("run-workbench-mismatch"), "phase-session-1", 15L,
+                ChatRunId.of("run-workbench-mismatch"), "stage-session-1", 15L,
                 "request-workbench-mismatch", false, RunOrigin.WORKBENCH,
                 ExecutionContextReference.of(
-                        "workbench-1:IMPLEMENT_TEST", "different-context"),
+                        "workbench-1:stage-implementation", "different-context"),
                 CREATED_AT));
     }
 
@@ -87,10 +87,10 @@ class ChatRunTest {
     void ordinaryAndWorkbenchSurfaceGuardsShouldHideWrongOriginOrContext() {
         ChatRun chat = newRun();
         ChatRun workbench = ChatRun.submit(
-                ChatRunId.of("run-workbench-1"), "phase-session-1", 12L,
+                ChatRunId.of("run-workbench-1"), "stage-session-1", 12L,
                 "request-workbench-1", false, RunOrigin.WORKBENCH,
                 ExecutionContextReference.of(
-                        "workbench-1:IMPLEMENT_TEST", "run-workbench-1"),
+                        "workbench-1:stage-implementation", "run-workbench-1"),
                 CREATED_AT);
 
         assertDoesNotThrow(chat::requireOrdinaryChat);
@@ -99,13 +99,13 @@ class ChatRunTest {
         assertFalse(ordinaryError.getMessage().contains("WORKBENCH"));
 
         assertDoesNotThrow(() -> workbench.requireWorkbenchExecutionContext(
-                "workbench-1:IMPLEMENT_TEST"));
+                "workbench-1:stage-implementation"));
         assertThrows(ChatRunNotFoundException.class,
                 () -> workbench.requireWorkbenchExecutionContext(
-                        "workbench-1:SOLUTION_DESIGN"));
+                        "workbench-1:stage-design"));
         assertThrows(ChatRunNotFoundException.class,
                 () -> chat.requireWorkbenchExecutionContext(
-                        "workbench-1:IMPLEMENT_TEST"));
+                        "workbench-1:stage-implementation"));
     }
 
     @Test
@@ -113,7 +113,8 @@ class ChatRunTest {
         assertThrows(IllegalArgumentException.class,
                 () -> ExecutionContextReference.of(" ", "run-1"));
         assertThrows(IllegalArgumentException.class,
-                () -> ExecutionContextReference.of("workbench-1:IMPLEMENT_TEST", " "));
+                () -> ExecutionContextReference.of(
+                        "workbench-1:stage-implementation", " "));
         assertThrows(IllegalArgumentException.class,
                 () -> ExecutionContextReference.restore("workbench-1", null));
     }

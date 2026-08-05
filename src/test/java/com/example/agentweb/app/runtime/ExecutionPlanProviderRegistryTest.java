@@ -121,6 +121,6 @@ class ExecutionPlanProviderRegistryTest {
         return ChatRun.submit(ChatRunId.of("workbench-run"), "workbench-session", 2L,
                 "workbench-key", false, RunOrigin.WORKBENCH,
                 ExecutionContextReference.of(
-                        "workbench-1:IMPLEMENT_TEST", "workbench-run"), NOW);
+                        "workbench-1:stage-implementation", "workbench-run"), NOW);
     }
 }

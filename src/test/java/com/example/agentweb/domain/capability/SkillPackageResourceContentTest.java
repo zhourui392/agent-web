@@ -63,7 +63,7 @@ class SkillPackageResourceContentTest {
             Map<String, byte[]> resourceContents, String entryContent) {
         SkillManifest manifest = new SkillManifest(
                 "java-tdd", "1.0.0", "Java TDD",
-                set("IMPLEMENT_TEST"), set("java"), set("java-tdd"),
+                set("WORKBENCH_STAGE"), set("java"), set("java-tdd"),
                 "SKILL.md", set("references/rules.md"),
                 Collections.emptyList(), Collections.emptySet(), set("CODEX"),
                 SkillTrustSource.PLATFORM, Collections.emptyList());

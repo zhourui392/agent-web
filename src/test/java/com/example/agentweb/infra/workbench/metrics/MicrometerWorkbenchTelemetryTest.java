@@ -1,9 +1,7 @@
 package com.example.agentweb.infra.workbench.metrics;
 
 import com.example.agentweb.app.workbench.document.DocumentKind;
-import com.example.agentweb.domain.workbench.HighImpactOperationType;
 import com.example.agentweb.domain.workbench.RunMode;
-import com.example.agentweb.domain.workbench.WorkbenchPhase;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 
@@ -27,7 +25,6 @@ class MicrometerWorkbenchTelemetryTest {
 
         telemetry.workbenchCreated("SUCCESS");
         telemetry.runTerminal(
-                WorkbenchPhase.IMPLEMENT_TEST,
                 RunMode.MODIFY_WORKSPACE, "SUCCEEDED",
                 Duration.ofMillis(1250L));
         telemetry.writeConflict();
@@ -37,22 +34,18 @@ class MicrometerWorkbenchTelemetryTest {
         telemetry.capabilityVersionChanged();
         telemetry.workspaceScopeViolation();
         telemetry.documentRead(DocumentKind.PLAIN_TEXT, "SUCCESS");
-        telemetry.handoffConflict();
-        telemetry.operation(
-                HighImpactOperationType.GIT_COMMIT, "AUTHORIZED");
         telemetry.recoveryReconciliation("TERMINAL_RECONCILED");
 
         assertEquals(1.0D, registry.get("workbench.creation")
                 .tag("result", "SUCCESS").counter().count());
         assertEquals(1.0D, registry.get("workbench.run")
-                .tags("phase", "IMPLEMENT_TEST", "mode", "MODIFY_WORKSPACE",
-                        "status", "SUCCEEDED")
+                .tags("mode", "MODIFY_WORKSPACE", "status", "SUCCEEDED")
                 .counter().count());
         assertEquals(1L, registry.get("workbench.run.duration")
-                .tags("phase", "IMPLEMENT_TEST", "mode", "MODIFY_WORKSPACE")
+                .tag("mode", "MODIFY_WORKSPACE")
                 .timer().count());
         assertEquals(1.25D, registry.get("workbench.run.duration")
-                .tags("phase", "IMPLEMENT_TEST", "mode", "MODIFY_WORKSPACE")
+                .tag("mode", "MODIFY_WORKSPACE")
                 .timer().totalTime(java.util.concurrent.TimeUnit.SECONDS));
         assertEquals(1.0D, registry.get("workbench.write.conflict")
                 .counter().count());
@@ -68,11 +61,6 @@ class MicrometerWorkbenchTelemetryTest {
                 .counter().count());
         assertEquals(1.0D, registry.get("workbench.document.read")
                 .tags("kind", "PLAIN_TEXT", "result", "SUCCESS")
-                .counter().count());
-        assertEquals(1.0D, registry.get("workbench.handoff.conflict")
-                .counter().count());
-        assertEquals(1.0D, registry.get("workbench.operation")
-                .tags("type", "GIT_COMMIT", "status", "AUTHORIZED")
                 .counter().count());
         assertEquals(1.0D, registry.get("workbench.recovery.reconciliation")
                 .tag("result", "TERMINAL_RECONCILED").counter().count());

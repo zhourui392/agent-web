@@ -65,7 +65,7 @@ class FileSystemSkillCatalogTest {
     }
 
     @Test
-    void shouldParsePublicApplicableUseCasesForWorkbenchPhase() throws IOException {
+    void shouldParsePublicApplicableUseCasesForStageDefinitions() throws IOException {
         Path skillDir = writeSkill(
                 tempDir, "solution-design", "references/rules.md");
         replaceManifestDeclaration(
@@ -81,14 +81,14 @@ class FileSystemSkillCatalogTest {
     }
 
     @Test
-    void shouldRejectLegacyStagesManifest_WhenApplicableUseCasesAreAlsoPresent()
+    void shouldRejectUnknownManifestField()
             throws IOException {
         Path skillDir = writeSkill(
-                tempDir, "legacy-stages", "references/rules.md");
+                tempDir, "unsupported-field", "references/rules.md");
         replaceManifestDeclaration(
                 skillDir, "applicableUseCases: [ANALYSIS]\n",
                 "applicableUseCases: [ANALYSIS]\n"
-                        + "stages: [ANALYSIS]\n");
+                        + "unsupportedField: [ANALYSIS]\n");
 
         CapabilityCatalogException failure = assertThrows(
                 CapabilityCatalogException.class,

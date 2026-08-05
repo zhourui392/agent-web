@@ -15,6 +15,7 @@ import com.example.agentweb.domain.auth.CurrentUserProvider;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.workbench.OwnerReference;
 import com.example.agentweb.domain.workbench.WorkbenchStatus;
+import com.example.agentweb.domain.workbench.stage.StageCatalogException;
 import com.example.agentweb.interfaces.GlobalExceptionHandler;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -168,6 +169,9 @@ class WorkbenchControllerTest {
                 command.getValue().getRepositorySelection().getPrimaryRepositoryKey());
         assertEquals(Arrays.asList("agent-web", "shared-library"),
                 command.getValue().getRepositorySelection().getRepositoryKeys());
+        assertEquals(Arrays.asList("implementation", "requirement-analysis"),
+                command.getValue().getStageDefinitionIdentifiers());
+        assertEquals(12L, command.getValue().getExpectedStageCatalogVersion());
     }
 
     @Test
@@ -207,6 +211,36 @@ class WorkbenchControllerTest {
         verify(creationAppService, never()).create(any(), any());
     }
 
+    @Test
+    void createWithEmptyStageSelectionShouldReturn400BeforeApplicationCall()
+            throws Exception {
+        mvc.perform(post("/api/workbenches")
+                        .header("Idempotency-Key", "create-workbench-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(validCreateBody().replace(
+                                "[\"implementation\",\"requirement-analysis\"]", "[]")))
+                .andExpect(status().isBadRequest());
+
+        verify(creationAppService, never()).create(any(), any());
+    }
+
+    @Test
+    void createShouldMapChangedStageCatalogToStableConflict() throws Exception {
+        when(currentUserProvider.currentUserId()).thenReturn("owner-1");
+        when(currentUserProvider.currentUserName()).thenReturn("Alex");
+        when(creationAppService.create(any(), any())).thenThrow(
+                new StageCatalogException(
+                        "WORKBENCH_STAGE_CATALOG_CHANGED", "catalog changed"));
+
+        mvc.perform(post("/api/workbenches")
+                        .header("Idempotency-Key", "create-workbench-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(validCreateBody()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code")
+                        .value("WORKBENCH_STAGE_CATALOG_CHANGED"));
+    }
+
     private String validCreateBody() {
         return "{"
                 + "\"title\":\"Workbench MVP\","
@@ -215,7 +249,10 @@ class WorkbenchControllerTest {
                 + "\"environment\":null,"
                 + "\"workspaceRoot\":\"" + WORKSPACE_ROOT + "\","
                 + "\"primaryRepository\":\"agent-web\","
-                + "\"repositories\":[\"shared-library\",\"agent-web\"]"
+                + "\"repositories\":[\"shared-library\",\"agent-web\"],"
+                + "\"stageDefinitionIdentifiers\":[\"implementation\","
+                + "\"requirement-analysis\"],"
+                + "\"expectedStageCatalogVersion\":12"
                 + "}";
     }
 }

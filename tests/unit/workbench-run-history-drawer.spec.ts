@@ -12,7 +12,7 @@ async function source(relativePath: string): Promise<string> {
 }
 
 describe('WorkbenchRunHistoryDrawer source contract', () => {
-  it('is reachable from the phase toolbar and renders historical timeline plus frozen capability', async () => {
+  it('is reachable from the Stage toolbar and renders historical timeline plus frozen capability', async () => {
     const [page, drawer] = await Promise.all([
       source('frontend/js/pages/Workbench.vue'),
       source('frontend/js/components/WorkbenchRunHistoryDrawer.vue'),

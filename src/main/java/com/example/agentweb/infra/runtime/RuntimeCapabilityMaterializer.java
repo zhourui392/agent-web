@@ -1,10 +1,12 @@
 package com.example.agentweb.infra.runtime;
 
 import com.example.agentweb.app.runtime.port.AgentExecutionPlan;
+import com.example.agentweb.domain.capability.CapabilityAccess;
 import com.example.agentweb.domain.capability.McpSecretReference;
 import com.example.agentweb.domain.capability.McpServerCatalog;
 import com.example.agentweb.domain.capability.McpServerDefinition;
 import com.example.agentweb.domain.capability.McpToolAuthorization;
+import com.example.agentweb.domain.capability.McpTransport;
 import com.example.agentweb.domain.capability.ResolvedMcpServerBinding;
 import com.example.agentweb.domain.capability.ResolvedSkillBinding;
 import com.example.agentweb.domain.capability.SkillCatalog;
@@ -126,7 +128,7 @@ public final class RuntimeCapabilityMaterializer {
             if (definition == null
                     || !binding.getDefinitionHash().equals(
                     definition.getConfigurationHash())
-                    || !"STDIO".equals(binding.getTransport())
+                    || !definition.getTransport().name().equals(binding.getTransport())
                     || !definition.getCompatibleRuntimes().contains(runtime)
                     || definition.hasUnsupportedResourceCapability()) {
                 throw new IllegalStateException(
@@ -141,6 +143,16 @@ public final class RuntimeCapabilityMaterializer {
     private SelectedMcp authorizeMcp(
             ResolvedMcpServerBinding binding,
             McpServerDefinition definition) {
+        if (binding.getAccess() == CapabilityAccess.WRITE
+                && definition.getMaximumAccess() != CapabilityAccess.WRITE) {
+            throw new IllegalStateException(
+                    "selected MCP access exceeds its Catalog definition");
+        }
+        if (definition.getCapabilities().isEmpty()) {
+            return new SelectedMcp(definition,
+                    Collections.<String>emptyList(),
+                    Collections.<String>emptyList());
+        }
         McpToolAuthorization authorization = definition.authorizeTools(
                 binding.getAccess());
         return new SelectedMcp(definition,
@@ -225,7 +237,12 @@ public final class RuntimeCapabilityMaterializer {
             result.add(new RuntimeCapabilityMaterialization.MaterializedMcpServer(
                     requireIdentifier(mcp.definition.getId(), "MCP Server id"),
                     requireIdentifier(mcp.definition.getVersion(), "MCP Server version"),
-                    safeTokens(mcp.definition.getCommand()), variables, true,
+                    mcp.definition.getTransport(),
+                    safeCommand(mcp.definition),
+                    safeOptionalValue(mcp.definition.getWorkingDirectory(),
+                            "MCP working directory"),
+                    safeOptionalValue(mcp.definition.getEndpoint(), "MCP endpoint"),
+                    variables, true,
                     mcp.definition.getStartupTimeoutSeconds(),
                     mcp.definition.getToolTimeoutSeconds(),
                     mcp.enabledToolNames, mcp.disabledToolNames));
@@ -233,6 +250,23 @@ public final class RuntimeCapabilityMaterializer {
         result.sort(Comparator.comparing(
                 RuntimeCapabilityMaterialization.MaterializedMcpServer::getId));
         return result;
+    }
+
+    private List<String> safeCommand(McpServerDefinition definition) {
+        if (definition.getTransport() == McpTransport.STREAMABLE_HTTP) {
+            return Collections.emptyList();
+        }
+        return safeTokens(definition.getCommand());
+    }
+
+    private String safeOptionalValue(String value, String name) {
+        if (value == null || value.isEmpty()) {
+            return "";
+        }
+        if (value.length() > 4096 || containsControlCharacter(value)) {
+            throw new IllegalStateException(name + " is unsafe");
+        }
+        return value;
     }
 
     private Path writePackageFile(Path packageRoot, String relativePath, byte[] bytes)

@@ -19,7 +19,7 @@ import java.util.Objects;
 /**
  * Admin Workbench Run 停止与显式单 Run 对账编排。
  *
- * <p>本服务不接收 OwnerReference，也不提供提交 Run、Handoff、Override、Review Confirmation 或操作决策能力。</p>
+ * <p>本服务只提供管理员停止和对账，不接收 Owner 身份，也不提交 Run。</p>
  *
  * @author alex
  * @since 2026-08-01

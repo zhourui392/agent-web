@@ -385,7 +385,7 @@ class AgentProcessKernelTest {
     }
 
     private McpServerDefinition mcpDefinition() {
-        Set<String> useCases = Collections.singleton("IMPLEMENT_TEST");
+        Set<String> useCases = Collections.singleton("WORKBENCH_STAGE");
         Set<String> runtimes = Collections.singleton("CODEX");
         return new McpServerDefinition(
                 "repository-query", "1.0.0", "repository query",

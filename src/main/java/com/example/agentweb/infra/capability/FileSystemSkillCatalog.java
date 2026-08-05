@@ -5,6 +5,7 @@ import com.example.agentweb.domain.capability.CapabilityAccess;
 import com.example.agentweb.domain.capability.CapabilityCatalogException;
 import com.example.agentweb.domain.capability.CapabilityKind;
 import com.example.agentweb.domain.capability.CapabilityRequest;
+import com.example.agentweb.domain.capability.CapabilitySourceConfigurationRepository;
 import com.example.agentweb.domain.capability.SkillCatalog;
 import com.example.agentweb.domain.capability.SkillDependency;
 import com.example.agentweb.domain.capability.SkillManifest;
@@ -35,27 +36,32 @@ import java.util.Set;
 @Component
 public class FileSystemSkillCatalog implements SkillCatalog {
 
-    private final List<TrustedRoot> roots;
+    private final List<TrustedRoot> fallbackRoots;
+    private final CapabilitySourceConfigurationRepository sourceConfigurationRepository;
 
     @Autowired
-    public FileSystemSkillCatalog(CapabilityCatalogProperties properties) {
+    public FileSystemSkillCatalog(
+            CapabilityCatalogProperties properties,
+            CapabilitySourceConfigurationRepository sourceConfigurationRepository) {
         List<TrustedRoot> configured = new ArrayList<TrustedRoot>();
         configured.add(new TrustedRoot(Paths.get(properties.getPlatformSkillRoot()),
                 SkillTrustSource.PLATFORM));
         addOptional(configured, properties.getApprovedUserSkillRoot(),
                 SkillTrustSource.APPROVED_USER);
         addOptional(configured, properties.getWorkspaceSkillRoot(), SkillTrustSource.WORKSPACE);
-        this.roots = Collections.unmodifiableList(configured);
+        this.fallbackRoots = Collections.unmodifiableList(configured);
+        this.sourceConfigurationRepository = sourceConfigurationRepository;
     }
 
     public FileSystemSkillCatalog(Path root, SkillTrustSource trustSource) {
-        this.roots = Collections.singletonList(new TrustedRoot(root, trustSource));
+        this.fallbackRoots = Collections.singletonList(new TrustedRoot(root, trustSource));
+        this.sourceConfigurationRepository = null;
     }
 
     @Override
     public List<SkillPackage> discover() {
         List<SkillPackage> packages = new ArrayList<SkillPackage>();
-        for (TrustedRoot trustedRoot : roots) {
+        for (TrustedRoot trustedRoot : currentRoots()) {
             Path realRoot = CapabilityCatalogFiles.realRoot(trustedRoot.getPath());
             for (Path manifest : CapabilityCatalogFiles.manifests(realRoot)) {
                 packages.add(parse(realRoot, manifest, trustedRoot.getTrustSource()));
@@ -64,6 +70,24 @@ public class FileSystemSkillCatalog implements SkillCatalog {
         packages.sort(Comparator.comparing((SkillPackage value) -> value.getManifest().getId())
                 .thenComparing(value -> value.getManifest().getVersion()));
         return Collections.unmodifiableList(packages);
+    }
+
+    private List<TrustedRoot> currentRoots() {
+        if (sourceConfigurationRepository == null) {
+            return fallbackRoots;
+        }
+        return sourceConfigurationRepository.find().map(configuration -> {
+            List<TrustedRoot> configured = new ArrayList<TrustedRoot>();
+            for (com.example.agentweb.domain.capability.SkillCatalogDirectory directory
+                    : configuration.getSkillCatalogDirectories()) {
+                if (directory.isEnabled()) {
+                    configured.add(new TrustedRoot(
+                            Paths.get(directory.getAbsoluteDirectory()),
+                            directory.getTrustSource()));
+                }
+            }
+            return Collections.unmodifiableList(configured);
+        }).orElse(fallbackRoots);
     }
 
     private SkillPackage parse(Path realRoot, Path manifestPath, SkillTrustSource trustedSource) {

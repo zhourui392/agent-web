@@ -1,77 +1,75 @@
 /**
- * Workbench Shell 状态契约。
+ * Workbench Stage Shell 状态契约。
  *
  * @author alex
- * @since 2026-08-01
+ * @since 2026-08-05
  */
 import { describe, expect, it } from 'vitest';
 import {
-  WORKBENCH_PHASES,
-  isWorkbenchShellFeatureAvailable,
-  parseWorkbenchShellState,
-  phaseStatusLabel,
-  resolvePhaseNavigation,
+  isWorkbenchStageInstanceIdentifier,
+  parseWorkbenchStageShellState,
+  resolveStageNavigation,
+  stageStatusLabel,
   workbenchErrorMessage,
-  workbenchPhaseStorageKey,
   workbenchShellStorageKey,
+  workbenchStageStorageKey,
 } from '../../frontend/js/lib/workbench-state.js';
 
-describe('workbench shell state', () => {
-  it('keeps the four human-guided phases in their fixed product order', () => {
-    expect(WORKBENCH_PHASES).toEqual([
-      { phase: 'REQUIREMENT_ANALYSIS', label: '需求分析' },
-      { phase: 'SOLUTION_DESIGN', label: '技术方案设计' },
-      { phase: 'IMPLEMENT_TEST', label: '开发部署测试' },
-      { phase: 'REVIEW_REFACTOR', label: '人工 Review、重构与测试' },
-    ]);
+describe('workbench Stage shell state', () => {
+  it('uses human-state labels without treating completion as a quality gate', () => {
+    expect(stageStatusLabel('NOT_STARTED')).toBe('未开始');
+    expect(stageStatusLabel('IN_PROGRESS')).toBe('进行中');
+    expect(stageStatusLabel('HUMAN_COMPLETED')).toBe('人工已完成');
   });
 
-  it('allows direct navigation in either direction without treating phases as gates', () => {
-    expect(resolvePhaseNavigation('REQUIREMENT_ANALYSIS', 'REVIEW_REFACTOR'))
-      .toBe('REVIEW_REFACTOR');
-    expect(resolvePhaseNavigation('REVIEW_REFACTOR', 'REQUIREMENT_ANALYSIS'))
-      .toBe('REQUIREMENT_ANALYSIS');
-    expect(resolvePhaseNavigation('IMPLEMENT_TEST', 'SOLUTION_DESIGN'))
-      .toBe('SOLUTION_DESIGN');
-  });
-
-  it('uses human-state labels and does not present completion as a quality gate', () => {
-    expect(phaseStatusLabel('NOT_STARTED')).toBe('未开始');
-    expect(phaseStatusLabel('IN_PROGRESS')).toBe('进行中');
-    expect(phaseStatusLabel('HUMAN_COMPLETED')).toBe('人工已完成');
-  });
-
-  it('isolates shell and phase browser state by user workbench phase and generation', () => {
+  it('isolates shell and Stage browser state by user, Workbench, instance and generation', () => {
     expect(workbenchShellStorageKey('user/a', 'workbench:1'))
       .not.toBe(workbenchShellStorageKey('user/b', 'workbench:1'));
     expect(workbenchShellStorageKey('user/a', 'workbench:1'))
       .not.toBe(workbenchShellStorageKey('user/a', 'workbench:2'));
 
-    const requirement = workbenchPhaseStorageKey(
-      'user/a', 'workbench:1', 'REQUIREMENT_ANALYSIS', 0,
+    const current = workbenchStageStorageKey(
+      'user/a', 'workbench:1', 'stage-implementation', 0,
     );
-    expect(requirement).not.toBe(workbenchPhaseStorageKey(
-      'user/a', 'workbench:1', 'SOLUTION_DESIGN', 0,
+    expect(current).not.toBe(workbenchStageStorageKey(
+      'user/b', 'workbench:1', 'stage-implementation', 0,
     ));
-    expect(requirement).not.toBe(workbenchPhaseStorageKey(
-      'user/a', 'workbench:1', 'REQUIREMENT_ANALYSIS', 1,
+    expect(current).not.toBe(workbenchStageStorageKey(
+      'user/a', 'workbench:1', 'stage-review', 0,
     ));
-    expect(requirement).not.toBe(workbenchPhaseStorageKey(
-      'user/b', 'workbench:1', 'REQUIREMENT_ANALYSIS', 0,
+    expect(current).not.toBe(workbenchStageStorageKey(
+      'user/a', 'workbench:1', 'stage-implementation', 1,
     ));
   });
 
-  it('falls back to the first phase when persisted shell state is missing or damaged', () => {
-    expect(parseWorkbenchShellState(null)).toEqual({
-      selectedPhase: 'REQUIREMENT_ANALYSIS',
+  it('restores only a syntactically valid Stage Instance identifier', () => {
+    expect(isWorkbenchStageInstanceIdentifier('stage-implementation')).toBe(true);
+    expect(isWorkbenchStageInstanceIdentifier('../escape')).toBe(false);
+    expect(parseWorkbenchStageShellState(JSON.stringify({
+      selectedStageInstanceIdentifier: 'stage-implementation',
+    }))).toEqual({ selectedStageInstanceIdentifier: 'stage-implementation' });
+    expect(parseWorkbenchStageShellState('{broken')).toEqual({
+      selectedStageInstanceIdentifier: null,
     });
-    expect(parseWorkbenchShellState('{broken-json')).toEqual({
-      selectedPhase: 'REQUIREMENT_ANALYSIS',
-    });
-    expect(parseWorkbenchShellState(JSON.stringify({ selectedPhase: 'UNKNOWN' })))
-      .toEqual({ selectedPhase: 'REQUIREMENT_ANALYSIS' });
-    expect(parseWorkbenchShellState(JSON.stringify({ selectedPhase: 'IMPLEMENT_TEST' })))
-      .toEqual({ selectedPhase: 'IMPLEMENT_TEST' });
+    expect(parseWorkbenchStageShellState(JSON.stringify({
+      selectedStageInstanceIdentifier: '../escape',
+    }))).toEqual({ selectedStageInstanceIdentifier: null });
+  });
+
+  it('resolves navigation only against Stage instances frozen in the Workbench', () => {
+    const stages = [
+      { stageInstanceIdentifier: 'stage-analysis' },
+      { stageInstanceIdentifier: 'stage-implementation' },
+    ];
+
+    expect(resolveStageNavigation(stages, null, 'stage-implementation'))
+      .toBe('stage-implementation');
+    expect(resolveStageNavigation(stages, 'stage-analysis', 'unknown'))
+      .toBe('stage-analysis');
+    expect(resolveStageNavigation(stages, 'unknown', 'unknown'))
+      .toBe('stage-analysis');
+    expect(resolveStageNavigation([], 'stage-analysis', 'stage-analysis'))
+      .toBeNull();
   });
 
   it('maps stable backend error codes to actionable shell messages', () => {
@@ -79,21 +77,11 @@ describe('workbench shell state', () => {
       .toBe('工作台已被更新，请刷新后重试');
     expect(workbenchErrorMessage('WORKBENCH_NOT_FOUND'))
       .toBe('工作台不存在或你无权访问');
-    expect(workbenchErrorMessage('WORKBENCH_ARCHIVED'))
-      .toBe('工作台已归档，不能继续修改');
-    expect(workbenchErrorMessage('WORKSPACE_TOPOLOGY_CHANGED'))
-      .toBe('仓库目录或状态已变化；请恢复原目录，或创建新的 Workbench');
-    expect(workbenchErrorMessage('WORKSPACE_REPOSITORY_NOT_FOUND'))
-      .toBe('仓库目录已移动或不存在；请恢复原目录，或创建新的 Workbench');
+    expect(workbenchErrorMessage('WORKBENCH_STAGE_CATALOG_CHANGED'))
+      .toBe('可选阶段配置已更新，请重新确认阶段后创建');
+    expect(workbenchErrorMessage('WORKBENCH_STAGE_SELECTION_EMPTY'))
+      .toBe('请至少选择一个阶段');
     expect(workbenchErrorMessage('UNKNOWN_ERROR'))
       .toBe('操作失败，请稍后重试');
-  });
-
-  it('keeps backend capabilities that are not in the first shell slice disabled', () => {
-    expect(isWorkbenchShellFeatureAvailable('conversation')).toBe(false);
-    expect(isWorkbenchShellFeatureAvailable('documents')).toBe(false);
-    expect(isWorkbenchShellFeatureAvailable('capabilities')).toBe(false);
-    expect(isWorkbenchShellFeatureAvailable('handoff')).toBe(false);
-    expect(isWorkbenchShellFeatureAvailable('operations')).toBe(false);
   });
 });

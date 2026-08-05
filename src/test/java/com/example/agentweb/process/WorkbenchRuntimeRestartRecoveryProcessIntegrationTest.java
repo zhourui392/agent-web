@@ -93,6 +93,7 @@ class WorkbenchRuntimeRestartRecoveryProcessIntegrationTest {
                 port, "first");
         awaitReady(port);
         String cookie = login(port);
+        publishRestartRecoveryStage(port, cookie);
         final String firstCookie = cookie;
         String repositoryKey = inspectRepository(
                 port, cookie, workspaceRoot);
@@ -100,15 +101,20 @@ class WorkbenchRuntimeRestartRecoveryProcessIntegrationTest {
                 port, cookie, workspaceRoot, repositoryKey);
         String workbenchId = created.path("workbenchId").asText();
         long initialVersion = created.path("version").asLong();
-        long runExpectedVersion = ensurePhaseConversation(
-                port, cookie, workbenchId, initialVersion);
-        JsonNode handoff = saveSolutionHandoff(
-                port, cookie, workbenchId);
-        acceptSolutionHandoff(port, cookie, workbenchId, handoff);
-        long handoffVersion = handoff.path("version").asLong();
+        JsonNode createdWorkbench = getJson(
+                port, cookie, "/api/workbenches/" + workbenchId);
+        JsonNode createdStage = createdWorkbench.path("stages").get(0);
+        assertEquals("restart-recovery",
+                createdStage.path("definitionIdentifier").asText());
+        String stageInstanceIdentifier = createdStage.path(
+                "stageInstanceIdentifier").asText();
+        assertFalse(stageInstanceIdentifier.isEmpty());
+        long runExpectedVersion = ensureStageConversation(
+                port, cookie, workbenchId, stageInstanceIdentifier,
+                initialVersion);
         JsonNode firstSubmission = submitWriteRun(
-                port, cookie, workbenchId, runExpectedVersion,
-                handoffVersion, "restart-first", WAIT_MARKER
+                port, cookie, workbenchId, stageInstanceIdentifier,
+                runExpectedVersion, "restart-first", WAIT_MARKER
                         + " 启动写任务并等待服务进程中断");
         String firstRunId = firstSubmission.path("runId").asText();
         assertFalse(firstRunId.isEmpty());
@@ -193,7 +199,8 @@ class WorkbenchRuntimeRestartRecoveryProcessIntegrationTest {
                 database,
                 "SELECT active_write_run_id FROM workbench WHERE id=?",
                 workbenchId));
-        assertPhaseRunReleased(recoveredWorkbench, "IMPLEMENT_TEST");
+        assertStageRunReleased(
+                recoveredWorkbench, stageInstanceIdentifier);
         assertTrue(eventTypes(getJson(
                 port, cookie,
                 runPath(workbenchId, firstRunId)
@@ -204,8 +211,8 @@ class WorkbenchRuntimeRestartRecoveryProcessIntegrationTest {
 
         long recoveredVersion = recoveredWorkbench.path("version").asLong();
         JsonNode secondSubmission = submitWriteRun(
-                port, cookie, workbenchId, recoveredVersion,
-                handoffVersion, "restart-second",
+                port, cookie, workbenchId, stageInstanceIdentifier,
+                recoveredVersion, "restart-second",
                 "恢复完成后提交第二个写任务");
         String secondRunId = secondSubmission.path("runId").asText();
         assertFalse(secondRunId.isEmpty());
@@ -221,7 +228,7 @@ class WorkbenchRuntimeRestartRecoveryProcessIntegrationTest {
         JsonNode afterSecond = getJson(
                 port, cookie, "/api/workbenches/" + workbenchId);
         assertNull(jsonNullableText(afterSecond.get("activeWriteRunId")));
-        assertPhaseRunReleased(afterSecond, "IMPLEMENT_TEST");
+        assertStageRunReleased(afterSecond, stageInstanceIdentifier);
         assertTrue(Files.exists(repository.resolve("README.md")));
     }
 
@@ -327,52 +334,49 @@ class WorkbenchRuntimeRestartRecoveryProcessIntegrationTest {
         body.put("workspaceRoot", workspaceRoot.toAbsolutePath().toString());
         body.put("primaryRepository", repositoryKey);
         body.putArray("repositories").add(repositoryKey);
+        body.putArray("stageDefinitionIdentifiers")
+                .add("restart-recovery");
+        body.put("expectedStageCatalogVersion", 2L);
         return requireJson(request(
                 port, "POST", "/api/workbenches", body, cookie,
                 header("Idempotency-Key", "restart-workbench-create")),
                 201);
     }
 
-    private JsonNode saveSolutionHandoff(
-            int port, String cookie, String workbenchId) throws Exception {
+    private void publishRestartRecoveryStage(
+            int port, String cookie) throws Exception {
         ObjectNode body = MAPPER.createObjectNode();
-        body.put("summary", "确定性进程恢复测试的方案交接");
-        body.putArray("decisions");
-        body.putArray("openQuestions");
-        body.putArray("pinnedFiles");
-        body.putArray("referencedRuns");
-        JsonNode handoff = requireJson(request(
-                port, "PUT", "/api/workbenches/" + workbenchId
-                        + "/phases/SOLUTION_DESIGN/handoff",
-                body, cookie, header("If-Match", "0")), 200);
-        assertEquals("SOLUTION_DESIGN",
-                handoff.path("sourcePhase").asText());
-        return handoff;
+        body.put("definitionIdentifier", "restart-recovery");
+        body.put("sequenceNumber", 10);
+        body.put("displayName", "重启恢复");
+        body.put("description", "验证 Stage Run 重启恢复");
+        body.put("stageRules", "仅执行确定性的重启恢复测试任务。");
+        body.putArray("allowedRunModes").add("MODIFY_WORKSPACE");
+        body.putArray("commandReferences");
+        body.putArray("skillReferences");
+        body.putArray("mcpServerReferences");
+        requireJson(request(
+                port, "POST",
+                "/api/admin-settings/workbench/stage-definitions",
+                body, cookie, header("If-Match", "1")), 200);
+
+        ObjectNode publish = MAPPER.createObjectNode();
+        publish.put("expectedStageCatalogVersion", 1L);
+        requireJson(request(
+                port, "POST",
+                "/api/admin-settings/workbench/stage-definitions/"
+                        + "restart-recovery/publish",
+                publish, cookie, header("If-Match", "1")), 200);
     }
 
-    private void acceptSolutionHandoff(
+    private long ensureStageConversation(
             int port, String cookie, String workbenchId,
-            JsonNode handoff) throws Exception {
-        ObjectNode body = MAPPER.createObjectNode();
-        body.put("sourcePhase", handoff.path("sourcePhase").asText());
-        body.put("sourceVersion", handoff.path("version").asLong());
-        body.put("sourceHash", handoff.path("contentHash").asText());
-        JsonNode reception = requireJson(request(
-                port, "POST", "/api/workbenches/" + workbenchId
-                        + "/phases/IMPLEMENT_TEST/handoff-receptions",
-                body, cookie, Collections.<String, String>emptyMap()), 200);
-        assertEquals("SOLUTION_DESIGN",
-                reception.path("sourcePhase").asText());
-        assertEquals(handoff.path("version").asLong(),
-                reception.path("sourceVersion").asLong());
-    }
-
-    private long ensurePhaseConversation(
-            int port, String cookie, String workbenchId,
+            String stageInstanceIdentifier,
             long expectedVersion) throws Exception {
         JsonNode conversation = requireJson(request(
                 port, "POST", "/api/workbenches/" + workbenchId
-                        + "/phases/IMPLEMENT_TEST/conversation",
+                        + "/stages/" + stageInstanceIdentifier
+                        + "/conversation",
                 null, cookie,
                 header("If-Match", Long.toString(expectedVersion))), 200);
         assertFalse(conversation.path("sessionId").asText().isEmpty());
@@ -383,19 +387,18 @@ class WorkbenchRuntimeRestartRecoveryProcessIntegrationTest {
 
     private JsonNode submitWriteRun(
             int port, String cookie, String workbenchId,
-            long expectedVersion, long handoffVersion,
+            String stageInstanceIdentifier, long expectedVersion,
             String idempotencyKey, String message) throws Exception {
         ObjectNode body = MAPPER.createObjectNode();
         body.put("message", message);
         body.put("runMode", "MODIFY_WORKSPACE");
-        body.put("handoffSourceVersion", handoffVersion);
         body.set("attachments", MAPPER.createArrayNode());
         Map<String, String> headers = new HashMap<String, String>();
         headers.put("Idempotency-Key", idempotencyKey);
         headers.put("If-Match", Long.toString(expectedVersion));
         return requireJson(request(
                 port, "POST", "/api/workbenches/" + workbenchId
-                        + "/phases/IMPLEMENT_TEST/runs",
+                        + "/stages/" + stageInstanceIdentifier + "/runs",
                 body, cookie, headers), 202);
     }
 
@@ -544,12 +547,12 @@ class WorkbenchRuntimeRestartRecoveryProcessIntegrationTest {
                     runPath(workbenchId, runId));
             JsonNode workbench = getJson(
                     port, cookie, "/api/workbenches/" + workbenchId);
-            String phaseActiveRunId = null;
-            for (JsonNode phase : workbench.path("phases")) {
-                if ("IMPLEMENT_TEST".equals(
-                        phase.path("phase").asText())) {
-                    JsonNode activeRun = phase.get("activeRun");
-                    phaseActiveRunId = activeRun == null
+            String stageActiveRunId = null;
+            for (JsonNode stage : workbench.path("stages")) {
+                if (run.path("stageInstanceIdentifier").asText().equals(
+                        stage.path("stageInstanceIdentifier").asText())) {
+                    JsonNode activeRun = stage.get("activeRun");
+                    stageActiveRunId = activeRun == null
                             || activeRun.isNull() ? null
                             : activeRun.path("runId").asText();
                     break;
@@ -560,7 +563,7 @@ class WorkbenchRuntimeRestartRecoveryProcessIntegrationTest {
                     + jsonNullableText(run.get("failureCode"))
                     + ",workbenchActiveWriteRunId="
                     + jsonNullableText(workbench.get("activeWriteRunId"))
-                    + ",phaseActiveRunId=" + phaseActiveRunId
+                    + ",stageActiveRunId=" + stageActiveRunId
                     + ",persistedWriteRunId=" + sqliteString(
                     database,
                     "SELECT active_write_run_id FROM workbench WHERE id=?",
@@ -577,15 +580,17 @@ class WorkbenchRuntimeRestartRecoveryProcessIntegrationTest {
         }
     }
 
-    private void assertPhaseRunReleased(
-            JsonNode workbench, String phaseName) {
-        for (JsonNode phase : workbench.path("phases")) {
-            if (phaseName.equals(phase.path("phase").asText())) {
-                assertTrue(phase.path("activeRun").isNull());
+    private void assertStageRunReleased(
+            JsonNode workbench, String stageInstanceIdentifier) {
+        for (JsonNode stage : workbench.path("stages")) {
+            if (stageInstanceIdentifier.equals(
+                    stage.path("stageInstanceIdentifier").asText())) {
+                assertTrue(stage.path("activeRun").isNull());
                 return;
             }
         }
-        throw new AssertionError("phase not found: " + phaseName);
+        throw new AssertionError(
+                "stage not found: " + stageInstanceIdentifier);
     }
 
     private List<String> eventTypes(JsonNode page) {

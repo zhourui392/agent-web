@@ -147,24 +147,24 @@ public class ChatAppServiceImplFeedbackTest {
 
     @Test
     public void feedbackShouldHideActiveAndRetiredWorkbenchSessionsWithoutPersistence() {
-        ChatSession active = workbenchSession("phase-active");
-        ChatSession retired = workbenchSession("phase-retired");
+        ChatSession active = workbenchSession("stage-active");
+        ChatSession retired = workbenchSession("stage-retired");
         retired.retire(retired.getCreatedAt().plusSeconds(1));
-        when(sessionRepository.findById("phase-active")).thenReturn(active);
-        when(sessionRepository.findById("phase-retired")).thenReturn(retired);
+        when(sessionRepository.findById("stage-active")).thenReturn(active);
+        when(sessionRepository.findById("stage-retired")).thenReturn(retired);
 
         assertThrows(ChatSessionNotFoundException.class,
-                () -> service.saveFeedback("phase-active", "CORRECT", "must stay private"));
+                () -> service.saveFeedback("stage-active", "CORRECT", "must stay private"));
         assertThrows(ChatSessionNotFoundException.class,
-                () -> service.getFeedback("phase-retired"));
+                () -> service.getFeedback("stage-retired"));
 
         verify(sessionRepository, never()).saveFeedback(anyString(), any());
     }
 
     private ChatSession workbenchSession(String id) {
-        return ChatSession.createWorkbenchPhase(
+        return ChatSession.createWorkbenchStage(
                 id, AgentType.CODEX, "/tmp/wd",
-                "workbench-1:IMPLEMENT_TEST", "owner-1", "Alex",
+                "workbench-1:stage-implementation", "owner-1", "Alex",
                 Instant.parse("2026-08-01T10:00:00Z"));
     }
 }

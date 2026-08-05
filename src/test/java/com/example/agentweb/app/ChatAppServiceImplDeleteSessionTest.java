@@ -131,15 +131,15 @@ public class ChatAppServiceImplDeleteSessionTest {
     }
 
     @Test
-    public void deleteSession_workbenchPhaseShouldLookMissingAndTouchNoData() {
-        ChatSession session = ChatSession.createWorkbenchPhase(
-                "phase-session", AgentType.CODEX, "/tmp/wd",
-                "workbench-1:IMPLEMENT_TEST", "owner-1", "Alex",
+    public void deleteSession_workbenchStageShouldLookMissingAndTouchNoData() {
+        ChatSession session = ChatSession.createWorkbenchStage(
+                "stage-session", AgentType.CODEX, "/tmp/wd",
+                "workbench-1:stage-implementation", "owner-1", "Alex",
                 java.time.Instant.parse("2026-08-01T10:00:00Z"));
-        when(sessionRepository.findById("phase-session")).thenReturn(session);
+        when(sessionRepository.findById("stage-session")).thenReturn(session);
 
         assertThrows(ChatSessionNotFoundException.class,
-                () -> service.deleteSession("phase-session"));
+                () -> service.deleteSession("stage-session"));
 
         verify(chatRunActivityGuard, never()).requireInactive(anyString());
         verify(uploadPicStore, never()).deleteSessionImages(anyString(), anyString());

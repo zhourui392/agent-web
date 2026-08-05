@@ -1,12 +1,12 @@
 /**
- * Workbench Owner API client。只暴露已落地的 Shell 端点。
+ * Workbench Owner Stage-only API client。
  *
  * @author alex
- * @since 2026-08-01
+ * @since 2026-08-05
  */
 import { fetchJson, postJson, query } from './client';
 import type { WorkbenchRunMode } from '../lib/workbench-run-state';
-import type { WorkbenchPhase, WorkbenchPhaseStatus } from '../lib/workbench-state';
+import type { WorkbenchStageStatus } from '../lib/workbench-state';
 
 export interface WorkspaceRepositoryCandidate {
   repositoryKey: string;
@@ -35,6 +35,22 @@ export interface CreateWorkbenchRequest {
   workspaceRoot: string;
   primaryRepository: string;
   repositories: string[];
+  stageDefinitionIdentifiers: string[];
+  expectedStageCatalogVersion: number;
+}
+
+export interface SelectableWorkbenchStageDefinition {
+  definitionIdentifier: string;
+  publishedRevision: number;
+  displayName: string;
+  description: string;
+  sequenceNumber: number;
+  definitionHash: string;
+}
+
+export interface SelectableWorkbenchStageCatalog {
+  stageCatalogVersion: number;
+  stages: SelectableWorkbenchStageDefinition[];
 }
 
 export interface WorkbenchCreationResponse {
@@ -85,18 +101,29 @@ export interface WorkbenchActiveRunView {
   runId: string;
   runMode: WorkbenchRunMode;
   preparedAt: number;
-  reviewConfirmationId: string | null;
-  reviewOpinionVersion: number | null;
-  reviewOpinionHash: string | null;
 }
 
-export interface WorkbenchPhaseView {
-  phase: WorkbenchPhase;
-  phaseOrder: number;
-  status: WorkbenchPhaseStatus;
+export interface WorkbenchStageConversationView {
+  sessionId: string;
+  generation: number;
+  createdAt?: number;
+  retiredAt?: number | null;
+}
+
+export interface WorkbenchStageView {
+  stageInstanceIdentifier: string;
+  definitionIdentifier: string;
+  definitionRevision: number;
+  definitionHash: string;
+  snapshotHash: string;
+  sequenceNumber: number;
+  displayName: string;
+  description: string;
+  allowedRunModes: WorkbenchRunMode[];
+  status: WorkbenchStageStatus;
   conversationGeneration: number;
-  currentConversation: { sessionId: string; generation: number } | null;
-  conversationHistory: Array<{ sessionId: string; generation: number }>;
+  currentConversation: WorkbenchStageConversationView | null;
+  conversationHistory: WorkbenchStageConversationView[];
   activeRun: WorkbenchActiveRunView | null;
   lastActivityAt: number | null;
   completedAt: number | null;
@@ -116,6 +143,7 @@ export interface WorkbenchDetail {
   repositoryScope: {
     scopeHash: string;
     primaryRepositoryKey: string;
+    workspaceRoot: string;
     repositories: WorkbenchRepositoryView[];
   };
   creationSnapshot: {
@@ -124,13 +152,14 @@ export interface WorkbenchDetail {
     stateHash: string;
     repositoryCount: number;
   };
-  phases: WorkbenchPhaseView[];
+  stages: WorkbenchStageView[];
 }
 
-export interface WorkbenchPhaseLifecycleResponse {
+export interface WorkbenchStageLifecycleResponse {
   workbenchId: string;
-  phase: WorkbenchPhase;
-  phaseStatus: WorkbenchPhaseStatus;
+  stageInstanceIdentifier: string;
+  definitionIdentifier: string;
+  stageStatus: WorkbenchStageStatus;
   conversationId: string | null;
   conversationGeneration: number;
   workbenchVersion: number;
@@ -139,6 +168,10 @@ export interface WorkbenchPhaseLifecycleResponse {
 
 export function inspectWorkspace(workspaceRoot: string): Promise<WorkspaceInspection> {
   return postJson<WorkspaceInspection>('/api/workbench/workspaces/inspect', { workspaceRoot });
+}
+
+export function getSelectableWorkbenchStages(): Promise<SelectableWorkbenchStageCatalog> {
+  return fetchJson<SelectableWorkbenchStageCatalog>('/api/workbench/stage-definitions');
 }
 
 export function createWorkbench(
@@ -173,16 +206,17 @@ export function getWorkbench(workbenchId: string): Promise<WorkbenchDetail> {
   return fetchJson<WorkbenchDetail>(`/api/workbenches/${encodeURIComponent(workbenchId)}`);
 }
 
-function mutatePhase(
+function mutateStage(
   workbenchId: string,
-  phase: WorkbenchPhase,
+  stageInstanceIdentifier: string,
   action: 'complete' | 'reopen',
   expectedVersion: number,
-): Promise<WorkbenchPhaseLifecycleResponse> {
+): Promise<WorkbenchStageLifecycleResponse> {
   const encodedWorkbenchId = encodeURIComponent(workbenchId);
-  const encodedPhase = encodeURIComponent(phase);
-  return fetchJson<WorkbenchPhaseLifecycleResponse>(
-    `/api/workbenches/${encodedWorkbenchId}/phases/${encodedPhase}/${action}`,
+  const encodedStageInstanceIdentifier = encodeURIComponent(stageInstanceIdentifier);
+  return fetchJson<WorkbenchStageLifecycleResponse>(
+    `/api/workbenches/${encodedWorkbenchId}/stages/`
+      + `${encodedStageInstanceIdentifier}/${action}`,
     {
       method: 'POST',
       headers: { 'If-Match': String(expectedVersion) },
@@ -190,18 +224,22 @@ function mutatePhase(
   );
 }
 
-export function completeWorkbenchPhase(
+export function completeWorkbenchStage(
   workbenchId: string,
-  phase: WorkbenchPhase,
+  stageInstanceIdentifier: string,
   expectedVersion: number,
-): Promise<WorkbenchPhaseLifecycleResponse> {
-  return mutatePhase(workbenchId, phase, 'complete', expectedVersion);
+): Promise<WorkbenchStageLifecycleResponse> {
+  return mutateStage(
+    workbenchId, stageInstanceIdentifier, 'complete', expectedVersion,
+  );
 }
 
-export function reopenWorkbenchPhase(
+export function reopenWorkbenchStage(
   workbenchId: string,
-  phase: WorkbenchPhase,
+  stageInstanceIdentifier: string,
   expectedVersion: number,
-): Promise<WorkbenchPhaseLifecycleResponse> {
-  return mutatePhase(workbenchId, phase, 'reopen', expectedVersion);
+): Promise<WorkbenchStageLifecycleResponse> {
+  return mutateStage(
+    workbenchId, stageInstanceIdentifier, 'reopen', expectedVersion,
+  );
 }

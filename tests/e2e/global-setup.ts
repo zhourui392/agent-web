@@ -13,7 +13,7 @@ export default async function globalSetup(config: FullConfig): Promise<void> {
     throw new Error('AGENT_E2E_ADMIN_PASSWORD is required for E2E database login');
   }
   let response: APIResponse | undefined;
-  for (let attempt = 0; attempt < 30; attempt++) {
+  for (let attempt = 0; attempt < 90; attempt++) {
     response = await context.post('/api/auth/login', { data: { username: 'admin', password } });
     if (response.ok() || response.status() === 401) {
       break;

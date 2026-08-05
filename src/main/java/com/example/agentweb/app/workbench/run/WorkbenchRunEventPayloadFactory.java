@@ -3,7 +3,7 @@ package com.example.agentweb.app.workbench.run;
 import com.example.agentweb.app.chatrun.ChatRunEvent;
 import com.example.agentweb.domain.chatrun.ChatRunStatus;
 import com.example.agentweb.domain.workbench.WorkbenchDomainException;
-import com.example.agentweb.domain.workbench.WorkbenchRunSnapshot;
+import com.example.agentweb.domain.workbench.WorkbenchStageRunSnapshot;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -31,15 +31,15 @@ final class WorkbenchRunEventPayloadFactory {
     }
 
     static String status(
-            WorkbenchRunSnapshot snapshot, ChatRunStatus status,
+            WorkbenchStageRunSnapshot snapshot, ChatRunStatus status,
             Instant occurredAt) {
         Map<String, Object> data = new LinkedHashMap<String, Object>();
         data.put("status", status.name());
-        return envelope(snapshot, occurredAt, data);
+        return stageEnvelope(snapshot, occurredAt, data);
     }
 
     static String project(
-            WorkbenchRunSnapshot snapshot, ChatRunEvent event) {
+            WorkbenchStageRunSnapshot snapshot, ChatRunEvent event) {
         if (snapshot == null || event == null
                 || !snapshot.getRunId().equals(
                 event.getRunId().getValue())) {
@@ -47,8 +47,8 @@ final class WorkbenchRunEventPayloadFactory {
         }
         Map<String, Object> parsed = parseObject(event.getPayload());
         if (isWorkbenchEnvelope(parsed)) {
-            requireExactEnvelope(snapshot, parsed);
-            return envelope(
+            requireExactStageEnvelope(snapshot, parsed);
+            return stageEnvelope(
                     snapshot, event.getCreatedAt(), envelopeData(parsed));
         }
         Map<String, Object> data = parsed;
@@ -60,29 +60,30 @@ final class WorkbenchRunEventPayloadFactory {
                 data.put("payload", event.getPayload());
             }
         }
-        return envelope(snapshot, event.getCreatedAt(), data);
+        return stageEnvelope(snapshot, event.getCreatedAt(), data);
     }
 
-    private static String envelope(
-            WorkbenchRunSnapshot snapshot, Instant occurredAt,
+    private static String stageEnvelope(
+            WorkbenchStageRunSnapshot snapshot, Instant occurredAt,
             Map<String, Object> data) {
         if (snapshot == null || occurredAt == null || data == null) {
             throw new IllegalArgumentException(
-                    "workbench run event envelope facts are required");
+                    "Workbench Stage Run event envelope facts are required");
         }
         Map<String, Object> envelope =
                 new LinkedHashMap<String, Object>();
         envelope.put("schemaVersion", SCHEMA_VERSION);
         envelope.put("runId", snapshot.getRunId());
         envelope.put("workbenchId", snapshot.getWorkbenchId().getValue());
-        envelope.put("phase", snapshot.getPhase().name());
+        envelope.put("stageInstanceIdentifier",
+                snapshot.getStageInstanceIdentifier());
         envelope.put("occurredAt", occurredAt.toEpochMilli());
         envelope.put("data", data);
         try {
             return MAPPER.writeValueAsString(envelope);
         } catch (JsonProcessingException failure) {
             throw new IllegalStateException(
-                    "workbench run status payload could not be serialized",
+                    "Workbench Stage Run status payload could not be serialized",
                     failure);
         }
     }
@@ -101,14 +102,14 @@ final class WorkbenchRunEventPayloadFactory {
                 && SCHEMA_VERSION.equals(payload.get("schemaVersion"));
     }
 
-    private static void requireExactEnvelope(
-            WorkbenchRunSnapshot snapshot,
+    private static void requireExactStageEnvelope(
+            WorkbenchStageRunSnapshot snapshot,
             Map<String, Object> envelope) {
         if (!snapshot.getRunId().equals(envelope.get("runId"))
                 || !snapshot.getWorkbenchId().getValue().equals(
                 envelope.get("workbenchId"))
-                || !snapshot.getPhase().name().equals(
-                envelope.get("phase"))
+                || !snapshot.getStageInstanceIdentifier().equals(
+                envelope.get("stageInstanceIdentifier"))
                 || !(envelope.get("data") instanceof Map)) {
             throw WorkbenchDomainException.runBindingCorrupted();
         }

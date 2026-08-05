@@ -38,7 +38,7 @@ public final class RunSessionOriginPolicy {
         Map<SessionKind, RunOrigin> origins =
                 new EnumMap<SessionKind, RunOrigin>(SessionKind.class);
         origins.put(SessionKind.CHAT, RunOrigin.CHAT);
-        origins.put(SessionKind.WORKBENCH_PHASE, RunOrigin.WORKBENCH);
+        origins.put(SessionKind.WORKBENCH_STAGE, RunOrigin.WORKBENCH);
         return Collections.unmodifiableMap(origins);
     }
 }

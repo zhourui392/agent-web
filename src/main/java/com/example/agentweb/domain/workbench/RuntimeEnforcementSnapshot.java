@@ -39,8 +39,8 @@ public final class RuntimeEnforcementSnapshot {
                 runtimeVersion, "runtime version", 128);
         this.repositoryScopeHash = DomainText.requireSha256(
                 repositoryScopeHash, "runtime repository scope hash");
-        this.primaryRepositoryKey = HighImpactTargetSupport.repositoryKey(
-                primaryRepositoryKey);
+        this.primaryRepositoryKey = DomainText.require(
+                primaryRepositoryKey, "runtime primary repository key", 512);
         if (runMode == null) {
             throw new IllegalArgumentException("runtime run mode must not be null");
         }
@@ -145,7 +145,8 @@ public final class RuntimeEnforcementSnapshot {
         List<String> normalized = new ArrayList<String>();
         Set<String> unique = new HashSet<String>();
         for (String repository : repositories) {
-            String key = HighImpactTargetSupport.repositoryKey(repository);
+            String key = DomainText.require(
+                    repository, "runtime writable repository key", 512);
             if (!unique.add(key)) {
                 throw new IllegalArgumentException(
                         "runtime writable repositories must not contain duplicates");

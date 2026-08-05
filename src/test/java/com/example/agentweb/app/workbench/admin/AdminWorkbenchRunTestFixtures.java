@@ -13,8 +13,13 @@ import com.example.agentweb.domain.workbench.RunMode;
 import com.example.agentweb.domain.workbench.RuntimeEnforcementSnapshot;
 import com.example.agentweb.domain.workbench.Workbench;
 import com.example.agentweb.domain.workbench.WorkbenchId;
-import com.example.agentweb.domain.workbench.WorkbenchPhase;
-import com.example.agentweb.domain.workbench.WorkbenchRunSnapshot;
+import com.example.agentweb.domain.workbench.WorkbenchStageRunSnapshot;
+import com.example.agentweb.domain.workbench.stage.ResolvedStageCapabilities;
+import com.example.agentweb.domain.workbench.stage.StageCatalogEditor;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageCatalog;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageDraftContent;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageSnapshot;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageState;
 import com.example.agentweb.domain.workspace.RepositoryScope;
 import com.example.agentweb.domain.workspace.RepositorySelection;
 import com.example.agentweb.domain.workspace.ResolvedRepository;
@@ -23,17 +28,19 @@ import com.example.agentweb.domain.workspace.WorkspaceTopology;
 
 import java.time.Instant;
 import java.util.Collections;
+import java.util.Set;
 
 /**
- * Admin Workbench Run 应用测试的真实领域事实。
+ * Admin Dynamic Stage Workbench Run 应用测试的真实领域事实。
  *
  * @author alex
- * @since 2026-08-01
+ * @since 2026-08-05
  */
 final class AdminWorkbenchRunTestFixtures {
 
-    static final Instant NOW = Instant.parse("2026-08-01T20:00:00Z");
+    static final Instant NOW = Instant.parse("2026-08-05T20:00:00Z");
     static final WorkbenchId WORKBENCH_ID = WorkbenchId.of("workbench-1");
+    static final String STAGE_IDENTIFIER = "stage-analysis";
 
     private AdminWorkbenchRunTestFixtures() {
     }
@@ -43,7 +50,10 @@ final class AdminWorkbenchRunTestFixtures {
         return Workbench.create(
                 WORKBENCH_ID, OwnerReference.of("owner-1", "Owner One"),
                 "Workbench", "Goal", AgentType.CODEX, "local", scope,
-                snapshotReference(scope), NOW.minusSeconds(10));
+                snapshotReference(scope),
+                Collections.singletonList(WorkbenchStageState.initial(
+                        STAGE_IDENTIFIER, stageSnapshot())),
+                NOW.minusSeconds(10));
     }
 
     static ChatRun runningRun() {
@@ -51,34 +61,58 @@ final class AdminWorkbenchRunTestFixtures {
                 ChatRunId.of("run-1"), "session-1", 1L, "submission-1",
                 false, RunOrigin.WORKBENCH,
                 ExecutionContextReference.of(
-                        "workbench-1:REQUIREMENT_ANALYSIS", "run-1"),
+                        "workbench-1:" + STAGE_IDENTIFIER, "run-1"),
                 NOW.minusSeconds(2));
         run.start(NOW.minusSeconds(1));
         return run;
     }
 
-    static WorkbenchRunSnapshot snapshot() {
+    static WorkbenchStageRunSnapshot snapshot() {
         RepositoryScope scope = scope();
+        WorkbenchStageSnapshot frozenStage = stageSnapshot();
         ResolvedCapabilityBinding binding = ResolvedCapabilityBinding.resolve(
-                "policy-1", "requirement-analysis", "1", repeat('a'),
+                "policy-1", "analysis", "1", frozenStage.getSnapshotHash(),
                 Collections.singletonList(new ResolvedRuleBinding(
                         "platform/safety", "1", "platform", repeat('b'),
                         true, "安全规则")),
                 Collections.emptyList(), Collections.emptyList(),
                 Collections.emptyList(), "codex-compatible");
-        return WorkbenchRunSnapshot.create(
-                "run-1", WORKBENCH_ID,
-                WorkbenchPhase.REQUIREMENT_ANALYSIS,
+        return WorkbenchStageRunSnapshot.create(
+                "run-1", WORKBENCH_ID, STAGE_IDENTIFIER, frozenStage,
                 "submission-1", repeat('7'),
                 RunMode.DISCUSS_READ_ONLY, scope,
-                snapshotReference(scope), binding, null, null,
+                snapshotReference(scope), binding, null,
+                0L, repeat('3'), Collections.emptyList(),
                 Collections.singletonList(PromptPartSnapshot.of(
                         "USER_INPUT", "user", repeat('4'), 32)),
                 repeat('5'),
                 RuntimeEnforcementSnapshot.readOnly(
                         "CODEX", "0.42", scope.getScopeHash(), "repo",
-                        1800L, 8388608L),
-                null, NOW.minusSeconds(2));
+                        1800L, 8_388_608L),
+                Collections.emptyList(), Collections.emptyList(),
+                NOW.minusSeconds(2));
+    }
+
+    private static WorkbenchStageSnapshot stageSnapshot() {
+        WorkbenchStageCatalog catalog = WorkbenchStageCatalog.empty();
+        StageCatalogEditor administrator =
+                StageCatalogEditor.create("admin-1", "Admin");
+        catalog.createDraft(
+                "analysis",
+                WorkbenchStageDraftContent.create(
+                        10, "分析", "分析目标", "保持只读",
+                        Set.of(RunMode.DISCUSS_READ_ONLY),
+                        Collections.emptyList(), Collections.emptyList(),
+                        Collections.emptyList()),
+                administrator, NOW.minusSeconds(12));
+        return WorkbenchStageSnapshot.fromPublishedRevision(
+                catalog.publishDraft(
+                        "analysis", catalog.getCatalogVersion(), 1L,
+                        new ResolvedStageCapabilities(
+                                Collections.emptyList(),
+                                Collections.emptyList(),
+                                Collections.emptyList()),
+                        administrator, NOW.minusSeconds(11)));
     }
 
     private static RepositoryScope scope() {
@@ -105,10 +139,7 @@ final class AdminWorkbenchRunTestFixtures {
     }
 
     private static String repeat(char value) {
-        StringBuilder result = new StringBuilder(64);
-        for (int index = 0; index < 64; index++) {
-            result.append(value);
-        }
-        return result.toString();
+        return String.join("", Collections.nCopies(
+                64, Character.toString(value)));
     }
 }

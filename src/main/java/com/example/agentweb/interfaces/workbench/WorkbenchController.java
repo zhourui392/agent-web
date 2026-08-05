@@ -6,7 +6,7 @@ import com.example.agentweb.app.workbench.WorkbenchCreationResult;
 import com.example.agentweb.app.workbench.WorkbenchLifecycleAppService;
 import com.example.agentweb.app.workbench.WorkbenchLifecycleResult;
 import com.example.agentweb.app.workbench.WorkbenchNotFoundException;
-import com.example.agentweb.app.workbench.WorkbenchPhaseLifecycleResult;
+import com.example.agentweb.app.workbench.WorkbenchStageLifecycleResult;
 import com.example.agentweb.app.workbench.query.WorkbenchDetailView;
 import com.example.agentweb.app.workbench.query.WorkbenchListCursor;
 import com.example.agentweb.app.workbench.query.WorkbenchListPage;
@@ -16,12 +16,11 @@ import com.example.agentweb.domain.auth.CurrentUserProvider;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.workbench.OwnerReference;
 import com.example.agentweb.domain.workbench.WorkbenchId;
-import com.example.agentweb.domain.workbench.WorkbenchPhase;
 import com.example.agentweb.domain.workbench.WorkbenchStatus;
 import com.example.agentweb.interfaces.workbench.dto.CreateWorkbenchRequest;
 import com.example.agentweb.interfaces.workbench.dto.WorkbenchCreationResponse;
 import com.example.agentweb.interfaces.workbench.dto.WorkbenchLifecycleResponse;
-import com.example.agentweb.interfaces.workbench.dto.WorkbenchPhaseLifecycleResponse;
+import com.example.agentweb.interfaces.workbench.dto.WorkbenchStageLifecycleResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -75,7 +74,8 @@ public class WorkbenchController {
                 idempotencyKey, request.getTitle(), request.getOriginalGoal(),
                 AgentType.parseKnown(request.getAgentType()), request.getEnvironment(),
                 request.getWorkspaceRoot(), request.getPrimaryRepository(),
-                request.getRepositories());
+                request.getRepositories(), request.getStageDefinitionIdentifiers(),
+                request.getExpectedStageCatalogVersion());
         WorkbenchCreationResult result = appService.create(actor, command);
         return ResponseEntity.created(
                         URI.create("/api/workbenches/" + result.getWorkbenchId()))
@@ -114,26 +114,28 @@ public class WorkbenchController {
         return WorkbenchLifecycleResponse.from(result);
     }
 
-    @PostMapping("/{workbenchId}/phases/{phase}/complete")
-    public WorkbenchPhaseLifecycleResponse completePhase(
+    @PostMapping("/{workbenchId}/stages/{stageInstanceIdentifier}/complete")
+    public WorkbenchStageLifecycleResponse completeStage(
             @PathVariable("workbenchId") String workbenchId,
-            @PathVariable("phase") String phase,
+            @PathVariable("stageInstanceIdentifier")
+                    String stageInstanceIdentifier,
             @RequestHeader("If-Match") long expectedVersion) {
-        WorkbenchPhaseLifecycleResult result = lifecycleAppService.completePhase(
-                currentOwner(), WorkbenchId.of(workbenchId), parsePhase(phase),
-                expectedVersion);
-        return WorkbenchPhaseLifecycleResponse.from(result);
+        WorkbenchStageLifecycleResult result = lifecycleAppService.completeStage(
+                currentOwner(), WorkbenchId.of(workbenchId),
+                stageInstanceIdentifier, expectedVersion);
+        return WorkbenchStageLifecycleResponse.from(result);
     }
 
-    @PostMapping("/{workbenchId}/phases/{phase}/reopen")
-    public WorkbenchPhaseLifecycleResponse reopenPhase(
+    @PostMapping("/{workbenchId}/stages/{stageInstanceIdentifier}/reopen")
+    public WorkbenchStageLifecycleResponse reopenStage(
             @PathVariable("workbenchId") String workbenchId,
-            @PathVariable("phase") String phase,
+            @PathVariable("stageInstanceIdentifier")
+                    String stageInstanceIdentifier,
             @RequestHeader("If-Match") long expectedVersion) {
-        WorkbenchPhaseLifecycleResult result = lifecycleAppService.reopenPhase(
-                currentOwner(), WorkbenchId.of(workbenchId), parsePhase(phase),
-                expectedVersion);
-        return WorkbenchPhaseLifecycleResponse.from(result);
+        WorkbenchStageLifecycleResult result = lifecycleAppService.reopenStage(
+                currentOwner(), WorkbenchId.of(workbenchId),
+                stageInstanceIdentifier, expectedVersion);
+        return WorkbenchStageLifecycleResponse.from(result);
     }
 
     private OwnerReference currentOwner() {
@@ -162,7 +164,4 @@ public class WorkbenchController {
         return new WorkbenchListCursor(updatedAt.longValue(), workbenchId);
     }
 
-    private WorkbenchPhase parsePhase(String value) {
-        return WorkbenchPhase.valueOf(value.trim().toUpperCase(Locale.ROOT));
-    }
 }

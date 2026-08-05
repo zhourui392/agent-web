@@ -5,7 +5,6 @@ import com.example.agentweb.domain.workbench.Workbench;
 import com.example.agentweb.domain.workbench.WorkbenchDomainException;
 import com.example.agentweb.domain.workbench.WorkbenchErrorCode;
 import com.example.agentweb.domain.workbench.WorkbenchId;
-import com.example.agentweb.domain.workbench.WorkbenchPhase;
 import com.example.agentweb.domain.workbench.WorkbenchRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,21 +43,23 @@ public class WorkbenchLifecycleAppService {
     }
 
     @Transactional
-    public WorkbenchPhaseLifecycleResult completePhase(
+    public WorkbenchStageLifecycleResult completeStage(
             OwnerReference actor, WorkbenchId workbenchId,
-            WorkbenchPhase phase, long expectedVersion) {
-        return mutatePhase(actor, workbenchId, phase, expectedVersion,
-                (workbench, version, now) -> workbench.completePhase(
-                        phase, actor, version, now));
+            String stageInstanceIdentifier, long expectedVersion) {
+        return mutateStage(
+                actor, workbenchId, stageInstanceIdentifier, expectedVersion,
+                (workbench, version, now) -> workbench.completeStage(
+                        stageInstanceIdentifier, actor, version, now));
     }
 
     @Transactional
-    public WorkbenchPhaseLifecycleResult reopenPhase(
+    public WorkbenchStageLifecycleResult reopenStage(
             OwnerReference actor, WorkbenchId workbenchId,
-            WorkbenchPhase phase, long expectedVersion) {
-        return mutatePhase(actor, workbenchId, phase, expectedVersion,
-                (workbench, version, now) -> workbench.reopenPhase(
-                        phase, actor, version, now));
+            String stageInstanceIdentifier, long expectedVersion) {
+        return mutateStage(
+                actor, workbenchId, stageInstanceIdentifier, expectedVersion,
+                (workbench, version, now) -> workbench.reopenStage(
+                        stageInstanceIdentifier, actor, version, now));
     }
 
     @Transactional
@@ -71,37 +72,20 @@ public class WorkbenchLifecycleAppService {
         return WorkbenchLifecycleResult.afterMutation(workbench, changed);
     }
 
-    @Transactional
-    public WorkbenchPhaseLifecycleResult bindConversation(
+    private WorkbenchStageLifecycleResult mutateStage(
             OwnerReference actor, WorkbenchId workbenchId,
-            WorkbenchPhase phase, String conversationId, long expectedVersion) {
-        return mutatePhase(actor, workbenchId, phase, expectedVersion,
-                (workbench, version, now) -> workbench.bindConversation(
-                        phase, conversationId, actor, version, now));
-    }
-
-    @Transactional
-    public WorkbenchPhaseLifecycleResult restartConversation(
-            OwnerReference actor, WorkbenchId workbenchId,
-            WorkbenchPhase phase, String conversationId, long expectedVersion) {
-        return mutatePhase(actor, workbenchId, phase, expectedVersion,
-                (workbench, version, now) -> workbench.restartConversation(
-                        phase, conversationId, actor, version, now));
-    }
-
-    private WorkbenchPhaseLifecycleResult mutatePhase(
-            OwnerReference actor, WorkbenchId workbenchId,
-            WorkbenchPhase phase, long expectedVersion,
-            PhaseMutation mutation) {
-        if (phase == null || mutation == null) {
+            String stageInstanceIdentifier, long expectedVersion,
+            StageMutation mutation) {
+        if (mutation == null) {
             throw new IllegalArgumentException(
-                    "workbench phase lifecycle operation is required");
+                    "Workbench Stage lifecycle operation is required");
         }
         Workbench workbench = requireOwnedWorkbench(actor, workbenchId);
         boolean changed = mutation.apply(
                 workbench, expectedVersion, clock.instant());
         updateWhenChanged(workbench, changed);
-        return WorkbenchPhaseLifecycleResult.from(workbench, phase, changed);
+        return WorkbenchStageLifecycleResult.from(
+                workbench, stageInstanceIdentifier, changed);
     }
 
     private Workbench requireOwnedWorkbench(
@@ -130,7 +114,7 @@ public class WorkbenchLifecycleAppService {
     }
 
     @FunctionalInterface
-    private interface PhaseMutation {
+    private interface StageMutation {
 
         boolean apply(Workbench workbench, long expectedVersion, Instant now);
     }

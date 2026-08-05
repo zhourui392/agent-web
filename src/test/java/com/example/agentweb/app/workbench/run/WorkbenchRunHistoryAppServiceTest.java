@@ -11,28 +11,29 @@ import com.example.agentweb.domain.capability.ResolvedSkillBinding;
 import com.example.agentweb.domain.chatrun.ChatRun;
 import com.example.agentweb.domain.chatrun.ChatRunId;
 import com.example.agentweb.domain.workbench.Workbench;
-import com.example.agentweb.domain.workbench.WorkbenchPhase;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Optional;
-import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
- * Workbench Run 历史、事件与能力查询的 Owner-first 编排测试。
+ * Dynamic Stage Run 历史、事件与能力查询的 Owner-first 编排测试。
  *
  * @author alex
- * @since 2026-08-01
+ * @since 2026-08-05
  */
 class WorkbenchRunHistoryAppServiceTest {
 
@@ -51,104 +52,118 @@ class WorkbenchRunHistoryAppServiceTest {
     }
 
     @Test
-    void listShouldAuthorizeOwnerBeforeReadingProjection() {
-        Workbench workbench = WorkbenchRunTestFixtures.workbench();
+    void should_AuthorizeOwnerBeforeReadingStageHistory_When_Listing() {
+        // Given
+        WorkbenchStageRunTestFixtures.Fixture fixture =
+                WorkbenchStageRunTestFixtures.withoutUpload();
+        Workbench workbench = fixture.workbench();
         WorkbenchRunListRequest request = new WorkbenchRunListRequest(
-                WorkbenchPhase.REQUIREMENT_ANALYSIS, null, 20);
+                WorkbenchStageRunTestFixtures.STAGE_INSTANCE_IDENTIFIER,
+                null, 20);
         WorkbenchRunListPage expected = new WorkbenchRunListPage(
                 Collections.emptyList(), null);
         when(accessResolver.requireOwned(
-                WorkbenchRunTestFixtures.OWNER,
-                WorkbenchRunTestFixtures.WORKBENCH_ID))
+                WorkbenchStageRunTestFixtures.OWNER,
+                WorkbenchStageRunTestFixtures.WORKBENCH_ID))
                 .thenReturn(workbench);
         when(historyQuery.list(
-                WorkbenchRunTestFixtures.WORKBENCH_ID,
+                WorkbenchStageRunTestFixtures.WORKBENCH_ID,
                 workbench.getRepositoryScope().getScopeHash(), request))
                 .thenReturn(expected);
 
+        // When
         WorkbenchRunListPage result = service.list(
-                WorkbenchRunTestFixtures.OWNER,
-                WorkbenchRunTestFixtures.WORKBENCH_ID, request);
+                WorkbenchStageRunTestFixtures.OWNER,
+                WorkbenchStageRunTestFixtures.WORKBENCH_ID, request);
 
+        // Then
         assertEquals(expected, result);
         InOrder order = inOrder(accessResolver, historyQuery);
         order.verify(accessResolver).requireOwned(
-                WorkbenchRunTestFixtures.OWNER,
-                WorkbenchRunTestFixtures.WORKBENCH_ID);
+                WorkbenchStageRunTestFixtures.OWNER,
+                WorkbenchStageRunTestFixtures.WORKBENCH_ID);
         order.verify(historyQuery).list(
-                WorkbenchRunTestFixtures.WORKBENCH_ID,
+                WorkbenchStageRunTestFixtures.WORKBENCH_ID,
                 workbench.getRepositoryScope().getScopeHash(), request);
     }
 
     @Test
-    void missingExactDetailShouldRemainIndistinguishableFromUnauthorizedRun() {
+    void should_HideMissingExactDetail_When_RunWasAuthorized() {
         AuthorizedWorkbenchRun authorized = authorize(
-                WorkbenchRunTestFixtures.runningRun());
+                WorkbenchStageRunTestFixtures.runningRun());
         when(historyQuery.findDetail(
-                WorkbenchRunTestFixtures.WORKBENCH_ID,
+                WorkbenchStageRunTestFixtures.WORKBENCH_ID,
                 authorized.getWorkbench().getRepositoryScope().getScopeHash(),
-                "run-1")).thenReturn(Optional.empty());
+                WorkbenchStageRunTestFixtures.RUN_IDENTIFIER))
+                .thenReturn(Optional.empty());
 
         assertThrows(WorkbenchRunNotFoundException.class,
                 () -> service.detail(
-                        WorkbenchRunTestFixtures.OWNER,
-                        WorkbenchRunTestFixtures.WORKBENCH_ID, "run-1"));
+                        WorkbenchStageRunTestFixtures.OWNER,
+                        WorkbenchStageRunTestFixtures.WORKBENCH_ID,
+                        WorkbenchStageRunTestFixtures.RUN_IDENTIFIER));
     }
 
     @Test
-    void eventPageShouldReuseSseEnvelopeAndRemainBounded() {
+    void should_ReuseStageSseEnvelope_When_ReadingEventPage() {
+        // Given
         AuthorizedWorkbenchRun authorized = authorize(
-                WorkbenchRunTestFixtures.runningRun());
+                WorkbenchStageRunTestFixtures.runningRun());
         ChatRun run = authorized.getRun();
-        run.allocateEventSequence(2, WorkbenchRunTestFixtures.NOW);
-        ChatRunEvent first = event(run.getId(), 1L, "agent_chunk",
+        run.allocateEventSequence(
+                2, WorkbenchStageRunTestFixtures.NOW.plusSeconds(4));
+        ChatRunEvent first = event(
+                run.getId(), 1L, "agent_chunk",
                 "{\"content\":\"hello\"}");
         when(eventStore.findEarliestSequence(run.getId())).thenReturn(1L);
         when(eventStore.findAfterThrough(
                 run.getId(), 0L, 2L, 1))
                 .thenReturn(Collections.singletonList(first));
 
+        // When
         WorkbenchRunEventPage page = service.events(
-                WorkbenchRunTestFixtures.OWNER,
-                WorkbenchRunTestFixtures.WORKBENCH_ID, "run-1",
+                WorkbenchStageRunTestFixtures.OWNER,
+                WorkbenchStageRunTestFixtures.WORKBENCH_ID,
+                WorkbenchStageRunTestFixtures.RUN_IDENTIFIER,
                 new WorkbenchRunEventPageRequest(0L, 1));
 
+        // Then
         assertEquals(1, page.getEvents().size());
         assertEquals(1L, page.getThrough());
         assertEquals(2L, page.getLastEventSeq());
-        assertEquals(1L, page.getEarliestRetainedSeq());
-        assertEquals(true, page.isHasMore());
-        assertEquals("agent_chunk", page.getEvents().get(0).getEventType());
-        org.junit.jupiter.api.Assertions.assertTrue(
-                page.getEvents().get(0).getPayload().contains(
-                        "\"schemaVersion\":\"workbench-run-event@1\""));
-        org.junit.jupiter.api.Assertions.assertTrue(
-                page.getEvents().get(0).getPayload().contains(
-                        "\"workbenchId\":\"workbench-1\""));
+        assertTrue(page.isHasMore());
+        String payload = page.getEvents().get(0).getPayload();
+        assertTrue(payload.contains(
+                "\"stageInstanceIdentifier\":\""
+                        + WorkbenchStageRunTestFixtures
+                        .STAGE_INSTANCE_IDENTIFIER + "\""));
+        assertFalse(payload.contains("\"phase\""));
     }
 
     @Test
-    void expiredEventCursorShouldFailBeforeReadingEventBodies() {
+    void should_FailBeforeReadingEvents_When_CursorExpired() {
         AuthorizedWorkbenchRun authorized = authorize(
-                WorkbenchRunTestFixtures.runningRun());
+                WorkbenchStageRunTestFixtures.runningRun());
         authorized.getRun().allocateEventSequence(
-                10, WorkbenchRunTestFixtures.NOW);
+                10, WorkbenchStageRunTestFixtures.NOW.plusSeconds(4));
         when(eventStore.findEarliestSequence(authorized.getRun().getId()))
                 .thenReturn(5L);
 
         assertThrows(WorkbenchRunCursorExpiredException.class,
                 () -> service.events(
-                        WorkbenchRunTestFixtures.OWNER,
-                        WorkbenchRunTestFixtures.WORKBENCH_ID, "run-1",
+                        WorkbenchStageRunTestFixtures.OWNER,
+                        WorkbenchStageRunTestFixtures.WORKBENCH_ID,
+                        WorkbenchStageRunTestFixtures.RUN_IDENTIFIER,
                         new WorkbenchRunEventPageRequest(2L, 50)));
 
         verifyNoInteractions(historyQuery);
     }
 
     @Test
-    void capabilityShouldExposeOnlyFrozenTraceableFacts() {
+    void should_ExposeFrozenStageCapabilitiesWithoutPhaseOverride_When_Queried() {
+        // Given
         ResolvedCapabilityBinding binding = ResolvedCapabilityBinding.resolve(
-                "policy-1", "requirement-analysis", "1", repeat('a'),
+                "policy-1", "solution-design", "1", repeat('a'),
                 Collections.singletonList(new ResolvedRuleBinding(
                         "platform/safety", "1", "PLATFORM", repeat('b'),
                         true, "安全规则")),
@@ -161,23 +176,27 @@ class WorkbenchRunHistoryAppServiceTest {
                 Collections.singletonList(new RejectedCapability(
                         "production-write", "ACCESS_FORBIDDEN")),
                 "codex-compatible");
+        WorkbenchStageRunTestFixtures.Fixture fixture =
+                WorkbenchStageRunTestFixtures.withCapabilityBinding(binding);
         AuthorizedWorkbenchRun authorized = AuthorizedWorkbenchRun.verified(
-                WorkbenchRunTestFixtures.workbench(),
-                WorkbenchRunTestFixtures.snapshot(binding),
-                WorkbenchRunTestFixtures.runningRun());
+                fixture.workbench(), fixture.snapshot(),
+                WorkbenchStageRunTestFixtures.runningRun());
         when(accessResolver.requireAuthorized(
-                WorkbenchRunTestFixtures.OWNER,
-                WorkbenchRunTestFixtures.WORKBENCH_ID, "run-1"))
+                WorkbenchStageRunTestFixtures.OWNER,
+                WorkbenchStageRunTestFixtures.WORKBENCH_ID,
+                WorkbenchStageRunTestFixtures.RUN_IDENTIFIER))
                 .thenReturn(authorized);
 
+        // When
         WorkbenchRunCapabilityView view = service.capability(
-                WorkbenchRunTestFixtures.OWNER,
-                WorkbenchRunTestFixtures.WORKBENCH_ID, "run-1");
+                WorkbenchStageRunTestFixtures.OWNER,
+                WorkbenchStageRunTestFixtures.WORKBENCH_ID,
+                WorkbenchStageRunTestFixtures.RUN_IDENTIFIER);
 
-        assertEquals("run-1", view.getRunId());
-        assertEquals(authorized.getSnapshot().getCapabilityBinding()
-                .getBindingHash(), view.getBindingHash());
-        assertEquals(0L, view.getOverrideVersion());
+        // Then
+        assertEquals(WorkbenchStageRunTestFixtures.STAGE_INSTANCE_IDENTIFIER,
+                view.getStageInstanceIdentifier());
+        assertEquals(binding.getBindingHash(), view.getBindingHash());
         assertEquals(1, view.getRules().size());
         assertEquals("platform/safety", view.getRules().get(0).getId());
         assertEquals("安全规则", view.getRules().get(0).getSafeSummary());
@@ -187,21 +206,18 @@ class WorkbenchRunHistoryAppServiceTest {
         assertEquals("production-write", view.getRejected().get(0).getId());
         assertEquals(authorized.getSnapshot().getRepositoryScopeHash(),
                 view.getRepositoryScopeHash());
-        assertEquals("repo", view.getPrimaryRepositoryKey());
-        assertEquals(1, view.getRepositories().size());
-        assertEquals("repo", view.getRepositories().get(0).getRepositoryKey());
-        assertEquals("repo", view.getRepositories().get(0).getRelativePath());
-        assertEquals(true, view.getRepositories().get(0).isPrimary());
-        assertEquals("READ", view.getRepositories().get(0).getAccess());
+        assertEquals("agent-web", view.getPrimaryRepositoryKey());
     }
 
     private AuthorizedWorkbenchRun authorize(ChatRun run) {
+        WorkbenchStageRunTestFixtures.Fixture fixture =
+                WorkbenchStageRunTestFixtures.withoutUpload();
         AuthorizedWorkbenchRun authorized = AuthorizedWorkbenchRun.verified(
-                WorkbenchRunTestFixtures.workbench(),
-                WorkbenchRunTestFixtures.snapshot(), run);
+                fixture.workbench(), fixture.snapshot(), run);
         when(accessResolver.requireAuthorized(
-                WorkbenchRunTestFixtures.OWNER,
-                WorkbenchRunTestFixtures.WORKBENCH_ID, "run-1"))
+                WorkbenchStageRunTestFixtures.OWNER,
+                WorkbenchStageRunTestFixtures.WORKBENCH_ID,
+                WorkbenchStageRunTestFixtures.RUN_IDENTIFIER))
                 .thenReturn(authorized);
         return authorized;
     }
@@ -212,7 +228,7 @@ class WorkbenchRunHistoryAppServiceTest {
         return new ChatRunEvent(
                 runId, sequence, eventType, payload,
                 payload.getBytes(StandardCharsets.UTF_8).length,
-                WorkbenchRunTestFixtures.NOW.plusSeconds(sequence));
+                WorkbenchStageRunTestFixtures.NOW.plusSeconds(sequence));
     }
 
     private String repeat(char value) {

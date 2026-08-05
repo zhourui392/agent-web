@@ -2,6 +2,7 @@ package com.example.agentweb.infra.runtime;
 
 import com.example.agentweb.app.runtime.port.AgentExecutionPlan;
 import com.example.agentweb.app.runtime.port.SandboxMode;
+import com.example.agentweb.domain.capability.McpTransport;
 import com.example.agentweb.domain.shared.AgentType;
 
 import java.nio.file.Path;
@@ -22,9 +23,15 @@ public final class RuntimeCommandFactory {
     private static final char NULL_CHARACTER = '\0';
 
     private final String codexCommand;
+    private final boolean sandboxBypass;
 
     public RuntimeCommandFactory(String codexCommand) {
+        this(codexCommand, false);
+    }
+
+    public RuntimeCommandFactory(String codexCommand, boolean sandboxBypass) {
         this.codexCommand = requireSafeToken(codexCommand, "Codex command");
+        this.sandboxBypass = sandboxBypass;
     }
 
     public List<String> create(
@@ -57,8 +64,11 @@ public final class RuntimeCommandFactory {
         }
         List<String> command = createCommonRuntimeCodexJsonPreamble();
         SandboxMode sandboxMode = plan.getWorkspaceLayout().getSandboxMode();
-        Collections.addAll(command, "--sandbox", sandboxToken(sandboxMode),
-                "-C", workspace.getPrimaryRepositoryRoot().toString());
+        if (!sandboxBypass) {
+            Collections.addAll(command, "--sandbox", sandboxToken(sandboxMode));
+        }
+        command.add("-C");
+        command.add(workspace.getPrimaryRepositoryRoot().toString());
         List<Path> additionalRoots = workspace.getReadableRoots();
         if (sandboxMode == SandboxMode.WORKSPACE_WRITE) {
             if (!workspace.getWritableRoots().contains(workspace.getPrimaryRepositoryRoot())) {
@@ -81,7 +91,11 @@ public final class RuntimeCommandFactory {
     private List<String> createCommonRuntimeCodexJsonPreamble() {
         List<String> command = new ArrayList<String>();
         command.add(codexCommand);
-        Collections.addAll(command, "--ask-for-approval", "never", "exec");
+        if (sandboxBypass) {
+            Collections.addAll(command, "--dangerously-bypass-approvals-and-sandbox", "exec");
+        } else {
+            Collections.addAll(command, "--ask-for-approval", "never", "exec");
+        }
         addOverride(command, "allow_login_shell=false");
         Collections.addAll(command, "--ephemeral", "--json");
         return command;
@@ -122,23 +136,55 @@ public final class RuntimeCommandFactory {
         for (RuntimeCapabilityMaterialization.MaterializedMcpServer server : servers) {
             String id = requireBareKey(server.getId());
             String prefix = "mcp_servers." + id + ".";
+            addMcpTransportOverrides(command, prefix, server);
+            addOverride(command, prefix + "required=" + server.isRequired());
+            addOverride(command, prefix + "startup_timeout_sec="
+                    + server.getStartupTimeoutSeconds());
+            addOverride(command, prefix + "tool_timeout_sec="
+                    + server.getToolTimeoutSeconds());
+            if (!server.getEnabledToolNames().isEmpty()
+                    || !server.getDisabledToolNames().isEmpty()) {
+                addOverride(command, prefix + "enabled_tools="
+                        + array(server.getEnabledToolNames()));
+                addOverride(command, prefix + "disabled_tools="
+                        + array(server.getDisabledToolNames()));
+            }
+            addOverride(command, prefix
+                    + "default_tools_approval_mode=\"writes\"");
+        }
+    }
+
+    private void addMcpTransportOverrides(
+            List<String> command, String prefix,
+            RuntimeCapabilityMaterialization.MaterializedMcpServer server) {
+        if (server.getTransport() == McpTransport.STDIO) {
+            if (server.getCommand().isEmpty()) {
+                throw new IllegalStateException("STDIO MCP command is required");
+            }
             addOverride(command, prefix + "command="
                     + quoted(server.getCommand().get(0)));
             addOverride(command, prefix + "args="
                     + array(server.getCommand().subList(1, server.getCommand().size())));
             addOverride(command, prefix + "env_vars="
                     + array(server.getSecretEnvironmentVariables()));
-            addOverride(command, prefix + "required=" + server.isRequired());
-            addOverride(command, prefix + "startup_timeout_sec="
-                    + server.getStartupTimeoutSeconds());
-            addOverride(command, prefix + "tool_timeout_sec="
-                    + server.getToolTimeoutSeconds());
-            addOverride(command, prefix + "enabled_tools="
-                    + array(server.getEnabledToolNames()));
-            addOverride(command, prefix + "disabled_tools="
-                    + array(server.getDisabledToolNames()));
-            addOverride(command, prefix
-                    + "default_tools_approval_mode=\"writes\"");
+            if (!server.getWorkingDirectory().isEmpty()) {
+                addOverride(command, prefix + "cwd="
+                        + quoted(server.getWorkingDirectory()));
+            }
+            return;
+        }
+        if (server.getTransport() != McpTransport.STREAMABLE_HTTP
+                || server.getEndpoint().isEmpty()) {
+            throw new IllegalStateException("unsupported MCP transport configuration");
+        }
+        addOverride(command, prefix + "url=" + quoted(server.getEndpoint()));
+        if (server.getSecretEnvironmentVariables().size() > 1) {
+            throw new IllegalStateException(
+                    "STREAMABLE_HTTP MCP supports one bearer Secret reference");
+        }
+        if (!server.getSecretEnvironmentVariables().isEmpty()) {
+            addOverride(command, prefix + "bearer_token_env_var="
+                    + quoted(server.getSecretEnvironmentVariables().get(0)));
         }
     }
 

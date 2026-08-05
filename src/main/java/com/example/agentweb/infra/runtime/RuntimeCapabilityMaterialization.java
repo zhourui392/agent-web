@@ -1,5 +1,6 @@
 package com.example.agentweb.infra.runtime;
 
+import com.example.agentweb.domain.capability.McpTransport;
 import lombok.Getter;
 
 import java.nio.file.Path;
@@ -153,14 +154,17 @@ public final class RuntimeCapabilityMaterialization implements AutoCloseable {
     }
 
     /**
-     * 已从 exact Catalog 定义收敛出的单次 MCP STDIO 配置。
+     * 已从 exact Catalog 定义收敛出的单次 MCP Provider 配置。
      */
     @Getter
     public static final class MaterializedMcpServer {
 
         private final String id;
         private final String version;
+        private final McpTransport transport;
         private final List<String> command;
+        private final String workingDirectory;
+        private final String endpoint;
         private final List<String> secretEnvironmentVariables;
         private final boolean required;
         private final int startupTimeoutSeconds;
@@ -169,13 +173,17 @@ public final class RuntimeCapabilityMaterialization implements AutoCloseable {
         private final List<String> disabledToolNames;
 
         MaterializedMcpServer(
-                String id, String version, List<String> command,
+                String id, String version, McpTransport transport,
+                List<String> command, String workingDirectory, String endpoint,
                 List<String> secretEnvironmentVariables, boolean required,
                 int startupTimeoutSeconds, int toolTimeoutSeconds,
                 List<String> enabledToolNames, List<String> disabledToolNames) {
             this.id = id;
             this.version = version;
+            this.transport = transport;
             this.command = immutable(command);
+            this.workingDirectory = workingDirectory;
+            this.endpoint = endpoint;
             this.secretEnvironmentVariables = immutable(secretEnvironmentVariables);
             this.required = required;
             this.startupTimeoutSeconds = startupTimeoutSeconds;

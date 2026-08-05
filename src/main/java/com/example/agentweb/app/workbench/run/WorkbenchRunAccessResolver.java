@@ -10,8 +10,8 @@ import com.example.agentweb.domain.workbench.WorkbenchDomainException;
 import com.example.agentweb.domain.workbench.WorkbenchErrorCode;
 import com.example.agentweb.domain.workbench.WorkbenchId;
 import com.example.agentweb.domain.workbench.WorkbenchRepository;
-import com.example.agentweb.domain.workbench.WorkbenchRunSnapshot;
-import com.example.agentweb.domain.workbench.WorkbenchRunSnapshotRepository;
+import com.example.agentweb.domain.workbench.WorkbenchStageRunSnapshot;
+import com.example.agentweb.domain.workbench.WorkbenchStageRunSnapshotRepository;
 import org.springframework.stereotype.Component;
 
 import java.util.Objects;
@@ -26,12 +26,12 @@ import java.util.Objects;
 class WorkbenchRunAccessResolver {
 
     private final WorkbenchRepository workbenchRepository;
-    private final WorkbenchRunSnapshotRepository snapshotRepository;
+    private final WorkbenchStageRunSnapshotRepository snapshotRepository;
     private final ChatRunRepository runRepository;
 
     WorkbenchRunAccessResolver(
             WorkbenchRepository workbenchRepository,
-            WorkbenchRunSnapshotRepository snapshotRepository,
+            WorkbenchStageRunSnapshotRepository snapshotRepository,
             ChatRunRepository runRepository) {
         this.workbenchRepository = Objects.requireNonNull(
                 workbenchRepository, "workbenchRepository");
@@ -47,19 +47,25 @@ class WorkbenchRunAccessResolver {
         Workbench workbench = requireOwned(actor, workbenchId);
 
         ChatRunId runId = parseRunId(runIdValue);
-        WorkbenchRunSnapshot snapshot = snapshotRepository
-                .findByRunId(runId.getValue())
-                .orElseThrow(WorkbenchRunNotFoundException::new);
-        ChatRun run = runRepository.findById(runId)
-                .orElseThrow(WorkbenchRunNotFoundException::new);
         try {
+            WorkbenchStageRunSnapshot snapshot = snapshotRepository
+                    .findByRunId(runId.getValue())
+                    .orElseThrow(WorkbenchRunNotFoundException::new);
+            ChatRun run = runRepository.findById(runId)
+                    .orElseThrow(WorkbenchRunNotFoundException::new);
             snapshot.requireExactRun(
                     workbench, run, runId.getValue());
+            return AuthorizedWorkbenchRun.verified(
+                    workbench, snapshot, run);
         } catch (ChatRunNotFoundException failure) {
             throw new WorkbenchRunNotFoundException();
+        } catch (WorkbenchDomainException failure) {
+            if (failure.getCode()
+                    != WorkbenchErrorCode.RUN_BINDING_CORRUPTED) {
+                throw failure;
+            }
+            throw new WorkbenchRunNotFoundException();
         }
-        return AuthorizedWorkbenchRun.verified(
-                workbench, snapshot, run);
     }
 
     Workbench requireOwned(

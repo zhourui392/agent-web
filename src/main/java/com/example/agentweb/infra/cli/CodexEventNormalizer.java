@@ -39,6 +39,8 @@ public class CodexEventNormalizer {
 
     private static final String ITEM_AGENT_MESSAGE = "agent_message";
     private static final String ITEM_COMMAND_EXECUTION = "command_execution";
+    private static final String ITEM_FILE_CHANGE = "file_change";
+    private static final String ITEM_MCP_TOOL_CALL = "mcp_tool_call";
 
     private static final String STATUS_FAILED = "failed";
 
@@ -126,7 +128,10 @@ public class CodexEventNormalizer {
         if (ITEM_COMMAND_EXECUTION.equals(itemType)) {
             return mapCommandExecutionStarted(item);
         }
-        // agent_message 的 item.started 实测未出现; 即便出现也等 item.completed 一次性发文本
+        if (ITEM_MCP_TOOL_CALL.equals(itemType)) {
+            return mapMcpToolCallStarted(item);
+        }
+        // agent_message / file_change 的 item.started 实测未出现; 即便出现也等 item.completed
         return Collections.emptyList();
     }
 
@@ -141,6 +146,12 @@ public class CodexEventNormalizer {
         }
         if (ITEM_COMMAND_EXECUTION.equals(itemType)) {
             return mapCommandExecutionCompleted(item);
+        }
+        if (ITEM_FILE_CHANGE.equals(itemType)) {
+            return mapFileChangeCompleted(item);
+        }
+        if (ITEM_MCP_TOOL_CALL.equals(itemType)) {
+            return mapMcpToolCallCompleted(item);
         }
         return Collections.emptyList();
     }
@@ -231,5 +242,84 @@ public class CodexEventNormalizer {
         }
         JsonNode value = node.get(field);
         return value == null || value.isNull() ? null : value.asText();
+    }
+
+    // ---- file_change ----
+
+    private List<String> mapFileChangeCompleted(JsonNode item) {
+        JsonNode changes = item.get("changes");
+        if (changes == null || !changes.isArray() || changes.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<String> out = new ArrayList<String>(changes.size());
+        for (JsonNode change : changes) {
+            String path = readText(change, "path");
+            String kind = readText(change, "kind");
+            if (path == null) continue;
+            ObjectNode block = MAPPER.createObjectNode();
+            block.put("type", "file_change");
+            block.put("relativePath", path);
+            if (kind != null) {
+                block.put("changeType", kind.toUpperCase());
+            }
+            ObjectNode evt = MAPPER.createObjectNode();
+            evt.put("type", "content_block_start");
+            evt.set("content_block", block);
+            ObjectNode wrapper = MAPPER.createObjectNode();
+            wrapper.put("type", "stream_event");
+            wrapper.set("event", evt);
+            out.add(wrapper.toString());
+        }
+        return out;
+    }
+
+    // ---- mcp_tool_call ----
+
+    private List<String> mapMcpToolCallStarted(JsonNode item) {
+        String itemId = readText(item, "id");
+        String server = readText(item, "server");
+        String tool = readText(item, "tool");
+        if (itemId == null) return Collections.emptyList();
+        String displayName = (server != null && tool != null)
+                ? server + "/" + tool
+                : (tool != null ? tool : "mcp_tool");
+        List<String> out = new ArrayList<String>(2);
+        out.add(mcpToolUseStart(itemId, displayName));
+        return out;
+    }
+
+    private List<String> mapMcpToolCallCompleted(JsonNode item) {
+        String itemId = readText(item, "id");
+        String status = readText(item, "status");
+        String output = readText(item, "output");
+        if (itemId == null) return Collections.emptyList();
+        boolean isError = STATUS_FAILED.equals(status);
+
+        ObjectNode out = MAPPER.createObjectNode();
+        out.put("type", "user");
+        ObjectNode message = MAPPER.createObjectNode();
+        ObjectNode block = MAPPER.createObjectNode();
+        block.put("type", "tool_result");
+        block.put("tool_use_id", itemId);
+        block.put("content", output == null ? "" : output);
+        block.put("is_error", isError);
+        message.set("content", MAPPER.createArrayNode().add(block));
+        out.set("message", message);
+        return Collections.singletonList(out.toString());
+    }
+
+    private String mcpToolUseStart(String itemId, String displayName) {
+        ObjectNode out = MAPPER.createObjectNode();
+        out.put("type", "stream_event");
+        ObjectNode evt = MAPPER.createObjectNode();
+        evt.put("type", "content_block_start");
+        ObjectNode block = MAPPER.createObjectNode();
+        block.put("type", "mcp_tool_call");
+        block.put("id", itemId);
+        block.put("name", displayName);
+        block.set("input", MAPPER.createObjectNode());
+        evt.set("content_block", block);
+        out.set("event", evt);
+        return out.toString();
     }
 }

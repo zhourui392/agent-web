@@ -1,5 +1,5 @@
 /**
- * Workbench Review, Operation and Conversation visible interaction contracts.
+ * Workbench Stage Conversation 与 Document 可见交互契约。
  *
  * @author alex
  * @since 2026-08-01
@@ -12,41 +12,17 @@ async function source(relativePath: string): Promise<string> {
 }
 
 describe('Workbench interactive panels', () => {
-  it('requires an explicit exact Review confirmation before exposing modify intent', async () => {
-    const panel = await source('frontend/js/components/WorkbenchReviewPanel.vue');
-    const conversation = await source('frontend/js/components/WorkbenchConversationPanel.vue');
-    const page = await source('frontend/js/pages/Workbench.vue');
-
-    expect(panel).toContain('data-test="review-opinion"');
-    expect(panel).toContain('data-test="review-save-opinion"');
-    expect(panel).toContain('data-test="review-confirm-modification"');
-    expect(panel).toContain('Opinion v{{ opinion.version }}');
-    expect(panel).toContain('确认只绑定当前版本与 Hash');
-    expect(panel).toContain(':disabled="readOnly');
-    expect(panel).not.toContain('v-html');
-    expect(panel).toContain('data-test="review-generate-candidate"');
-    expect(panel).toContain('data-test="review-candidate-item"');
-    expect(panel).toContain("emit('accept-candidate-item'");
-    expect(panel).toContain("emit('ignore-candidate-item'");
-    expect(page).toContain('@generate-candidate="generateReviewCandidate"');
-    expect(page).toContain('@accept-candidate-item="acceptReviewCandidateItem"');
-    expect(page).toContain('@ignore-candidate-item="ignoreReviewCandidateItem"');
-    expect(page).toContain(':modify-ready="selectedPhase !== \'REVIEW_REFACTOR\' || reviewConfirmed"');
-    expect(conversation).toContain('props.modifyReady');
-  });
-
-  it('replaces the disabled phase placeholder with timeline, stop and composer controls', async () => {
+  it('renders the Stage timeline, stop, mode selection and composer controls', async () => {
     const page = await source('frontend/js/pages/Workbench.vue');
 
     expect(page).toContain("import WorkbenchConversationPanel from '../components/WorkbenchConversationPanel.vue'");
     expect(page).toContain('<workbench-conversation-panel');
     expect(page).toContain('@submit="submitConversation"');
     expect(page).toContain('@stop="stopConversation"');
-    expect(page).toContain('<workbench-review-panel');
+    expect(page).toContain(':allowed-run-modes="allowedRunModes"');
+    expect(page).toContain('@select-run-mode="selectRunMode"');
     expect(page).not.toContain('阶段对话尚未接入');
     expect(page).not.toContain('阶段对话能力尚未开放');
-    expect(page).not.toContain("{ name: 'Review 确认'");
-    expect(page).not.toContain("{ name: '高影响操作'");
     expect(page).not.toContain('useWorkbenchDocumentRunIntegration');
     expect(page).toContain('conversation.runState.value?.staleDocuments');
 
@@ -59,20 +35,29 @@ describe('Workbench interactive panels', () => {
   it('shows a loading indicator instead of streaming blocks and renders persisted messages with Markdown', async () => {
     const panel = await source('frontend/js/components/WorkbenchConversationPanel.vue');
     const page = await source('frontend/js/pages/Workbench.vue');
-    const messages = panel.indexOf('v-for="message in visibleMessages"');
-    const currentRun = panel.indexOf('v-for="block in visibleRunBlocks"');
 
-    expect(messages).toBeGreaterThan(0);
-    expect(currentRun).toBeGreaterThan(messages);
-    expect(panel).toContain('{{ message.content }}');
-    expect(panel).toContain('v-html="renderMarkdown(message.content)"');
-    expect(panel).toContain("import { renderMarkdown");
+    // Persisted messages and streaming run mapped to ConversationMessage via conversationMessages
+    expect(panel).toContain('v-for="msg in conversationMessages"');
+    expect(panel).toContain('ConversationMessage');
+    expect(panel).toContain('streamingRunMessage');
+    // Agent messages are parsed into segments via parseStreamJson
+    expect(panel).toContain("from '../lib/formatters.js'");
     expect(panel).toContain('persistedAssistantRunIds');
     expect(panel).toContain("block.kind === 'agent_chunk'");
     expect(panel).toContain('data-test="workbench-load-older-messages"');
     expect(panel).toContain("emit('load-older-messages')");
     expect(page).toContain(':has-older-messages="hasOlderConversationMessages"');
     expect(page).toContain('@load-older-messages="loadOlderConversationMessages"');
+  });
+
+  it('projects live Stage test progress with a stable selector and terminal status', async () => {
+    const panel = await source('frontend/js/components/WorkbenchConversationPanel.vue');
+    const message = await source('frontend/js/components/conversation/ConversationMessage.vue');
+
+    expect(panel).toContain('testStatus: test.status');
+    expect(panel).toContain('repositoryKey: test.repositoryKey');
+    expect(message).toContain('data-test="workbench-live-test-event"');
+    expect(message).toContain('{{ seg.testStatus }}');
   });
 
   it('reminds the user again when a Run finishes while the open document is stale', async () => {
@@ -102,13 +87,13 @@ describe('Workbench interactive panels', () => {
     expect(scope).not.toContain('repository.absolutePath');
   });
 
-  it('allows an idle not-started Phase to be manually completed but blocks active or archived Phases', async () => {
+  it('allows an idle Stage to be manually completed but blocks active or archived Stages', async () => {
     const page = await source('frontend/js/pages/Workbench.vue');
 
-    expect(page).toContain('const canCompleteSelectedPhase = computed(');
+    expect(page).toContain('const canCompleteSelectedWorkUnit = computed(');
     expect(page).toContain("['NOT_STARTED', 'IN_PROGRESS'].includes");
-    expect(page).toContain('shell.selectedPhaseView.value?.activeRun == null');
-    expect(page).toContain(':disabled="!canCompleteSelectedPhase"');
+    expect(page).toContain('selectedWorkUnitView.value?.activeRun == null');
+    expect(page).toContain(':disabled="!canCompleteSelectedWorkUnit"');
   });
 
   it('groups recent documents by repository and opens only scoped structured file-event references', async () => {
@@ -121,7 +106,8 @@ describe('Workbench interactive panels', () => {
     expect(documentPane).toContain('{{ group.repositoryKey }}');
     expect(panel).toContain('authorizedDocumentReference');
     expect(panel).toContain('visibleDocumentEvents');
-    expect(panel).toContain("emit('open-document', document.reference)");
+    expect(panel).toContain("emit('open-document', ref)");
+    expect(panel).toContain('file-change-data-test');
     expect(panel).not.toContain('normalizeDocumentReference(message.content');
     expect(panel).not.toMatch(/emit\('open-document',\s*message\.content/);
     expect(page).toContain('async function openRunDocument(reference)');
@@ -135,8 +121,7 @@ describe('Workbench interactive panels', () => {
     expect(panel).toContain("block.kind === 'agent_chunk'");
     expect(panel).toContain('message.documentReferences');
     expect(panel).toContain('block.documentReferences');
-    expect(panel).toContain('data-test="workbench-agent-document-reference"');
-    expect(panel).toContain("emit('open-document', reference)");
+    expect(panel).toContain("emit('open-document', ref)");
     expect(panel).not.toContain('normalizeDocumentReference(message.content');
     expect(panel).not.toContain('repositoryKeys[0]');
   });
@@ -185,7 +170,7 @@ describe('Workbench interactive panels', () => {
     expect(panel).toContain('data-test="workbench-upload-file-input"');
     expect(panel).toContain('data-test="workbench-upload-image-button"');
     expect(panel).toContain('data-test="workbench-upload-file-button"');
-    expect(panel).toContain('@paste="handleAttachmentPaste"');
+    expect(panel).toContain('@paste-files="handlePasteFiles"');
     expect(panel).toContain('@dragover.prevent');
     expect(panel).toContain('@drop.prevent="handleAttachmentDrop"');
     expect(panel).toContain("emit('upload-files'");
@@ -208,24 +193,22 @@ describe('Workbench interactive panels', () => {
     expect(page).toContain('@remove-upload="removeWorkbenchUpload"');
   });
 
-  it('wires an explicit destructive Phase conversation restart confirmation and state update', async () => {
+  it('wires an explicit destructive Stage conversation restart confirmation and state update', async () => {
     const page = await source('frontend/js/pages/Workbench.vue');
 
     expect(page).toContain('旧会话历史将只读保留，新会话不会复制任何消息');
     expect(page).toContain('ElMessageBox.confirm');
-    expect(page).toContain('handlePhaseAdvancedCommand');
+    expect(page).toContain('handleStartNewContext');
     expect(page).toContain(':messages="conversationMessages"');
     expect(page).toContain(':messages-loading="messagesLoading"');
     expect(page).toContain('onConversationRestarted: applyConversationRestart');
   });
 
-  it('keeps an archived Workbench readable while disabling Run, Review and Handoff mutations', async () => {
+  it('keeps an archived Workbench readable while disabling Run mutations', async () => {
     const page = await source('frontend/js/pages/Workbench.vue');
     const conversation = await source('frontend/js/components/WorkbenchConversationPanel.vue');
 
     expect(page).toContain(':read-only="archived"');
-    expect(page).toContain(':read-only="reviewReadOnly"');
-    expect(page).toContain(':read-only="handoffReadOnly"');
-    expect(conversation).toContain(':disabled="readOnly"');
+    expect(conversation).toContain(':stop-disabled="readOnly"');
   });
 });

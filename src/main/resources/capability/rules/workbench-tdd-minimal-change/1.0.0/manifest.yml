@@ -3,8 +3,8 @@ id: workbench/tdd-minimal-change
 version: 1.0.0
 source: PLATFORM
 mandatory: true
-summary: 实现阶段严格 TDD 并保持最小变更
+summary: 可写 Stage 严格 TDD 并保持最小变更
 applicableUseCases:
-  - IMPLEMENT_TEST
+  - WORKBENCH_STAGE
 resources:
   rule: rule.md

@@ -17,15 +17,9 @@ public class WorkbenchReleaseConfiguration {
     public WorkbenchReleasePolicy workbenchReleasePolicy(
             WorkbenchReleaseProperties properties) {
         properties.validate();
-        WorkbenchReleaseProperties.HighImpact highImpact =
-                properties.getHighImpact();
         return new WorkbenchReleasePolicy(
                 properties.isEnabled(),
                 properties.isCreateEnabled(),
-                properties.isWriteRunEnabled(),
-                highImpact.isCommitEnabled(),
-                highImpact.isPushEnabled(),
-                highImpact.isLocalDeployEnabled(),
-                highImpact.isProductionWriteEnabled());
+                properties.isWriteRunEnabled());
     }
 }

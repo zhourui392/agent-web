@@ -65,7 +65,7 @@ class McpServerDefinitionAuthorizationTest {
             java.util.List<McpCapability> capabilities) {
         return new McpServerDefinition(
                 "repository-query", "1.0.0", "repository query",
-                Collections.singleton("IMPLEMENT_TEST"),
+                Collections.singleton("WORKBENCH_STAGE"),
                 Collections.singleton("CODEX"),
                 Arrays.asList("repository-mcp", "--stdio"), capabilities,
                 Collections.emptyList(), 10, 30,

@@ -6,8 +6,8 @@ import com.example.agentweb.domain.chatrun.ChatRunRepository;
 import com.example.agentweb.domain.workbench.Workbench;
 import com.example.agentweb.domain.workbench.WorkbenchId;
 import com.example.agentweb.domain.workbench.WorkbenchRepository;
-import com.example.agentweb.domain.workbench.WorkbenchRunSnapshot;
-import com.example.agentweb.domain.workbench.WorkbenchRunSnapshotRepository;
+import com.example.agentweb.domain.workbench.WorkbenchStageRunSnapshot;
+import com.example.agentweb.domain.workbench.WorkbenchStageRunSnapshotRepository;
 import org.springframework.stereotype.Component;
 
 import java.util.Objects;
@@ -22,12 +22,12 @@ import java.util.Objects;
 final class AdminWorkbenchRunAccessResolver {
 
     private final WorkbenchRepository workbenchRepository;
-    private final WorkbenchRunSnapshotRepository snapshotRepository;
+    private final WorkbenchStageRunSnapshotRepository snapshotRepository;
     private final ChatRunRepository runRepository;
 
     AdminWorkbenchRunAccessResolver(
             WorkbenchRepository workbenchRepository,
-            WorkbenchRunSnapshotRepository snapshotRepository,
+            WorkbenchStageRunSnapshotRepository snapshotRepository,
             ChatRunRepository runRepository) {
         this.workbenchRepository = Objects.requireNonNull(
                 workbenchRepository, "workbenchRepository");
@@ -45,7 +45,7 @@ final class AdminWorkbenchRunAccessResolver {
         ChatRunId runId = parseRunId(runIdValue);
         Workbench workbench = workbenchRepository.findById(workbenchId)
                 .orElseThrow(AdminWorkbenchRunNotFoundException::new);
-        WorkbenchRunSnapshot snapshot = snapshotRepository
+        WorkbenchStageRunSnapshot snapshot = snapshotRepository
                 .findByRunId(runId.getValue())
                 .orElseThrow(AdminWorkbenchRunNotFoundException::new);
         ChatRun run = runRepository.findById(runId)

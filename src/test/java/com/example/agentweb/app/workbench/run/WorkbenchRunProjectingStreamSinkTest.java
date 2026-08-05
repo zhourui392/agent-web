@@ -4,7 +4,7 @@ import com.example.agentweb.app.chatrun.ChatRunEvent;
 import com.example.agentweb.app.workbench.port.WorkbenchTelemetry;
 import com.example.agentweb.domain.chatrun.ChatRunId;
 import com.example.agentweb.domain.chatrun.ChatRunStatus;
-import com.example.agentweb.domain.workbench.WorkbenchRunSnapshot;
+import com.example.agentweb.domain.workbench.WorkbenchStageRunSnapshot;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -19,16 +19,17 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 /**
- * 公共 Runtime/terminal/stop 事件到 Workbench SSE envelope 的投影测试。
+ * 公共 Runtime/terminal/stop 事件到 Dynamic Stage SSE envelope 的投影测试。
  *
  * @author alex
- * @since 2026-08-01
+ * @since 2026-08-05
  */
 class WorkbenchRunProjectingStreamSinkTest {
 
@@ -38,21 +39,26 @@ class WorkbenchRunProjectingStreamSinkTest {
             };
 
     @Test
-    void shouldEnvelopeRuntimeOutputDiagnosticTerminalAndStopEvents()
+    void should_EnvelopeEventsWithStageIdentity_When_ProjectingSse()
             throws Exception {
-        WorkbenchRunSnapshot snapshot = WorkbenchRunTestFixtures.snapshot();
+        // Given
+        WorkbenchStageRunTestFixtures.Fixture fixture =
+                WorkbenchStageRunTestFixtures.withoutUpload();
+        WorkbenchStageRunSnapshot snapshot = fixture.snapshot();
         RecordingSink delegate = new RecordingSink();
         WorkbenchTelemetry telemetry = mock(WorkbenchTelemetry.class);
         WorkbenchRunProjectingStreamSink sink =
                 new WorkbenchRunProjectingStreamSink(
                         snapshot, delegate, telemetry,
                         Clock.fixed(
-                                WorkbenchRunTestFixtures.NOW.plusMillis(750L),
+                                WorkbenchStageRunTestFixtures.NOW
+                                        .plusMillis(750L),
                                 ZoneOffset.UTC));
-        Instant occurredAt = WorkbenchRunTestFixtures.NOW;
+        Instant occurredAt = WorkbenchStageRunTestFixtures.NOW;
         String stopPayload = WorkbenchRunEventPayloadFactory.status(
                 snapshot, ChatRunStatus.CANCEL_REQUESTED, occurredAt);
 
+        // When
         sink.send(event(1L, "runtime_started",
                 "{\"runtimeSequence\":1,\"runtimeType\":\"STARTED\",\"payload\":\"ready\"}",
                 occurredAt));
@@ -67,15 +73,22 @@ class WorkbenchRunProjectingStreamSinkTest {
                 occurredAt));
         sink.send(event(5L, "run_status", stopPayload, occurredAt));
 
+        // Then
         assertEquals(5, delegate.events.size());
         for (WorkbenchRunEvent projected : delegate.events) {
             Map<String, Object> envelope = MAPPER.readValue(
                     projected.getPayload(), MAP_TYPE);
             assertEquals("workbench-run-event@1",
                     envelope.get("schemaVersion"));
-            assertEquals("workbench-1", envelope.get("workbenchId"));
-            assertEquals("REQUIREMENT_ANALYSIS", envelope.get("phase"));
-            assertEquals("run-1", envelope.get("runId"));
+            assertEquals(
+                    WorkbenchStageRunTestFixtures.WORKBENCH_ID.getValue(),
+                    envelope.get("workbenchId"));
+            assertEquals(
+                    WorkbenchStageRunTestFixtures.STAGE_INSTANCE_IDENTIFIER,
+                    envelope.get("stageInstanceIdentifier"));
+            assertEquals(WorkbenchStageRunTestFixtures.RUN_IDENTIFIER,
+                    envelope.get("runId"));
+            assertFalse(envelope.containsKey("phase"));
             assertTrue(envelope.get("data") instanceof Map);
         }
         assertEquals("hello", data(delegate.events.get(1)).get("payload"));
@@ -102,7 +115,8 @@ class WorkbenchRunProjectingStreamSinkTest {
             long sequence, String type, String payload,
             Instant occurredAt) {
         return new ChatRunEvent(
-                ChatRunId.of("run-1"), sequence, type, payload,
+                ChatRunId.of(WorkbenchStageRunTestFixtures.RUN_IDENTIFIER),
+                sequence, type, payload,
                 payload.length(), occurredAt);
     }
 

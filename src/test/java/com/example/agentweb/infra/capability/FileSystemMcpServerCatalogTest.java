@@ -45,25 +45,25 @@ class FileSystemMcpServerCatalogTest {
     }
 
     @Test
-    void shouldParsePublicApplicableUseCasesForWorkbenchPhase() throws Exception {
+    void shouldParsePublicApplicableUseCasesForStageDefinitions() throws Exception {
         writeManifest("reader", validManifest().replace(
                 "applicableUseCases: [ANALYSIS, DESIGN]\n",
-                "applicableUseCases: [REVIEW_REFACTOR]\n"));
+                "applicableUseCases: [WORKBENCH_STAGE]\n"));
 
         McpServerDefinition definition =
                 new FileSystemMcpServerCatalog(tempDir).discover().get(0);
 
-        assertEquals(java.util.Collections.singleton("REVIEW_REFACTOR"),
+        assertEquals(java.util.Collections.singleton("WORKBENCH_STAGE"),
                 definition.getApplicableUseCases());
     }
 
     @Test
-    void shouldRejectLegacyStagesManifest_WhenApplicableUseCasesAreAlsoPresent()
+    void shouldRejectUnknownManifestField()
             throws Exception {
         writeManifest("reader", validManifest().replace(
                 "applicableUseCases: [ANALYSIS, DESIGN]\n",
                 "applicableUseCases: [ANALYSIS, DESIGN]\n"
-                        + "stages: [ANALYSIS, DESIGN]\n"));
+                        + "unsupportedField: [ANALYSIS, DESIGN]\n"));
 
         CapabilityCatalogException failure = assertThrows(
                 CapabilityCatalogException.class,

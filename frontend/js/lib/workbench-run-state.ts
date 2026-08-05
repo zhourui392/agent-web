@@ -7,24 +7,21 @@
  * @since 2026-08-01
  */
 import {
-  isWorkbenchPhase,
-  type WorkbenchPhase,
+  isWorkbenchStageInstanceIdentifier,
 } from './workbench-state.js';
 
-const MARKER_SCHEMA_VERSION = 'workbench-run-marker@1';
+const MARKER_SCHEMA_VERSION = 'workbench-stage-run-marker@1';
 const EVENT_SCHEMA_VERSION = 'workbench-run-event@1';
 
 export const WORKBENCH_RUN_LIMITS = {
   blocks: 200,
   staleDocuments: 100,
   testProgress: 100,
-  operations: 50,
   genericSummaryChars: 4000,
   commandSummaryChars: 1024,
   outputSummaryChars: 1024,
   textChars: 32 * 1024,
   eventPayloadChars: 128 * 1024,
-  operationTargetChars: 8000,
 } as const;
 
 const RUN_STATUSES = new Set<WorkbenchRunStatus>([
@@ -75,7 +72,7 @@ export interface StorageLike {
 export interface WorkbenchRunMarkerIdentity {
   userId: string;
   workbenchId: string;
-  phase: WorkbenchPhase;
+  stageInstanceIdentifier: string;
   conversationGeneration: number;
 }
 
@@ -93,7 +90,7 @@ export interface WorkbenchRunMarkerStore {
 
 export interface WorkbenchRunContext {
   workbenchId: string;
-  phase: WorkbenchPhase;
+  stageInstanceIdentifier: string;
   runId: string;
 }
 
@@ -148,15 +145,6 @@ export interface WorkbenchTestProgress {
   occurredAt: number;
 }
 
-export interface WorkbenchOperationProposal {
-  operationId: string;
-  type: string;
-  target: unknown;
-  summary: string;
-  eventId: number;
-  occurredAt: number;
-}
-
 export interface WorkbenchRunTerminal {
   status: WorkbenchTerminalStatus;
   failureCode: string | null;
@@ -173,7 +161,6 @@ export interface WorkbenchRunState {
   blocks: ReadonlyArray<WorkbenchRunBlock>;
   staleDocuments: ReadonlyArray<WorkbenchStaleDocument>;
   testProgress: ReadonlyArray<WorkbenchTestProgress>;
-  operations: ReadonlyArray<WorkbenchOperationProposal>;
   terminal: WorkbenchRunTerminal | null;
 }
 
@@ -222,8 +209,10 @@ function normalizeMarkerIdentity(
   if (!identity) throw new IllegalStateError('marker identity is required');
   const userId = boundedIdentifier(identity.userId, 'authenticated user id', 128);
   const workbenchId = boundedIdentifier(identity.workbenchId, 'workbench id', 128);
-  if (!isWorkbenchPhase(identity.phase)) {
-    throw new IllegalStateError('workbench phase is invalid');
+  if (!isWorkbenchStageInstanceIdentifier(
+    identity.stageInstanceIdentifier,
+  )) {
+    throw new IllegalStateError('workbench stage instance identifier is invalid');
   }
   const generation = finiteNonNegativeInteger(identity.conversationGeneration);
   if (generation == null) {
@@ -232,7 +221,7 @@ function normalizeMarkerIdentity(
   return {
     userId,
     workbenchId,
-    phase: identity.phase,
+    stageInstanceIdentifier: identity.stageInstanceIdentifier,
     conversationGeneration: generation,
   };
 }
@@ -241,10 +230,16 @@ function normalizeRunContext(context: WorkbenchRunContext): WorkbenchRunContext 
   if (!context) throw new IllegalStateError('run context is required');
   const workbenchId = boundedIdentifier(context.workbenchId, 'workbench id', 128);
   const runId = boundedIdentifier(context.runId, 'run id', 128);
-  if (!isWorkbenchPhase(context.phase)) {
-    throw new IllegalStateError('workbench phase is invalid');
+  if (!isWorkbenchStageInstanceIdentifier(
+    context.stageInstanceIdentifier,
+  )) {
+    throw new IllegalStateError('workbench stage instance identifier is invalid');
   }
-  return { workbenchId, phase: context.phase, runId };
+  return {
+    workbenchId,
+    stageInstanceIdentifier: context.stageInstanceIdentifier,
+    runId,
+  };
 }
 
 function encodeStoragePart(value: string | number): string {
@@ -259,7 +254,7 @@ export function workbenchRunMarkerStorageKey(
     'agent-web:workbench-run',
     encodeStoragePart(normalized.userId),
     encodeStoragePart(normalized.workbenchId),
-    encodeStoragePart(normalized.phase),
+    encodeStoragePart(normalized.stageInstanceIdentifier),
     encodeStoragePart(normalized.conversationGeneration),
   ].join(':');
 }
@@ -271,7 +266,7 @@ function markerMatches(
   return parsed.schemaVersion === MARKER_SCHEMA_VERSION
     && parsed.userId === expected.userId
     && parsed.workbenchId === expected.workbenchId
-    && parsed.phase === expected.phase
+    && parsed.stageInstanceIdentifier === expected.stageInstanceIdentifier
     && parsed.conversationGeneration === expected.conversationGeneration;
 }
 
@@ -351,7 +346,6 @@ export function createWorkbenchRunState(
     blocks: [],
     staleDocuments: [],
     testProgress: [],
-    operations: [],
     terminal: null,
   };
 }
@@ -393,8 +387,6 @@ export function applyWorkbenchRunEvent(
       return reduceFileChanged(state, envelope, sequence);
     case 'test_progress':
       return reduceTestProgress(state, envelope, sequence);
-    case 'operation_proposed':
-      return reduceOperationProposed(state, envelope, sequence);
     case 'terminal':
       return reduceTerminal(state, envelope, sequence);
     default:
@@ -634,39 +626,6 @@ function reduceTestProgress(
   };
 }
 
-function reduceOperationProposed(
-  state: WorkbenchRunState,
-  envelope: WorkbenchRunEnvelope,
-  sequence: number,
-): WorkbenchRunState {
-  const operationId = optionalIdentifier(envelope.data.operationId, 128);
-  const type = optionalIdentifier(envelope.data.type, 80);
-  const summary = requiredText(envelope.data.summary, 4000);
-  const target = boundedJsonClone(
-    envelope.data.target,
-    WORKBENCH_RUN_LIMITS.operationTargetChars,
-  );
-  if (!operationId || !type || summary == null || target === undefined) return state;
-  const operation: WorkbenchOperationProposal = {
-    operationId,
-    type,
-    target,
-    summary,
-    eventId: sequence,
-    occurredAt: envelope.occurredAt,
-  };
-  return {
-    ...state,
-    lastAppliedEventSeq: sequence,
-    operations: upsertBounded(
-      state.operations,
-      operation,
-      item => item.operationId,
-      WORKBENCH_RUN_LIMITS.operations,
-    ),
-  };
-}
-
 function reduceTerminal(
   state: WorkbenchRunState,
   envelope: WorkbenchRunEnvelope,
@@ -748,7 +707,7 @@ function parseEnvelope(
   if (!isRecord(parsed)
       || parsed.schemaVersion !== EVENT_SCHEMA_VERSION
       || parsed.workbenchId !== context.workbenchId
-      || parsed.phase !== context.phase
+      || parsed.stageInstanceIdentifier !== context.stageInstanceIdentifier
       || parsed.runId !== context.runId
       || !isRecord(parsed.data)) {
     return null;
@@ -776,7 +735,7 @@ function safeEventType(value: unknown): string | null {
 
 function sameContext(left: WorkbenchRunContext, right: WorkbenchRunContext): boolean {
   return left.workbenchId === right.workbenchId
-    && left.phase === right.phase
+    && left.stageInstanceIdentifier === right.stageInstanceIdentifier
     && left.runId === right.runId;
 }
 
@@ -839,16 +798,6 @@ function upsertBounded<T>(
   const key = identity(value);
   const withoutPrevious = values.filter(item => identity(item) !== key);
   return appendBounded(withoutPrevious, value, maximum);
-}
-
-function boundedJsonClone(value: unknown, maximum: number): unknown | undefined {
-  try {
-    const serialized = JSON.stringify(value);
-    if (serialized === undefined || serialized.length > maximum) return undefined;
-    return JSON.parse(serialized) as unknown;
-  } catch {
-    return undefined;
-  }
 }
 
 function boundedJsonSummary(value: unknown, maximum: number): string {

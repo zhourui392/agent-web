@@ -7,12 +7,11 @@
  * @since 2026-08-01
  */
 import {
-  isWorkbenchPhase,
-  type WorkbenchPhase,
+  isWorkbenchStageInstanceIdentifier,
 } from './workbench-state.js';
 
-const LAYOUT_SCHEMA_VERSION = 'workbench-document-layout@1';
-const DOCUMENTS_SCHEMA_VERSION = 'workbench-documents@1';
+const LAYOUT_SCHEMA_VERSION = 'workbench-stage-document-layout@1';
+const DOCUMENTS_SCHEMA_VERSION = 'workbench-stage-documents@1';
 const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/;
 const WINDOWS_ABSOLUTE_PATH = /^[A-Za-z]:\//;
 const MAX_PERSISTED_STATE_CHARS = 256 * 1024;
@@ -36,7 +35,7 @@ export interface StorageLike {
 export interface WorkbenchDocumentStorageIdentity {
   userId: string;
   workbenchId: string;
-  phase: WorkbenchPhase;
+  stageInstanceIdentifier: string;
 }
 
 export interface DocumentReference {
@@ -691,10 +690,16 @@ function normalizeStorageIdentity(
   if (!identity) throw new IllegalStateError('document storage identity is required');
   const userId = boundedIdentity(identity.userId, 'authenticated user id');
   const workbenchId = boundedIdentity(identity.workbenchId, 'workbench id');
-  if (!isWorkbenchPhase(identity.phase)) {
-    throw new IllegalStateError('workbench phase is invalid');
+  if (!isWorkbenchStageInstanceIdentifier(
+    identity.stageInstanceIdentifier,
+  )) {
+    throw new IllegalStateError('workbench stage instance identifier is invalid');
   }
-  return { userId, workbenchId, phase: identity.phase };
+  return {
+    userId,
+    workbenchId,
+    stageInstanceIdentifier: identity.stageInstanceIdentifier,
+  };
 }
 
 function boundedIdentity(value: unknown, name: string): string {
@@ -711,12 +716,13 @@ function storageKey(
   prefix: string,
   identity: WorkbenchDocumentStorageIdentity,
 ): string {
-  return [
+  const base = [
     prefix,
     encodeURIComponent(identity.userId),
     encodeURIComponent(identity.workbenchId),
-    encodeURIComponent(identity.phase),
-  ].join(':');
+  ];
+  return [...base, encodeURIComponent(identity.stageInstanceIdentifier)]
+    .join(':');
 }
 
 function identityMatches(
@@ -727,7 +733,7 @@ function identityMatches(
   return value.schemaVersion === schemaVersion
     && value.userId === identity.userId
     && value.workbenchId === identity.workbenchId
-    && value.phase === identity.phase;
+    && value.stageInstanceIdentifier === identity.stageInstanceIdentifier;
 }
 
 function parsePersistedLayout(

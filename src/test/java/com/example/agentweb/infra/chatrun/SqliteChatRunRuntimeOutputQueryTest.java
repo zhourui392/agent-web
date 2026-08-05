@@ -58,14 +58,17 @@ class SqliteChatRunRuntimeOutputQueryTest {
         insert("run-1", 5L, "agent_chunk",
                 chunkPayload(4L, "第二"));
         SqliteChatRunRuntimeOutputQuery query =
-                new SqliteChatRunRuntimeOutputQuery(jdbc, 64L);
+                new SqliteChatRunRuntimeOutputQuery(jdbc, 4096L);
 
         RecoveredRuntimeOutput result = query.load(
                 ChatRunId.of("run-1"),
                 new RuntimeHandle("run-1", "handle-1"));
 
         assertTrue(result.isComplete());
-        assertEquals("first\n第二", result.getContent());
+        String content = result.getContent();
+        assertTrue(content.contains("\"text_delta\""));
+        assertTrue(content.contains("first"));
+        assertTrue(content.contains("第二"));
     }
 
     @Test

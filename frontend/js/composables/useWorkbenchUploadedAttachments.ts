@@ -11,7 +11,6 @@ import {
   type WorkbenchUploadedAttachment,
   type WorkbenchUploadedAttachmentApiClient,
 } from '../api/workbench-uploaded-attachment.js';
-import type { WorkbenchPhase } from '../lib/workbench-state.js';
 
 const MAXIMUM_BYTES = 10 * 1024 * 1024;
 const MAXIMUM_COMBINED_ATTACHMENTS = 8;
@@ -49,7 +48,7 @@ export interface WorkbenchUploadItem {
 
 interface UploadScope {
   workbenchId: string;
-  phase: WorkbenchPhase;
+  stageInstanceIdentifier: string;
   conversationGeneration: number;
 }
 
@@ -66,7 +65,7 @@ interface PreviewAdapter {
 
 export interface UseWorkbenchUploadedAttachmentsOptions {
   workbenchId: Ref<string | null>;
-  phase: Ref<WorkbenchPhase>;
+  stageInstanceIdentifier: Ref<string | null>;
   conversationGeneration: Ref<number>;
   archived: Ref<boolean>;
   combinedAttachmentCount: Ref<number>;
@@ -153,7 +152,7 @@ export function useWorkbenchUploadedAttachments(
     try {
       uploaded = await apiClient.upload(
         record.scope.workbenchId,
-        record.scope.phase,
+        record.scope.stageInstanceIdentifier,
         record.scope.conversationGeneration,
         record.file,
       );
@@ -232,7 +231,7 @@ export function useWorkbenchUploadedAttachments(
     try {
       await apiClient.release(
         record.scope.workbenchId,
-        record.scope.phase,
+        record.scope.stageInstanceIdentifier,
         record.scope.conversationGeneration,
         item.attachmentId,
       );
@@ -329,11 +328,14 @@ function validateUpload(
 
 function currentScope(options: UseWorkbenchUploadedAttachmentsOptions): UploadScope | null {
   const workbenchId = options.workbenchId.value?.trim();
+  const stageInstanceIdentifier =
+    options.stageInstanceIdentifier.value?.trim();
   const generation = options.conversationGeneration.value;
-  if (!workbenchId || !Number.isSafeInteger(generation) || generation < 0) return null;
+  if (!workbenchId || !stageInstanceIdentifier
+    || !Number.isSafeInteger(generation) || generation < 0) return null;
   return {
     workbenchId,
-    phase: options.phase.value,
+    stageInstanceIdentifier,
     conversationGeneration: generation,
   };
 }
@@ -342,7 +344,7 @@ function scopeFingerprint(options: UseWorkbenchUploadedAttachmentsOptions): stri
   const scope = currentScope(options);
   return JSON.stringify([
     scope?.workbenchId ?? '',
-    scope?.phase ?? '',
+    scope?.stageInstanceIdentifier ?? '',
     scope?.conversationGeneration ?? -1,
     options.archived.value,
   ]);
@@ -350,7 +352,7 @@ function scopeFingerprint(options: UseWorkbenchUploadedAttachmentsOptions): stri
 
 function sameScope(left: UploadScope, right: UploadScope): boolean {
   return left.workbenchId === right.workbenchId
-    && left.phase === right.phase
+    && left.stageInstanceIdentifier === right.stageInstanceIdentifier
     && left.conversationGeneration === right.conversationGeneration;
 }
 
@@ -418,7 +420,7 @@ async function bestEffortRelease(
   try {
     await apiClient.release(
       scope.workbenchId,
-      scope.phase,
+      scope.stageInstanceIdentifier,
       scope.conversationGeneration,
       attachmentId,
     );

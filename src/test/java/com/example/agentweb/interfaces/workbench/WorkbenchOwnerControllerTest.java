@@ -4,7 +4,7 @@ import com.example.agentweb.app.workbench.WorkbenchCreationAppService;
 import com.example.agentweb.app.workbench.WorkbenchLifecycleAppService;
 import com.example.agentweb.app.workbench.WorkbenchLifecycleResult;
 import com.example.agentweb.app.workbench.WorkbenchNotFoundException;
-import com.example.agentweb.app.workbench.WorkbenchPhaseLifecycleResult;
+import com.example.agentweb.app.workbench.WorkbenchStageLifecycleResult;
 import com.example.agentweb.app.workbench.query.WorkbenchDetailView;
 import com.example.agentweb.app.workbench.query.WorkbenchListCursor;
 import com.example.agentweb.app.workbench.query.WorkbenchListItemView;
@@ -16,9 +16,8 @@ import com.example.agentweb.domain.workbench.OwnerReference;
 import com.example.agentweb.domain.workbench.WorkbenchDomainException;
 import com.example.agentweb.domain.workbench.WorkbenchErrorCode;
 import com.example.agentweb.domain.workbench.WorkbenchId;
-import com.example.agentweb.domain.workbench.WorkbenchPhase;
-import com.example.agentweb.domain.workbench.WorkbenchPhaseStatus;
 import com.example.agentweb.domain.workbench.WorkbenchStatus;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageStatus;
 import com.example.agentweb.interfaces.GlobalExceptionHandler;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -174,11 +173,14 @@ class WorkbenchOwnerControllerTest {
                         .doesNotExist())
                 .andExpect(jsonPath("$.creationSnapshot.snapshotId")
                         .value("snapshot-1"))
-                .andExpect(jsonPath("$.phases[0].phase")
-                        .value("REQUIREMENT_ANALYSIS"))
-                .andExpect(jsonPath("$.phases[0].currentConversation.sessionId")
+                .andExpect(jsonPath("$.stages[0].stageInstanceIdentifier")
+                        .value("stage-requirement"))
+                .andExpect(jsonPath("$.stages[0].definitionIdentifier")
+                        .value("requirement-analysis"))
+                .andExpect(jsonPath("$.stages[0].currentConversation.sessionId")
                         .value("conversation-1"))
-                .andExpect(jsonPath("$.phases[0].activeRun.runId").value("run-1"));
+                .andExpect(jsonPath("$.stages[0].activeRun.runId").value("run-1"))
+                .andExpect(jsonPath("$.phases").doesNotExist());
 
         verify(queryService).findDetailByOwner(OWNER_ID, WORKBENCH_ID);
     }
@@ -219,38 +221,93 @@ class WorkbenchOwnerControllerTest {
     }
 
     @Test
-    void completeAndReopenShouldParsePhaseAndPassExpectedVersion() throws Exception {
+    void completeAndReopenStageShouldPassStableInstanceIdentifierAndOwner()
+            throws Exception {
         OwnerReference owner = OwnerReference.of(OWNER_ID, OWNER_NAME);
         WorkbenchId workbenchId = WorkbenchId.of(WORKBENCH_ID);
-        WorkbenchPhaseLifecycleResult completed = phaseResult(
-                WorkbenchPhaseStatus.HUMAN_COMPLETED, 5L, true);
-        WorkbenchPhaseLifecycleResult reopened = phaseResult(
-                WorkbenchPhaseStatus.IN_PROGRESS, 6L, true);
-        when(lifecycleAppService.completePhase(
-                owner, workbenchId, WorkbenchPhase.REQUIREMENT_ANALYSIS, 4L))
+        String stageInstanceIdentifier = "stage-requirement";
+        WorkbenchStageLifecycleResult completed = stageResult(
+                stageInstanceIdentifier, WorkbenchStageStatus.HUMAN_COMPLETED,
+                5L, true);
+        WorkbenchStageLifecycleResult reopened = stageResult(
+                stageInstanceIdentifier, WorkbenchStageStatus.NOT_STARTED,
+                6L, true);
+        when(lifecycleAppService.completeStage(
+                owner, workbenchId, stageInstanceIdentifier, 4L))
                 .thenReturn(completed);
-        when(lifecycleAppService.reopenPhase(
-                owner, workbenchId, WorkbenchPhase.REQUIREMENT_ANALYSIS, 5L))
+        when(lifecycleAppService.reopenStage(
+                owner, workbenchId, stageInstanceIdentifier, 5L))
                 .thenReturn(reopened);
 
-        mvc.perform(post("/api/workbenches/{workbenchId}/phases/{phase}/complete",
-                        WORKBENCH_ID, "requirement_analysis")
+        mvc.perform(post("/api/workbenches/{workbenchId}/stages/{stageId}/complete",
+                        WORKBENCH_ID, stageInstanceIdentifier)
                         .header("If-Match", "4"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.phase").value("REQUIREMENT_ANALYSIS"))
-                .andExpect(jsonPath("$.phaseStatus").value("HUMAN_COMPLETED"))
-                .andExpect(jsonPath("$.workbenchVersion").value(5));
-        mvc.perform(post("/api/workbenches/{workbenchId}/phases/{phase}/reopen",
-                        WORKBENCH_ID, "requirement_analysis")
+                .andExpect(jsonPath("$.workbenchId").value(WORKBENCH_ID))
+                .andExpect(jsonPath("$.stageInstanceIdentifier")
+                        .value(stageInstanceIdentifier))
+                .andExpect(jsonPath("$.definitionIdentifier")
+                        .value("requirement-analysis"))
+                .andExpect(jsonPath("$.stageStatus")
+                        .value("HUMAN_COMPLETED"))
+                .andExpect(jsonPath("$.conversationId").value("conversation-1"))
+                .andExpect(jsonPath("$.conversationGeneration").value(1))
+                .andExpect(jsonPath("$.workbenchVersion").value(5))
+                .andExpect(jsonPath("$.changed").value(true));
+        mvc.perform(post("/api/workbenches/{workbenchId}/stages/{stageId}/reopen",
+                        WORKBENCH_ID, stageInstanceIdentifier)
                         .header("If-Match", "5"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.phaseStatus").value("IN_PROGRESS"))
+                .andExpect(jsonPath("$.stageStatus").value("NOT_STARTED"))
                 .andExpect(jsonPath("$.workbenchVersion").value(6));
 
-        verify(lifecycleAppService).completePhase(
-                owner, workbenchId, WorkbenchPhase.REQUIREMENT_ANALYSIS, 4L);
-        verify(lifecycleAppService).reopenPhase(
-                owner, workbenchId, WorkbenchPhase.REQUIREMENT_ANALYSIS, 5L);
+        verify(lifecycleAppService).completeStage(
+                owner, workbenchId, stageInstanceIdentifier, 4L);
+        verify(lifecycleAppService).reopenStage(
+                owner, workbenchId, stageInstanceIdentifier, 5L);
+    }
+
+    @Test
+    void stageLifecycleShouldRequireExpectedVersionBeforeApplicationCall()
+            throws Exception {
+        mvc.perform(post("/api/workbenches/{workbenchId}/stages/{stageId}/complete",
+                        WORKBENCH_ID, "stage-requirement"))
+                .andExpect(status().isBadRequest());
+
+        verify(lifecycleAppService, never())
+                .completeStage(any(), any(), any(), anyLong());
+    }
+
+    @Test
+    void unknownStageShouldReturnStable404Contract() throws Exception {
+        when(lifecycleAppService.completeStage(any(), any(), eq("stage-unknown"),
+                eq(4L))).thenThrow(new WorkbenchDomainException(
+                        WorkbenchErrorCode.STAGE_NOT_FOUND,
+                        "Workbench Stage does not exist: stage-unknown"));
+
+        mvc.perform(post("/api/workbenches/{workbenchId}/stages/{stageId}/complete",
+                        WORKBENCH_ID, "stage-unknown")
+                        .header("If-Match", "4"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code")
+                        .value("WORKBENCH_STAGE_NOT_FOUND"));
+    }
+
+    @Test
+    void staleStageExpectedVersionShouldReturnStable409Contract()
+            throws Exception {
+        when(lifecycleAppService.reopenStage(any(), any(),
+                eq("stage-requirement"), eq(4L)))
+                .thenThrow(new WorkbenchDomainException(
+                        WorkbenchErrorCode.VERSION_CONFLICT,
+                        "stale workbench version"));
+
+        mvc.perform(post("/api/workbenches/{workbenchId}/stages/{stageId}/reopen",
+                        WORKBENCH_ID, "stage-requirement")
+                        .header("If-Match", "4"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code")
+                        .value("WORKBENCH_VERSION_CONFLICT"));
     }
 
     @Test
@@ -259,17 +316,6 @@ class WorkbenchOwnerControllerTest {
                 .andExpect(status().isBadRequest());
 
         verify(lifecycleAppService, never()).archive(any(), any(), anyLong());
-    }
-
-    @Test
-    void invalidPhaseShouldReturn400BeforeLifecycleCall() throws Exception {
-        mvc.perform(post("/api/workbenches/{workbenchId}/phases/{phase}/complete",
-                        WORKBENCH_ID, "unknown")
-                        .header("If-Match", "4"))
-                .andExpect(status().isBadRequest());
-
-        verify(lifecycleAppService, never())
-                .completePhase(any(), any(), any(), anyLong());
     }
 
     @Test
@@ -304,7 +350,7 @@ class WorkbenchOwnerControllerTest {
                         "agent-web", "agent-web", true);
         WorkbenchDetailView.RepositoryScopeView scope =
                 new WorkbenchDetailView.RepositoryScopeView(
-                        "scope-hash", "agent-web",
+                        "scope-hash", "agent-web", "/test/workspace",
                         Collections.singletonList(repository));
         WorkbenchDetailView.CreationSnapshotView snapshot =
                 new WorkbenchDetailView.CreationSnapshotView(
@@ -317,10 +363,14 @@ class WorkbenchOwnerControllerTest {
                         "conversation-0", 0, 1000L, 1100L);
         WorkbenchDetailView.ActiveRunView activeRun =
                 new WorkbenchDetailView.ActiveRunView(
-                        "run-1", "DISCUSS_READ_ONLY", 1300L,
-                        null, null, null);
-        WorkbenchDetailView.PhaseView phase = new WorkbenchDetailView.PhaseView(
-                "REQUIREMENT_ANALYSIS", 0, "IN_PROGRESS", 1,
+                        "run-1", "DISCUSS_READ_ONLY", 1300L);
+        WorkbenchDetailView.StageView stage =
+                new WorkbenchDetailView.StageView(
+                "stage-requirement", "requirement-analysis", 1L,
+                "definition-hash", "snapshot-hash", 10,
+                "需求分析", "澄清目标和约束",
+                Collections.singletonList("DISCUSS_READ_ONLY"),
+                "IN_PROGRESS", 1,
                 currentConversation,
                 Arrays.asList(retiredConversation, currentConversation),
                 activeRun, 1300L, null);
@@ -328,7 +378,7 @@ class WorkbenchOwnerControllerTest {
                 WORKBENCH_ID, "Workbench MVP", "实现本地开发工作台",
                 "CODEX", "local", "run-1", "ACTIVE",
                 1000L, 1300L, 7L, scope, snapshot,
-                Collections.singletonList(phase));
+                Collections.singletonList(stage));
     }
 
     private WorkbenchLifecycleResult lifecycleResult(
@@ -341,13 +391,17 @@ class WorkbenchOwnerControllerTest {
         return result;
     }
 
-    private WorkbenchPhaseLifecycleResult phaseResult(
-            WorkbenchPhaseStatus status, long version, boolean changed) {
-        WorkbenchPhaseLifecycleResult result = mock(
-                WorkbenchPhaseLifecycleResult.class);
+    private WorkbenchStageLifecycleResult stageResult(
+            String stageInstanceIdentifier, WorkbenchStageStatus status,
+            long version, boolean changed) {
+        WorkbenchStageLifecycleResult result = mock(
+                WorkbenchStageLifecycleResult.class);
         when(result.getWorkbenchId()).thenReturn(WORKBENCH_ID);
-        when(result.getPhase()).thenReturn(WorkbenchPhase.REQUIREMENT_ANALYSIS);
-        when(result.getPhaseStatus()).thenReturn(status);
+        when(result.getStageInstanceIdentifier())
+                .thenReturn(stageInstanceIdentifier);
+        when(result.getDefinitionIdentifier())
+                .thenReturn("requirement-analysis");
+        when(result.getStageStatus()).thenReturn(status);
         when(result.getConversationId()).thenReturn("conversation-1");
         when(result.getConversationGeneration()).thenReturn(1);
         when(result.getWorkbenchVersion()).thenReturn(version);

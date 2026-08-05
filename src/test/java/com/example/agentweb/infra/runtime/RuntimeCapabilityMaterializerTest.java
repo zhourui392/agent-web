@@ -14,6 +14,7 @@ import com.example.agentweb.domain.capability.McpCapability;
 import com.example.agentweb.domain.capability.McpCapabilityType;
 import com.example.agentweb.domain.capability.McpSecretReference;
 import com.example.agentweb.domain.capability.McpServerDefinition;
+import com.example.agentweb.domain.capability.McpTransport;
 import com.example.agentweb.domain.capability.ResolvedCapabilityBinding;
 import com.example.agentweb.domain.capability.ResolvedMcpServerBinding;
 import com.example.agentweb.domain.capability.ResolvedSkillBinding;
@@ -176,7 +177,7 @@ class RuntimeCapabilityMaterializerTest {
         Path primary = Files.createDirectory(tempDir.resolve("primary-read-only"));
         McpServerDefinition writeOnly = new McpServerDefinition(
                 "write-only", "1.0.0", "write only",
-                set("IMPLEMENT_TEST"), set("CODEX"),
+                set("WORKBENCH_STAGE"), set("CODEX"),
                 Arrays.asList("write-mcp", "--stdio"),
                 Collections.singletonList(new McpCapability(
                         "write_repository", McpCapabilityType.TOOL,
@@ -202,6 +203,55 @@ class RuntimeCapabilityMaterializerTest {
                         Collections::emptyList,
                         () -> Collections.singletonList(writeOnly),
                         reference -> new char[0]).materialize(plan, workspace));
+    }
+
+    @Test
+    void materializesStreamableHttpMcpAsUrlAndBearerEnvironmentReference()
+            throws Exception {
+        // Given
+        Path primary = Files.createDirectory(tempDir.resolve("primary-http-mcp"));
+        McpServerDefinition remote = McpServerDefinition.managed(
+                "remote-query", "1.0.0", "Remote Query", "remote repository query",
+                set("CODEX"), Collections.<String>emptyList(),
+                Collections.singletonList(new McpSecretReference(
+                        "REMOTE_QUERY_TOKEN", "environment:REMOTE_QUERY_TOKEN")),
+                McpTransport.STREAMABLE_HTTP, "",
+                "https://mcp.example.test/api", CapabilityAccess.READ,
+                10, 30, CanonicalHashing.sha256("remote-query"));
+        ResolvedCapabilityBinding resolved = ResolvedCapabilityBinding.resolve(
+                "policy@1", "profile", "1.0.0",
+                CanonicalHashing.sha256("profile"),
+                Collections.emptyList(), Collections.emptyList(),
+                Collections.singletonList(new ResolvedMcpServerBinding(
+                        remote.getId(), remote.getVersion(),
+                        remote.getConfigurationHash(), CapabilityAccess.READ,
+                        McpTransport.STREAMABLE_HTTP.name())),
+                Collections.emptyList(), "CODEX");
+        AgentExecutionPlan plan = plan(primary, resolved);
+        RuntimeWorkspaceMaterializer.MaterializedWorkspace workspace =
+                new RuntimeWorkspaceMaterializer(tempDir.resolve("runtime-http-mcp"))
+                        .materialize(plan);
+
+        // When
+        RuntimeCapabilityMaterialization materialized =
+                new RuntimeCapabilityMaterializer(
+                        Collections::emptyList,
+                        () -> Collections.singletonList(remote),
+                        reference -> "remote-secret".toCharArray())
+                        .materialize(plan, workspace);
+        List<String> command = new RuntimeCommandFactory("codex")
+                .create(plan, workspace, materialized);
+
+        // Then
+        RuntimeCapabilityMaterialization.MaterializedMcpServer server =
+                materialized.getMcpServers().get(0);
+        assertEquals(McpTransport.STREAMABLE_HTTP, server.getTransport());
+        assertEquals("https://mcp.example.test/api", server.getEndpoint());
+        assertOverride(command,
+                "mcp_servers.remote-query.url=\"https://mcp.example.test/api\"");
+        assertOverride(command,
+                "mcp_servers.remote-query.bearer_token_env_var=\"REMOTE_QUERY_TOKEN\"");
+        assertFalse(command.toString().contains("remote-secret"));
     }
 
     @Test
@@ -247,7 +297,7 @@ class RuntimeCapabilityMaterializerTest {
     private SkillPackage skillPackage(String id, String contentSeed) {
         SkillManifest manifest = new SkillManifest(
                 id, "1.0.0", id + " description",
-                set("IMPLEMENT_TEST"), set("java"), set(id), "SKILL.md",
+                set("WORKBENCH_STAGE"), set("java"), set(id), "SKILL.md",
                 set("references/rules.md"), Collections.emptyList(),
                 Collections.emptySet(), set("CODEX"), SkillTrustSource.PLATFORM,
                 Collections.emptyList());
@@ -265,7 +315,7 @@ class RuntimeCapabilityMaterializerTest {
     private McpServerDefinition mcpDefinition(String id, String hashSeed) {
         return new McpServerDefinition(
                 id, "1.0.0", id + " description",
-                set("IMPLEMENT_TEST"), set("CODEX"),
+                set("WORKBENCH_STAGE"), set("CODEX"),
                 Arrays.asList("repository-mcp", "--stdio"),
                 Arrays.asList(
                         new McpCapability("read_repository", McpCapabilityType.TOOL,

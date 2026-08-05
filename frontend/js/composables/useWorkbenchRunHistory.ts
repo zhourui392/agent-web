@@ -18,14 +18,13 @@ import {
   type WorkbenchRunContext,
   type WorkbenchRunState,
 } from '../lib/workbench-run-state.js';
-import type { WorkbenchPhase } from '../lib/workbench-state.js';
 
 const RUN_PAGE_LIMIT = 20;
 const EVENT_PAGE_LIMIT = 200;
 
 export interface UseWorkbenchRunHistoryOptions {
   workbenchId: Ref<string | null>;
-  phase: Ref<WorkbenchPhase>;
+  stageInstanceIdentifier: Ref<string | null>;
   apiClient?: WorkbenchRunApiClient;
 }
 
@@ -73,9 +72,16 @@ export function useWorkbenchRunHistory(
   let generation = 0;
   let selectionGeneration = 0;
 
-  function identity(): { workbenchId: string; phase: WorkbenchPhase } | null {
+  function identity(): {
+    workbenchId: string;
+    stageInstanceIdentifier: string;
+  } | null {
     const workbenchId = options.workbenchId.value?.trim();
-    return workbenchId ? { workbenchId, phase: options.phase.value } : null;
+    const stageInstanceIdentifier =
+      options.stageInstanceIdentifier.value?.trim();
+    return workbenchId && stageInstanceIdentifier
+      ? { workbenchId, stageInstanceIdentifier }
+      : null;
   }
 
   function clearSelection(): void {
@@ -105,7 +111,7 @@ export function useWorkbenchRunHistory(
   function context(run: WorkbenchRunHistoryItem): WorkbenchRunContext {
     return {
       workbenchId: run.workbenchId,
-      phase: run.phase,
+      stageInstanceIdentifier: run.stageInstanceIdentifier,
       runId: run.runId,
     };
   }
@@ -145,7 +151,8 @@ export function useWorkbenchRunHistory(
     const detail = await apiClient.getRun(run.workbenchId, run.runId);
     if (token !== selectionGeneration || selectedRunId.value !== run.runId) return;
     if (detail.runId !== run.runId || detail.workbenchId !== run.workbenchId
-      || detail.phase !== run.phase || detail.runMode !== run.runMode
+      || detail.stageInstanceIdentifier !== run.stageInstanceIdentifier
+      || detail.runMode !== run.runMode
       || detail.sessionId !== run.sessionId || detail.earliestRetainedSeq == null) {
       throw new Error('historical Run detail does not match selected Run');
     }
@@ -160,7 +167,8 @@ export function useWorkbenchRunHistory(
       const binding = await apiClient.getRunCapability(run.workbenchId, run.runId);
       if (token !== selectionGeneration || selectedRunId.value !== run.runId) return;
       if (binding.runId !== run.runId || binding.workbenchId !== run.workbenchId
-        || binding.phase !== run.phase || binding.runMode !== run.runMode) {
+        || binding.stageInstanceIdentifier !== run.stageInstanceIdentifier
+        || binding.runMode !== run.runMode) {
         throw new Error('historical capability does not match selected Run');
       }
       capability.value = binding;
@@ -210,7 +218,7 @@ export function useWorkbenchRunHistory(
     historyError.value = null;
     try {
       const page = await apiClient.listRuns(current.workbenchId, {
-        phase: current.phase,
+        stageInstanceIdentifier: current.stageInstanceIdentifier,
         ...(replace || !nextCursor ? {} : {
           cursorCreatedAt: nextCursor.createdAt,
           cursorRunId: nextCursor.runId,
@@ -298,7 +306,9 @@ export function useWorkbenchRunHistory(
   }
 
   watch(
-    () => `${options.workbenchId.value ?? ''}\u0000${options.phase.value}`,
+    () => `${options.workbenchId.value ?? ''}\u0000${
+      options.stageInstanceIdentifier.value ?? ''
+    }`,
     () => reset(true),
     { flush: 'sync' },
   );

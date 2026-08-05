@@ -28,9 +28,4 @@ public final class WorkbenchReleaseUnavailableException
                 "workbench run is unavailable");
     }
 
-    public static WorkbenchReleaseUnavailableException highImpactExecution() {
-        return new WorkbenchReleaseUnavailableException(
-                "WORKBENCH_OPERATION_EXECUTOR_UNAVAILABLE",
-                "workbench high-impact operation executor is unavailable");
-    }
 }

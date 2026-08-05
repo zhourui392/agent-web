@@ -3,7 +3,7 @@ package com.example.agentweb.app.workbench.run;
 import com.example.agentweb.app.chatrun.ChatRunEvent;
 import com.example.agentweb.app.chatrun.ChatRunStreamSink;
 import com.example.agentweb.app.workbench.port.WorkbenchTelemetry;
-import com.example.agentweb.domain.workbench.WorkbenchRunSnapshot;
+import com.example.agentweb.domain.workbench.WorkbenchStageRunSnapshot;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -18,13 +18,13 @@ import java.util.Objects;
 final class WorkbenchRunProjectingStreamSink
         implements ChatRunStreamSink {
 
-    private final WorkbenchRunSnapshot snapshot;
+    private final WorkbenchStageRunSnapshot snapshot;
     private final WorkbenchRunStreamSink delegate;
     private final WorkbenchTelemetry telemetry;
     private final Clock clock;
 
     WorkbenchRunProjectingStreamSink(
-            WorkbenchRunSnapshot snapshot,
+            WorkbenchStageRunSnapshot snapshot,
             WorkbenchRunStreamSink delegate,
             WorkbenchTelemetry telemetry,
             Clock clock) {

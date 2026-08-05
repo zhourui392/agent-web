@@ -29,13 +29,19 @@ final class RuntimeRepositoryPathResolver {
         this.repositoryKeysByRoot = new LinkedHashMap<Path, String>();
         for (String rootValue : layout.getReadableRoots()) {
             Path root = Paths.get(rootValue);
-            Path relative = workspaceRoot.relativize(root);
-            if (relative.getNameCount() == 0 || relative.isAbsolute()
-                    || "..".equals(relative.getName(0).toString())) {
-                throw new IllegalArgumentException(
-                        "repository root cannot be represented by a safe repository key");
+            String key;
+            if (root.equals(workspaceRoot)) {
+                key = root.getFileName() != null
+                        ? root.getFileName().toString() : "workspace";
+            } else {
+                Path relative = workspaceRoot.relativize(root);
+                if (relative.getNameCount() == 0 || relative.isAbsolute()
+                        || "..".equals(relative.getName(0).toString())) {
+                    throw new IllegalArgumentException(
+                            "repository root cannot be represented by a safe repository key");
+                }
+                key = relative.toString().replace('\\', '/');
             }
-            String key = relative.toString().replace('\\', '/');
             if (repositoryKeysByRoot.put(root, key) != null) {
                 throw new IllegalArgumentException(
                         "runtime repository roots must be unique");

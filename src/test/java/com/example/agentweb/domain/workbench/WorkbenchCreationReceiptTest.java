@@ -1,6 +1,13 @@
 package com.example.agentweb.domain.workbench;
 
 import com.example.agentweb.domain.shared.AgentType;
+import com.example.agentweb.domain.workbench.stage.ResolvedStageCapabilities;
+import com.example.agentweb.domain.workbench.stage.StageCatalogEditor;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageCatalog;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageDefinitionRevision;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageDraftContent;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageSnapshot;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageState;
 import com.example.agentweb.domain.workspace.RepositoryBaseline;
 import com.example.agentweb.domain.workspace.RepositoryScope;
 import com.example.agentweb.domain.workspace.RepositorySelection;
@@ -107,7 +114,31 @@ class WorkbenchCreationReceiptTest {
             Instant createdAt) {
         return Workbench.create(
                 id, owner, "Workbench", "Goal", AgentType.CODEX, "local",
-                scope(), snapshot.reference(), createdAt);
+                scope(), snapshot.reference(),
+                Collections.singletonList(stageState(createdAt)), createdAt);
+    }
+
+    private static WorkbenchStageState stageState(Instant createdAt) {
+        WorkbenchStageCatalog catalog = WorkbenchStageCatalog.empty();
+        StageCatalogEditor editor = StageCatalogEditor.create(
+                "admin-1", "Admin");
+        catalog.createDraft(
+                "goal-analysis",
+                WorkbenchStageDraftContent.create(
+                        10, "目标分析", "分析创建目标", "固定创建输入",
+                        Collections.singleton(RunMode.DISCUSS_READ_ONLY),
+                        Collections.emptyList(), Collections.emptyList(),
+                        Collections.emptyList()),
+                editor, createdAt.minusNanos(2));
+        WorkbenchStageDefinitionRevision revision = catalog.publishDraft(
+                "goal-analysis", catalog.getCatalogVersion(), 1L,
+                new ResolvedStageCapabilities(
+                        Collections.emptyList(), Collections.emptyList(),
+                        Collections.emptyList()),
+                editor, createdAt.minusNanos(1));
+        return WorkbenchStageState.initial(
+                "stage-goal-analysis",
+                WorkbenchStageSnapshot.fromPublishedRevision(revision));
     }
 
     private static RepositoryScope scope() {

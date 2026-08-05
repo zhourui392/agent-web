@@ -20,7 +20,8 @@ import {
   ElDescriptionsItem, ElDialog, ElDivider, ElDrawer, ElDropdown, ElDropdownItem,
   ElDropdownMenu, ElEmpty, ElForm, ElFormItem, ElHeader, ElIcon, ElImage, ElInput,
   ElInputNumber, ElMain, ElMenu, ElMenuItem, ElOption, ElPagination, ElPopover,
-  ElRadioButton, ElRadioGroup, ElResult, ElRow, ElScrollbar, ElSelect, ElSwitch, ElTabPane,
+  ElRadioButton, ElRadioGroup, ElResult, ElRow, ElScrollbar, ElSelect, ElSkeleton,
+  ElSwitch, ElTabPane,
   ElTable, ElTableColumn, ElTabs, ElTag, ElTooltip,
   ElUpload, ElLoading,
 } from 'element-plus';
@@ -33,7 +34,8 @@ const COMPONENTS = [
   ElDescriptionsItem, ElDialog, ElDivider, ElDrawer, ElDropdown, ElDropdownItem,
   ElDropdownMenu, ElEmpty, ElForm, ElFormItem, ElHeader, ElIcon, ElImage, ElInput,
   ElInputNumber, ElMain, ElMenu, ElMenuItem, ElOption, ElPagination, ElPopover,
-  ElRadioButton, ElRadioGroup, ElResult, ElRow, ElScrollbar, ElSelect, ElSwitch, ElTabPane,
+  ElRadioButton, ElRadioGroup, ElResult, ElRow, ElScrollbar, ElSelect, ElSkeleton,
+  ElSwitch, ElTabPane,
   ElTable, ElTableColumn, ElTabs, ElTag, ElTooltip,
   ElUpload,
 ];

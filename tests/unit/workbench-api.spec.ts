@@ -7,12 +7,13 @@
 import { readFile } from 'node:fs/promises';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  completeWorkbenchPhase,
+  completeWorkbenchStage,
   createWorkbench,
+  getSelectableWorkbenchStages,
   getWorkbench,
   inspectWorkspace,
   listWorkbenches,
-  reopenWorkbenchPhase,
+  reopenWorkbenchStage,
 } from '../../frontend/js/api/workbench.js';
 
 type FetchMock = ReturnType<typeof vi.fn>;
@@ -25,6 +26,8 @@ const createRequest = {
   workspaceRoot: '/workspace/主项目',
   primaryRepository: 'service/a',
   repositories: ['service/a', 'web 客户端'],
+  stageDefinitionIdentifiers: ['requirement-analysis', 'implementation'],
+  expectedStageCatalogVersion: 7,
 };
 
 function jsonResponse(status = 200, body: unknown = {}): Response {
@@ -78,6 +81,15 @@ describe('workbench API client', () => {
     }));
   });
 
+  it('loads the selectable published stage catalog', async () => {
+    await getSelectableWorkbenchStages();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/workbench/stage-definitions',
+      undefined,
+    );
+  });
+
   it('rejects a missing Idempotency-Key before sending create', async () => {
     await expect(createWorkbench(createRequest, '   '))
       .rejects.toThrow('Idempotency-Key');
@@ -107,23 +119,25 @@ describe('workbench API client', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('/api/workbenches');
   });
 
-  it('sends If-Match on complete and reopen mutations with encoded identifiers', async () => {
-    await completeWorkbenchPhase('wb/一 二?', 'IMPLEMENT_TEST', 7);
-    await reopenWorkbenchPhase('wb/一 二?', 'REVIEW_REFACTOR', 8);
+  it('sends If-Match and stable Stage Instance identifiers for lifecycle mutations', async () => {
+    await completeWorkbenchStage('wb/一 二?', 'stage/implementation', 9);
+    await reopenWorkbenchStage('wb/一 二?', 'stage/review', 10);
 
     expect(fetchMock.mock.calls[0][0]).toBe(
-      '/api/workbenches/wb%2F%E4%B8%80%20%E4%BA%8C%3F/phases/IMPLEMENT_TEST/complete',
+      '/api/workbenches/wb%2F%E4%B8%80%20%E4%BA%8C%3F/stages/'
+      + 'stage%2Fimplementation/complete',
     );
     expect(requestOptions(fetchMock, 0)).toEqual(expect.objectContaining({
       method: 'POST',
-      headers: expect.objectContaining({ 'If-Match': '7' }),
+      headers: expect.objectContaining({ 'If-Match': '9' }),
     }));
     expect(fetchMock.mock.calls[1][0]).toBe(
-      '/api/workbenches/wb%2F%E4%B8%80%20%E4%BA%8C%3F/phases/REVIEW_REFACTOR/reopen',
+      '/api/workbenches/wb%2F%E4%B8%80%20%E4%BA%8C%3F/stages/'
+      + 'stage%2Freview/reopen',
     );
     expect(requestOptions(fetchMock, 1)).toEqual(expect.objectContaining({
       method: 'POST',
-      headers: expect.objectContaining({ 'If-Match': '8' }),
+      headers: expect.objectContaining({ 'If-Match': '10' }),
     }));
   });
 
@@ -133,7 +147,7 @@ describe('workbench API client', () => {
       message: 'stale workbench version',
     }));
 
-    await expect(reopenWorkbenchPhase('wb-1', 'SOLUTION_DESIGN', 3))
+    await expect(reopenWorkbenchStage('wb-1', 'stage-design', 3))
       .rejects.toMatchObject({
         status: 409,
         body: {

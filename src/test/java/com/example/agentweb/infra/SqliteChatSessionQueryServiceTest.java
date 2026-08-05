@@ -115,8 +115,8 @@ public class SqliteChatSessionQueryServiceTest {
     public void findSummaryPagedShouldExcludeActiveAndRetiredWorkbenchSessions() {
         repo.saveSession(newSession(
                 "chat-visible", Instant.parse("2026-08-01T09:00:00Z")));
-        persistWorkbenchSession("phase-active", false);
-        persistWorkbenchSession("phase-retired", true);
+        persistWorkbenchSession("stage-active", false);
+        persistWorkbenchSession("stage-retired", true);
 
         List<ChatSessionSummary> summaries = query.findSummaryPaged(0, 10);
 
@@ -164,15 +164,15 @@ public class SqliteChatSessionQueryServiceTest {
 
     @Test
     public void findMessageViewsShouldHideActiveAndRetiredWorkbenchSessions() {
-        persistWorkbenchSession("phase-active", false);
-        persistWorkbenchSession("phase-retired", true);
-        repo.addMessage("phase-active", new ChatMessage(
+        persistWorkbenchSession("stage-active", false);
+        persistWorkbenchSession("stage-retired", true);
+        repo.addMessage("stage-active", new ChatMessage(
                 "user", "active secret", Instant.parse("2026-08-01T10:01:00Z")));
-        repo.addMessage("phase-retired", new ChatMessage(
+        repo.addMessage("stage-retired", new ChatMessage(
                 "user", "retired secret", Instant.parse("2026-08-01T10:02:00Z")));
 
-        assertNull(query.findMessageViews("phase-active"));
-        assertNull(query.findMessageViews("phase-retired"));
+        assertNull(query.findMessageViews("stage-active"));
+        assertNull(query.findMessageViews("stage-retired"));
     }
 
     @Test
@@ -202,15 +202,15 @@ public class SqliteChatSessionQueryServiceTest {
 
     @Test
     public void findSharedViewShouldIgnoreWorkbenchTokensEvenWhenPersisted() {
-        persistWorkbenchSession("phase-active", false);
-        persistWorkbenchSession("phase-retired", true);
+        persistWorkbenchSession("stage-active", false);
+        persistWorkbenchSession("stage-retired", true);
         jdbc.update("UPDATE chat_session SET share_token=? WHERE id=?",
-                "tok-phase-active", "phase-active");
+                "tok-stage-active", "stage-active");
         jdbc.update("UPDATE chat_session SET share_token=? WHERE id=?",
-                "tok-phase-retired", "phase-retired");
+                "tok-stage-retired", "stage-retired");
 
-        assertNull(query.findSharedView("tok-phase-active"));
-        assertNull(query.findSharedView("tok-phase-retired"));
+        assertNull(query.findSharedView("tok-stage-active"));
+        assertNull(query.findSharedView("tok-stage-retired"));
     }
 
     @Test
@@ -230,27 +230,28 @@ public class SqliteChatSessionQueryServiceTest {
 
     @Test
     public void isSharedImageReferencedShouldIgnoreWorkbenchTokens() {
-        persistWorkbenchSession("phase-active", false);
-        persistWorkbenchSession("phase-retired", true);
+        persistWorkbenchSession("stage-active", false);
+        persistWorkbenchSession("stage-retired", true);
         jdbc.update("UPDATE chat_session SET share_token=? WHERE id=?",
-                "tok-phase-active", "phase-active");
+                "tok-stage-active", "stage-active");
         jdbc.update("UPDATE chat_session SET share_token=? WHERE id=?",
-                "tok-phase-retired", "phase-retired");
+                "tok-stage-retired", "stage-retired");
         String imagePath = "/tmp/wd/upload_pic/private/a.png";
-        repo.addMessage("phase-active", new ChatMessage(
+        repo.addMessage("stage-active", new ChatMessage(
                 "user", imagePath, Instant.parse("2026-08-01T10:01:00Z")));
-        repo.addMessage("phase-retired", new ChatMessage(
+        repo.addMessage("stage-retired", new ChatMessage(
                 "user", imagePath, Instant.parse("2026-08-01T10:02:00Z")));
 
-        assertFalse(query.isSharedImageReferenced("tok-phase-active", imagePath));
-        assertFalse(query.isSharedImageReferenced("tok-phase-retired", imagePath));
+        assertFalse(query.isSharedImageReferenced("tok-stage-active", imagePath));
+        assertFalse(query.isSharedImageReferenced("tok-stage-retired", imagePath));
     }
 
     private void persistWorkbenchSession(String id, boolean retired) {
         Instant createdAt = Instant.parse("2026-08-01T10:00:00Z");
-        ChatSession session = ChatSession.createWorkbenchPhase(
+        ChatSession session = ChatSession.createWorkbenchStage(
                 id, AgentType.CODEX, "/tmp/wd",
-                "workbench-1:IMPLEMENT_TEST", "owner-1", "Alex", createdAt);
+                "workbench-1:stage-implementation",
+                "owner-1", "Alex", createdAt);
         repo.addSession(session);
         if (retired) {
             session.retire(createdAt.plusSeconds(1));

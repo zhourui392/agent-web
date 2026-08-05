@@ -2,7 +2,7 @@ package com.example.agentweb.interfaces.workbench;
 
 import com.example.agentweb.app.runtime.port.RuntimePreflightErrorCode;
 import com.example.agentweb.app.runtime.port.RuntimePreflightException;
-import com.example.agentweb.app.workbench.run.SubmitWorkbenchRunCommand;
+import com.example.agentweb.app.workbench.run.SubmitWorkbenchStageRunCommand;
 import com.example.agentweb.app.workbench.run.WorkbenchRunAppService;
 import com.example.agentweb.app.workbench.run.WorkbenchRunCursorExpiredException;
 import com.example.agentweb.app.workbench.run.WorkbenchRunEvent;
@@ -13,7 +13,10 @@ import com.example.agentweb.app.workbench.run.WorkbenchRunListRequest;
 import com.example.agentweb.app.workbench.run.WorkbenchRunStopResult;
 import com.example.agentweb.app.workbench.run.WorkbenchRunStreamHandle;
 import com.example.agentweb.app.workbench.run.WorkbenchRunStreamSink;
-import com.example.agentweb.app.workbench.run.WorkbenchRunSubmissionResult;
+import com.example.agentweb.app.workbench.run.WorkbenchStageRunAppService;
+import com.example.agentweb.app.workbench.run.WorkbenchStageRunSubmissionResult;
+import com.example.agentweb.app.workbench.stage.WorkbenchStageCommandQueryService;
+import com.example.agentweb.app.workbench.stage.WorkbenchStageCommandView;
 import com.example.agentweb.domain.auth.CurrentUserProvider;
 import com.example.agentweb.domain.chatrun.ChatRun;
 import com.example.agentweb.domain.chatrun.ChatRunId;
@@ -22,7 +25,6 @@ import com.example.agentweb.domain.chatrun.RunOrigin;
 import com.example.agentweb.domain.workbench.OwnerReference;
 import com.example.agentweb.domain.workbench.RunMode;
 import com.example.agentweb.domain.workbench.WorkbenchId;
-import com.example.agentweb.domain.workbench.WorkbenchPhase;
 import com.example.agentweb.interfaces.workbench.dto.SubmitWorkbenchRunRequest;
 import com.example.agentweb.interfaces.workbench.dto.WorkbenchRunAttachmentRequest;
 import jakarta.validation.Validation;
@@ -68,35 +70,61 @@ class WorkbenchRunControllerTest {
             Instant.parse("2026-08-01T10:00:00Z");
 
     private WorkbenchRunAppService appService;
+    private WorkbenchStageRunAppService stageRunAppService;
     private WorkbenchRunHistoryAppService historyAppService;
     private CurrentUserProvider currentUserProvider;
+    private WorkbenchStageCommandQueryService stageCommandQueryService;
     private WorkbenchRunController controller;
 
     @BeforeEach
     void setUp() {
         appService = mock(WorkbenchRunAppService.class);
+        stageRunAppService = mock(WorkbenchStageRunAppService.class);
         historyAppService = mock(WorkbenchRunHistoryAppService.class);
         currentUserProvider = mock(CurrentUserProvider.class);
+        stageCommandQueryService = mock(
+                WorkbenchStageCommandQueryService.class);
         when(currentUserProvider.currentUserId()).thenReturn("owner-1");
         when(currentUserProvider.currentUserName()).thenReturn("Alex");
         controller = new WorkbenchRunController(
-                appService, historyAppService, currentUserProvider);
+                appService, stageRunAppService, historyAppService,
+                currentUserProvider, stageCommandQueryService);
+    }
+
+    @Test
+    void listStageCommandsShouldReturnFrozenCommandsFromOwnerStage() {
+        WorkbenchStageCommandView command = mock(
+                WorkbenchStageCommandView.class);
+        when(command.getIdentifier()).thenReturn("design");
+        when(command.getDescription()).thenReturn("Design a solution");
+        when(command.getArgumentHint()).thenReturn("<topic>");
+        when(stageCommandQueryService.list(
+                any(), eq(WorkbenchId.of("wb-1")), eq("stage-1")))
+                .thenReturn(Collections.singletonList(command));
+
+        var result = controller.listStageCommands("wb-1", "stage-1");
+
+        assertEquals(1, result.size());
+        assertEquals("design", result.get(0).getName());
+        assertEquals("Design a solution", result.get(0).getDescription());
+        verify(stageCommandQueryService).list(
+                any(), eq(WorkbenchId.of("wb-1")), eq("stage-1"));
     }
 
     @Test
     void submitShouldMapHeadersAndReturnAcceptedLocation() {
-        WorkbenchRunSubmissionResult result = mock(
-                WorkbenchRunSubmissionResult.class);
+        WorkbenchStageRunSubmissionResult result = mock(
+                WorkbenchStageRunSubmissionResult.class);
         when(result.getRunId()).thenReturn("run-1");
-        when(appService.submit(any(), any())).thenReturn(result);
+        when(stageRunAppService.submit(any(), any())).thenReturn(result);
         SubmitWorkbenchRunRequest request = new SubmitWorkbenchRunRequest();
         request.setMessage("design the solution");
         request.setRunMode("DISCUSS_READ_ONLY");
         request.setAttachments(Collections.emptyList());
 
-        ResponseEntity<WorkbenchRunSubmissionResult> response =
+        ResponseEntity<WorkbenchStageRunSubmissionResult> response =
                 controller.submit(
-                        "workbench-1", "solution_design",
+                        "workbench-1", "stage-1",
                         "submission-1", 7L, request);
 
         assertEquals(202, response.getStatusCode().value());
@@ -104,12 +132,14 @@ class WorkbenchRunControllerTest {
                 response.getHeaders().getLocation().toString());
         ArgumentCaptor<OwnerReference> actor =
                 ArgumentCaptor.forClass(OwnerReference.class);
-        ArgumentCaptor<SubmitWorkbenchRunCommand> command =
-                ArgumentCaptor.forClass(SubmitWorkbenchRunCommand.class);
-        verify(appService).submit(actor.capture(), command.capture());
+        ArgumentCaptor<SubmitWorkbenchStageRunCommand> command =
+                ArgumentCaptor.forClass(
+                        SubmitWorkbenchStageRunCommand.class);
+        verify(stageRunAppService).submit(
+                actor.capture(), command.capture());
         assertEquals("owner-1", actor.getValue().getOwnerId());
-        assertEquals(WorkbenchPhase.SOLUTION_DESIGN,
-                command.getValue().getPhase());
+        assertEquals("stage-1",
+                command.getValue().getStageInstanceIdentifier());
         assertEquals(RunMode.DISCUSS_READ_ONLY,
                 command.getValue().getRunMode());
         assertEquals(7L, command.getValue().getExpectedVersion());
@@ -162,13 +192,13 @@ class WorkbenchRunControllerTest {
     }
 
     @Test
-    void listShouldMapOptionalPhaseAndStableCursor() {
+    void listShouldMapOptionalStageAndStableCursor() {
         when(historyAppService.list(any(), any(), any()))
                 .thenReturn(new WorkbenchRunListPage(
                         Collections.emptyList(), null));
 
         controller.list(
-                "workbench-1", "review_refactor",
+                "workbench-1", "stage-1",
                 Long.valueOf(100L), "run-9", 30);
 
         ArgumentCaptor<WorkbenchRunListRequest> request =
@@ -176,8 +206,8 @@ class WorkbenchRunControllerTest {
         verify(historyAppService).list(
                 any(), eq(WorkbenchId.of("workbench-1")),
                 request.capture());
-        assertEquals(WorkbenchPhase.REVIEW_REFACTOR,
-                request.getValue().getPhase());
+        assertEquals("stage-1",
+                request.getValue().getStageInstanceIdentifier());
         assertEquals(100L,
                 request.getValue().getCursor().getCreatedAt());
         assertEquals("run-9",
@@ -291,7 +321,8 @@ class WorkbenchRunControllerTest {
         when(appService.subscribe(any(), any(), eq("run-1"), eq(0L), any()))
                 .thenReturn(handle);
         controller = new WorkbenchRunController(
-                appService, historyAppService, currentUserProvider) {
+                appService, stageRunAppService, historyAppService,
+                currentUserProvider, stageCommandQueryService) {
             @Override
             SseEmitter createEmitter() {
                 return emitter;
@@ -325,6 +356,6 @@ class WorkbenchRunControllerTest {
                 ChatRunId.of("run-1"), "session-1", 1L,
                 "submission-1", false, RunOrigin.WORKBENCH,
                 ExecutionContextReference.of(
-                        "workbench-1:SOLUTION_DESIGN", "run-1"), NOW);
+                        "workbench-1:stage-1", "run-1"), NOW);
     }
 }

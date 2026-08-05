@@ -36,10 +36,10 @@ class ChatRunTerminalParticipantRegistryTest {
                 () -> new ChatRunTerminalParticipantRegistry(
                         Arrays.asList(workbench, chat)));
         ChatRun run = ChatRun.submit(
-                ChatRunId.of("workbench-run"), "phase-session", 1L,
+                ChatRunId.of("workbench-run"), "stage-session", 1L,
                 "terminal-key", false, RunOrigin.WORKBENCH,
                 ExecutionContextReference.of(
-                        "workbench-1:IMPLEMENT_TEST", "workbench-run"),
+                        "workbench-1:stage-implementation", "workbench-run"),
                 TERMINAL_AT.minusSeconds(1));
 
         registry.onFirstTerminal(run, TERMINAL_AT);

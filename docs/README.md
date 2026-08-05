@@ -38,7 +38,8 @@
 | 文档 | 内容 |
 | --- | --- |
 | [MVP 产品设计](local-development-workbench-mvp-design.md) | 用户流程、范围与验收标准 |
-| [技术设计总览](workbench/README.md) | 架构决策与 TD-01～TD-10 索引 |
+| [技术设计总览](workbench/README.md) | 架构决策与 TD-01～TD-11 索引 |
+| [动态阶段与全局上下文](workbench/td-11-dynamic-stages-global-context.md) | 管理端 Capability 来源、Stage 草稿/发布/停用、创建快照与全局文档上下文 |
 | [发布就绪快照](workbench/release-readiness-2026-08-01.md) | 已有自动化证据、剩余真实试点与运维门禁 |
 
 `workbench/` 下的 `td-*.md` 是各技术主题的详细设计。文档状态和日期以各文件头部声明为准；历史测试数量不能替代当前工作树的重新验证。

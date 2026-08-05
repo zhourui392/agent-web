@@ -45,7 +45,7 @@ type MemoryStorage = {
 const IDENTITY: WorkbenchDocumentStorageIdentity = {
   userId: 'user/a',
   workbenchId: 'workbench:1',
-  phase: 'SOLUTION_DESIGN',
+  stageInstanceIdentifier: 'SOLUTION_DESIGN',
 };
 
 const README: DocumentReference = {
@@ -266,13 +266,13 @@ describe('document reference and recent documents', () => {
 });
 
 describe('workbench document local restoration', () => {
-  it('strictly isolates both storage keys by authenticated user, workbench, and phase', () => {
+  it('strictly isolates both storage keys by authenticated user, workbench, and stageInstanceIdentifier', () => {
     const baseLayout = workbenchDocumentLayoutStorageKey(IDENTITY);
     const baseDocuments = workbenchDocumentsStorageKey(IDENTITY);
     const variants: WorkbenchDocumentStorageIdentity[] = [
       { ...IDENTITY, userId: 'user/b' },
       { ...IDENTITY, workbenchId: 'workbench:2' },
-      { ...IDENTITY, phase: 'IMPLEMENT_TEST' },
+      { ...IDENTITY, stageInstanceIdentifier: 'stage-verification' },
     ];
 
     for (const variant of variants) {
@@ -283,6 +283,29 @@ describe('workbench document local restoration', () => {
       ...IDENTITY,
       userId: '',
     })).toThrow(/authenticated user/i);
+  });
+
+  it('isolates document state by Stage instance identity', () => {
+    const stageIdentity: WorkbenchDocumentStorageIdentity = {
+      userId: IDENTITY.userId,
+      workbenchId: IDENTITY.workbenchId,
+      stageInstanceIdentifier: 'stage-design',
+    };
+    const otherStageIdentity: WorkbenchDocumentStorageIdentity = {
+      ...stageIdentity,
+      stageInstanceIdentifier: 'stage-implementation',
+    };
+
+    expect(workbenchDocumentLayoutStorageKey(stageIdentity))
+      .not.toBe(workbenchDocumentLayoutStorageKey(IDENTITY));
+    expect(workbenchDocumentLayoutStorageKey(otherStageIdentity))
+      .not.toBe(workbenchDocumentLayoutStorageKey(stageIdentity));
+    expect(workbenchDocumentsStorageKey(otherStageIdentity))
+      .not.toBe(workbenchDocumentsStorageKey(stageIdentity));
+    expect(() => workbenchDocumentLayoutStorageKey({
+      ...stageIdentity,
+      stageInstanceIdentifier: '../stage',
+    })).toThrow(/stage instance/i);
   });
 
   it('persists only layout, references, scroll position, and bounded recent references', () => {

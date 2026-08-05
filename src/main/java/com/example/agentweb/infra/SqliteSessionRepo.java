@@ -107,12 +107,13 @@ public class SqliteSessionRepo implements SessionRepository {
         String retiredAt = instantText(session.getRetiredAt());
         int rows = jdbc.update(
                 "UPDATE chat_session SET retired_at = COALESCE(retired_at, ?) "
-                        + "WHERE id = ? AND session_kind = 'WORKBENCH_PHASE' "
+                        + "WHERE id = ? AND session_kind = ? "
                         + "AND agent_type = ? AND working_dir = ? AND created_at = ? "
                         + "AND context_id = ? AND user_id = ? AND user_name = ? "
                         + "AND (retired_at IS NULL OR retired_at = ?)",
                 retiredAt,
                 session.getId(),
+                session.getSessionKind().name(),
                 session.getAgentType().name(),
                 session.getWorkingDir(),
                 session.getCreatedAt().toString(),
@@ -122,7 +123,8 @@ public class SqliteSessionRepo implements SessionRepository {
                 retiredAt
         );
         if (rows == 0) {
-            throw new IllegalStateException("Workbench phase session retirement conflict");
+            throw new IllegalStateException(
+                    "Workbench conversation retirement conflict");
         }
         log.debug("session-retirement-persisted sessionId={}", session.getId());
     }

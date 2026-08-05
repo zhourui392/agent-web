@@ -51,7 +51,7 @@
       <main v-loading="detailLoading" class="workbench-main">
         <section v-if="!detail" class="workbench-welcome">
           <div class="workbench-welcome-mark">W</div>
-          <h1>从需求分析到人工 Review</h1>
+          <h1>按自定义阶段推进工作</h1>
           <p>选择左侧 Workbench，或先检查本地 Workspace 并创建新的工作台。</p>
           <el-button type="primary" size="large" @click="openCreateDialog">
             创建第一个 Workbench
@@ -89,18 +89,20 @@
             </div>
           </section>
 
-          <nav class="workbench-phases" aria-label="Workbench 阶段">
+          <nav class="workbench-stages" aria-label="Workbench 阶段">
             <button
-              v-for="(item, index) in WORKBENCH_PHASES"
-              :key="item.phase"
+              v-for="(stage, index) in detail.stages"
+              :key="stage.stageInstanceIdentifier"
               type="button"
-              :class="['workbench-phase', { active: selectedPhase === item.phase }]"
-              @click="selectPhase(item.phase)"
+              :class="['workbench-stage', {
+                active: selectedStageInstanceIdentifier === stage.stageInstanceIdentifier,
+              }]"
+              @click="selectStage(stage.stageInstanceIdentifier)"
             >
-              <span class="workbench-phase-number">{{ index + 1 }}</span>
-              <span>{{ item.label }}</span>
+              <span class="workbench-stage-number">{{ index + 1 }}</span>
+              <span>{{ stage.displayName }}</span>
             </button>
-            <span class="workbench-phase-spacer"></span>
+            <span class="workbench-stage-spacer"></span>
             <el-button
               plain
               size="small"
@@ -110,19 +112,11 @@
               运行记录
             </el-button>
             <el-button
-              plain
-              size="small"
-              data-test="open-handoff-drawer"
-              @click="openHandoffDrawer"
-            >
-              阶段交接
-            </el-button>
-            <el-button
-              v-if="selectedPhaseView?.status === 'HUMAN_COMPLETED'"
+              v-if="selectedWorkUnitView?.status === 'HUMAN_COMPLETED'"
               size="small"
               :loading="mutationLoading"
               :disabled="detail.status === 'ARCHIVED'"
-              @click="reopenSelectedPhase"
+              @click="reopenSelectedWorkUnit"
             >
               重新打开
             </el-button>
@@ -131,8 +125,8 @@
               type="primary"
               size="small"
               :loading="mutationLoading"
-              :disabled="!canCompleteSelectedPhase"
-              @click="completeSelectedPhase"
+              :disabled="!canCompleteSelectedWorkUnit"
+              @click="completeSelectedWorkUnit"
             >
               人工完成
             </el-button>
@@ -149,8 +143,10 @@
           >
             <workbench-conversation-panel
               v-if="isMobile || desktopMode !== 'MAXIMIZED'"
-              :phase="selectedPhase"
-              :phase-label="currentPhaseLabel"
+              :stage-instance-identifier="selectedStageInstanceIdentifier || ''"
+              :stage-label="currentStageLabel"
+              :workbench-id="workbenchId"
+              :workspace-root="workspaceRoot"
               :model-value="composerText"
               :run-state="runState"
               :messages="conversationMessages"
@@ -164,16 +160,17 @@
               :connection-status="connectionStatus"
               :error="conversationError"
               :notice="conversationNotice"
+              :allowed-run-modes="allowedRunModes"
+              :selected-run-mode="selectedRunMode"
               :submitting="submitting"
               :stopping="stopping"
               :read-only="archived"
               :identity-ready="identityReady"
-              :handoff-ready="handoffReady"
-              :modify-ready="selectedPhase !== 'REVIEW_REFACTOR' || reviewConfirmed"
               :mobile="isMobile"
               :document-collapsed="desktopMode === 'COLLAPSED'"
               :terminal-document-stale="Boolean(runState?.terminal && currentDocument?.stale)"
               @update:model-value="updateComposerText"
+              @select-run-mode="selectRunMode"
               @submit="submitConversation"
               @stop="stopConversation"
               @open-document="openRunDocument"
@@ -184,37 +181,8 @@
               @retry-upload="retryWorkbenchUpload"
               @remove-upload="removeWorkbenchUpload"
               @load-older-messages="loadOlderConversationMessages"
-            >
-              <template v-if="selectedPhase === 'REVIEW_REFACTOR'" #review>
-                <workbench-review-panel
-                  :model-value="composerText"
-                  :opinion="reviewOpinion"
-                  :confirmation="reviewConfirmation"
-                  :loading="reviewLoading"
-                  :saving="reviewSaving"
-                  :confirming="reviewConfirming"
-                  :error="reviewError"
-                  :notice="reviewNotice"
-                  :read-only="reviewReadOnly"
-                  :draft-matches-opinion="reviewDraftMatchesOpinion"
-                  :confirmed="reviewConfirmed"
-                  :can-save="reviewCanSave"
-                  :can-confirm="reviewCanConfirm"
-                  :candidate="reviewCandidate"
-                  :candidate-items="reviewCandidateItems"
-                  :candidate-loading="reviewCandidateLoading"
-                  :candidate-error="reviewCandidateError"
-                  :can-generate-candidate="reviewCanGenerateCandidate"
-                  @update:model-value="updateComposerText"
-                  @save-opinion="saveReviewOpinion"
-                  @confirm-modification="confirmReviewModification"
-                  @generate-candidate="generateReviewCandidate"
-                  @update-candidate-item="updateReviewCandidateItem"
-                  @accept-candidate-item="acceptReviewCandidateItem"
-                  @ignore-candidate-item="ignoreReviewCandidateItem"
-                />
-              </template>
-            </workbench-conversation-panel>
+              @start-new-context="handleStartNewContext"
+            />
 
             <button
               v-if="!isMobile && desktopMode === 'NORMAL'"
@@ -258,6 +226,7 @@
               @download-document="downloadCurrent"
               @update-scroll="updateDocumentScrollTop"
               @attach-document="addAttachment"
+              @close-document="closeDocument"
             />
           </section>
 
@@ -301,26 +270,6 @@
       />
     </el-drawer>
 
-    <workbench-capability-drawer
-      v-if="detail"
-      :visible="capabilityDrawerVisible"
-      :profile="capabilityProfile"
-      :override="capabilityOverride"
-      :draft="capabilityDraft"
-      :loading="capabilityLoading"
-      :saving="capabilitySaving"
-      :error="capabilityError"
-      :notice="capabilityNotice"
-      :dirty="capabilityDirty"
-      :can-restore-defaults="capabilityCanRestoreDefaults"
-      :read-only="detail.status === 'ARCHIVED'"
-      @update:visible="capabilityDrawerVisible = $event"
-      @update:draft="updateCapabilityDraft"
-      @refresh="refreshCapability"
-      @save="saveCapabilityOverride"
-      @restore-defaults="restoreCapabilityDefaults"
-    />
-
     <workbench-run-history-drawer
       v-if="detail"
       :visible="runHistoryVisible"
@@ -341,39 +290,6 @@
       @select-run="selectHistoricalRun"
       @load-more-runs="loadMoreHistoricalRuns"
       @load-more-events="loadMoreHistoricalEvents"
-    />
-
-    <workbench-handoff-drawer
-      v-if="detail"
-      :visible="handoffDrawerVisible"
-      :current="handoffCurrent"
-      :draft="handoffDraft"
-      :source="handoffSource"
-      :conflict="handoffConflict"
-      :loading="handoffLoading"
-      :saving="handoffSaving"
-      :accepting="handoffAccepting"
-      :candidate-generating="handoffCandidateGenerating"
-      :candidate="handoffCandidate"
-      :candidate-pending="handoffCandidatePending"
-      :error="handoffError"
-      :notice="handoffNotice"
-      :dirty="handoffDirty"
-      :read-only="handoffReadOnly"
-      :keep-current-dismissed="keepCurrentDismissed"
-      :phase="selectedPhase"
-      @close="closeHandoffDrawer"
-      @update:draft="updateHandoffDraft"
-      @save="saveHandoff"
-      @reload-current="adoptRemoteCurrent"
-      @refresh-source="refreshHandoffSource"
-      @accept-latest="acceptLatestSource"
-      @keep-current="keepCurrentSource"
-      @open-document="openHandoffDocument"
-      @generate-candidate="generateHandoffCandidate"
-      @apply-candidate-field="applyHandoffCandidateField"
-      @ignore-candidate-field="ignoreHandoffCandidateField"
-      @dismiss-candidate="dismissHandoffCandidate"
     />
 
     <el-dialog
@@ -474,6 +390,36 @@
             show-word-limit
           />
         </label>
+
+        <div class="workbench-field workbench-field-wide workbench-stage-picker">
+          <span>选择阶段</span>
+          <el-skeleton v-if="stageCatalogLoading" :rows="3" animated />
+          <div v-else-if="selectableStageCatalog" class="workbench-stage-options">
+            <label
+              v-for="stage in selectableStageCatalog.stages"
+              :key="stage.definitionIdentifier"
+              class="workbench-stage-option"
+            >
+              <input
+                v-model="selectedStageDefinitionIdentifiers"
+                type="checkbox"
+                :value="stage.definitionIdentifier"
+              >
+              <span>
+                <strong>{{ stage.sequenceNumber }} · {{ stage.displayName }}</strong>
+                <small>{{ stage.description }}</small>
+              </span>
+            </label>
+            <el-empty
+              v-if="selectableStageCatalog.stages.length === 0"
+              description="暂无已发布阶段，请联系管理员"
+              :image-size="64"
+            />
+          </div>
+          <small class="workbench-stage-order-hint">
+            阶段顺序由管理员发布配置决定，创建时只需选择。
+          </small>
+        </div>
       </div>
 
       <el-alert
@@ -489,7 +435,9 @@
         <el-button
           type="primary"
           :loading="createLoading"
-          :disabled="!inspection || selectedRepositories.length === 0 || !primaryRepository"
+          :disabled="stageCatalogLoading || !selectableStageCatalog
+            || selectedStageDefinitionIdentifiers.length === 0
+            || !inspection || selectedRepositories.length === 0 || !primaryRepository"
           @click="submitCreate"
         >
           创建 Workbench
@@ -508,22 +456,15 @@
  */
 import { computed, onMounted, watch } from 'vue';
 import { ElMessageBox } from 'element-plus';
-import WorkbenchCapabilityDrawer from '../components/WorkbenchCapabilityDrawer.vue';
 import WorkbenchConversationPanel from '../components/WorkbenchConversationPanel.vue';
 import WorkbenchDocumentPane from '../components/WorkbenchDocumentPane.vue';
-import WorkbenchHandoffDrawer from '../components/WorkbenchHandoffDrawer.vue';
-import WorkbenchReviewPanel from '../components/WorkbenchReviewPanel.vue';
 import WorkbenchRunHistoryDrawer from '../components/WorkbenchRunHistoryDrawer.vue';
-import { useWorkbenchCapability } from '../composables/useWorkbenchCapability.js';
 import { useWorkbenchConversation } from '../composables/useWorkbenchConversation.js';
 import { useWorkbenchDocumentPane } from '../composables/useWorkbenchDocumentPane.js';
-import { useWorkbenchHandoff } from '../composables/useWorkbenchHandoff.js';
 import { useWorkbenchShell } from '../composables/useWorkbenchShell.js';
-import { useWorkbenchReview } from '../composables/useWorkbenchReview.js';
 import { useWorkbenchRunHistory } from '../composables/useWorkbenchRunHistory.js';
 import { useWorkbenchUploadedAttachments } from '../composables/useWorkbenchUploadedAttachments.js';
-import { openWorkbenchHandoffDocument } from '../lib/workbench-handoff-integration.js';
-import { WORKBENCH_PHASES, phaseStatusLabel } from '../lib/workbench-state.js';
+import { stageStatusLabel } from '../lib/workbench-state.js';
 
 function repositoryRelativePathLabel(relativePath) {
   const normalized = typeof relativePath === 'string'
@@ -541,14 +482,37 @@ function repositoryRelativePathLabel(relativePath) {
   return normalized;
 }
 
+function withConversationReference(item, conversation) {
+  return {
+    ...item,
+    conversationGeneration: conversation.generation,
+    currentConversation: {
+      sessionId: conversation.sessionId,
+      generation: conversation.generation,
+    },
+    conversationHistory: item.conversationHistory.some(
+      historical => historical.sessionId === conversation.sessionId,
+    )
+      ? item.conversationHistory
+      : [...item.conversationHistory, {
+          sessionId: conversation.sessionId,
+          generation: conversation.generation,
+        }],
+  };
+}
+
+function withRestartedConversationReference(item, restarted) {
+  return {
+    ...withConversationReference(item, restarted),
+    activeRun: null,
+  };
+}
+
 export default {
   name: 'WorkbenchPage',
   components: {
-    WorkbenchCapabilityDrawer,
     WorkbenchConversationPanel,
     WorkbenchDocumentPane,
-    WorkbenchHandoffDrawer,
-    WorkbenchReviewPanel,
     WorkbenchRunHistoryDrawer,
   },
   setup() {
@@ -556,95 +520,58 @@ export default {
     const workbenchId = computed(() => shell.detail.value?.id || null);
     const archived = computed(() => shell.detail.value?.status === 'ARCHIVED');
     const repositories = computed(() => shell.detail.value?.repositoryScope.repositories || []);
+    const workspaceRoot = computed(() => shell.detail.value?.repositoryScope.workspaceRoot || '');
     const repositoryKeys = computed(() => repositories.value.map(
       repository => repository.repositoryKey,
     ));
     const documentPane = useWorkbenchDocumentPane({
       userId: shell.currentUserId,
       workbenchId,
-      phase: shell.selectedPhase,
+      stageInstanceIdentifier: shell.selectedStageInstanceIdentifier,
       repositories,
     });
+    const selectedWorkUnitView = computed(() => shell.selectedStageView.value);
     const conversationGeneration = computed(
-      () => shell.selectedPhaseView.value?.conversationGeneration ?? 0,
+      () => selectedWorkUnitView.value?.conversationGeneration ?? 0,
     );
     const currentConversationId = computed(
-      () => shell.selectedPhaseView.value?.currentConversation?.sessionId ?? null,
+      () => selectedWorkUnitView.value?.currentConversation?.sessionId ?? null,
     );
     const activeRunId = computed(
-      () => shell.selectedPhaseView.value?.activeRun?.runId || null,
+      () => selectedWorkUnitView.value?.activeRun?.runId || null,
     );
     const activeWriteRunId = computed(
       () => shell.detail.value?.activeWriteRunId || null,
     );
-    const phaseStatus = computed(
-      () => shell.selectedPhaseView.value?.status ?? 'NOT_STARTED',
+    const stageStatus = computed(
+      () => selectedWorkUnitView.value?.status ?? 'NOT_STARTED',
     );
-    const canCompleteSelectedPhase = computed(() =>
+    const allowedRunModes = computed(
+      () => selectedWorkUnitView.value?.allowedRunModes ?? [],
+    );
+    const canCompleteSelectedWorkUnit = computed(() =>
       shell.detail.value?.status !== 'ARCHIVED'
       && ['NOT_STARTED', 'IN_PROGRESS'].includes(
-        shell.selectedPhaseView.value?.status ?? '',
+        selectedWorkUnitView.value?.status ?? '',
       )
-      && shell.selectedPhaseView.value?.activeRun == null);
-    const capability = useWorkbenchCapability({
-      workbenchId,
-      phase: shell.selectedPhase,
-    });
-    const capabilityStatusLabel = computed(() => ({
-      AVAILABLE: '可用',
-      DEGRADED: '降级可用',
-      UNAVAILABLE: '不可用',
-      LOAD_FAILED: '加载失败',
-      LOADING: '加载中',
-      NOT_LOADED: '待加载',
-    }[capability.capabilitySummaryStatus.value]));
-    const capabilityStatusType = computed(() => ({
-      AVAILABLE: 'success',
-      DEGRADED: 'warning',
-      UNAVAILABLE: 'danger',
-      LOAD_FAILED: 'danger',
-      LOADING: 'info',
-      NOT_LOADED: 'info',
-    }[capability.capabilitySummaryStatus.value]));
+      && selectedWorkUnitView.value?.activeRun == null);
     const runHistory = useWorkbenchRunHistory({
       workbenchId,
-      phase: shell.selectedPhase,
-    });
-    const handoff = useWorkbenchHandoff({
-      workbenchId,
-      phase: shell.selectedPhase,
-      conversationGeneration,
-      archived,
-    });
-    const review = useWorkbenchReview({
-      ownerId: shell.currentUserId,
-      workbenchId,
-      phase: shell.selectedPhase,
-      archived,
+      stageInstanceIdentifier: shell.selectedStageInstanceIdentifier,
     });
     const expectedVersion = computed(() => shell.detail.value?.version ?? null);
-    const handoffRequired = computed(
-      () => shell.selectedPhase.value !== 'REQUIREMENT_ANALYSIS',
-    );
-    const handoffSourceVersion = computed(
-      () => handoff.handoffSource.value?.reception?.sourceVersion ??
-        handoff.handoffSource.value?.latestSource?.version ??
-        null,
-    );
     const conversation = useWorkbenchConversation({
       ownerId: shell.currentUserId,
       workbenchId,
-      phase: shell.selectedPhase,
+      stageInstanceIdentifier: shell.selectedStageInstanceIdentifier,
       conversationGeneration,
       currentConversationId,
       activeRunId,
       activeWriteRunId,
       expectedVersion,
-      phaseStatus,
+      allowedRunModes,
+      stageStatus,
       archived,
-      handoffRequired,
-      handoffSourceVersion,
-      reviewConfirmationId: review.reviewModifyConfirmationId,
       onConversationEnsured: applyConversationEnsure,
       onConversationRestarted: applyConversationRestart,
       onSubmitted: applyRunSubmission,
@@ -652,7 +579,7 @@ export default {
     });
     const uploadedAttachments = useWorkbenchUploadedAttachments({
       workbenchId,
-      phase: shell.selectedPhase,
+      stageInstanceIdentifier: shell.selectedStageInstanceIdentifier,
       conversationGeneration,
       archived,
       combinedAttachmentCount: computed(
@@ -668,34 +595,32 @@ export default {
       )
     ));
     let lastDocumentEventId = 0;
-    const currentPhaseLabel = computed(() => WORKBENCH_PHASES.find(
-      (item) => item.phase === shell.selectedPhase.value)?.label || '阶段');
+    const currentStageLabel = computed(
+      () => shell.selectedStageView.value?.displayName || '阶段',
+    );
+
+    function completeSelectedWorkUnit() {
+      return shell.completeSelectedStage();
+    }
+
+    function reopenSelectedWorkUnit() {
+      return shell.reopenSelectedStage();
+    }
 
     function applyConversationEnsure(conversation) {
       if (!shell.detail.value) return;
-      const phase = shell.selectedPhase.value;
-      shell.detail.value = {
-        ...shell.detail.value,
-        version: conversation.workbenchVersion,
-        phases: shell.detail.value.phases.map(item => item.phase === phase
-          ? {
-              ...item,
-              conversationGeneration: conversation.generation,
-              currentConversation: {
-                sessionId: conversation.sessionId,
-                generation: conversation.generation,
-              },
-              conversationHistory: item.conversationHistory.some(
-                historical => historical.sessionId === conversation.sessionId,
-              )
-                ? item.conversationHistory
-                : [...item.conversationHistory, {
-                    sessionId: conversation.sessionId,
-                    generation: conversation.generation,
-                  }],
-            }
-          : item),
-      };
+      const stageInstanceIdentifier = shell.selectedStageInstanceIdentifier.value;
+      if (stageInstanceIdentifier) {
+        shell.detail.value = {
+          ...shell.detail.value,
+          version: conversation.workbenchVersion,
+          stages: shell.detail.value.stages.map(item => (
+            item.stageInstanceIdentifier === stageInstanceIdentifier
+              ? withConversationReference(item, conversation)
+              : item
+          )),
+        };
+      }
     }
 
     function applyRunSubmission(submission, mode, attachments) {
@@ -705,28 +630,20 @@ export default {
           .filter(attachment => attachment.type === 'UPLOADED_CONVERSATION')
           .map(attachment => attachment.attachmentId),
       );
-      const phase = shell.selectedPhase.value;
-      const reviewProof = mode === 'MODIFY_WORKSPACE' && phase === 'REVIEW_REFACTOR'
-        ? {
-            reviewConfirmationId: review.reviewModifyConfirmationId.value,
-            reviewOpinionVersion: review.reviewOpinion.value?.version ?? null,
-            reviewOpinionHash: review.reviewOpinion.value?.contentHash ?? null,
-          }
-        : {
-            reviewConfirmationId: null,
-            reviewOpinionVersion: null,
-            reviewOpinionHash: null,
-          };
+      const stageInstanceIdentifier =
+        shell.selectedStageInstanceIdentifier.value;
+      if (!stageInstanceIdentifier) return;
       shell.detail.value = {
         ...shell.detail.value,
         version: submission.workbenchVersion,
         activeWriteRunId: mode === 'MODIFY_WORKSPACE'
           ? submission.runId
           : shell.detail.value.activeWriteRunId,
-        phases: shell.detail.value.phases.map(item => item.phase === phase
-          ? {
+        stages: shell.detail.value.stages.map(item => (
+          item.stageInstanceIdentifier === stageInstanceIdentifier
+            ? {
               ...item,
-              status: submission.phaseStatus,
+              status: submission.stageStatus,
               currentConversation: {
                 sessionId: submission.sessionId,
                 generation: item.conversationGeneration,
@@ -735,39 +652,28 @@ export default {
                 runId: submission.runId,
                 runMode: mode,
                 preparedAt: Date.now(),
-                ...reviewProof,
               },
             }
-          : item),
+            : item
+        )),
       };
     }
 
     function applyConversationRestart(restarted) {
       if (!shell.detail.value) return;
-      shell.detail.value = {
-        ...shell.detail.value,
-        version: restarted.workbenchVersion,
-        phases: shell.detail.value.phases.map(item =>
-          item.currentConversation?.sessionId === restarted.previousSessionId
-            ? {
-                ...item,
-                conversationGeneration: restarted.generation,
-                currentConversation: {
-                  sessionId: restarted.sessionId,
-                  generation: restarted.generation,
-                },
-                conversationHistory: item.conversationHistory.some(
-                  historical => historical.sessionId === restarted.sessionId,
-                )
-                  ? item.conversationHistory
-                  : [...item.conversationHistory, {
-                      sessionId: restarted.sessionId,
-                      generation: restarted.generation,
-                    }],
-                activeRun: null,
-              }
-            : item),
-      };
+      const stageInstanceIdentifier = shell.selectedStageInstanceIdentifier.value;
+      if (stageInstanceIdentifier) {
+        shell.detail.value = {
+          ...shell.detail.value,
+          version: restarted.workbenchVersion,
+          stages: shell.detail.value.stages.map(item => (
+            item.stageInstanceIdentifier === stageInstanceIdentifier
+              && item.currentConversation?.sessionId === restarted.previousSessionId
+              ? withRestartedConversationReference(item, restarted)
+              : item
+          )),
+        };
+      }
     }
 
     function reloadAfterTerminal() {
@@ -777,9 +683,6 @@ export default {
 
     function updateComposerText(value) {
       conversation.updateComposerText(value);
-      if (shell.selectedPhase.value === 'REVIEW_REFACTOR') {
-        review.updateReviewText(value);
-      }
     }
 
     async function openRunDocument(reference) {
@@ -802,19 +705,14 @@ export default {
       await uploadedAttachments.remove(clientId);
     }
 
-    async function handlePhaseAdvancedCommand(command) {
-      if (command === 'open-capability') {
-        await capability.openCapabilityDrawer();
-        return;
-      }
-      if (command !== 'restart-conversation') return;
+    async function handleStartNewContext() {
       try {
         await ElMessageBox.confirm(
           '旧会话历史将只读保留，新会话不会复制任何消息',
-          '确认重启阶段会话',
+          '确认开始新对话上下文',
           {
             type: 'warning',
-            confirmButtonText: '确认重启',
+            confirmButtonText: '确认',
             cancelButtonText: '取消',
           },
         );
@@ -822,10 +720,6 @@ export default {
         return;
       }
       await conversation.restartConversation();
-    }
-
-    function phaseView(phase) {
-      return shell.detail.value?.phases.find((item) => item.phase === phase) || null;
     }
 
     function workbenchStatusLabel(status) {
@@ -859,44 +753,11 @@ export default {
       shell.ensurePrimaryRepository();
     }
 
-    async function openHandoffDocument(reference) {
-      await openWorkbenchHandoffDocument(reference, {
-        isMobile: documentPane.isMobile.value,
-        desktopMode: documentPane.desktopMode.value,
-        closeDrawer: handoff.closeHandoffDrawer,
-        openMobileDrawer: documentPane.openMobileDrawer,
-        restoreDocumentPane: documentPane.restore,
-        openDocument: documentPane.openDocument,
-      });
-    }
-
-    watch(
-      () => conversation.composerText.value,
-      value => {
-        if (shell.selectedPhase.value === 'REVIEW_REFACTOR'
-          && review.reviewText.value !== value) {
-          review.updateReviewText(value);
-        }
-      },
-      { flush: 'sync' },
-    );
-
-    watch(
-      () => review.reviewText.value,
-      value => {
-        if (shell.selectedPhase.value === 'REVIEW_REFACTOR'
-          && conversation.composerText.value !== value) {
-          conversation.updateComposerText(value);
-        }
-      },
-      { flush: 'sync' },
-    );
-
     watch(
       () => [
         shell.currentUserId.value,
         workbenchId.value ?? '',
-        shell.selectedPhase.value,
+        shell.selectedStageInstanceIdentifier.value ?? '',
         conversationGeneration.value,
         conversation.runState.value?.context.runId ?? '',
         documentPane.documentEventScope.value,
@@ -932,9 +793,6 @@ export default {
     return {
       ...shell,
       ...documentPane,
-      ...capability,
-      ...handoff,
-      ...review,
       ...conversation,
       workbenchUploadItems: uploadedAttachments.items,
       workbenchUploadNotice: uploadedAttachments.notice,
@@ -942,9 +800,8 @@ export default {
       archived,
       repositories,
       repositoryKeys,
+      workspaceRoot,
       currentDocumentAttachmentSelected,
-      capabilityStatusLabel,
-      capabilityStatusType,
       runHistoryVisible: runHistory.visible,
       runHistoryLoadingRuns: runHistory.loadingRuns,
       runHistoryLoadingSelection: runHistory.loadingSelection,
@@ -963,21 +820,21 @@ export default {
       selectHistoricalRun: runHistory.selectRun,
       loadMoreHistoricalRuns: runHistory.loadMoreRuns,
       loadMoreHistoricalEvents: runHistory.loadMoreEvents,
-      WORKBENCH_PHASES,
-      currentPhaseLabel,
-      canCompleteSelectedPhase,
-      phaseStatusLabel,
-      phaseView,
+      currentStageLabel,
+      selectedWorkUnitView,
+      canCompleteSelectedWorkUnit,
+      completeSelectedWorkUnit,
+      reopenSelectedWorkUnit,
+      stageStatusLabel,
       workbenchStatusLabel,
       formatTime,
       toggleRepository,
-      openHandoffDocument,
       updateComposerText,
       openRunDocument,
       uploadWorkbenchFiles,
       retryWorkbenchUpload,
       removeWorkbenchUpload,
-      handlePhaseAdvancedCommand,
+      handleStartNewContext,
       repositoryRelativePathLabel,
     };
   },

@@ -128,7 +128,7 @@ class ChatRunSubscriptionServiceTest {
     void subscribeShouldHideWorkbenchOriginBeforeEventOrHeartbeatAccess() {
         ChatRun run = workbenchRun();
         when(runRepository.findById(runId)).thenReturn(Optional.of(run));
-        when(sessionRepository.findById("phase-session-1"))
+        when(sessionRepository.findById("stage-session-1"))
                 .thenReturn(workbenchSession());
 
         assertThrows(ChatRunNotFoundException.class,
@@ -141,9 +141,9 @@ class ChatRunSubscriptionServiceTest {
     @Test
     void subscribeShouldHideWorkbenchSessionEvenWhenRunOriginIsChat() {
         ChatRun run = ChatRun.submit(
-                runId, "phase-session-1", 11L, "key", now);
+                runId, "stage-session-1", 11L, "key", now);
         when(runRepository.findById(runId)).thenReturn(Optional.of(run));
-        when(sessionRepository.findById("phase-session-1"))
+        when(sessionRepository.findById("stage-session-1"))
                 .thenReturn(workbenchSession());
 
         assertThrows(ChatRunNotFoundException.class,
@@ -166,17 +166,19 @@ class ChatRunSubscriptionServiceTest {
     }
 
     private ChatSession workbenchSession() {
-        return ChatSession.createWorkbenchPhase(
-                "phase-session-1", AgentType.CODEX, "/workspace",
-                "workbench-1:IMPLEMENT_TEST", "owner-1", "Alex", now);
+        return ChatSession.createWorkbenchStage(
+                "stage-session-1", AgentType.CODEX, "/workspace",
+                "workbench-1:stage-implementation",
+                "owner-1", "Alex", now);
     }
 
     private ChatRun workbenchRun() {
         return ChatRun.submit(
-                runId, "phase-session-1", 11L, "key", false,
+                runId, "stage-session-1", 11L, "key", false,
                 RunOrigin.WORKBENCH,
                 ExecutionContextReference.of(
-                        "workbench-1:IMPLEMENT_TEST", runId.getValue()), now);
+                        "workbench-1:stage-implementation",
+                        runId.getValue()), now);
     }
 
     private ChatRunEvent event(long sequence, String type, String payload) {

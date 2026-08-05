@@ -22,8 +22,8 @@ import com.example.agentweb.domain.chat.SessionRepository;
 import com.example.agentweb.domain.chatrun.ChatRunRepository;
 import com.example.agentweb.domain.chatrun.RunOrigin;
 import com.example.agentweb.domain.workbench.WorkbenchRepository;
-import com.example.agentweb.domain.workbench.WorkbenchRunPromptPayloadRepository;
-import com.example.agentweb.domain.workbench.WorkbenchRunSnapshotRepository;
+import com.example.agentweb.domain.workbench.WorkbenchStageRunPromptPayloadRepository;
+import com.example.agentweb.domain.workbench.WorkbenchStageRunSnapshotRepository;
 import com.example.agentweb.infra.chatrun.SqliteChatRunRuntimeOutputQuery;
 import com.example.agentweb.infra.runtime.AgentProcessKernel;
 import com.example.agentweb.infra.runtime.EnvironmentRuntimeSecretResolver;
@@ -181,13 +181,14 @@ class CommonRuntimeConfigurationTest {
         }
 
         @Bean
-        WorkbenchRunSnapshotRepository workbenchRunSnapshotRepository() {
-            return mock(WorkbenchRunSnapshotRepository.class);
+        WorkbenchStageRunSnapshotRepository workbenchStageRunSnapshotRepository() {
+            return mock(WorkbenchStageRunSnapshotRepository.class);
         }
 
         @Bean
-        WorkbenchRunPromptPayloadRepository workbenchRunPromptPayloadRepository() {
-            return mock(WorkbenchRunPromptPayloadRepository.class);
+        WorkbenchStageRunPromptPayloadRepository
+                workbenchStageRunPromptPayloadRepository() {
+            return mock(WorkbenchStageRunPromptPayloadRepository.class);
         }
 
         @Bean

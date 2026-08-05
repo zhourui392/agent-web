@@ -43,21 +43,23 @@ function detail() {
       { repositoryKey: 'agent-web', relativePath: 'agent-web', primary: true },
       { repositoryKey: 'service-b', relativePath: 'service-b', primary: false },
     ],
-    phases: [
+    stages: [
       {
-        phase: 'REQUIREMENT_ANALYSIS', phaseOrder: 0, status: 'HUMAN_COMPLETED',
+        stageInstanceIdentifier: 'stage-intake',
+        definitionIdentifier: 'intake', definitionRevision: 3, sequenceNumber: 10,
+        status: 'HUMAN_COMPLETED',
         activeRunId: null, activeRunMode: null, lastActivityAt: NOW, completedAt: NOW,
       },
       {
-        phase: 'SOLUTION_DESIGN', phaseOrder: 1, status: 'HUMAN_COMPLETED',
-        activeRunId: null, activeRunMode: null, lastActivityAt: NOW, completedAt: NOW,
-      },
-      {
-        phase: 'IMPLEMENT_TEST', phaseOrder: 2, status: 'IN_PROGRESS',
+        stageInstanceIdentifier: 'stage-delivery',
+        definitionIdentifier: 'delivery', definitionRevision: 7, sequenceNumber: 20,
+        status: 'IN_PROGRESS',
         activeRunId: RUN_ID, activeRunMode: 'MODIFY_WORKSPACE', lastActivityAt: NOW, completedAt: null,
       },
       {
-        phase: 'REVIEW_REFACTOR', phaseOrder: 3, status: 'NOT_STARTED',
+        stageInstanceIdentifier: 'stage-release',
+        definitionIdentifier: 'release', definitionRevision: 2, sequenceNumber: 30,
+        status: 'NOT_STARTED',
         activeRunId: null, activeRunMode: null, lastActivityAt: null, completedAt: null,
       },
     ],
@@ -72,7 +74,7 @@ function runListItem() {
   return {
     runId: RUN_ID,
     workbenchId: WORKBENCH_ID,
-    phase: 'IMPLEMENT_TEST',
+    stageInstanceIdentifier: 'stage-delivery',
     status: 'RUNNING',
     runMode: 'MODIFY_WORKSPACE',
     lastEventSeq: 7,
@@ -210,7 +212,10 @@ test('ADMIN 仅查看脱敏投影并在显式确认后执行 Stop 与单 Run Rec
   await expect(page.getByTestId('admin-workbench-list')).toContainText('Owner Safe Name');
   await expect(page.getByTestId('admin-workbench-detail')).toContainText('agent-web');
   await expect(page.getByTestId('admin-workbench-detail')).toContainText('service-b');
+  await expect(page.getByTestId('admin-workbench-detail')).toContainText('stage-delivery');
+  await expect(page.getByTestId('admin-workbench-detail')).toContainText('delivery · r7');
   await expect(page.getByTestId('admin-workbench-run-list')).toContainText(RUN_ID);
+  await expect(page.getByTestId('admin-workbench-run-list')).toContainText('stage-delivery');
 
   const rendered = await page.locator('body').innerText();
   expect(rendered).not.toMatch(

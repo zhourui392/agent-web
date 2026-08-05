@@ -31,19 +31,19 @@ function uploadedAttachment(overrides: Record<string, unknown> = {}): Record<str
 }
 
 describe('workbench uploaded attachment API client', () => {
-  it('uploads multipart bytes to the exact logical Workbench Phase generation scope', async () => {
+  it('uploads multipart bytes to the exact logical Workbench Stage generation scope', async () => {
     const fetcher = vi.fn<WorkbenchUploadedAttachmentFetch>()
       .mockResolvedValue(jsonResponse(201, uploadedAttachment()));
     const client = createWorkbenchUploadedAttachmentApiClient(fetcher);
     const file = new File(['png-body'], 'architecture.png', { type: 'image/png' });
 
-    await expect(client.upload('wb/一 二', 'SOLUTION_DESIGN', 3, file))
+    await expect(client.upload('wb/一 二', 'stage-design', 3, file))
       .resolves.toEqual(uploadedAttachment());
 
     expect(fetcher).toHaveBeenCalledTimes(1);
     const [url, init] = fetcher.mock.calls[0] as [string, RequestInit];
     expect(url).toBe(
-      '/api/workbenches/wb%2F%E4%B8%80%20%E4%BA%8C/phases/SOLUTION_DESIGN/attachments'
+      '/api/workbenches/wb%2F%E4%B8%80%20%E4%BA%8C/stages/stage-design/attachments'
         + '?conversationGeneration=3',
     );
     expect(init).toEqual(expect.objectContaining({
@@ -62,11 +62,11 @@ describe('workbench uploaded attachment API client', () => {
     const client = createWorkbenchUploadedAttachmentApiClient(fetcher);
 
     await expect(client.release(
-      'wb-1', 'IMPLEMENT_TEST', 7, 'attachment/opaque',
+      'wb-1', 'stage-implementation', 7, 'attachment/opaque',
     )).resolves.toBeUndefined();
 
     expect(fetcher).toHaveBeenCalledWith(
-      '/api/workbenches/wb-1/phases/IMPLEMENT_TEST/attachments/attachment%2Fopaque'
+      '/api/workbenches/wb-1/stages/stage-implementation/attachments/attachment%2Fopaque'
         + '?conversationGeneration=7',
       {
         method: 'DELETE',
@@ -87,10 +87,10 @@ describe('workbench uploaded attachment API client', () => {
     const file = new File(['body'], 'notes.txt', { type: 'text/plain' });
 
     for (let index = 0; index < 4; index += 1) {
-      await expect(client.upload('wb-1', 'REQUIREMENT_ANALYSIS', 0, file))
+      await expect(client.upload('wb-1', 'stage-analysis', 0, file))
         .rejects.toMatchObject({ code: 'WORKBENCH_ATTACHMENT_RESPONSE_INVALID' });
     }
-    await expect(client.release('wb-1', 'REQUIREMENT_ANALYSIS', 0, 'attachment-1'))
+    await expect(client.release('wb-1', 'stage-analysis', 0, 'attachment-1'))
       .rejects.toMatchObject({ code: 'WORKBENCH_ATTACHMENT_RESPONSE_INVALID' });
   });
 
@@ -107,7 +107,7 @@ describe('workbench uploaded attachment API client', () => {
     const client = createWorkbenchUploadedAttachmentApiClient(fetcher);
     const file = new File(['body'], 'notes.txt', { type: 'text/plain' });
 
-    const tooLarge = await client.upload('wb-1', 'REQUIREMENT_ANALYSIS', 0, file)
+    const tooLarge = await client.upload('wb-1', 'stage-analysis', 0, file)
       .catch(error => error) as WorkbenchUploadedAttachmentApiError;
     expect(tooLarge).toMatchObject({
       status: 413,
@@ -116,7 +116,7 @@ describe('workbench uploaded attachment API client', () => {
     });
     expect(String(tooLarge)).not.toContain('/home/alex/private');
 
-    const generic = await client.upload('wb-1', 'REQUIREMENT_ANALYSIS', 0, file)
+    const generic = await client.upload('wb-1', 'stage-analysis', 0, file)
       .catch(error => error) as WorkbenchUploadedAttachmentApiError;
     expect(generic).toMatchObject({
       status: 422,
@@ -126,16 +126,16 @@ describe('workbench uploaded attachment API client', () => {
     expect(String(generic)).not.toContain('storage key');
   });
 
-  it('rejects invalid identity, phase, generation and empty files before fetch', async () => {
+  it('rejects invalid identity, Stage, generation and empty files before fetch', async () => {
     const fetcher = vi.fn<WorkbenchUploadedAttachmentFetch>();
     const client = createWorkbenchUploadedAttachmentApiClient(fetcher);
     const valid = new File(['body'], 'notes.txt', { type: 'text/plain' });
 
-    await expect(client.upload('', 'REQUIREMENT_ANALYSIS', 0, valid)).rejects.toThrow();
-    await expect(client.upload('wb-1', 'UNKNOWN' as never, 0, valid)).rejects.toThrow();
-    await expect(client.upload('wb-1', 'REQUIREMENT_ANALYSIS', -1, valid)).rejects.toThrow();
+    await expect(client.upload('', 'stage-analysis', 0, valid)).rejects.toThrow();
+    await expect(client.upload('wb-1', '../stage', 0, valid)).rejects.toThrow();
+    await expect(client.upload('wb-1', 'stage-analysis', -1, valid)).rejects.toThrow();
     await expect(client.upload(
-      'wb-1', 'REQUIREMENT_ANALYSIS', 0,
+      'wb-1', 'stage-analysis', 0,
       new File([], 'empty.txt', { type: 'text/plain' }),
     )).rejects.toThrow();
     expect(fetcher).not.toHaveBeenCalled();

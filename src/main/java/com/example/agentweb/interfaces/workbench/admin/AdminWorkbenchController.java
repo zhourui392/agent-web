@@ -35,7 +35,7 @@ import java.util.Locale;
 /**
  * 独立 Admin Workbench 查询、异常 Run 停止与显式对账边界。
  *
- * <p>接口不接收 Owner 身份，也不暴露 Phase Run 提交、Handoff、Override、Review Confirmation 或 Operation 决策。</p>
+ * <p>接口只提供管理员查询、停止和对账，不接收 Owner 身份，也不提交 Run。</p>
  *
  * @author alex
  * @since 2026-08-01

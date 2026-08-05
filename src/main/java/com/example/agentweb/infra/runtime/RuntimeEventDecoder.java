@@ -228,8 +228,11 @@ public final class RuntimeEventDecoder {
         }
         RuntimeRepositoryPathResolver resolver =
                 new RuntimeRepositoryPathResolver(workspaceLayout);
-        String repositoryKey = resolver.repositoryKeyForWorkingDirectory(
-                textual(item.get("cwd")));
+        String cwd = textual(item.get("cwd"));
+        if (cwd == null) {
+            cwd = workspaceLayout.getPrimaryRepositoryRoot().toString();
+        }
+        String repositoryKey = resolver.repositoryKeyForWorkingDirectory(cwd);
         String callId = identifier(item.get("id"));
         if (callId == null) {
             return SemanticProjection.empty();

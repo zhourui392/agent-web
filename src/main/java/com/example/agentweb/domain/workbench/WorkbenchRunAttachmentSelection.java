@@ -14,6 +14,8 @@ import java.util.Set;
  */
 public final class WorkbenchRunAttachmentSelection {
 
+    public static final int MAXIMUM_ATTACHMENTS = 8;
+
     private WorkbenchRunAttachmentSelection() {
     }
 
@@ -23,8 +25,7 @@ public final class WorkbenchRunAttachmentSelection {
             throw new IllegalArgumentException(
                     "workbench run attachments must be complete");
         }
-        if (values.size()
-                > VerifiedWorkbenchRunAttachmentSet.MAXIMUM_ATTACHMENTS) {
+        if (values.size() > MAXIMUM_ATTACHMENTS) {
             throw new WorkbenchDomainException(
                     WorkbenchErrorCode.ATTACHMENT_LIMIT_EXCEEDED,
                     "workbench run accepts at most eight combined attachments");

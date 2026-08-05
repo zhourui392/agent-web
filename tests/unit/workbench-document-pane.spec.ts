@@ -161,19 +161,19 @@ describe('workbench document pane pointer geometry', () => {
 });
 
 describe('workbench document pane restoration', () => {
-  it('restores layouts by stable user, workbench, and phase identity', () => {
+  it('restores layouts by stable user, workbench, and stageInstanceIdentifier identity', () => {
     const storage = memoryStorage();
     const userId = 'user-1';
     const workbenchId = 'workbench-1';
     const requirementStore = createWorkbenchDocumentStateStore(storage, {
       userId,
       workbenchId,
-      phase: 'REQUIREMENT_ANALYSIS',
+      stageInstanceIdentifier: 'REQUIREMENT_ANALYSIS',
     });
     const designStore = createWorkbenchDocumentStateStore(storage, {
       userId,
       workbenchId,
-      phase: 'SOLUTION_DESIGN',
+      stageInstanceIdentifier: 'SOLUTION_DESIGN',
     });
     requirementStore.save({
       layout: resizeWorkbenchDocumentLayout(createWorkbenchDocumentLayout(), 43),
@@ -189,22 +189,65 @@ describe('workbench document pane restoration', () => {
     const requirement = restoreWorkbenchDocumentPaneSession(storage, {
       userId,
       workbenchId,
-      phase: 'REQUIREMENT_ANALYSIS',
+      stageInstanceIdentifier: 'REQUIREMENT_ANALYSIS',
     }, false);
     const design = restoreWorkbenchDocumentPaneSession(storage, {
       userId,
       workbenchId,
-      phase: 'SOLUTION_DESIGN',
+      stageInstanceIdentifier: 'SOLUTION_DESIGN',
     }, false);
     const otherUser = restoreWorkbenchDocumentPaneSession(storage, {
       userId: 'user-2',
       workbenchId,
-      phase: 'REQUIREMENT_ANALYSIS',
+      stageInstanceIdentifier: 'REQUIREMENT_ANALYSIS',
     }, false);
 
     expect(requirement.state.layout.widthPercent).toBe(43);
     expect(design.state.layout.widthPercent).toBe(61);
     expect(otherUser.state.layout).toEqual(createWorkbenchDocumentLayout());
+  });
+
+  it('restores and isolates document state by dynamic Stage instance identity', () => {
+    const storage = memoryStorage();
+    const stageAnalysisStore = createWorkbenchDocumentStateStore(storage, {
+      userId: 'user-1',
+      workbenchId: 'workbench-1',
+      stageInstanceIdentifier: 'stage-analysis',
+    });
+    const stageImplementationStore = createWorkbenchDocumentStateStore(storage, {
+      userId: 'user-1',
+      workbenchId: 'workbench-1',
+      stageInstanceIdentifier: 'stage-implementation',
+    });
+    stageAnalysisStore.save({
+      layout: resizeWorkbenchDocumentLayout(createWorkbenchDocumentLayout(), 43),
+      currentDocument: null,
+      recentDocuments: [],
+    });
+    stageImplementationStore.save({
+      layout: resizeWorkbenchDocumentLayout(createWorkbenchDocumentLayout(), 61),
+      currentDocument: null,
+      recentDocuments: [],
+    });
+    const stageInstanceIdentifier = ref<string | null>('stage-analysis');
+    const pane = useWorkbenchDocumentPane({
+      userId: ref('user-1'),
+      workbenchId: ref<string | null>('workbench-1'),
+      stageInstanceIdentifier,
+      storage,
+    });
+
+    expect(pane.layout.value.widthPercent).toBe(43);
+    expect(pane.documentEventScope.value).toMatchObject({
+      stageInstanceIdentifier: 'stage-analysis',
+    });
+
+    stageInstanceIdentifier.value = 'stage-implementation';
+
+    expect(pane.layout.value.widthPercent).toBe(61);
+    expect(pane.documentEventScope.value).toMatchObject({
+      stageInstanceIdentifier: 'stage-implementation',
+    });
   });
 
   it('cancels pending pointer frames before a context identity changes', () => {
@@ -221,7 +264,7 @@ describe('workbench document pane restoration', () => {
     const pane = useWorkbenchDocumentPane({
       userId: ref('user-1'),
       workbenchId: ref<string | null>('workbench-1'),
-      phase: ref('REQUIREMENT_ANALYSIS'),
+      stageInstanceIdentifier: ref('REQUIREMENT_ANALYSIS'),
       storage: memoryStorage(),
     });
     pane.splitRoot.value = {
@@ -269,7 +312,7 @@ describe('workbench document pane API orchestration', () => {
     const pane = useWorkbenchDocumentPane({
       userId: ref('user-1'),
       workbenchId: ref<string | null>('workbench-1'),
-      phase: ref('IMPLEMENT_TEST'),
+      stageInstanceIdentifier: ref('stage-implementation'),
       repositories: ref([{ repositoryKey: 'agent-web', primary: true }]),
       apiClient,
       inlineImageUrls,
@@ -312,11 +355,11 @@ describe('workbench document pane API orchestration', () => {
       create: vi.fn(() => 'blob:https://agent.example/preview-1'),
       revoke: vi.fn(),
     };
-    const phase = ref<'IMPLEMENT_TEST' | 'REVIEW_REFACTOR'>('IMPLEMENT_TEST');
+    const stageInstanceIdentifier = ref<'stage-implementation' | 'stage-review'>('stage-implementation');
     const pane = useWorkbenchDocumentPane({
       userId: ref('user-1'),
       workbenchId: ref<string | null>('workbench-1'),
-      phase,
+      stageInstanceIdentifier,
       repositories: ref([{ repositoryKey: 'agent-web', primary: true }]),
       apiClient,
       inlineImageUrls,
@@ -347,13 +390,13 @@ describe('workbench document pane API orchestration', () => {
     expect(readInlineImage).toHaveBeenCalledTimes(1);
     expect(inlineImageUrls.revoke).not.toHaveBeenCalled();
 
-    phase.value = 'REVIEW_REFACTOR';
+    stageInstanceIdentifier.value = 'stage-review';
     expect(inlineImageUrls.revoke)
       .toHaveBeenCalledWith('blob:https://agent.example/preview-1');
     expect(pane.loadedContent.value).toBeNull();
   });
 
-  it.each(['owner', 'workbench', 'phase'] as const)(
+  it.each(['owner', 'workbench', 'stageInstanceIdentifier'] as const)(
     'rejects an old delayed image response after the %s scope changes',
     async (dimension) => {
       let resolveImage: ((result: object) => void) | null = null;
@@ -374,11 +417,11 @@ describe('workbench document pane API orchestration', () => {
       };
       const userId = ref('user-1');
       const workbenchId = ref<string | null>('workbench-1');
-      const phase = ref<'IMPLEMENT_TEST' | 'REVIEW_REFACTOR'>('IMPLEMENT_TEST');
+      const stageInstanceIdentifier = ref<'stage-implementation' | 'stage-review'>('stage-implementation');
       const pane = useWorkbenchDocumentPane({
         userId,
         workbenchId,
-        phase,
+        stageInstanceIdentifier,
         repositories: ref([{ repositoryKey: 'agent-web', primary: true }]),
         apiClient,
         inlineImageUrls,
@@ -390,7 +433,7 @@ describe('workbench document pane API orchestration', () => {
 
       if (dimension === 'owner') userId.value = 'user-2';
       if (dimension === 'workbench') workbenchId.value = 'workbench-2';
-      if (dimension === 'phase') phase.value = 'REVIEW_REFACTOR';
+      if (dimension === 'stageInstanceIdentifier') stageInstanceIdentifier.value = 'stage-review';
       await vi.waitFor(() => expect(pane.loadedContent.value).toBeNull());
       (resolveImage as unknown as (result: object) => void)({
         status: 'LOADED',
@@ -425,7 +468,7 @@ describe('workbench document pane API orchestration', () => {
     const pane = useWorkbenchDocumentPane({
       userId: ref('user-1'),
       workbenchId: ref<string | null>('workbench-1'),
-      phase: ref('IMPLEMENT_TEST'),
+      stageInstanceIdentifier: ref('stage-implementation'),
       repositories: ref([{ repositoryKey: 'agent-web', primary: true }]),
       apiClient,
       inlineImageUrls: {
@@ -485,7 +528,7 @@ describe('workbench document pane API orchestration', () => {
     const pane = useWorkbenchDocumentPane({
       userId: ref('user-1'),
       workbenchId: ref<string | null>('workbench-1'),
-      phase: ref('IMPLEMENT_TEST'),
+      stageInstanceIdentifier: ref('stage-implementation'),
       repositories: ref([{ repositoryKey: 'agent-web', primary: true }]),
       apiClient,
       inlineImageUrls,
@@ -526,7 +569,7 @@ describe('workbench document pane API orchestration', () => {
     const pane = useWorkbenchDocumentPane({
       userId: ref('user-1'),
       workbenchId: ref<string | null>('workbench-1'),
-      phase: ref('REQUIREMENT_ANALYSIS'),
+      stageInstanceIdentifier: ref('REQUIREMENT_ANALYSIS'),
       repositories: ref([
         { repositoryKey: 'shared-lib', primary: false },
         { repositoryKey: 'agent-web', primary: true },
@@ -577,7 +620,7 @@ describe('workbench document pane API orchestration', () => {
     const pane = useWorkbenchDocumentPane({
       userId: ref('user-1'),
       workbenchId: ref<string | null>('workbench-1'),
-      phase: ref('REQUIREMENT_ANALYSIS'),
+      stageInstanceIdentifier: ref('REQUIREMENT_ANALYSIS'),
       repositories: ref([{ repositoryKey: 'agent-web', primary: true }]),
       apiClient,
       saveDownload,
@@ -612,7 +655,7 @@ describe('workbench document pane API orchestration', () => {
     const pane = useWorkbenchDocumentPane({
       userId: ref('user-1'),
       workbenchId: ref<string | null>('workbench-1'),
-      phase: ref('SOLUTION_DESIGN'),
+      stageInstanceIdentifier: ref('SOLUTION_DESIGN'),
       repositories: ref([{ repositoryKey: 'agent-web', primary: true }]),
       apiClient,
       saveDownload,
@@ -654,7 +697,7 @@ describe('workbench document pane API orchestration', () => {
     const pane = useWorkbenchDocumentPane({
       userId: ref('user-1'),
       workbenchId,
-      phase: ref('IMPLEMENT_TEST'),
+      stageInstanceIdentifier: ref('stage-implementation'),
       repositories,
       apiClient,
       storage: memoryStorage(),
@@ -687,7 +730,7 @@ describe('workbench document pane API orchestration', () => {
     const pane = useWorkbenchDocumentPane({
       userId: ref('user-1'),
       workbenchId: ref<string | null>('workbench-1'),
-      phase: ref('IMPLEMENT_TEST'),
+      stageInstanceIdentifier: ref('stage-implementation'),
       repositories: ref([{ repositoryKey: 'agent-web', primary: true }]),
       apiClient,
       storage: memoryStorage(),
@@ -704,7 +747,7 @@ describe('workbench document pane API orchestration', () => {
     const pane = useWorkbenchDocumentPane({
       userId: ref('user-1'),
       workbenchId: ref<string | null>('workbench-1'),
-      phase: ref('IMPLEMENT_TEST'),
+      stageInstanceIdentifier: ref('stage-implementation'),
       repositories: ref([{ repositoryKey: 'agent-web', primary: true }]),
       apiClient,
       storage: memoryStorage(),
@@ -748,14 +791,14 @@ describe('workbench document pane API orchestration', () => {
     expect(pane.loadedContent.value).toEqual(markdownDocument());
   });
 
-  it('rejects non-exact paths and scope tokens captured before a phase change', async () => {
+  it('rejects non-exact paths and scope tokens captured before a stageInstanceIdentifier change', async () => {
     const apiClient = documentApi();
-    const phase = ref<'IMPLEMENT_TEST' | 'REVIEW_REFACTOR'>('IMPLEMENT_TEST');
+    const stageInstanceIdentifier = ref<'stage-implementation' | 'stage-review'>('stage-implementation');
     const workbenchId = ref<string | null>('workbench-1');
     const pane = useWorkbenchDocumentPane({
       userId: ref('user-1'),
       workbenchId,
-      phase,
+      stageInstanceIdentifier,
       repositories: ref([{ repositoryKey: 'agent-web', primary: true }]),
       apiClient,
       storage: memoryStorage(),
@@ -778,7 +821,7 @@ describe('workbench document pane API orchestration', () => {
     }
     expect(pane.currentDocument.value?.stale).toBe(false);
 
-    phase.value = 'REVIEW_REFACTOR';
+    stageInstanceIdentifier.value = 'stage-review';
     await vi.waitFor(() => expect(pane.documentEventScope.value).not.toBe(oldScope));
     await pane.openDocument(README);
 
@@ -794,13 +837,13 @@ describe('workbench document pane API orchestration', () => {
       content: '# Workbench',
     }));
 
-    const phaseScope = pane.documentEventScope.value;
-    expect(phaseScope).not.toBeNull();
+    const stageScope = pane.documentEventScope.value;
+    expect(stageScope).not.toBeNull();
     workbenchId.value = 'workbench-2';
-    await vi.waitFor(() => expect(pane.documentEventScope.value).not.toBe(phaseScope));
+    await vi.waitFor(() => expect(pane.documentEventScope.value).not.toBe(stageScope));
     await pane.openDocument(README);
 
-    expect(pane.receiveDocumentFileChanged(phaseScope, {
+    expect(pane.receiveDocumentFileChanged(stageScope, {
       repositoryKey: 'agent-web',
       relativePath: 'README.md',
       changeType: 'MODIFIED',

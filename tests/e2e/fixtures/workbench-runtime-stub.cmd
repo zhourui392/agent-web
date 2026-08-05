@@ -14,13 +14,13 @@ echo {"type":"item.started","item":{"id":"command-1","type":"command_execution",
 
 findstr /C:"[E2E_WAIT_FOR_STOP]" "%prompt%" >nul && ping -n 31 127.0.0.1 >nul
 findstr /C:"[E2E_RELOAD]" "%prompt%" >nul && ping -n 4 127.0.0.1 >nul
-findstr /C:"[E2E_REVIEW_MODIFY_TEST]" "%prompt%" >nul
+findstr /C:"[E2E_STAGE_MODIFY_TEST]" "%prompt%" >nul
 if not errorlevel 1 (
-  >"review-e2e.txt" echo Review refactor applied after human confirmation.
-  echo {"type":"item.completed","item":{"id":"file-review-1","type":"file_change","changes":[{"path":"review-e2e.txt","kind":"add"}],"status":"completed"}}
-  echo {"type":"item.started","item":{"id":"test-command-1","type":"command_execution","command":"mvn -q -Dtest=ReviewRefactorContractTest test","aggregated_output":"","exit_code":null,"status":"in_progress"}}
-  echo {"type":"item.completed","item":{"id":"test-command-1","type":"command_execution","command":"mvn -q -Dtest=ReviewRefactorContractTest test","aggregated_output":"affected review tests passed","exit_code":0,"status":"completed"}}
-  echo {"type":"item.completed","item":{"id":"message-review-1","type":"agent_message","text":"已按人工确认意见完成重构和受影响测试。"}}
+  >"stage-e2e.txt" echo Stage modification applied from the frozen Dynamic Stage.
+  echo {"type":"item.completed","item":{"id":"file-stage-1","type":"file_change","changes":[{"path":"stage-e2e.txt","kind":"add"}],"status":"completed"}}
+  echo {"type":"item.started","item":{"id":"test-command-1","type":"command_execution","command":"mvn -q -Dtest=StageRuntimeContractTest test","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+  echo {"type":"item.completed","item":{"id":"test-command-1","type":"command_execution","command":"mvn -q -Dtest=StageRuntimeContractTest test","aggregated_output":"affected stage tests passed","exit_code":0,"status":"completed"}}
+  echo {"type":"item.completed","item":{"id":"message-stage-1","type":"agent_message","text":"已按冻结 Stage 规则完成工作区修改和受影响测试。"}}
 )
 
 del /q "%prompt%" >nul 2>nul

@@ -15,17 +15,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class WorkbenchReleasePropertiesTest {
 
     @Test
-    void defaultsShouldKeepEveryWorkbenchEntryAndExecutorClosed() {
+    void defaultsShouldKeepEveryWorkbenchEntryClosed() {
         WorkbenchReleaseProperties properties =
                 new WorkbenchReleaseProperties();
 
         assertFalse(properties.isEnabled());
         assertFalse(properties.isCreateEnabled());
         assertFalse(properties.isWriteRunEnabled());
-        assertFalse(properties.getHighImpact().isCommitEnabled());
-        assertFalse(properties.getHighImpact().isPushEnabled());
-        assertFalse(properties.getHighImpact().isLocalDeployEnabled());
-        assertFalse(properties.getHighImpact().isProductionWriteEnabled());
         properties.validate();
     }
 
@@ -37,21 +33,8 @@ class WorkbenchReleasePropertiesTest {
 
         assertThrows(IllegalStateException.class, properties::validate);
 
-        properties.setCreateEnabled(false);
-        properties.getHighImpact().setPushEnabled(true);
-        assertThrows(IllegalStateException.class, properties::validate);
-
         properties.setEnabled(true);
         properties.validate();
-        assertTrue(properties.getHighImpact().isPushEnabled());
-    }
-
-    @Test
-    void missingHighImpactConfigurationShouldFailFast() {
-        WorkbenchReleaseProperties properties =
-                new WorkbenchReleaseProperties();
-        properties.setHighImpact(null);
-
-        assertThrows(IllegalStateException.class, properties::validate);
+        assertTrue(properties.isEnabled());
     }
 }

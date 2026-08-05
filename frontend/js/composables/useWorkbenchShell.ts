@@ -7,25 +7,30 @@
 import { computed, reactive, ref, type ComputedRef, type Ref } from 'vue';
 import { ApiError } from '../api/client';
 import {
-  completeWorkbenchPhase,
+  completeWorkbenchStage,
   createWorkbench,
+  getSelectableWorkbenchStages,
   getWorkbench,
   inspectWorkspace,
   listWorkbenches,
-  reopenWorkbenchPhase,
+  reopenWorkbenchStage,
   type WorkbenchDetail,
   type WorkbenchListItem,
-  type WorkbenchPhaseView,
+  type WorkbenchStageView,
+  type SelectableWorkbenchStageCatalog,
   type WorkspaceInspection,
 } from '../api/workbench';
 import { useAuth } from './useAuth';
 import {
-  parseWorkbenchShellState,
-  resolvePhaseNavigation,
+  parseWorkbenchStageShellState,
+  resolveStageNavigation,
   workbenchErrorMessage,
   workbenchShellStorageKey,
-  type WorkbenchPhase,
 } from '../lib/workbench-state';
+import {
+  defaultSelectedStageIdentifiers,
+  orderedSelectedStageIdentifiers,
+} from '../lib/workbench-stage-selection';
 
 interface CreateForm {
   workspaceRoot: string;
@@ -43,27 +48,30 @@ interface UseWorkbenchShell {
   detailLoading: Ref<boolean>;
   inspectLoading: Ref<boolean>;
   createLoading: Ref<boolean>;
+  stageCatalogLoading: Ref<boolean>;
   mutationLoading: Ref<boolean>;
   workbenches: Ref<WorkbenchListItem[]>;
   detail: Ref<WorkbenchDetail | null>;
-  selectedPhase: Ref<WorkbenchPhase>;
-  selectedPhaseView: ComputedRef<WorkbenchPhaseView | null>;
+  selectedStageInstanceIdentifier: Ref<string | null>;
+  selectedStageView: ComputedRef<WorkbenchStageView | null>;
   errorMessage: Ref<string>;
   createDialogVisible: Ref<boolean>;
   createForm: CreateForm;
   inspection: Ref<WorkspaceInspection | null>;
   selectedRepositories: Ref<string[]>;
   primaryRepository: Ref<string>;
+  selectableStageCatalog: Ref<SelectableWorkbenchStageCatalog | null>;
+  selectedStageDefinitionIdentifiers: Ref<string[]>;
   initialize: () => Promise<void>;
   refreshList: () => Promise<void>;
   selectWorkbench: (workbenchId: string) => Promise<void>;
-  selectPhase: (phase: WorkbenchPhase) => void;
-  openCreateDialog: () => void;
+  selectStage: (stageInstanceIdentifier: string) => void;
+  openCreateDialog: () => Promise<void>;
   runInspection: () => Promise<void>;
   ensurePrimaryRepository: () => void;
   submitCreate: () => Promise<void>;
-  completeSelectedPhase: () => Promise<void>;
-  reopenSelectedPhase: () => Promise<void>;
+  completeSelectedStage: () => Promise<void>;
+  reopenSelectedStage: () => Promise<void>;
   clearError: () => void;
   goHome: () => void;
   doLogout: () => Promise<void>;
@@ -96,15 +104,18 @@ export function useWorkbenchShell(): UseWorkbenchShell {
   const detailLoading = ref(false);
   const inspectLoading = ref(false);
   const createLoading = ref(false);
+  const stageCatalogLoading = ref(false);
   const mutationLoading = ref(false);
   const workbenches = ref<WorkbenchListItem[]>([]);
   const detail = ref<WorkbenchDetail | null>(null);
-  const selectedPhase = ref<WorkbenchPhase>('REQUIREMENT_ANALYSIS');
+  const selectedStageInstanceIdentifier = ref<string | null>(null);
   const errorMessage = ref('');
   const createDialogVisible = ref(false);
   const inspection = ref<WorkspaceInspection | null>(null);
   const selectedRepositories = ref<string[]>([]);
   const primaryRepository = ref('');
+  const selectableStageCatalog = ref<SelectableWorkbenchStageCatalog | null>(null);
+  const selectedStageDefinitionIdentifiers = ref<string[]>([]);
   const createForm = reactive<CreateForm>({
     workspaceRoot: '',
     title: '',
@@ -114,9 +125,11 @@ export function useWorkbenchShell(): UseWorkbenchShell {
   });
   let creationIdempotencyKey = '';
 
-  const selectedPhaseView = computed<WorkbenchPhaseView | null>(() => {
-    if (!detail.value) return null;
-    return detail.value.phases.find((item) => item.phase === selectedPhase.value) || null;
+  const selectedStageView = computed<WorkbenchStageView | null>(() => {
+    if (!detail.value || !selectedStageInstanceIdentifier.value) return null;
+    return detail.value.stages.find((stage) => (
+      stage.stageInstanceIdentifier === selectedStageInstanceIdentifier.value
+    )) || null;
   });
 
   function storageIdentity(): string {
@@ -131,18 +144,23 @@ export function useWorkbenchShell(): UseWorkbenchShell {
     errorMessage.value = workbenchErrorMessage(readErrorCode(error));
   }
 
-  function persistSelectedPhase(): void {
-    if (!detail.value) return;
+  function persistSelectedStage(): void {
+    if (!detail.value || !selectedStageInstanceIdentifier.value) return;
     const key = workbenchShellStorageKey(storageIdentity(), detail.value.id);
-    localStorage.setItem(key, JSON.stringify({ selectedPhase: selectedPhase.value }));
+    localStorage.setItem(key, JSON.stringify({
+      selectedStageInstanceIdentifier:
+        selectedStageInstanceIdentifier.value,
+    }));
   }
 
-  function restoreSelectedPhase(workbench: WorkbenchDetail): void {
+  function restoreSelectedStage(workbench: WorkbenchDetail): void {
     const key = workbenchShellStorageKey(storageIdentity(), workbench.id);
-    const stored = parseWorkbenchShellState(localStorage.getItem(key));
-    selectedPhase.value = workbench.phases.some((item) => item.phase === stored.selectedPhase)
-      ? stored.selectedPhase
-      : 'REQUIREMENT_ANALYSIS';
+    const stored = parseWorkbenchStageShellState(localStorage.getItem(key));
+    selectedStageInstanceIdentifier.value = resolveStageNavigation(
+      workbench.stages,
+      null,
+      stored.selectedStageInstanceIdentifier || '',
+    );
   }
 
   function updateLocation(workbenchId: string | null): void {
@@ -169,7 +187,7 @@ export function useWorkbenchShell(): UseWorkbenchShell {
     try {
       const loaded = await getWorkbench(workbenchId);
       detail.value = loaded;
-      restoreSelectedPhase(loaded);
+      restoreSelectedStage(loaded);
       if (changeLocation) updateLocation(loaded.id);
     } catch (error) {
       reportError(error);
@@ -187,15 +205,21 @@ export function useWorkbenchShell(): UseWorkbenchShell {
     await loadWorkbench(workbenchId, true);
   }
 
-  function selectPhase(phase: WorkbenchPhase): void {
-    selectedPhase.value = resolvePhaseNavigation(selectedPhase.value, phase);
-    persistSelectedPhase();
+  function selectStage(stageInstanceIdentifier: string): void {
+    selectedStageInstanceIdentifier.value = resolveStageNavigation(
+      detail.value?.stages || [],
+      selectedStageInstanceIdentifier.value,
+      stageInstanceIdentifier,
+    );
+    persistSelectedStage();
   }
 
   function resetCreateForm(): void {
     inspection.value = null;
     selectedRepositories.value = [];
     primaryRepository.value = '';
+    selectableStageCatalog.value = null;
+    selectedStageDefinitionIdentifiers.value = [];
     createForm.workspaceRoot = '';
     createForm.title = '';
     createForm.originalGoal = '';
@@ -204,10 +228,27 @@ export function useWorkbenchShell(): UseWorkbenchShell {
     creationIdempotencyKey = newIdempotencyKey();
   }
 
-  function openCreateDialog(): void {
+  async function openCreateDialog(): Promise<void> {
     clearError();
     resetCreateForm();
     createDialogVisible.value = true;
+    await loadSelectableStageCatalog();
+  }
+
+  async function loadSelectableStageCatalog(): Promise<void> {
+    stageCatalogLoading.value = true;
+    try {
+      const catalog = await getSelectableWorkbenchStages();
+      selectableStageCatalog.value = catalog;
+      selectedStageDefinitionIdentifiers.value =
+        defaultSelectedStageIdentifiers(catalog.stages);
+    } catch (error) {
+      selectableStageCatalog.value = null;
+      selectedStageDefinitionIdentifiers.value = [];
+      reportError(error);
+    } finally {
+      stageCatalogLoading.value = false;
+    }
   }
 
   async function runInspection(): Promise<void> {
@@ -260,6 +301,18 @@ export function useWorkbenchShell(): UseWorkbenchShell {
       errorMessage.value = workbenchErrorMessage('WORKSPACE_SELECTION_INVALID');
       return;
     }
+    if (!selectableStageCatalog.value) {
+      errorMessage.value = '可选阶段加载失败，请关闭窗口后重试';
+      return;
+    }
+    const orderedStageIdentifiers = orderedSelectedStageIdentifiers(
+      selectableStageCatalog.value.stages,
+      selectedStageDefinitionIdentifiers.value,
+    );
+    if (!orderedStageIdentifiers.length) {
+      errorMessage.value = workbenchErrorMessage('WORKBENCH_STAGE_SELECTION_EMPTY');
+      return;
+    }
 
     createLoading.value = true;
     try {
@@ -271,44 +324,70 @@ export function useWorkbenchShell(): UseWorkbenchShell {
         workspaceRoot: createForm.workspaceRoot.trim(),
         primaryRepository: primaryRepository.value,
         repositories: selectedRepositories.value.slice(),
+        stageDefinitionIdentifiers: orderedStageIdentifiers,
+        expectedStageCatalogVersion: selectableStageCatalog.value.stageCatalogVersion,
       }, creationIdempotencyKey);
       createDialogVisible.value = false;
       await refreshList();
       await loadWorkbench(created.workbenchId, true);
     } catch (error) {
       reportError(error);
+      if (readErrorCode(error) === 'WORKBENCH_STAGE_CATALOG_CHANGED') {
+        await loadSelectableStageCatalog();
+      }
     } finally {
       createLoading.value = false;
     }
   }
 
-  function applyPhaseMutation(
-    phase: WorkbenchPhase,
-    phaseStatus: WorkbenchPhaseView['status'],
+  function applyStageMutation(
+    stageInstanceIdentifier: string,
+    stageStatus: WorkbenchStageView['status'],
+    conversationId: string | null,
+    conversationGeneration: number,
     workbenchVersion: number,
   ): void {
     if (!detail.value) return;
     detail.value = {
       ...detail.value,
       version: workbenchVersion,
-      phases: detail.value.phases.map((item) => item.phase === phase
-        ? { ...item, status: phaseStatus }
-        : item),
+      stages: detail.value.stages.map((stage) => (
+        stage.stageInstanceIdentifier === stageInstanceIdentifier
+          ? {
+              ...stage,
+              status: stageStatus,
+              conversationGeneration,
+              currentConversation: conversationId
+                ? { sessionId: conversationId, generation: conversationGeneration }
+                : null,
+            }
+          : stage
+      )),
     };
   }
 
-  async function mutateSelectedPhase(action: 'complete' | 'reopen'): Promise<void> {
-    if (!detail.value) return;
+  async function mutateSelectedStage(action: 'complete' | 'reopen'): Promise<void> {
+    if (!detail.value || !selectedStageInstanceIdentifier.value) return;
     clearError();
     mutationLoading.value = true;
     const workbenchId = detail.value.id;
-    const phase = selectedPhase.value;
+    const stageInstanceIdentifier = selectedStageInstanceIdentifier.value;
     const version = detail.value.version;
     try {
       const result = action === 'complete'
-        ? await completeWorkbenchPhase(workbenchId, phase, version)
-        : await reopenWorkbenchPhase(workbenchId, phase, version);
-      applyPhaseMutation(result.phase, result.phaseStatus, result.workbenchVersion);
+        ? await completeWorkbenchStage(
+            workbenchId, stageInstanceIdentifier, version,
+          )
+        : await reopenWorkbenchStage(
+            workbenchId, stageInstanceIdentifier, version,
+          );
+      applyStageMutation(
+        result.stageInstanceIdentifier,
+        result.stageStatus,
+        result.conversationId,
+        result.conversationGeneration,
+        result.workbenchVersion,
+      );
       await refreshList();
     } catch (error) {
       reportError(error);
@@ -320,12 +399,12 @@ export function useWorkbenchShell(): UseWorkbenchShell {
     }
   }
 
-  function completeSelectedPhase(): Promise<void> {
-    return mutateSelectedPhase('complete');
+  function completeSelectedStage(): Promise<void> {
+    return mutateSelectedStage('complete');
   }
 
-  function reopenSelectedPhase(): Promise<void> {
-    return mutateSelectedPhase('reopen');
+  function reopenSelectedStage(): Promise<void> {
+    return mutateSelectedStage('reopen');
   }
 
   async function initialize(): Promise<void> {
@@ -350,27 +429,30 @@ export function useWorkbenchShell(): UseWorkbenchShell {
     detailLoading,
     inspectLoading,
     createLoading,
+    stageCatalogLoading,
     mutationLoading,
     workbenches,
     detail,
-    selectedPhase,
-    selectedPhaseView,
+    selectedStageInstanceIdentifier,
+    selectedStageView,
     errorMessage,
     createDialogVisible,
     createForm,
     inspection,
     selectedRepositories,
     primaryRepository,
+    selectableStageCatalog,
+    selectedStageDefinitionIdentifiers,
     initialize,
     refreshList,
     selectWorkbench,
-    selectPhase,
+    selectStage,
     openCreateDialog,
     runInspection,
     ensurePrimaryRepository,
     submitCreate,
-    completeSelectedPhase,
-    reopenSelectedPhase,
+    completeSelectedStage,
+    reopenSelectedStage,
     clearError,
     goHome,
     doLogout,

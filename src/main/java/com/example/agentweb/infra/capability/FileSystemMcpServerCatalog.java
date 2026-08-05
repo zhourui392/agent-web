@@ -3,11 +3,13 @@ package com.example.agentweb.infra.capability;
 import com.example.agentweb.config.capability.CapabilityCatalogProperties;
 import com.example.agentweb.domain.capability.CapabilityAccess;
 import com.example.agentweb.domain.capability.CapabilityCatalogException;
+import com.example.agentweb.domain.capability.CapabilitySourceConfigurationRepository;
 import com.example.agentweb.domain.capability.McpCapability;
 import com.example.agentweb.domain.capability.McpCapabilityType;
 import com.example.agentweb.domain.capability.McpSecretReference;
 import com.example.agentweb.domain.capability.McpServerCatalog;
 import com.example.agentweb.domain.capability.McpServerDefinition;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -35,18 +37,39 @@ public class FileSystemMcpServerCatalog implements McpServerCatalog {
     private static final String SUPPORTED_SCHEMA_VERSION = "1";
 
     private final Path root;
+    private final CapabilitySourceConfigurationRepository sourceConfigurationRepository;
+    private final JsonMcpServerCatalog jsonCatalog;
 
     @Autowired
-    public FileSystemMcpServerCatalog(CapabilityCatalogProperties properties) {
-        this(Paths.get(properties.getMcpServerRoot()));
+    public FileSystemMcpServerCatalog(
+            CapabilityCatalogProperties properties,
+            CapabilitySourceConfigurationRepository sourceConfigurationRepository,
+            ObjectMapper objectMapper) {
+        this.root = Paths.get(properties.getMcpServerRoot());
+        this.sourceConfigurationRepository = sourceConfigurationRepository;
+        this.jsonCatalog = new JsonMcpServerCatalog(objectMapper);
     }
 
     public FileSystemMcpServerCatalog(Path root) {
         this.root = root;
+        this.sourceConfigurationRepository = null;
+        this.jsonCatalog = null;
     }
 
     @Override
     public List<McpServerDefinition> discover() {
+        if (sourceConfigurationRepository != null) {
+            java.util.Optional<com.example.agentweb.domain.capability.CapabilitySourceConfiguration>
+                    configuration = sourceConfigurationRepository.find();
+            if (configuration.isPresent()) {
+                return jsonCatalog.parse(configuration.get().getMcpConfigurationJson())
+                        .getDefinitions();
+            }
+        }
+        return discoverFileSystem();
+    }
+
+    private List<McpServerDefinition> discoverFileSystem() {
         Path realRoot = CapabilityCatalogFiles.realRoot(root);
         List<McpServerDefinition> definitions = new ArrayList<McpServerDefinition>();
         for (Path manifestPath : CapabilityCatalogFiles.manifests(realRoot)) {

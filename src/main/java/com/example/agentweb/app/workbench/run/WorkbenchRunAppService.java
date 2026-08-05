@@ -11,7 +11,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.util.Objects;
-import java.util.Optional;
 
 /**
  * Workbench Run 的提交、Owner-scoped 查询、停止与事件订阅编排。
@@ -22,8 +21,6 @@ import java.util.Optional;
 @Service
 public class WorkbenchRunAppService {
 
-    private final WorkbenchRunPreparationService preparationService;
-    private final WorkbenchRunSubmissionCommitter submissionCommitter;
     private final WorkbenchRunAccessResolver accessResolver;
     private final WorkbenchRunCancellationCoordinator cancellationCoordinator;
     private final AuthorizedChatRunEventReplayService replayService;
@@ -31,16 +28,10 @@ public class WorkbenchRunAppService {
     private final Clock clock;
 
     public WorkbenchRunAppService(
-            WorkbenchRunPreparationService preparationService,
-            WorkbenchRunSubmissionCommitter submissionCommitter,
             WorkbenchRunAccessResolver accessResolver,
             WorkbenchRunCancellationCoordinator cancellationCoordinator,
             AuthorizedChatRunEventReplayService replayService,
             WorkbenchTelemetry telemetry, Clock clock) {
-        this.preparationService = Objects.requireNonNull(
-                preparationService, "preparationService");
-        this.submissionCommitter = Objects.requireNonNull(
-                submissionCommitter, "submissionCommitter");
         this.accessResolver = Objects.requireNonNull(
                 accessResolver, "accessResolver");
         this.cancellationCoordinator = Objects.requireNonNull(
@@ -49,18 +40,6 @@ public class WorkbenchRunAppService {
                 replayService, "replayService");
         this.telemetry = Objects.requireNonNull(telemetry, "telemetry");
         this.clock = Objects.requireNonNull(clock, "clock");
-    }
-
-    public WorkbenchRunSubmissionResult submit(
-            OwnerReference actor, SubmitWorkbenchRunCommand command) {
-        Optional<WorkbenchRunSubmissionResult> replayed =
-                submissionCommitter.replayIfPresent(actor, command);
-        if (replayed.isPresent()) {
-            return replayed.get();
-        }
-        PreparedWorkbenchRun prepared = preparationService.prepare(
-                actor, command);
-        return submissionCommitter.commit(actor, prepared);
     }
 
     @Transactional(readOnly = true)

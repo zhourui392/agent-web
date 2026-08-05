@@ -40,14 +40,14 @@ describe('Admin Workbench page', () => {
     expect(page).not.toContain('v-html');
   });
 
-  it('has no Owner execution, Phase message, Handoff, Override, Review or Operation entry', async () => {
+  it('has no Owner execution or retired Workbench workflow entry', async () => {
     const [page, api] = await Promise.all([
       source('frontend/js/admin/pages/Workbenches.vue'),
       source('frontend/js/admin/api/workbench.ts'),
     ]);
     const template = page.slice(0, page.indexOf('<script setup'));
 
-    expect(template).not.toMatch(/发送消息|提交 Phase|Handoff|能力覆盖|Review Confirmation|批准操作|执行操作/);
+    expect(template).not.toMatch(/发送消息|Handoff|能力覆盖|Review Confirmation|批准操作|执行操作/);
     expect(api).not.toMatch(/OwnerReference|handoff|override|confirmation|operation/i);
     expect(api).toContain("body: '{}'");
   });

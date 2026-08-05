@@ -1,327 +1,244 @@
-# TD-10 测试与发布
+# TD-10 Dynamic Stage 测试与发布门禁
 
-> 状态：Draft v0.1
-> 日期：2026-08-01
-> 前置：TD-01～TD-09
+> 状态：按 TD-11 Stage-only 模型修订
+> 日期：2026-08-05
+> 前置：[技术设计总览](README.md)、[TD-11](td-11-dynamic-stages-global-context.md)
 > @author alex
 
-## 1. 目标
+## 1. 结论
 
-以 TDD、架构门禁、真实轻量边界测试和分阶段灰度验证 Workbench。测试重点不是把所有类拉进 Spring，而是
-证明领域不变量、提交后副作用、多仓库隔离、能力快照、SSE 恢复和文档安全。
+Workbench 没有需要保留的数据，验收只覆盖 Dynamic Stage 单模型。测试不得通过构造旧工作单元、旧 API、旧表或前端回退来证明已删除合同仍可使用；Stage-only Schema 对旧表“不存在”的断言属于删除合同，应保留。
+
+完成口径由以下证据共同组成：
+
+1. Java 领域、应用、接口和 SQLite 回归。
+2. Owner-first 授权拒绝路径。
+3. 前端 TypeScript、Lint、Build 和 Vitest。
+4. Mocked Owner/Admin 浏览器合同。
+5. 真实 Spring、真实临时 SQLite、Runtime Stub、SSE 的浏览器链路。
+6. 独立 JVM 强杀与重启恢复。
+7. 当前工作树的完整门禁，而不是历史测试数量。
 
 ## 2. TDD 门禁
 
-所有包含业务条件的 Java 改动按以下顺序：
+Java 行为修改遵循红—绿—重构：
+
+- 先确认业务规则归属，服务层出现聚合内部判断时先下沉领域模型。
+- 授权、并发、幂等、路径、持久化和外部副作用必须先固定失败场景。
+- 纯 Mockito 单测使用 `/fast-test`；SQLite、文件和 Spring 边界使用 Maven 对应测试。
+- 不为保留已删除合同编写测试。
+
+前端局部行为修改至少运行覆盖改动的 Vitest 与对应 TypeScript 检查；跨页面 Stage 主链使用 Playwright。
+
+## 3. 领域层矩阵
+
+### 3.1 Workbench 与 Stage
+
+- `Workbench.create/restore` 要求非空、不可变的 Stage 集合。
+- Stage Definition、Revision、Snapshot 和 Instance Identifier 唯一且精确绑定。
+- Stage 可以独立导航、人工完成和重新打开，不存在默认上下游或自动流转。
+- 每个 Stage 最多一个活动 Run；每个 Workbench 最多一个活动写 Run。
+- Run 终态释放活动引用与写租约；上传附件转为 `RELEASE_PENDING`。
+- Run Mode 只来自冻结 Snapshot 的 `allowedRunModes`。
+
+### 3.2 Run 身份
+
+必须固定以下唯一事实：
 
 ```text
-判断规则归属
-→ 若 Application/Infrastructure 代替聚合判断，先下沉 Domain
-→ 写失败测试
-→ 最小实现见绿
-→ 重构保绿
+originReference    = workbenchId + ":" + stageInstanceIdentifier
+runOrigin          = WORKBENCH
+sessionKind        = WORKBENCH_STAGE
+executionContextId = runId
 ```
 
-纯配置、固定 Spring 装配、DTO、文档和无条件委托可以直接实现，但仍需相应边界验证。不得给错误分层的
-Application if/switch 先补测试锁死。
+Snapshot、ChatRun、Session、Workbench 或 Origin 任一不匹配都失败关闭。
 
-## 3. 测试分层
+### 3.3 能力、Command 与 Prompt
 
-| 层 | Mock | 重点 |
-| --- | --- | --- |
-| Domain | 无 | 聚合构造、不变量、状态转换、Policy、Hash、版本 |
-| Application | Repository/Gateway/Domain Service | 编排、事务顺序、afterCommit、幂等、降级 |
-| Infrastructure | Git/File/SQLite/Process Fixture | 路径、协议、Codec、超时、脱敏、隔离 |
-| Interface | Application Service | DTO、Owner、状态码、ETag、SSE headers |
-| Frontend Unit | fetch/storage/SSE adapter | reducer、布局、stale、能力/交接状态 |
-| E2E | 受控 CLI/Git Fixture | 四阶段真实用户流程和刷新恢复 |
+- Stage 发布时归档精确 Command、Skill 和 MCP Artifact。
+- Run 从冻结 Stage Snapshot 与 Artifact Registry 解析能力。
+- Command 查询不重新扫描当前 Workspace。
+- 未选 Command、Hash 不匹配、Skill 依赖不闭合或 Runtime 不兼容时拒绝。
+- `runtimeCompatibility` 必须等于公共 Runtime 的唯一 Compatibility Matrix Version。
+- Prompt 固定 Stage、Context、Workspace、History、Attachment 与 Capability Hash。
 
-不 mock Domain 对象；Application 测试使用真实 Workbench/Scope/Handoff 值对象。
+### 3.4 Attachment 与 Context
 
-## 4. Domain 测试矩阵
+- 上传附件绑定 Owner、Workbench、Stage、Conversation Generation。
+- 提交时验证 Hash、大小、媒体类型、存活期限和精确 Stage 身份。
+- 当前尚无已发布 Global Context 文档时，唯一 Manifest 基线为 `contextVersion=0`、空文档列表和固定空提示。
+- 未来 Context 文档读取仍需 Repository Scope、逻辑路径与 Published Hash 精确授权。
 
-### 4.1 Workbench
+## 4. 应用层矩阵
 
-- 创建恰好四阶段；
-- 任意切换不受顺序 Gate 阻断；
-- 首次 Run 进入 IN_PROGRESS；
-- 人工完成/重开，不产生 PASS；
-- Archive/Owner；
-- 单 Workbench 唯一 MODIFY 租约；
-- Review 显式 Modify Confirmation。
+### 4.1 Owner-first 授权
 
-### 4.2 Workspace
-
-- Repository Selection/Scope/Topology/Snapshot 全部不变量；
-- 输入顺序不影响 Hash；
-- 同名跨仓文件；
-- Scope 外 Document Reference；
-- Snapshot topology/state 比较。
-
-### 4.3 Capability
-
-- Phase Policy、required/optional、Override 权限求交；
-- Binding Hash；
-- 版本更新不改变旧 Snapshot；
-- Review/Analysis/Design 写权限拒绝。
-
-### 4.4 Handoff/Operation
-
-- Handoff 内容、引用、版本、Hash；
-- Reception 明确版本与 stale；
-- Agent Candidate 不能直接保存；
-- 四种高影响操作目标、授权、过期和 Preflight 变化。
-
-## 5. Application 测试矩阵
-
-- Create：外部 Inspect/Capture 与事务保存边界；
-- Submit：幂等短路、Capability resolve、Snapshot 保存、ChatRun 创建、afterCommit launch；
-- Stop：先取消意图后外部 stop；
-- Terminal：ChatRun 终态与写租约释放；
-- Recovery：未知写运行不重放；
-- Handoff：先加载 Scope/Run proof，再调用领域更新；
-- Override：运行中只更新下一轮配置；
-- Document：Owner + Scope 授权后调用 Query Port；
-- Operation：决策保存后启动、Feature 关闭不调用 Executor。
-
-使用 Mockito `InOrder` 只验证确有业务意义的编排顺序，不验证无关 getter。
-
-## 6. Infrastructure 测试
-
-### 6.1 SQLite
-
-使用真实临时 SQLite：
-
-- additive migration、旧 `chat_run` 默认 Origin；
-- Workbench/Phase restore；
-- optimistic version 与并发冲突；
-- unique active write；
-- Handoff/Override/Run Snapshot Codec；
-- FK、归档、删除/保留；
-- Query 投影不返回半截聚合。
-
-### 6.2 Git/Filesystem
-
-使用 `@TempDir` 建 sibling repos：
+Run 读取、SSE、Stop、History 和 Capability 查询复用同一授权顺序：
 
 ```text
-workspace/
-├── service-a/.git
-├── service-b/.git
-└── service-c/.git（未选）
+加载 Workbench
+→ 校验 Owner
+→ 解析 Run ID
+→ 查询 Stage Run Snapshot
+→ 查询 ChatRun
+→ 校验精确 Stage Origin
 ```
 
-覆盖扫描、manifest、worktree、dirty、symlink、nested、无 HEAD、HEAD 变化、文档越界、同名文件、ETag、
-删除和大小限额。
+错误 Owner、Workbench、Stage、Run、Run ID 或 Origin 对外统一为 Run 不存在；Owner 校验失败前不得访问 Snapshot 或 ChatRun Repository。
 
-### 6.3 Runtime Contract
+### 4.2 Run Preparation 与提交
 
-受控 Stub 验证：
+- Availability 在任何业务读取前失败关闭。
+- Preparation 冻结 History、空/已发布 Context Manifest、Development Context、Capability、Attachment、Workspace Snapshot 与 Runtime Preflight。
+- Snapshot、Prompt、ChatRun、Workbench 租约和事件在同一事务提交。
+- Runtime 只能在事务提交后启动。
+- 幂等重试的 canonical request 包含 Stage Instance Identifier、Run Mode、消息、Command 和附件。
+- 相同幂等键不同输入必须冲突，不能启动第二个 Runtime。
 
-- `-C primary`；
-- 只为已选附加仓库生成目录参数；
-- read-only/workspace-write；
-- 临时 Home 和配置；
-- Skill/MCP 物化 Hash；
-- 最小环境、Credential Redaction；
-- JSONL/stream event；
-- timeout、output limit、stop process tree、cleanup；
-- 未授权 high-impact command 被阻止。
+### 4.3 终态与恢复
 
-真实 CLI 只放 `process-integration`/`live` 标签，不进入默认测试。
+- `SUCCEEDED`、`FAILED`、`CANCELLED`、`INTERRUPTED` 都释放 Stage Run 引用。
+- 可写 Run 同时释放 Workbench 写租约。
+- 终态提交成功后才记录 Stage-only Telemetry。
+- 重启恢复不自动重放外部副作用；未知活动 Run 收口为明确中断终态。
 
-## 7. Interface 测试
+## 5. 基础设施矩阵
 
-- Workbench create/list/detail 与 Idempotency-Key；
-- Repository Selection 参数与错误 Code；
-- Owner 404、Admin 只读/stop；
-- Phase complete/reopen status；
-- Run submit/stop/status；
-- SSE `Cache-Control`、`X-Accel-Buffering`、`Last-Event-ID`、410；
-- Handoff/Override `If-Match` 与 409；
-- Document path/ETag/304/MIME/nosniff；
-- Operation decision 的真实 actor；
-- 错误响应不含绝对路径、Git stderr、Secret 和文件正文。
+### 5.1 SQLite
 
-Controller 测试 mock Application Service，不启动真实 Runtime。
+使用真实临时 SQLite 验证：
 
-## 8. Frontend Unit
+- Stage-only Schema 只创建当前表。
+- `workbench_stage`、Stage Conversation、Stage Snapshot、Stage Prompt、Stage Attachment 与 Restart Receipt 映射正确。
+- Workbench、Snapshot、Prompt、ChatRun 和事件事务原子提交。
+- Owner/Admin Query 返回安全投影，且 Stage 按冻结顺序排列。
+- Run Identifier、Stage Origin、Hash 或 JSON 损坏时失败关闭。
 
-Vitest 覆盖：
+新库不得创建旧工作单元、交接、专属评审、能力覆盖、旧 Snapshot、旧 Attachment 或高影响操作表。
 
-- Workbench API client 和状态 reducer；
-- Phase 隔离、Run marker、SSE reconnect/backoff/cursor；
-- Tool/File/Test/Operation event reducer；
-- Split Pane drag/collapse/maximize/mobile；
-- Document Kind、stale、deleted、recent documents；
-- Markdown sanitizer fail-closed；
-- Capability Override NEXT_RUN；
-- Handoff diff/reception/stale；
-- 错误 Code 到用户提示映射。
+### 5.2 文件与 Runtime
 
-`frontend/` 与 `tests/` 两个 tsconfig 都必须 typecheck。
+- 文件测试使用 `@TempDir`，拒绝符号链接、路径逃逸和非普通文件。
+- Runtime Stub 只能通过测试夹具调用，不使用真实 CLI 登录态。
+- Preflight 校验 Runtime 类型、版本策略、Sandbox、Repository Root 数量与 Capability Binding Hash。
+- Runtime Compatibility Matrix 必须与冻结 Binding 完全一致。
 
-## 9. Playwright E2E
+## 6. 接口矩阵
 
-### 9.1 主链
+唯一在线 Stage Run/Command 路径：
 
-```text
-登录
-→ Inspect sibling repos
-→ 选择 service-a/service-b，service-a 为主仓库
-→ 创建 Workbench
-→ 需求阶段对话 + Handoff
-→ 方案阶段预览并接受 Handoff
-→ 开发阶段跨仓修改 + 测试事件
-→ 文档 Pane 查看/stale/刷新
-→ Review 阶段先只读，再显式确认重构
-→ 回归测试
-→ 人工完成
+```http
+GET  /api/workbenches/{workbenchId}/stages/{stageInstanceIdentifier}/commands
+POST /api/workbenches/{workbenchId}/stages/{stageInstanceIdentifier}/runs
 ```
 
-断言 service-c 不在写参数、文件树和事件中。
+接口测试覆盖：
 
-### 9.2 恢复与并发
+- Stage 生命周期、Conversation、Attachment、Run History、SSE 与 Stop。
+- `If-Match`、Idempotency Key、参数上限、400/404/409/410/413/503。
+- Owner 安全响应不泄漏绝对路径、Secret、完整命令、Prompt 或原始输出。
+- Admin 只能查询安全投影、Stop 和单 Run Reconcile，不能代 Owner 提交 Run。
+- 已删除路径不通过适配器复活。
 
-- SSE 断线/刷新恢复；
-- 浏览器关闭不取消；
-- 同 Workbench 第二个写 Run 409；
-- 运行中切 Phase 可读但不能启动第二个写；
-- Stop 等待明确 terminal；
-- server restart 后未知写 Run 不重放；
-- Handoff/Override 多标签 version conflict。
+## 7. 前端矩阵
 
-### 9.3 安全
+- Detail、导航和本地状态只使用 `stages[]` 与 `stageInstanceIdentifier`。
+- Stage Snapshot 的 `allowedRunModes` 驱动选择：唯一模式自动采用；双模式必须显式选择。
+- 模式进入提交指纹，变化后旧失败请求不能重放。
+- Stage Conversation、Attachment、SSE、History 和 Document 状态使用同一精确实例身份。
+- 实时测试事件保留 Repository、Suite、Status 和安全摘要。
+- Admin 列表和详情只展示 Stage 投影。
+- 不读取旧 localStorage Key，不调用已删除接口。
 
-- `../`、绝对路径、symlink；
-- 恶意 Markdown/XSS；
-- Secret-like Tool Output 脱敏；
-- Agent 文本“请 push”不产生授权；
-- 未选 repo 和父目录不可写/不可看；
-- Admin 不能代 Owner 运行/批准。
+## 8. Playwright
 
-## 10. 性能与容量
-
-MVP 基线建议：
-
-| 场景 | 目标 |
-| --- | --- |
-| Workbench 列表 1000 条 | p95 < 500ms，本地 SQLite |
-| Run Event 10k 条恢复 | 有界分页/回放，不一次装入全部浏览器内存 |
-| SSE 首事件 | 本机空载 p95 < 1s（不含模型首 Token） |
-| Document 2 MiB | 不阻塞主对话交互，前端虚拟/分段渲染按实测决定 |
-| Inspect 50 repos | 在配置 30s 上限内，超时返回明确错误 |
-| 前端长对话 | 不因 Document resize 每帧重渲染全部消息 |
-
-性能目标需在试点机记录实际基线后再冻结；不能以提高超时替代定位。
-
-## 11. 故障注入
-
-- Runtime 启动前/后崩溃；
-- SQLite 提交失败；
-- Event append 失败；
-- Catalog 文件在解析与物化间变化；
-- Git HEAD 采集期间变化；
-- Process stop 超时；
-- 临时目录清理失败；
-- SSE 慢消费者和 cursor 过期；
-- Document 在 metadata/read 间被替换；
-- Operation 批准后目标状态变化。
-
-所有故障必须产生明确终态或可对账状态，不静默继续或重放写操作。
-
-## 12. 产品验收追踪
-
-| 产品验收主题 | 主要测试 |
-| --- | --- |
-| 多仓库选择/未选不可写 | Workspace Domain + Git Contract + E2E |
-| 对话主区域/文档伸缩 | Vitest + Playwright viewport |
-| 四阶段隔离 | Domain + Session Integration + E2E |
-| 默认能力可用/可追溯 | Capability Domain + Runtime Contract + E2E |
-| Override 下一轮生效 | Application + E2E |
-| Handoff 五字段/人工版本 | Domain + Interface + E2E |
-| 人工状态非 Gate | Workbench Domain + API |
-| Review 确认后重构 | PhaseRunPolicy + E2E |
-| SSE 恢复 | ChatRun Integration + Playwright |
-| 高影响操作独立授权 | Operation Domain + Runtime Security + E2E |
-
-## 13. 发布开关
-
-```yaml
-agent:
-  workbench:
-    enabled: false
-    create-enabled: false
-    write-run-enabled: false
-    high-impact:
-      commit-enabled: false
-      push-enabled: false
-      local-deploy-enabled: false
-      production-write-enabled: false
-```
-
-发布顺序：
-
-1. 公共能力解耦上线，Workbench 全关；
-2. 只读内部用户：创建、Analysis/Design、Document；
-3. 小范围开启写 Run；
-4. 开启完整四阶段与 Handoff；
-5. 真实单仓试点；
-6. 真实多仓试点；
-7. 达到验收后默认开放；
-8. 高影响 Executor 逐项独立评审，绝不随 Workbench 总开关自动开放。
-
-## 14. 观测指标
-
-- `workbench_creation_total{result}`；
-- `workbench_active`；
-- `workbench_run_total{phase,mode,status}`；
-- `workbench_run_duration_seconds{phase,mode}`；
-- `workbench_write_conflict_total`；
-- `workbench_sse_reconnect_total{result}`；
-- `workbench_event_lag_seconds`；
-- `workbench_capability_resolution_total{result}`；
-- `workbench_capability_version_change_total`；
-- `workbench_workspace_scope_violation_total`；
-- `workbench_document_read_total{kind,result}`；
-- `workbench_handoff_conflict_total`；
-- `workbench_operation_total{type,status}`；
-- `workbench_recovery_reconciliation_total{result}`。
-
-其中创建计数使用 `creation` 而不是 `created`，因为 OpenMetrics/Prometheus
-将 `_created` 作为保留后缀；活跃数量是可增可减的 Gauge，因此使用
-`workbench_active`，不能使用只适用于 Counter 的 `_total` 后缀。发布测试必须
-以实际 `PrometheusMeterRegistry.scrape()` 文本校验名称，不能只检查 Micrometer
-内存 Meter 名称。
-
-日志只输出 Workbench/Run ID、Phase、Repository Key、状态、耗时、Hash 前缀和错误 Code。
-
-## 15. 回滚
-
-- 关闭 `write-run-enabled`：停止新写 Run，已有 Run 允许停止/对账；
-- 关闭 `create-enabled`：保留历史读和活动恢复；
-- 关闭 `enabled` 前必须保证无活动 Run；
-- Schema 均 additive，回滚应用时旧版本忽略新表/列；
-- 不自动删除 Workbench 数据；
-- 公共 Runtime/Catalog 回滚不能破坏 Workbench 运行；必要时整体回滚到 Phase 0 前版本。
-
-## 16. 验证命令
-
-聚焦测试按改动选择，push 到 master 前执行项目约定全量门禁：
+### 8.1 Mocked Owner
 
 ```bash
-JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 mvn -B test
-cd frontend && npm run typecheck && npm run lint && npm run build
-cd tests && npm run typecheck && npm test
+cd tests
+npx playwright test -c playwright.workbench.config.ts
 ```
 
-慢测试按项目 Tag 覆盖 `test.excludedGroups`，真实 CLI/网络只在显式 `live` 环境运行。
+覆盖 Stage 导航、本地恢复、Run Mode、Attachment/History 和创建时 Published Stage 身份。
 
-## 17. 发布退出标准
+### 8.2 Mocked Admin
 
-- 产品 §19 全部验收项有自动化或记录明确的人工验证；
-- 默认后端、Frontend、Vitest 全绿；
-- 单仓/多仓真实试点完成；
-- 无 P0/P1 Scope、Secret、重放、Owner 或 XSS 问题；
-- Runtime 未知终态和写租约完成重启对账演练；
-- 指标、告警、关闭开关和回滚步骤已演练。
+```bash
+cd tests
+npx playwright test -c playwright.admin-workbench.config.ts
+```
+
+覆盖未登录/普通用户拒绝，以及 Admin 安全投影、Stop 和 Reconcile 二次确认。
+
+### 8.3 真实 Spring 边界
+
+```bash
+cd tests
+JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 \
+npx playwright test -c playwright.workbench-real.config.ts
+```
+
+该配置使用独立端口和 `/tmp` 临时 SQLite，不清理或复用共享业务数据库。覆盖：
+
+1. Stage Run 的 SQLite/SSE、刷新恢复与 Stop。
+2. 关闭浏览器后后台 Run 继续，重新打开恢复终态和历史。
+3. 多仓 Repository Scope 排除未选择 sibling。
+4. 可写 Stage 持久化文件、受影响测试事件和刷新历史。
+
+Runtime Stub 通过只能证明真实应用边界，不等于真实 Codex/Claude 验收。
+
+## 9. Telemetry
+
+保留 Stage-only 指标：
+
+```text
+workbenchCreated
+runTerminal
+writeConflict
+sseReconnect
+eventLag
+capabilityResolution
+capabilityVersionChanged
+workspaceScopeViolation
+documentRead
+recoveryReconciliation
+```
+
+Run 指标只使用低基数 `mode/status`，不包含旧工作单元标签，也不加入高基数 Stage Instance Identifier。
+
+## 10. 完整发布门禁
+
+后端：
+
+```bash
+JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 mvn -q test
+```
+
+前端：
+
+```bash
+cd frontend
+npm run typecheck
+npm run lint
+npm run build
+```
+
+测试工程：
+
+```bash
+cd tests
+npm run typecheck
+npm test -- --run
+```
+
+然后执行第 8 节三套 Playwright，并显式运行 `WorkbenchRuntimeRestartRecoveryProcessIntegrationTest`。
+
+## 11. 发布退出标准
+
+- Dynamic Stage 单模型代码、Schema、API、前端和文档一致。
+- 全部最小回归和完整门禁在同一候选工作树通过。
+- 真实 Spring E2E 4/4、Mocked Owner 4/4、Mocked Admin 2/2。
+- 独立 JVM 重启恢复通过；写租约、Runtime Handle 和附件终态可核对。
+- 不修改业务本地数据库，不依赖旧数据转换。
+- 无真实 CLI/真实用户试点时，交付必须明确该边界，不得把 Stub 结果描述为生产验收。

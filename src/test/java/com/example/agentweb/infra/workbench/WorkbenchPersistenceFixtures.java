@@ -7,20 +7,17 @@ import com.example.agentweb.domain.capability.ResolvedMcpServerBinding;
 import com.example.agentweb.domain.capability.ResolvedRuleBinding;
 import com.example.agentweb.domain.capability.ResolvedSkillBinding;
 import com.example.agentweb.domain.shared.AgentType;
-import com.example.agentweb.domain.workbench.CapabilityOverride;
-import com.example.agentweb.domain.workbench.HandoffSnapshotReference;
 import com.example.agentweb.domain.workbench.OwnerReference;
-import com.example.agentweb.domain.workbench.PhaseCapabilityConfiguration;
-import com.example.agentweb.domain.workbench.PhaseCapabilityOverridePolicy;
-import com.example.agentweb.domain.workbench.PromptPartSnapshot;
-import com.example.agentweb.domain.workbench.ReviewModifyConfirmation;
-import com.example.agentweb.domain.workbench.ReviewOpinion;
 import com.example.agentweb.domain.workbench.RunMode;
-import com.example.agentweb.domain.workbench.RuntimeEnforcementSnapshot;
 import com.example.agentweb.domain.workbench.Workbench;
 import com.example.agentweb.domain.workbench.WorkbenchId;
-import com.example.agentweb.domain.workbench.WorkbenchPhase;
-import com.example.agentweb.domain.workbench.WorkbenchRunSnapshot;
+import com.example.agentweb.domain.workbench.stage.ResolvedStageCapabilities;
+import com.example.agentweb.domain.workbench.stage.StageCatalogEditor;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageCatalog;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageDefinitionRevision;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageDraftContent;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageSnapshot;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageState;
 import com.example.agentweb.domain.workspace.RepositoryBaseline;
 import com.example.agentweb.domain.workspace.RepositoryScope;
 import com.example.agentweb.domain.workspace.RepositorySelection;
@@ -39,7 +36,6 @@ import java.nio.file.Paths;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashSet;
 
 /**
  * Workbench SQLite 测试的领域夹具，只创建真实领域对象，不绕过不变量。
@@ -111,49 +107,22 @@ final class WorkbenchPersistenceFixtures {
         return Workbench.create(
                 WorkbenchId.of(workbenchId), OWNER, "Local Workbench",
                 "实现多仓库本地开发工作台", AgentType.CODEX, "local",
-                workspace.scope, workspace.snapshot.reference(), NOW.plusMillis(30));
-    }
-
-    static WorkbenchRunSnapshot reviewRunSnapshot(
-            Workbench workbench, WorkspaceSnapshot workspaceSnapshot,
-            ReviewModifyConfirmation confirmation, String runId) {
-        return reviewRunSnapshot(
-                workbench, workspaceSnapshot, confirmation, runId,
-                "submission-" + runId, HASH_F);
-    }
-
-    static WorkbenchRunSnapshot reviewRunSnapshot(
-            Workbench workbench, WorkspaceSnapshot workspaceSnapshot,
-            ReviewModifyConfirmation confirmation, String runId,
-            String submissionIdempotencyKey, String submissionRequestHash) {
-        return WorkbenchRunSnapshot.create(
-                runId, workbench.getId(), WorkbenchPhase.REVIEW_REFACTOR,
-                submissionIdempotencyKey, submissionRequestHash,
-                RunMode.MODIFY_WORKSPACE, workbench.getRepositoryScope(),
-                workspaceSnapshot.reference(), capabilityBinding(), Long.valueOf(3L),
-                HandoffSnapshotReference.of(
-                        WorkbenchPhase.IMPLEMENT_TEST, 2L, HASH_B),
-                Arrays.asList(
-                        PromptPartSnapshot.of("HANDOFF", "phase-handoff", HASH_C, 128),
-                        PromptPartSnapshot.of("USER_INPUT", "owner", HASH_D, 64)),
-                HASH_E,
-                RuntimeEnforcementSnapshot.modify(
-                        "CODEX", "0.42.0", workbench.getRepositoryScope().getScopeHash(),
-                        "agent-web", Arrays.asList("service-api", "agent-web"),
-                        1800L, 8_388_608L),
-                confirmation, NOW.plusSeconds(10));
+                workspace.scope, workspace.snapshot.reference(),
+                Collections.singletonList(WorkbenchStageState.initial(
+                        "stage-default", defaultStageSnapshot())),
+                NOW.plusMillis(30));
     }
 
     static ResolvedCapabilityBinding capabilityBinding() {
         return ResolvedCapabilityBinding.resolve(
-                "policy@1", "review-profile", "3", HASH_A,
+                "policy@1", "stage-profile", "3", HASH_A,
                 Arrays.asList(
                         new ResolvedRuleBinding(
                                 "platform/safety", "1", "PLATFORM", HASH_B,
                                 true, "强制安全规则"),
                         new ResolvedRuleBinding(
-                                "review/style", "2", "WORKSPACE", HASH_C,
-                                false, "Review 风格")),
+                                "stage/style", "2", "WORKSPACE", HASH_C,
+                                false, "Stage 风格")),
                 Collections.singletonList(new ResolvedSkillBinding(
                         "refactor-assistant", "4", "APPROVED_USER", HASH_D,
                         "APPROVED")),
@@ -165,36 +134,25 @@ final class WorkbenchPersistenceFixtures {
                 "CODEX");
     }
 
-    static ReviewOpinion reviewOpinion(Workbench workbench) {
-        return ReviewOpinion.record(
-                workbench.getId(), 2L, HASH_F, OWNER, NOW.plusSeconds(7));
-    }
-
-    static ReviewModifyConfirmation reviewConfirmation(Workbench workbench) {
-        return ReviewModifyConfirmation.confirm(
-                "confirmation-1", reviewOpinion(workbench), OWNER, NOW.plusSeconds(8));
-    }
-
-    static PhaseCapabilityConfiguration capabilityConfiguration(Workbench workbench) {
-        return PhaseCapabilityConfiguration.create(
-                workbench.getId(), WorkbenchPhase.REVIEW_REFACTOR,
-                "review-profile", "3",
-                CapabilityOverride.of(
-                        Collections.singleton("refactor-assistant"),
-                        Collections.singleton("optional-linter"),
-                        Collections.singleton("repository-query"),
-                        Collections.singleton("review/style")),
-                capabilityPolicy(), OWNER, NOW.plusSeconds(5));
-    }
-
-    static PhaseCapabilityOverridePolicy capabilityPolicy() {
-        return PhaseCapabilityOverridePolicy.constrainedTo(
-                WorkbenchPhase.REVIEW_REFACTOR,
-                new HashSet<String>(Arrays.asList(
-                        "refactor-assistant", "optional-linter")),
-                Collections.singleton("repository-query"),
-                Collections.singleton("review/style"),
-                Collections.singleton("platform/safety"));
+    private static WorkbenchStageSnapshot defaultStageSnapshot() {
+        WorkbenchStageCatalog catalog = WorkbenchStageCatalog.empty();
+        StageCatalogEditor editor = StageCatalogEditor.create(
+                "admin-1", "Admin");
+        catalog.createDraft(
+                "default-stage",
+                WorkbenchStageDraftContent.create(
+                        10, "默认阶段", "测试阶段", "遵守工作区边界",
+                        Collections.singleton(RunMode.DISCUSS_READ_ONLY),
+                        Collections.emptyList(), Collections.emptyList(),
+                        Collections.emptyList()),
+                editor, NOW);
+        WorkbenchStageDefinitionRevision revision = catalog.publishDraft(
+                "default-stage", catalog.getCatalogVersion(), 1L,
+                new ResolvedStageCapabilities(
+                        Collections.emptyList(), Collections.emptyList(),
+                        Collections.emptyList()),
+                editor, NOW.plusMillis(1));
+        return WorkbenchStageSnapshot.fromPublishedRevision(revision);
     }
 
     static String repeat(char character) {

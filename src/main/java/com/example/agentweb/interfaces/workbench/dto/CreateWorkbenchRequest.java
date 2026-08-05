@@ -4,6 +4,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.Size;
+import jakarta.validation.constraints.Min;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -45,4 +46,11 @@ public class CreateWorkbenchRequest {
     @Valid
     @NotEmpty
     private List<@NotBlank @Size(max = 512) String> repositories;
+
+    @Valid
+    @NotEmpty
+    private List<@NotBlank @Size(max = 128) String> stageDefinitionIdentifiers;
+
+    @Min(1)
+    private long expectedStageCatalogVersion;
 }

@@ -1,6 +1,7 @@
 import { randomBytes } from 'crypto';
 import { defineConfig, devices } from '@playwright/test';
 import { mkdirSync } from 'fs';
+import { tmpdir } from 'os';
 import path from 'path';
 
 const repoRoot = path.resolve(__dirname, '..');
@@ -15,6 +16,12 @@ const jdk21Home = process.env.JAVA_HOME && !process.env.JAVA_HOME.includes('jdk8
     : '/usr/lib/jvm/java-21-openjdk-amd64';
 const pathSeparator = process.platform === 'win32' ? ';' : ':';
 const userStorageState = path.join(__dirname, '.auth', 'user.json');
+const backendPort = '18109';
+const frontendPort = '5186';
+const e2eDatabasePath = path.join(
+  tmpdir(),
+  `agent-web-workbench-e2e-${process.pid}-${randomBytes(12).toString('hex')}.db`,
+);
 const e2eAdminPassword = process.env.AGENT_E2E_ADMIN_PASSWORD
   || `Workbench-${randomBytes(24).toString('base64url')}`;
 process.env.AGENT_E2E_ADMIN_PASSWORD = e2eAdminPassword;
@@ -35,7 +42,7 @@ export default defineConfig({
   reporter: [['list']],
   globalSetup: './e2e/global-setup.ts',
   use: {
-    baseURL: 'http://127.0.0.1:5176',
+    baseURL: `http://127.0.0.1:${frontendPort}`,
     testIdAttribute: 'data-test',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
@@ -56,10 +63,13 @@ export default defineConfig({
       PATH: `${path.join(jdk21Home, 'bin')}${pathSeparator}${process.env.PATH || ''}`,
       GIT_CRED_ENC_KEY: process.env.GIT_CRED_ENC_KEY
         || randomBytes(32).toString('base64'),
-      VITE_API_PROXY_TARGET: 'http://localhost:18099',
+      VITE_API_PROXY_TARGET: `http://127.0.0.1:${backendPort}`,
       VITE_HOST: '127.0.0.1',
-      VITE_PORT: '5176',
+      VITE_PORT: frontendPort,
+      SERVER_PORT: backendPort,
       MANAGEMENT_SERVER_PORT: '0',
+      SPRING_DATASOURCE_URL: `jdbc:sqlite:${e2eDatabasePath}`,
+      AGENT_E2E_SKIP_SHARED_DATABASE_CLEANUP: 'true',
       SPRING_PROFILES: springProfiles,
       AGENT_BOOTSTRAP_ADMIN_PASSWORD: e2eAdminPassword,
       AGENT_E2E_ADMIN_PASSWORD: e2eAdminPassword,
@@ -72,7 +82,7 @@ export default defineConfig({
         process.platform === 'win32' ? 'workbench-runtime-stub.cmd' : 'workbench-runtime-stub.sh',
       ),
     },
-    url: 'http://127.0.0.1:18099/api/auth/status',
+    url: `http://127.0.0.1:${backendPort}/api/auth/status`,
     reuseExistingServer: false,
     timeout: 180_000,
     stdout: 'pipe',

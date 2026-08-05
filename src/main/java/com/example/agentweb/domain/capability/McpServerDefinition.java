@@ -23,12 +23,17 @@ public final class McpServerDefinition {
 
     private final String id;
     private final String version;
+    private final String displayName;
     private final String description;
     private final Set<String> applicableUseCases;
     private final Set<String> compatibleRuntimes;
     private final List<String> command;
     private final List<McpCapability> capabilities;
     private final List<McpSecretReference> secretReferences;
+    private final McpTransport transport;
+    private final String workingDirectory;
+    private final String endpoint;
+    private final CapabilityAccess maximumAccess;
     private final int startupTimeoutSeconds;
     private final int toolTimeoutSeconds;
     private final String configurationHash;
@@ -39,14 +44,41 @@ public final class McpServerDefinition {
                                List<McpSecretReference> secretReferences,
                                int startupTimeoutSeconds, int toolTimeoutSeconds,
                                String configurationHash) {
+        this(id, version, id, description, applicableUseCases, compatibleRuntimes,
+                command, capabilities, secretReferences, McpTransport.STDIO, "", "",
+                maximumAccess(capabilities), startupTimeoutSeconds, toolTimeoutSeconds,
+                configurationHash);
+    }
+
+    private McpServerDefinition(String id, String version, String displayName,
+                                String description, Set<String> applicableUseCases,
+                                Set<String> compatibleRuntimes, List<String> command,
+                                List<McpCapability> capabilities,
+                                List<McpSecretReference> secretReferences,
+                                McpTransport transport, String workingDirectory,
+                                String endpoint, CapabilityAccess maximumAccess,
+                                int startupTimeoutSeconds, int toolTimeoutSeconds,
+                                String configurationHash) {
         this.id = DomainText.require(id, "MCP server id", 120);
         this.version = DomainText.require(version, "MCP server version", 60);
+        this.displayName = DomainText.require(displayName, "MCP server display name", 256);
         this.description = DomainText.require(description, "MCP server description", 500);
         this.applicableUseCases = strings(applicableUseCases, "MCP use cases", 120);
         this.compatibleRuntimes = strings(compatibleRuntimes, "MCP runtimes", 120);
-        this.command = strings(command, "MCP command");
+        if (transport == null) {
+            throw new IllegalArgumentException("MCP transport must not be null");
+        }
+        this.transport = transport;
+        this.command = command(command, transport);
         this.capabilities = values(capabilities, "MCP capabilities");
         this.secretReferences = values(secretReferences, "MCP secret references");
+        this.workingDirectory = optional(
+                workingDirectory, "MCP working directory", 4096);
+        this.endpoint = optional(endpoint, "MCP endpoint", 4096);
+        if (maximumAccess == null || maximumAccess == CapabilityAccess.EXECUTE) {
+            throw new IllegalArgumentException("MCP maximum access must be READ or WRITE");
+        }
+        this.maximumAccess = maximumAccess;
         this.startupTimeoutSeconds = timeout(startupTimeoutSeconds, "MCP startup timeout");
         this.toolTimeoutSeconds = timeout(toolTimeoutSeconds, "MCP tool timeout");
         this.configurationHash = DomainText.requireSha256(
@@ -60,6 +92,34 @@ public final class McpServerDefinition {
                                String configurationHash) {
         this(id, version, description, applicableUseCases, compatibleRuntimes, command, capabilities,
                 secretReferences, timeoutSeconds, timeoutSeconds, configurationHash);
+    }
+
+    public static McpServerDefinition managed(
+            String id, String version, String displayName, String description,
+            Set<String> compatibleRuntimes, List<String> command,
+            List<McpSecretReference> secretReferences, McpTransport transport,
+            String workingDirectory, String endpoint, CapabilityAccess maximumAccess,
+            int startupTimeoutSeconds, int toolTimeoutSeconds,
+            String configurationHash) {
+        return new McpServerDefinition(id, version, displayName, description,
+                Collections.singleton("WORKBENCH"), compatibleRuntimes, command,
+                Collections.<McpCapability>emptyList(), secretReferences, transport,
+                workingDirectory, endpoint, maximumAccess, startupTimeoutSeconds,
+                toolTimeoutSeconds, configurationHash);
+    }
+
+    public static McpServerDefinition restore(
+            String id, String version, String displayName, String description,
+            Set<String> applicableUseCases, Set<String> compatibleRuntimes,
+            List<String> command, List<McpCapability> capabilities,
+            List<McpSecretReference> secretReferences, McpTransport transport,
+            String workingDirectory, String endpoint, CapabilityAccess maximumAccess,
+            int startupTimeoutSeconds, int toolTimeoutSeconds,
+            String configurationHash) {
+        return new McpServerDefinition(id, version, displayName, description,
+                applicableUseCases, compatibleRuntimes, command, capabilities,
+                secretReferences, transport, workingDirectory, endpoint, maximumAccess,
+                startupTimeoutSeconds, toolTimeoutSeconds, configurationHash);
     }
 
     public boolean hasUnsupportedResourceCapability() {
@@ -117,11 +177,15 @@ public final class McpServerDefinition {
     }
 
     private Set<String> strings(Set<String> source, String name, int maxLength) {
-        if (source == null || source.isEmpty() || source.contains(null)) {
+        if (source == null || source.isEmpty()) {
             throw new IllegalArgumentException(name + " must not be empty or contain null");
         }
         Set<String> values = new TreeSet<String>();
         for (String value : source) {
+            if (value == null) {
+                throw new IllegalArgumentException(
+                        name + " must not be empty or contain null");
+            }
             values.add(DomainText.require(value, name, maxLength)
                     .toUpperCase(java.util.Locale.ROOT));
         }
@@ -129,19 +193,58 @@ public final class McpServerDefinition {
     }
 
     private List<String> strings(List<String> source, String name) {
-        if (source == null || source.isEmpty() || source.contains(null)) {
+        if (source == null || source.isEmpty()) {
             throw new IllegalArgumentException(name + " must not be empty or contain null");
         }
         List<String> copy = new ArrayList<String>();
         for (String value : source) {
+            if (value == null) {
+                throw new IllegalArgumentException(
+                        name + " must not be empty or contain null");
+            }
             copy.add(DomainText.require(value, name, 1000));
         }
         return Collections.unmodifiableList(copy);
     }
 
+    private List<String> command(List<String> source, McpTransport declaredTransport) {
+        if (declaredTransport == McpTransport.STREAMABLE_HTTP) {
+            if (source == null || !source.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "STREAMABLE_HTTP MCP command must be empty");
+            }
+            return Collections.emptyList();
+        }
+        return strings(source, "MCP command");
+    }
+
+    private String optional(String source, String name, int maxLength) {
+        if (source == null || source.trim().isEmpty()) {
+            return "";
+        }
+        return DomainText.require(source, name, maxLength);
+    }
+
+    private static CapabilityAccess maximumAccess(List<McpCapability> capabilities) {
+        if (capabilities != null) {
+            for (McpCapability capability : capabilities) {
+                if (capability != null && capability.getAccess() == CapabilityAccess.WRITE) {
+                    return CapabilityAccess.WRITE;
+                }
+            }
+        }
+        return CapabilityAccess.READ;
+    }
+
     private <T> List<T> values(List<T> source, String name) {
-        if (source == null || source.contains(null)) {
+        if (source == null) {
             throw new IllegalArgumentException(name + " must not be null or contain null");
+        }
+        for (T value : source) {
+            if (value == null) {
+                throw new IllegalArgumentException(
+                        name + " must not be null or contain null");
+            }
         }
         return Collections.unmodifiableList(new ArrayList<T>(source));
     }

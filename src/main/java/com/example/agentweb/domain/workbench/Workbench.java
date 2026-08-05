@@ -2,6 +2,10 @@ package com.example.agentweb.domain.workbench;
 
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.shared.DomainText;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageConversationProvisioning;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageConversationReference;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageRunReference;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageState;
 import com.example.agentweb.domain.workspace.RepositoryScope;
 import com.example.agentweb.domain.workspace.WorkspaceSnapshotReference;
 import lombok.Getter;
@@ -9,18 +13,20 @@ import lombok.Getter;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.EnumMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
- * 本地开发 Workbench 聚合根。
+ * Dynamic Stage Workbench 聚合根。
  *
- * <p>聚合集中守护固定四阶段、Owner、人工状态、阶段单 Run 与全局写 Run 租约；
- * 不承载 Gate/PASS 语义。</p>
+ * <p>聚合集中守护 Owner、不可变 Stage Snapshot、人工状态、Stage 单 Run
+ * 与 Workbench 全局写 Run 租约。</p>
  *
  * @author alex
- * @since 2026-08-01
+ * @since 2026-08-05
  */
 @Getter
 public final class Workbench {
@@ -33,99 +39,104 @@ public final class Workbench {
     private final String environment;
     private final RepositoryScope repositoryScope;
     private final WorkspaceSnapshotReference creationSnapshotReference;
-    private final Map<WorkbenchPhase, WorkbenchPhaseState> phases;
-    private ActiveRunReference activeWriteRunReference;
+    private final Map<String, WorkbenchStageState> stages;
+    private WorkbenchStageRunReference activeWriteRunReference;
     private WorkbenchStatus status;
     private final Instant createdAt;
     private Instant updatedAt;
     private long version;
 
-    private Workbench(WorkbenchId id, OwnerReference owner, String title, String originalGoal,
-                      AgentType agentType, String environment,
-                      RepositoryScope repositoryScope,
-                      WorkspaceSnapshotReference creationSnapshotReference,
-                      List<WorkbenchPhaseState> phases,
-                      ActiveRunReference activeWriteRunReference,
-                      WorkbenchStatus status, Instant createdAt, Instant updatedAt,
-                      long version) {
-        if (id == null || owner == null || agentType == null || repositoryScope == null
+    private Workbench(
+            WorkbenchId id, OwnerReference owner,
+            String title, String originalGoal,
+            AgentType agentType, String environment,
+            RepositoryScope repositoryScope,
+            WorkspaceSnapshotReference creationSnapshotReference,
+            List<WorkbenchStageState> stages,
+            WorkbenchStageRunReference activeWriteRunReference,
+            WorkbenchStatus status, Instant createdAt,
+            Instant updatedAt, long version) {
+        if (id == null || owner == null || agentType == null
+                || repositoryScope == null
                 || creationSnapshotReference == null || status == null) {
-            throw new IllegalArgumentException("workbench required values must not be null");
+            throw new IllegalArgumentException(
+                    "Workbench required values must not be null");
         }
         this.id = id;
         this.owner = owner;
-        this.title = DomainText.require(title, "workbench title", 512);
-        this.originalGoal = DomainText.require(originalGoal, "workbench original goal", 16000);
+        this.title = DomainText.require(title, "Workbench title", 512);
+        this.originalGoal = DomainText.require(
+                originalGoal, "Workbench original goal", 16000);
         this.agentType = agentType;
-        this.environment = normalizeOptional(environment, 256, "workbench environment");
+        this.environment = normalizeOptional(
+                environment, 256, "Workbench environment");
         this.repositoryScope = repositoryScope;
         this.creationSnapshotReference = creationSnapshotReference;
-        if (!repositoryScope.matchesSnapshotTopology(creationSnapshotReference)
-                || repositoryScope.repositoryCount()
-                != creationSnapshotReference.getRepositoryCount()) {
-            throw new WorkbenchDomainException(
-                    WorkbenchErrorCode.REPOSITORY_SCOPE_INVALID,
-                    "creation snapshot must match the immutable repository scope");
-        }
-        this.phases = indexExactlyFourPhases(phases);
-        requireRestoredConversationOwnership(this.phases, owner);
+        requireMatchingCreationSnapshot(
+                repositoryScope, creationSnapshotReference);
+        this.stages = indexStages(stages);
+        requireRestoredConversationOwnership(this.stages, owner);
         this.activeWriteRunReference = activeWriteRunReference;
         this.status = status;
-        this.createdAt = DomainText.requireTime(createdAt, "workbench created at");
-        this.updatedAt = DomainText.requireTime(updatedAt, "workbench updated at");
+        this.createdAt = DomainText.requireTime(
+                createdAt, "Workbench created at");
+        this.updatedAt = DomainText.requireTime(
+                updatedAt, "Workbench updated at");
         if (updatedAt.isBefore(createdAt)) {
             throw new IllegalArgumentException(
-                    "workbench updated time must not be before created time");
+                    "Workbench updated time must not be before created time");
         }
         if (version < 0L) {
-            throw new IllegalArgumentException("workbench version must not be negative");
+            throw new IllegalArgumentException(
+                    "Workbench version must not be negative");
         }
         this.version = version;
-        validateRestoredLease();
+        validateRestoredWriteLease();
     }
 
-    public static Workbench create(WorkbenchId id, OwnerReference owner,
-                                   String title, String originalGoal,
-                                   AgentType agentType, String environment,
-                                   RepositoryScope repositoryScope,
-                                   WorkspaceSnapshotReference creationSnapshotReference,
-                                   Instant now) {
-        List<WorkbenchPhaseState> phases = new ArrayList<WorkbenchPhaseState>();
-        for (WorkbenchPhase phase : WorkbenchPhase.values()) {
-            phases.add(WorkbenchPhaseState.initial(phase));
-        }
+    public static Workbench create(
+            WorkbenchId id, OwnerReference owner,
+            String title, String originalGoal,
+            AgentType agentType, String environment,
+            RepositoryScope repositoryScope,
+            WorkspaceSnapshotReference creationSnapshotReference,
+            List<WorkbenchStageState> stages, Instant now) {
         return new Workbench(
                 id, owner, title, originalGoal, agentType, environment,
-                repositoryScope, creationSnapshotReference, phases, null,
+                repositoryScope, creationSnapshotReference, stages, null,
                 WorkbenchStatus.ACTIVE, now, now, 0L);
     }
 
-    public static Workbench restore(WorkbenchId id, OwnerReference owner,
-                                    String title, String originalGoal,
-                                    AgentType agentType, String environment,
-                                    RepositoryScope repositoryScope,
-                                    WorkspaceSnapshotReference creationSnapshotReference,
-                                    List<WorkbenchPhaseState> phases,
-                                    ActiveRunReference activeWriteRunReference,
-                                    WorkbenchStatus status, Instant createdAt,
-                                    Instant updatedAt, long version) {
+    public static Workbench restore(
+            WorkbenchId id, OwnerReference owner,
+            String title, String originalGoal,
+            AgentType agentType, String environment,
+            RepositoryScope repositoryScope,
+            WorkspaceSnapshotReference creationSnapshotReference,
+            List<WorkbenchStageState> stages,
+            WorkbenchStageRunReference activeWriteRunReference,
+            WorkbenchStatus status, Instant createdAt,
+            Instant updatedAt, long version) {
         return new Workbench(
                 id, owner, title, originalGoal, agentType, environment,
-                repositoryScope, creationSnapshotReference, phases,
-                activeWriteRunReference, status, createdAt, updatedAt, version);
+                repositoryScope, creationSnapshotReference, stages,
+                activeWriteRunReference, status,
+                createdAt, updatedAt, version);
     }
 
-    public List<WorkbenchPhaseState> getPhases() {
-        return Collections.unmodifiableList(new ArrayList<WorkbenchPhaseState>(phases.values()));
+    public List<WorkbenchStageState> getStages() {
+        return Collections.unmodifiableList(
+                new ArrayList<WorkbenchStageState>(stages.values()));
     }
 
-    public WorkbenchPhaseState phase(WorkbenchPhase phase) {
-        if (phase == null) {
-            throw new IllegalArgumentException("workbench phase must not be null");
-        }
-        WorkbenchPhaseState state = phases.get(phase);
+    public WorkbenchStageState stage(String stageInstanceIdentifier) {
+        String identifier = DomainText.require(
+                stageInstanceIdentifier, "Stage Instance identifier", 128);
+        WorkbenchStageState state = stages.get(identifier);
         if (state == null) {
-            throw new IllegalStateException("workbench phase is missing: " + phase);
+            throw new WorkbenchDomainException(
+                    WorkbenchErrorCode.STAGE_NOT_FOUND,
+                    "Workbench Stage does not exist: " + identifier);
         }
         return state;
     }
@@ -136,192 +147,56 @@ public final class Workbench {
     }
 
     public void requireOwnedBy(OwnerReference actor) {
-        requireOwner(actor);
+        if (!owner.sameIdentityAs(actor)) {
+            throw new WorkbenchDomainException(
+                    WorkbenchErrorCode.OWNER_REQUIRED,
+                    "Only the Workbench Owner can perform this operation");
+        }
     }
 
-    public boolean bindConversation(WorkbenchPhase phase, String conversationId,
-                                    OwnerReference actor, Instant now) {
+    public boolean completeStage(
+            String stageInstanceIdentifier, OwnerReference actor,
+            long expectedVersion, Instant now) {
         requireOperableBy(actor);
+        requireExpectedVersion(expectedVersion);
         Instant activityTime = requireActivityTime(now);
-        boolean changed = phase(phase).bindConversation(conversationId, actor, activityTime);
+        boolean changed = stage(stageInstanceIdentifier).complete(activityTime);
         if (changed) {
             recordMutation(activityTime);
         }
         return changed;
     }
 
-    public boolean bindConversation(
-            WorkbenchPhase phase, String conversationId,
-            OwnerReference actor, long expectedVersion, Instant now) {
+    public boolean reopenStage(
+            String stageInstanceIdentifier, OwnerReference actor,
+            long expectedVersion, Instant now) {
         requireOperableBy(actor);
         requireExpectedVersion(expectedVersion);
-        return bindConversation(phase, conversationId, actor, now);
-    }
-
-    public boolean restartConversation(WorkbenchPhase phase, String newConversationId,
-                                       OwnerReference actor, Instant now) {
-        requireOperableBy(actor);
         Instant activityTime = requireActivityTime(now);
-        boolean changed = phase(phase).restartConversation(
-                newConversationId, actor, activityTime);
+        boolean changed = stage(stageInstanceIdentifier).reopen(activityTime);
         if (changed) {
             recordMutation(activityTime);
         }
         return changed;
     }
 
-    public boolean restartConversation(
-            WorkbenchPhase phase, String newConversationId,
-            OwnerReference actor, long expectedVersion, Instant now) {
+    public WorkbenchStageRunReference prepareStageRun(
+            String stageInstanceIdentifier, String runIdentifier,
+            RunMode runMode, OwnerReference actor,
+            long expectedVersion, Instant now) {
         requireOperableBy(actor);
         requireExpectedVersion(expectedVersion);
-        return restartConversation(phase, newConversationId, actor, now);
-    }
-
-    public PhaseConversationProvisioning planConversationEnsure(
-            WorkbenchPhase phase, OwnerReference actor, long expectedVersion) {
-        requireOperableBy(actor);
-        requireExpectedVersion(expectedVersion);
-        WorkbenchPhaseState state = phase(phase);
-        return PhaseConversationProvisioning.plan(this, phase, state.currentConversation());
-    }
-
-    /**
-     * 将浏览器上传精确绑定到当前 Owner、Workbench、Phase 与会话代际。
-     */
-    public UploadedAttachmentBinding planUploadedAttachment(
-            WorkbenchPhase phase, int conversationGeneration,
-            OwnerReference actor) {
-        requireOperableBy(actor);
-        if (conversationGeneration < 0) {
-            throw new WorkbenchDomainException(
-                    WorkbenchErrorCode.ATTACHMENT_INVALID,
-                    "uploaded attachment conversation generation is invalid");
-        }
-        PhaseConversationReference current = phase(phase).currentConversation();
-        if (current == null) {
-            throw new WorkbenchDomainException(
-                    WorkbenchErrorCode.CONVERSATION_CONFLICT,
-                    "phase conversation must exist before uploading an attachment");
-        }
-        if (current.getGeneration() != conversationGeneration) {
-            throw new WorkbenchDomainException(
-                    WorkbenchErrorCode.VERSION_CONFLICT,
-                    "uploaded attachment conversation generation is stale");
-        }
-        return new UploadedAttachmentBinding(
-                owner, id, phase, current.getConversationId(),
-                current.getGeneration());
-    }
-
-    /**
-     * 在任何外部准备动作前冻结本次 Run 的领域要求。
-     */
-    public WorkbenchRunPreparationPlan planRunPreparation(
-            WorkbenchPhase phase, RunMode runMode,
-            Long handoffSourceVersion, String reviewConfirmationId,
-            OwnerReference actor, long expectedVersion) {
-        PhaseConversationProvisioning conversation = planConversationEnsure(
-                phase, actor, expectedVersion);
-        WorkbenchRunPreparationPlan plan = WorkbenchRunPreparationPlan.plan(
-                this, phase, runMode, handoffSourceVersion,
-                reviewConfirmationId, conversation);
-        phase(phase).requireRunPreparationAvailable();
-        if (runMode.modifiesWorkspace() && activeWriteRunReference != null) {
-            throw new WorkbenchDomainException(
-                    WorkbenchErrorCode.WRITE_RUN_ACTIVE,
-                    "workbench already has an active modify run");
-        }
-        return plan;
-    }
-
-    public PhaseConversationProvisioning planConversationRestart(
-            WorkbenchPhase phase, OwnerReference actor, long expectedVersion) {
-        requireOperableBy(actor);
-        requireExpectedVersion(expectedVersion);
-        WorkbenchPhaseState state = phase(phase);
-        return PhaseConversationProvisioning.plan(
-                this, phase, state.requireRestartableConversation());
-    }
-
-    public PhaseConversationProvisioning bindConversationAndDescribe(
-            WorkbenchPhase phase, String conversationId,
-            OwnerReference actor, Instant now) {
-        bindConversation(phase, conversationId, actor, now);
-        return describeCurrentConversation(phase);
-    }
-
-    public PhaseConversationProvisioning restartConversationAndDescribe(
-            WorkbenchPhase phase, String conversationId,
-            OwnerReference actor, Instant now) {
-        restartConversation(phase, conversationId, actor, now);
-        return describeCurrentConversation(phase);
-    }
-
-    public ActiveRunReference prepareRun(WorkbenchPhase phase, String runId,
-                                         RunMode runMode, OwnerReference actor, Instant now) {
-        return prepareRun(phase, runId, runMode, null, actor, now);
-    }
-
-    public ActiveRunReference prepareRun(
-            WorkbenchPhase phase, String runId, RunMode runMode,
-            OwnerReference actor, long expectedVersion, Instant now) {
-        requireOperableBy(actor);
-        requireExpectedVersion(expectedVersion);
-        return prepareRun(phase, runId, runMode, null, actor, now);
-    }
-
-    public ActiveRunReference prepareRun(
-            WorkbenchPhase phase, String runId, RunMode runMode,
-            ReviewModifyConfirmation reviewConfirmation,
-            OwnerReference actor, long expectedVersion, Instant now) {
-        requireOperableBy(actor);
-        requireExpectedVersion(expectedVersion);
-        return prepareRun(
-                phase, runId, runMode, reviewConfirmation, actor, now);
-    }
-
-    public ActiveRunReference prepareReviewRefactorRun(
-            String runId, RunMode runMode, ReviewModifyConfirmation reviewConfirmation,
-            OwnerReference actor, Instant now) {
-        return prepareRun(
-                WorkbenchPhase.REVIEW_REFACTOR, runId, runMode,
-                reviewConfirmation, actor, now);
-    }
-
-    public ActiveRunReference prepareReviewRefactorRun(
-            String runId, RunMode runMode,
-            ReviewModifyConfirmation reviewConfirmation,
-            OwnerReference actor, long expectedVersion, Instant now) {
-        requireOperableBy(actor);
-        requireExpectedVersion(expectedVersion);
-        return prepareRun(
-                WorkbenchPhase.REVIEW_REFACTOR, runId, runMode,
-                reviewConfirmation, actor, now);
-    }
-
-    private ActiveRunReference prepareRun(
-            WorkbenchPhase phase, String runId, RunMode runMode,
-            ReviewModifyConfirmation reviewConfirmation,
-            OwnerReference actor, Instant now) {
-        requireOperableBy(actor);
         Instant activityTime = requireActivityTime(now);
-        if (runMode == null) {
-            throw new IllegalArgumentException("workbench run mode must not be null");
-        }
-        if (runMode.modifiesWorkspace() && activeWriteRunReference != null) {
+        WorkbenchStageState stageState = stage(stageInstanceIdentifier);
+        stageState.requireRunPreparationAvailable(runMode);
+        if (runMode.modifiesWorkspace()
+                && activeWriteRunReference != null) {
             throw new WorkbenchDomainException(
                     WorkbenchErrorCode.WRITE_RUN_ACTIVE,
-                    "workbench already has an active modify run");
+                    "Workbench already has an active Stage modify Run");
         }
-        if (reviewConfirmation != null
-                && !reviewConfirmation.isValidFor(id, actor, activityTime)) {
-            throw new WorkbenchDomainException(
-                    WorkbenchErrorCode.RUN_MODE_FORBIDDEN,
-                    "review confirmation must bind the current workbench, owner and opinion");
-        }
-        ActiveRunReference prepared = phase(phase).prepareRun(
-                runId, runMode, reviewConfirmation, activityTime);
+        WorkbenchStageRunReference prepared = stageState.prepareRun(
+                runIdentifier, runMode, activityTime);
         if (runMode.modifiesWorkspace()) {
             activeWriteRunReference = prepared;
         }
@@ -329,84 +204,175 @@ public final class Workbench {
         return prepared;
     }
 
-    public boolean finishRun(WorkbenchPhase phase, String runId, Instant now) {
+    public boolean finishStageRun(
+            String stageInstanceIdentifier, String runIdentifier,
+            Instant now) {
         Instant activityTime = requireActivityTime(now);
-        boolean changed = phase(phase).finishRun(runId, activityTime);
+        WorkbenchStageState stageState = stage(stageInstanceIdentifier);
+        WorkbenchStageRunReference activeRun =
+                stageState.getActiveRunReference();
+        boolean changed = stageState.finishRun(runIdentifier, activityTime);
         if (!changed) {
             return false;
         }
-        if (activeWriteRunReference != null && activeWriteRunReference.matches(runId)) {
+        if (activeWriteRunReference != null
+                && activeWriteRunReference.equals(activeRun)) {
             activeWriteRunReference = null;
         }
         recordMutation(activityTime);
         return true;
     }
 
-    public WorkbenchPhaseStatus phaseStatus(WorkbenchPhase phase) {
-        return phase(phase).getStatus();
-    }
-
-    /**
-     * 首次终态严格释放：活动 Phase 引用和 MODIFY 写租约必须与候选 Run 精确一致。
-     */
-    void finishRequiredRun(WorkbenchPhase phase, String runId, Instant now) {
-        Instant activityTime = requireActivityTime(now);
-        WorkbenchPhaseState phaseState = phase(phase);
-        ActiveRunReference activeRun = phaseState.requireActiveRun(runId);
-        requireConsistentTerminalLease(activeRun);
-        phaseState.finishRun(runId, activityTime);
-        if (activeWriteRunReference != null
-                && activeWriteRunReference.equals(activeRun)) {
-            activeWriteRunReference = null;
+    void finishRequiredStageRun(
+            String stageInstanceIdentifier, String runIdentifier,
+            Instant now) {
+        WorkbenchStageState stageState = stage(stageInstanceIdentifier);
+        stageState.requireActiveRun(runIdentifier);
+        if (!finishStageRun(
+                stageInstanceIdentifier, runIdentifier, now)) {
+            throw WorkbenchDomainException.runBindingCorrupted();
         }
-        recordMutation(activityTime);
     }
 
-    public boolean completePhase(WorkbenchPhase phase, OwnerReference actor, Instant now) {
+    public boolean bindStageConversation(
+            String stageInstanceIdentifier, String conversationId,
+            OwnerReference actor, long expectedVersion, Instant now) {
+        requireOperableBy(actor);
+        requireExpectedVersion(expectedVersion);
+        return bindStageConversation(
+                stageInstanceIdentifier, conversationId, actor, now);
+    }
+
+    public boolean bindStageConversation(
+            String stageInstanceIdentifier, String conversationId,
+            OwnerReference actor, Instant now) {
         requireOperableBy(actor);
         Instant activityTime = requireActivityTime(now);
-        boolean changed = phase(phase).complete(activityTime);
+        boolean changed = stage(stageInstanceIdentifier).bindConversation(
+                conversationId, actor, activityTime);
         if (changed) {
             recordMutation(activityTime);
         }
         return changed;
     }
 
-    public boolean completePhase(
-            WorkbenchPhase phase, OwnerReference actor,
-            long expectedVersion, Instant now) {
+    public boolean restartStageConversation(
+            String stageInstanceIdentifier, String conversationId,
+            OwnerReference actor, long expectedVersion, Instant now) {
         requireOperableBy(actor);
         requireExpectedVersion(expectedVersion);
-        return completePhase(phase, actor, now);
+        return restartStageConversation(
+                stageInstanceIdentifier, conversationId, actor, now);
     }
 
-    public boolean reopenPhase(WorkbenchPhase phase, OwnerReference actor, Instant now) {
+    public boolean restartStageConversation(
+            String stageInstanceIdentifier, String conversationId,
+            OwnerReference actor, Instant now) {
         requireOperableBy(actor);
         Instant activityTime = requireActivityTime(now);
-        boolean changed = phase(phase).reopen(activityTime);
+        boolean changed = stage(stageInstanceIdentifier).restartConversation(
+                conversationId, actor, activityTime);
         if (changed) {
             recordMutation(activityTime);
         }
         return changed;
     }
 
-    public boolean reopenPhase(
-            WorkbenchPhase phase, OwnerReference actor,
-            long expectedVersion, Instant now) {
+    public WorkbenchStageConversationProvisioning planStageConversationEnsure(
+            String stageInstanceIdentifier, OwnerReference actor,
+            long expectedVersion) {
         requireOperableBy(actor);
         requireExpectedVersion(expectedVersion);
-        return reopenPhase(phase, actor, now);
+        WorkbenchStageState state = stage(stageInstanceIdentifier);
+        return WorkbenchStageConversationProvisioning.plan(
+                this, state, state.currentConversation());
+    }
+
+    public WorkbenchStageRunPreparationPlan planStageRunPreparation(
+            String stageInstanceIdentifier, RunMode runMode,
+            OwnerReference actor, long expectedVersion) {
+        requireOperableBy(actor);
+        requireExpectedVersion(expectedVersion);
+        WorkbenchStageState state = stage(stageInstanceIdentifier);
+        state.requireRunPreparationAvailable(runMode);
+        if (runMode.modifiesWorkspace()
+                && activeWriteRunReference != null) {
+            throw new WorkbenchDomainException(
+                    WorkbenchErrorCode.WRITE_RUN_ACTIVE,
+                    "Workbench already has an active Stage modify Run");
+        }
+        WorkbenchStageConversationProvisioning conversation =
+                WorkbenchStageConversationProvisioning.plan(
+                        this, state, state.currentConversation());
+        return WorkbenchStageRunPreparationPlan.plan(
+                this, state, runMode, conversation);
+    }
+
+    public WorkbenchStageConversationProvisioning planStageConversationRestart(
+            String stageInstanceIdentifier, OwnerReference actor,
+            long expectedVersion) {
+        requireOperableBy(actor);
+        requireExpectedVersion(expectedVersion);
+        WorkbenchStageState state = stage(stageInstanceIdentifier);
+        return WorkbenchStageConversationProvisioning.plan(
+                this, state, state.requireRestartableConversation());
+    }
+
+    public WorkbenchStageUploadedAttachmentBinding
+            planStageUploadedAttachment(
+                    String stageInstanceIdentifier,
+                    int conversationGeneration,
+                    OwnerReference actor) {
+        requireOperableBy(actor);
+        if (conversationGeneration < 0) {
+            throw new WorkbenchDomainException(
+                    WorkbenchErrorCode.ATTACHMENT_INVALID,
+                    "Stage uploaded attachment generation is invalid");
+        }
+        WorkbenchStageConversationReference current =
+                stage(stageInstanceIdentifier).currentConversation();
+        if (current == null) {
+            throw new WorkbenchDomainException(
+                    WorkbenchErrorCode.CONVERSATION_CONFLICT,
+                    "Stage conversation must exist before uploading an attachment");
+        }
+        if (current.getGeneration() != conversationGeneration) {
+            throw new WorkbenchDomainException(
+                    WorkbenchErrorCode.VERSION_CONFLICT,
+                    "Stage uploaded attachment generation is stale");
+        }
+        return new WorkbenchStageUploadedAttachmentBinding(
+                owner, id, stageInstanceIdentifier,
+                current.getConversationId(), current.getGeneration());
+    }
+
+    public WorkbenchStageConversationProvisioning
+            bindStageConversationAndDescribe(
+                    String stageInstanceIdentifier, String conversationId,
+                    OwnerReference actor, Instant now) {
+        bindStageConversation(
+                stageInstanceIdentifier, conversationId, actor, now);
+        return describeCurrentStageConversation(stageInstanceIdentifier);
+    }
+
+    public WorkbenchStageConversationProvisioning
+            restartStageConversationAndDescribe(
+                    String stageInstanceIdentifier, String conversationId,
+                    OwnerReference actor, Instant now) {
+        restartStageConversation(
+                stageInstanceIdentifier, conversationId, actor, now);
+        return describeCurrentStageConversation(stageInstanceIdentifier);
     }
 
     public boolean archive(OwnerReference actor, Instant now) {
-        requireOwner(actor);
+        requireOwnedBy(actor);
         if (status == WorkbenchStatus.ARCHIVED) {
             return false;
         }
         if (activeWriteRunReference != null) {
             throw new WorkbenchDomainException(
                     WorkbenchErrorCode.WRITE_RUN_ACTIVE,
-                    "workbench cannot be archived while a modify run is active");
+                    "Workbench cannot be archived while a modify Run is active");
         }
         Instant archiveTime = requireActivityTime(now);
         status = WorkbenchStatus.ARCHIVED;
@@ -416,52 +382,47 @@ public final class Workbench {
 
     public boolean archive(
             OwnerReference actor, long expectedVersion, Instant now) {
-        requireOwner(actor);
+        requireOwnedBy(actor);
         requireExpectedVersion(expectedVersion);
         return archive(actor, now);
     }
 
-    private void requireOwner(OwnerReference actor) {
-        if (!owner.sameIdentityAs(actor)) {
-            throw new WorkbenchDomainException(
-                    WorkbenchErrorCode.OWNER_REQUIRED,
-                    "only the workbench owner can perform this operation");
+    private WorkbenchStageConversationProvisioning
+            describeCurrentStageConversation(String stageInstanceIdentifier) {
+        WorkbenchStageState state = stage(stageInstanceIdentifier);
+        if (state.currentConversation() == null) {
+            throw new IllegalStateException(
+                    "Stage conversation mutation produced no current Session");
         }
+        return WorkbenchStageConversationProvisioning.plan(
+                this, state, state.currentConversation());
     }
 
     private void requireActive() {
         if (status == WorkbenchStatus.ARCHIVED) {
             throw new WorkbenchDomainException(
                     WorkbenchErrorCode.ARCHIVED,
-                    "archived workbench is read-only");
+                    "Archived Workbench is read-only");
         }
     }
 
     private void requireExpectedVersion(long expectedVersion) {
         if (expectedVersion < 0L) {
-            throw new IllegalArgumentException("expected workbench version must not be negative");
+            throw new IllegalArgumentException(
+                    "Expected Workbench version must not be negative");
         }
         if (version != expectedVersion) {
             throw new WorkbenchDomainException(
                     WorkbenchErrorCode.VERSION_CONFLICT,
-                    "stale workbench version");
+                    "Stale Workbench version");
         }
-    }
-
-    private PhaseConversationProvisioning describeCurrentConversation(
-            WorkbenchPhase phase) {
-        PhaseConversationReference current = phase(phase).currentConversation();
-        if (current == null) {
-            throw new IllegalStateException("phase conversation mutation produced no current session");
-        }
-        return PhaseConversationProvisioning.plan(this, phase, current);
     }
 
     private Instant requireActivityTime(Instant now) {
-        Instant value = DomainText.requireTime(now, "workbench activity time");
+        Instant value = DomainText.requireTime(now, "Workbench activity time");
         if (value.isBefore(updatedAt)) {
             throw new IllegalArgumentException(
-                    "workbench activity time must not be before updated time");
+                    "Workbench activity time must not be before updated time");
         }
         return value;
     }
@@ -471,37 +432,16 @@ public final class Workbench {
         version++;
     }
 
-    private static Map<WorkbenchPhase, WorkbenchPhaseState> indexExactlyFourPhases(
-            List<WorkbenchPhaseState> phaseStates) {
-        if (phaseStates == null || phaseStates.size() != WorkbenchPhase.values().length
-                || phaseStates.contains(null)) {
-            throw new IllegalArgumentException(
-                    "workbench must contain exactly the four fixed phases");
-        }
-        Map<WorkbenchPhase, WorkbenchPhaseState> byPhase =
-                new EnumMap<WorkbenchPhase, WorkbenchPhaseState>(WorkbenchPhase.class);
-        for (WorkbenchPhaseState state : phaseStates) {
-            if (byPhase.put(state.getPhase(), state) != null) {
-                throw new IllegalArgumentException(
-                        "workbench phases must not contain duplicates: " + state.getPhase());
-            }
-        }
-        for (WorkbenchPhase phase : WorkbenchPhase.values()) {
-            if (!byPhase.containsKey(phase)) {
-                throw new IllegalArgumentException("workbench phase is missing: " + phase);
-            }
-        }
-        return byPhase;
-    }
-
-    private void validateRestoredLease() {
-        ActiveRunReference discoveredWriteRun = null;
-        for (WorkbenchPhaseState state : phases.values()) {
-            ActiveRunReference activeRun = state.getActiveRunReference();
-            if (activeRun != null && activeRun.getRunMode().modifiesWorkspace()) {
+    private void validateRestoredWriteLease() {
+        WorkbenchStageRunReference discoveredWriteRun = null;
+        for (WorkbenchStageState state : stages.values()) {
+            WorkbenchStageRunReference activeRun =
+                    state.getActiveRunReference();
+            if (activeRun != null
+                    && activeRun.getRunMode().modifiesWorkspace()) {
                 if (discoveredWriteRun != null) {
                     throw new IllegalArgumentException(
-                            "workbench cannot restore more than one modify run");
+                            "Workbench cannot restore more than one Stage modify Run");
                 }
                 discoveredWriteRun = activeRun;
             }
@@ -510,30 +450,66 @@ public final class Workbench {
                 || discoveredWriteRun != null
                 && !discoveredWriteRun.equals(activeWriteRunReference)) {
             throw new IllegalArgumentException(
-                    "workbench write lease must match the active phase modify run");
+                    "Workbench write lease must match the active Stage modify Run");
         }
     }
 
-    private void requireConsistentTerminalLease(ActiveRunReference activeRun) {
-        boolean modifyLeaseMissing = activeRun.getRunMode().modifiesWorkspace()
-                && !activeRun.equals(activeWriteRunReference);
-        boolean readOnlyRunOwnsWriteLease = !activeRun.getRunMode().modifiesWorkspace()
-                && activeWriteRunReference != null
-                && activeWriteRunReference.matches(activeRun.getRunId());
-        if (modifyLeaseMissing || readOnlyRunOwnsWriteLease) {
-            throw WorkbenchDomainException.runBindingCorrupted();
+    private static Map<String, WorkbenchStageState> indexStages(
+            List<WorkbenchStageState> stageStates) {
+        if (stageStates == null || stageStates.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Workbench Stage states must not be empty");
+        }
+        if (stageStates.contains(null)) {
+            throw new IllegalArgumentException(
+                    "Workbench Stage states must not contain null");
+        }
+        List<WorkbenchStageState> sorted =
+                new ArrayList<WorkbenchStageState>(stageStates);
+        sorted.sort(java.util.Comparator.comparingInt(
+                stage -> stage.getSnapshot().getSequenceNumber()));
+        Map<String, WorkbenchStageState> byInstance =
+                new LinkedHashMap<String, WorkbenchStageState>();
+        Set<String> definitions = new HashSet<String>();
+        Set<Integer> sequences = new HashSet<Integer>();
+        for (WorkbenchStageState state : sorted) {
+            if (byInstance.put(
+                    state.getStageInstanceIdentifier(), state) != null
+                    || !definitions.add(
+                    state.getSnapshot().getDefinitionIdentifier())
+                    || !sequences.add(
+                    state.getSnapshot().getSequenceNumber())) {
+                throw new IllegalArgumentException(
+                        "Workbench Stage instances, definitions and sequences "
+                                + "must be unique");
+            }
+        }
+        return byInstance;
+    }
+
+    private static void requireMatchingCreationSnapshot(
+            RepositoryScope repositoryScope,
+            WorkspaceSnapshotReference creationSnapshotReference) {
+        if (!repositoryScope.matchesSnapshotTopology(
+                creationSnapshotReference)
+                || repositoryScope.repositoryCount()
+                != creationSnapshotReference.getRepositoryCount()) {
+            throw new WorkbenchDomainException(
+                    WorkbenchErrorCode.REPOSITORY_SCOPE_INVALID,
+                    "Creation Snapshot must match the immutable Repository Scope");
         }
     }
 
     private static void requireRestoredConversationOwnership(
-            Map<WorkbenchPhase, WorkbenchPhaseState> phaseStates,
+            Map<String, WorkbenchStageState> stageStates,
             OwnerReference owner) {
-        for (WorkbenchPhaseState state : phaseStates.values()) {
+        for (WorkbenchStageState state : stageStates.values()) {
             state.requireConversationsCreatedBy(owner);
         }
     }
 
-    private static String normalizeOptional(String value, int maxLength, String name) {
+    private static String normalizeOptional(
+            String value, int maxLength, String name) {
         if (value == null || value.trim().isEmpty()) {
             return null;
         }

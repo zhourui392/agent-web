@@ -11,8 +11,3 @@ agent:
     enabled: true
     create-enabled: true
     write-run-enabled: true
-    high-impact:
-      commit-enabled: false
-      push-enabled: false
-      local-deploy-enabled: false
-      production-write-enabled: false

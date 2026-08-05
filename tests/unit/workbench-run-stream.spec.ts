@@ -26,7 +26,7 @@ const { effectScope, nextTick, ref } = frontendVueRuntime as typeof import('vue'
 const IDENTITY: WorkbenchRunMarkerIdentity = {
   userId: 'user/a',
   workbenchId: 'workbench/1',
-  phase: 'IMPLEMENT_TEST',
+  stageInstanceIdentifier: 'stage-delivery',
   conversationGeneration: 2,
 };
 
@@ -72,13 +72,13 @@ function fakeTransport(): {
 function envelope(
   runId: string,
   data: Record<string, unknown>,
-  overrides: Partial<{ workbenchId: string; phase: string; occurredAt: number }> = {},
+  overrides: Partial<{ workbenchId: string; stageInstanceIdentifier: string; occurredAt: number }> = {},
 ): string {
   return JSON.stringify({
     schemaVersion: 'workbench-run-event@1',
     runId,
     workbenchId: overrides.workbenchId ?? IDENTITY.workbenchId,
-    phase: overrides.phase ?? IDENTITY.phase,
+    stageInstanceIdentifier: overrides.stageInstanceIdentifier ?? IDENTITY.stageInstanceIdentifier,
     occurredAt: overrides.occurredAt ?? 100,
     data,
   });

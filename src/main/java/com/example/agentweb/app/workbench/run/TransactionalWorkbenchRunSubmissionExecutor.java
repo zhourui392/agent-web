@@ -16,7 +16,7 @@ import java.util.function.Supplier;
  */
 @Component
 public class TransactionalWorkbenchRunSubmissionExecutor
-        implements WorkbenchRunSubmissionExecutor {
+        implements WorkbenchStageRunSubmissionExecutor {
 
     private final TransactionTemplate transactions;
     private final Lock submissionLock = new ReentrantLock();
@@ -27,8 +27,12 @@ public class TransactionalWorkbenchRunSubmissionExecutor
     }
 
     @Override
-    public WorkbenchRunSubmissionResult execute(
-            Supplier<WorkbenchRunSubmissionResult> action) {
+    public WorkbenchStageRunSubmissionResult execute(
+            Supplier<WorkbenchStageRunSubmissionResult> action) {
+        return executeSerially(action);
+    }
+
+    private <T> T executeSerially(Supplier<T> action) {
         submissionLock.lock();
         try {
             return transactions.execute(status -> action.get());

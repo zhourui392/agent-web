@@ -6,7 +6,7 @@
  * @author alex
  * @since 2026-08-01
  */
-import { isWorkbenchPhase, type WorkbenchPhase } from '../lib/workbench-state.js';
+import { isWorkbenchStageInstanceIdentifier } from '../lib/workbench-state.js';
 
 const IDENTIFIER_MAX_LENGTH = 128;
 const DISPLAY_NAME_MAX_LENGTH = 255;
@@ -52,13 +52,13 @@ export interface WorkbenchUploadedAttachment {
 export interface WorkbenchUploadedAttachmentApiClient {
   upload(
     workbenchId: string,
-    phase: WorkbenchPhase,
+    stageInstanceIdentifier: string,
     conversationGeneration: number,
     file: File,
   ): Promise<WorkbenchUploadedAttachment>;
   release(
     workbenchId: string,
-    phase: WorkbenchPhase,
+    stageInstanceIdentifier: string,
     conversationGeneration: number,
     attachmentId: string,
   ): Promise<void>;
@@ -81,9 +81,9 @@ export function createWorkbenchUploadedAttachmentApiClient(
   fetcher: WorkbenchUploadedAttachmentFetch = fetch,
 ): WorkbenchUploadedAttachmentApiClient {
   return {
-    async upload(workbenchId, phase, conversationGeneration, file) {
+    async upload(workbenchId, stageInstanceIdentifier, conversationGeneration, file) {
       const scoped = attachmentCollectionUrl(
-        workbenchId, phase, conversationGeneration,
+        workbenchId, stageInstanceIdentifier, conversationGeneration,
       );
       requireFile(file);
       const body = new FormData();
@@ -101,9 +101,14 @@ export function createWorkbenchUploadedAttachmentApiClient(
       return parseProjection(response);
     },
 
-    async release(workbenchId, phase, conversationGeneration, attachmentId) {
+    async release(
+      workbenchId,
+      stageInstanceIdentifier,
+      conversationGeneration,
+      attachmentId,
+    ) {
       const collection = attachmentCollectionUrl(
-        workbenchId, phase, conversationGeneration,
+        workbenchId, stageInstanceIdentifier, conversationGeneration,
       );
       const response = await fetcher(
         `${collection.substring(0, collection.indexOf('?'))}`
@@ -125,17 +130,17 @@ export function createWorkbenchUploadedAttachmentApiClient(
 
 function attachmentCollectionUrl(
   workbenchId: string,
-  phase: WorkbenchPhase,
+  stageInstanceIdentifier: string,
   conversationGeneration: number,
 ): string {
-  if (!isWorkbenchPhase(phase)) {
-    throw requestInvalid('phase is invalid');
+  if (!isWorkbenchStageInstanceIdentifier(stageInstanceIdentifier)) {
+    throw requestInvalid('stageInstanceIdentifier is invalid');
   }
   if (!Number.isSafeInteger(conversationGeneration) || conversationGeneration < 0) {
     throw requestInvalid('conversation generation is invalid');
   }
   return '/api/workbenches/' + encodedPathSegment(workbenchId, 'workbenchId')
-    + '/phases/' + phase + '/attachments'
+    + '/stages/' + encodeURIComponent(stageInstanceIdentifier) + '/attachments'
     + `?conversationGeneration=${conversationGeneration}`;
 }
 

@@ -21,7 +21,7 @@ function jsonResponse(status: number, body: unknown): Response {
 const run = {
   runId: 'run-2',
   workbenchId: 'wb-1',
-  phase: 'IMPLEMENT_TEST',
+  stageInstanceIdentifier: 'stage-delivery',
   sessionId: 'session-1',
   status: 'SUCCEEDED',
   runMode: 'MODIFY_WORKSPACE',
@@ -53,12 +53,11 @@ function capabilityResponse(overrides: Record<string, unknown> = {}): Record<str
   return {
     runId: 'run-2',
     workbenchId: 'wb-1',
-    phase: 'IMPLEMENT_TEST',
+    stageInstanceIdentifier: 'stage-delivery',
     runMode: 'MODIFY_WORKSPACE',
     createdAt: run.createdAt,
-    overrideVersion: 3,
     policyVersion: 'workbench-policy@1',
-    profileId: 'workbench-implement-test',
+    profileId: 'workbench-stage/stage-delivery',
     profileVersion: '1.0.0',
     profileHash: 'a'.repeat(64),
     bindingHash: 'b'.repeat(64),
@@ -98,7 +97,7 @@ function capabilityResponse(overrides: Record<string, unknown> = {}): Record<str
 }
 
 describe('Workbench Run history API', () => {
-  it('lists terminal runs with an owner-scoped phase cursor and drops unknown fields', async () => {
+  it('lists terminal runs with an owner-scoped stageInstanceIdentifier cursor and drops unknown fields', async () => {
     const { earliestRetainedSeq: _earliestRetainedSeq, ...listedRun } = run;
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, {
       items: [{ ...listedRun, command: 'rm -rf /', token: 'secret' }],
@@ -108,14 +107,14 @@ describe('Workbench Run history API', () => {
     const client = createWorkbenchRunApiClient(fetchMock as WorkbenchRunFetch);
 
     const page = await client.listRuns('wb/一', {
-      phase: 'IMPLEMENT_TEST',
+      stageInstanceIdentifier: 'stage-delivery',
       cursorCreatedAt: 1_785_000_000_000,
       cursorRunId: 'run/一',
       limit: 20,
     });
 
     expect(fetchMock).toHaveBeenCalledWith(
-      '/api/workbenches/wb%2F%E4%B8%80/runs?phase=IMPLEMENT_TEST&cursorCreatedAt=1785000000000&cursorRunId=run%2F%E4%B8%80&limit=20',
+      '/api/workbenches/wb%2F%E4%B8%80/runs?stageInstanceIdentifier=stage-delivery&cursorCreatedAt=1785000000000&cursorRunId=run%2F%E4%B8%80&limit=20',
       { method: 'GET' },
     );
     expect(page).toEqual({
@@ -130,7 +129,7 @@ describe('Workbench Run history API', () => {
       schemaVersion: 'workbench-run-event@1',
       runId: 'run-2',
       workbenchId: 'wb-1',
-      phase: 'IMPLEMENT_TEST',
+      stageInstanceIdentifier: 'stage-delivery',
       occurredAt: 1_786_000_000_100,
       data: { content: 'done' },
     });
@@ -179,12 +178,11 @@ describe('Workbench Run history API', () => {
     expect(capability).toEqual({
       runId: 'run-2',
       workbenchId: 'wb-1',
-      phase: 'IMPLEMENT_TEST',
+      stageInstanceIdentifier: 'stage-delivery',
       runMode: 'MODIFY_WORKSPACE',
       createdAt: run.createdAt,
-      overrideVersion: 3,
       policyVersion: 'workbench-policy@1',
-      profileId: 'workbench-implement-test',
+      profileId: 'workbench-stage/stage-delivery',
       profileVersion: '1.0.0',
       profileHash: 'a'.repeat(64),
       bindingHash: 'b'.repeat(64),

@@ -1,10 +1,6 @@
 <template>
   <aside :class="['workbench-document-panel', { mobile }]">
     <div class="workbench-panel-heading">
-      <div>
-        <span class="workbench-panel-kicker">文档区</span>
-        <h3>代码与文档</h3>
-      </div>
       <div class="workbench-document-actions">
         <template v-if="mobile">
           <el-button text @click="$emit('close')">关闭</el-button>
@@ -74,6 +70,16 @@
       </small>
     </div>
 
+    <!-- 文档查看弹框 -->
+    <el-dialog
+      v-model="documentDialogVisible"
+      :title="currentDocument ? currentDocument.reference.repositoryKey + '/' + currentDocument.reference.relativePath : '文档查看'"
+      :width="mobile ? '95%' : '70%'"
+      :close-on-click-modal="true"
+      append-to-body
+      destroy-on-close
+      class="workbench-document-dialog"
+    >
     <el-alert
       v-if="documentError"
       class="workbench-document-alert"
@@ -104,10 +110,6 @@
 
     <section v-if="currentDocument" class="workbench-document-viewer">
       <header class="workbench-document-viewer-heading">
-        <div>
-          <strong>{{ currentDocument.reference.repositoryKey }}</strong>
-          <span>{{ currentDocument.reference.relativePath }}</span>
-        </div>
         <div class="workbench-document-viewer-actions">
           <div
             v-if="renderMode === 'MARKDOWN'"
@@ -308,11 +310,12 @@
       </div>
     </section>
 
-    <div v-else class="workbench-disabled-document">
+    <div v-else-if="!currentDocument" class="workbench-disabled-document">
       <el-icon size="32"><document /></el-icon>
       <strong>尚未选择文档</strong>
       <span>从上方仓库树选择文件；读取只会经过 Workbench Repository Scope 接口。</span>
     </div>
+    </el-dialog>
 
     <div v-if="recentDocuments.length" class="workbench-recent-documents">
       <h4>本阶段最近查看</h4>
@@ -398,9 +401,14 @@ const emit = defineEmits([
   'download-document',
   'update-scroll',
   'attach-document',
+  'close-document',
 ]);
 
 const viewerBody = ref(null);
+const documentDialogVisible = computed({
+  get: () => props.currentDocument != null,
+  set: (val) => { if (!val) emit('close-document'); },
+});
 const markdownViewMode = ref('PREVIEW');
 const recentDocumentGroups = computed(() => groupDocumentReferencesByRepository(
   props.recentDocuments,

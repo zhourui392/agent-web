@@ -142,62 +142,51 @@ public class SqliteSessionRepoTest {
     }
 
     @Test
-    public void saveSession_then_findById_should_roundTripWorkbenchPhaseFacts() {
-        Instant createdAt = Instant.parse("2026-08-01T10:00:00Z");
+    public void saveSession_shouldRoundTripAndRetireDynamicStageConversation() {
+        Instant createdAt = Instant.parse("2026-08-05T10:00:00Z");
         Instant retiredAt = createdAt.plusSeconds(60);
-        ChatSession session = ChatSession.createWorkbenchPhase(
-                "phase-session-1", AgentType.CODEX, "/workspace/product",
-                "workbench-1:IMPLEMENT_TEST", "owner-1", "Alex", createdAt);
-        session.retire(retiredAt);
-
-        repo.saveSession(session);
-
-        ChatSession loaded = repo.findById("phase-session-1");
-        assertEquals(SessionKind.WORKBENCH_PHASE, loaded.getSessionKind());
-        assertEquals("workbench-1:IMPLEMENT_TEST", loaded.getContextId());
-        assertEquals(retiredAt, loaded.getRetiredAt());
-        assertEquals("owner-1", loaded.getUserId());
-        assertEquals("Alex", loaded.getUserName());
-    }
-
-    @Test
-    public void saveSession_shouldPersistRetirementAfterActiveSessionWasAlreadyInserted() {
-        Instant createdAt = Instant.parse("2026-08-01T10:00:00Z");
-        Instant retiredAt = createdAt.plusSeconds(60);
-        ChatSession active = ChatSession.createWorkbenchPhase(
-                "phase-session-1", AgentType.CODEX, "/workspace/product",
-                "workbench-1:IMPLEMENT_TEST", "owner-1", "Alex", createdAt);
+        ChatSession active = ChatSession.createWorkbenchStage(
+                "stage-session-1", AgentType.CODEX, "/workspace/product",
+                "workbench-1:stage-implementation", "owner-1", "Alex",
+                createdAt);
         repo.saveSession(active);
 
-        ChatSession persisted = repo.findById("phase-session-1");
+        ChatSession persisted = repo.findById("stage-session-1");
+        assertEquals(SessionKind.WORKBENCH_STAGE, persisted.getSessionKind());
+        assertEquals("workbench-1:stage-implementation",
+                persisted.getContextId());
         persisted.retire(retiredAt);
         repo.saveSession(persisted);
 
-        ChatSession reloaded = repo.findById("phase-session-1");
+        ChatSession reloaded = repo.findById("stage-session-1");
+        assertEquals(SessionKind.WORKBENCH_STAGE, reloaded.getSessionKind());
         assertEquals(retiredAt, reloaded.getRetiredAt());
     }
 
     @Test
     public void saveSession_shouldNotUpdateImmutableFactsOrRetirementForMismatchedDuplicateId() {
         Instant createdAt = Instant.parse("2026-08-01T10:00:00Z");
-        ChatSession original = ChatSession.createWorkbenchPhase(
-                "phase-session-1", AgentType.CODEX, "/workspace/product",
-                "workbench-1:IMPLEMENT_TEST", "owner-1", "Alex", createdAt);
+        ChatSession original = ChatSession.createWorkbenchStage(
+                "stage-session-1", AgentType.CODEX, "/workspace/product",
+                "workbench-1:stage-implementation",
+                "owner-1", "Alex", createdAt);
         repo.saveSession(original);
 
-        ChatSession collision = ChatSession.createWorkbenchPhase(
-                "phase-session-1", AgentType.CLAUDE, "/workspace/other",
-                "workbench-2:SOLUTION_DESIGN", "owner-2", "Bob", createdAt.plusSeconds(1));
+        ChatSession collision = ChatSession.createWorkbenchStage(
+                "stage-session-1", AgentType.CLAUDE, "/workspace/other",
+                "workbench-2:stage-design", "owner-2", "Bob",
+                createdAt.plusSeconds(1));
         collision.retire(createdAt.plusSeconds(2));
 
         assertThrows(IllegalStateException.class, () -> repo.saveSession(collision));
 
-        ChatSession reloaded = repo.findById("phase-session-1");
+        ChatSession reloaded = repo.findById("stage-session-1");
         assertEquals(AgentType.CODEX, reloaded.getAgentType());
         assertEquals("/workspace/product", reloaded.getWorkingDir());
         assertEquals(createdAt, reloaded.getCreatedAt());
-        assertEquals(SessionKind.WORKBENCH_PHASE, reloaded.getSessionKind());
-        assertEquals("workbench-1:IMPLEMENT_TEST", reloaded.getContextId());
+        assertEquals(SessionKind.WORKBENCH_STAGE, reloaded.getSessionKind());
+        assertEquals("workbench-1:stage-implementation",
+                reloaded.getContextId());
         assertEquals("owner-1", reloaded.getUserId());
         assertEquals("Alex", reloaded.getUserName());
         assertNull(reloaded.getRetiredAt());

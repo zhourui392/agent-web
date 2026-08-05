@@ -2,7 +2,7 @@ package com.example.agentweb.app.workbench.admin;
 
 import com.example.agentweb.domain.chatrun.ChatRun;
 import com.example.agentweb.domain.workbench.Workbench;
-import com.example.agentweb.domain.workbench.WorkbenchRunSnapshot;
+import com.example.agentweb.domain.workbench.WorkbenchStageRunSnapshot;
 import lombok.Getter;
 
 /**
@@ -15,11 +15,11 @@ import lombok.Getter;
 final class AdminControlledWorkbenchRun {
 
     private final Workbench workbench;
-    private final WorkbenchRunSnapshot snapshot;
+    private final WorkbenchStageRunSnapshot snapshot;
     private final ChatRun run;
 
     private AdminControlledWorkbenchRun(
-            Workbench workbench, WorkbenchRunSnapshot snapshot,
+            Workbench workbench, WorkbenchStageRunSnapshot snapshot,
             ChatRun run) {
         this.workbench = workbench;
         this.snapshot = snapshot;
@@ -27,7 +27,7 @@ final class AdminControlledWorkbenchRun {
     }
 
     static AdminControlledWorkbenchRun verified(
-            Workbench workbench, WorkbenchRunSnapshot snapshot,
+            Workbench workbench, WorkbenchStageRunSnapshot snapshot,
             ChatRun run) {
         if (workbench == null || snapshot == null || run == null) {
             throw new IllegalArgumentException(

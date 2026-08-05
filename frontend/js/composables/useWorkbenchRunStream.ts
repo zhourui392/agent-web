@@ -107,7 +107,7 @@ function identityFingerprint(identity: WorkbenchRunMarkerIdentity | null): strin
   return JSON.stringify([
     identity.userId,
     identity.workbenchId,
-    identity.phase,
+    identity.stageInstanceIdentifier,
     identity.conversationGeneration,
   ]);
 }
@@ -280,7 +280,7 @@ export function useWorkbenchRunStream(
     const normalizedCursor = eventCursor(cursor);
     const context: WorkbenchRunContext = {
       workbenchId: identity.workbenchId,
-      phase: identity.phase,
+      stageInstanceIdentifier: identity.stageInstanceIdentifier,
       runId,
     };
     try {

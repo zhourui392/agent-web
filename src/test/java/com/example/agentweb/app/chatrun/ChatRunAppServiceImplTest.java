@@ -138,7 +138,8 @@ class ChatRunAppServiceImplTest {
                 ChatRunId.of("workbench-run"), "session-1", 10L, "key-1", false,
                 RunOrigin.WORKBENCH,
                 ExecutionContextReference.of(
-                        "workbench-1:IMPLEMENT_TEST", "workbench-run"),
+                        "workbench-1:stage-implementation",
+                        "workbench-run"),
                 NOW);
         when(runRepository.findBySessionAndIdempotencyKey("session-1", "key-1"))
                 .thenReturn(Optional.of(workbenchRun));
@@ -157,12 +158,13 @@ class ChatRunAppServiceImplTest {
 
     @Test
     void submitShouldHideWorkbenchSessionBeforeIdempotencyLookupOrAnySideEffect() {
-        when(sessionRepository.findById("phase-session-1"))
-                .thenReturn(workbenchSession("phase-session-1"));
+        when(sessionRepository.findById("stage-session-1"))
+                .thenReturn(workbenchSession("stage-session-1"));
 
         assertThrows(ChatSessionNotFoundException.class, () -> service.submit(
                 new SubmitChatRunCommand(
-                        "phase-session-1", "question", null, true, "same-key")));
+                        "stage-session-1", "question", null, true,
+                        "same-key")));
 
         verify(runRepository, never()).findBySessionAndIdempotencyKey(any(), any());
         verify(runRepository, never()).add(any(ChatRun.class));
@@ -230,8 +232,8 @@ class ChatRunAppServiceImplTest {
     void findShouldHideOwnerVisibleWorkbenchRunBeforeReadingEvents() {
         ChatRun run = workbenchRun(ChatRunId.of("workbench-run"));
         when(runRepository.findById(run.getId())).thenReturn(Optional.of(run));
-        when(sessionRepository.findById("phase-session-1"))
-                .thenReturn(workbenchSession("phase-session-1"));
+        when(sessionRepository.findById("stage-session-1"))
+                .thenReturn(workbenchSession("stage-session-1"));
 
         ChatRunNotFoundException error = assertThrows(
                 ChatRunNotFoundException.class, () -> service.find("workbench-run"));
@@ -308,8 +310,8 @@ class ChatRunAppServiceImplTest {
         ChatRun run = workbenchRun(ChatRunId.of("workbench-run"));
         run.start(NOW.minusSeconds(1));
         when(runRepository.findById(run.getId())).thenReturn(Optional.of(run));
-        when(sessionRepository.findById("phase-session-1"))
-                .thenReturn(workbenchSession("phase-session-1"));
+        when(sessionRepository.findById("stage-session-1"))
+                .thenReturn(workbenchSession("stage-session-1"));
 
         assertThrows(ChatRunNotFoundException.class,
                 () -> service.stop("workbench-run"));
@@ -331,19 +333,20 @@ class ChatRunAppServiceImplTest {
     }
 
     private ChatSession workbenchSession(String id) {
-        ChatSession session = ChatSession.createWorkbenchPhase(
+        ChatSession session = ChatSession.createWorkbenchStage(
                 id, AgentType.CODEX, "/workspace",
-                "workbench-1:IMPLEMENT_TEST", "owner-1", "Alex", NOW);
+                "workbench-1:stage-implementation",
+                "owner-1", "Alex", NOW);
         session.setEnv("local");
         return session;
     }
 
     private ChatRun workbenchRun(ChatRunId id) {
         return ChatRun.submit(
-                id, "phase-session-1", 10L, "workbench-key", false,
+                id, "stage-session-1", 10L, "workbench-key", false,
                 RunOrigin.WORKBENCH,
                 ExecutionContextReference.of(
-                        "workbench-1:IMPLEMENT_TEST", id.getValue()),
+                        "workbench-1:stage-implementation", id.getValue()),
                 NOW.minusSeconds(2));
     }
 

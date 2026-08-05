@@ -16,7 +16,7 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Workbench Run 历史、持久事件分页与实际能力追溯编排。
+ * Dynamic Stage Workbench Run 历史、持久事件分页与实际能力追溯编排。
  *
  * <p>所有查询先经过 Owner 与 exact Run binding 授权；列表/详情通过
  * CQRS 读模型返回 DTO，事件 payload 复用活动 SSE 的相同投影。</p>
