@@ -651,6 +651,10 @@ export function useWorkbenchDocumentPane(
     currentDocument.value = retainedState.currentDocument;
     recentDocuments.value = retainedState.recentDocuments;
     applyLayout(retainedState.layout);
+    // 文档区最大化已移除；存量持久化状态为 MAXIMIZED 时自动恢复到 NORMAL
+    if (desktopMode.value === 'MAXIMIZED') {
+      restore();
+    }
     void initializeDocumentScope(epoch);
   }
 

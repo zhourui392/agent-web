@@ -62,6 +62,10 @@ input {
   min-height: 0;
 }
 
+.workbench-body.sidebar-collapsed {
+  grid-template-columns: 44px minmax(0, 1fr);
+}
+
 .workbench-sidebar {
   display: flex;
   flex-direction: column;
@@ -70,10 +74,25 @@ input {
   border-right: 1px solid #e1e6ee;
 }
 
+.workbench-sidebar.collapsed {
+  align-items: center;
+}
+
 .workbench-sidebar-actions {
   display: flex;
   padding: 16px 14px 13px;
   border-bottom: 1px solid #e7ebf1;
+}
+
+.workbench-sidebar.collapsed .workbench-sidebar-actions {
+  flex-direction: column;
+  padding: 10px 6px;
+  gap: 6px;
+  border-bottom: 0;
+}
+
+.workbench-sidebar.collapsed .workbench-sidebar-actions .el-button:first-child {
+  flex: 0 0 auto;
 }
 
 .workbench-sidebar-actions .el-button:first-child {
@@ -305,21 +324,39 @@ input {
 
 .workbench-conversation-panel {
   min-height: 0;
-  gap: 12px;
+  gap: 6px;
+  padding: 12px 14px;
 }
 
 .workbench-conversation-alert {
   flex: 0 0 auto;
 }
 
+/* 覆盖 conversation.css 共享气泡样式，使 workbench 对话更紧凑 */
+.workbench-conversation-panel .message-user {
+  padding: 7px 12px;
+  border-radius: 10px 10px 3px 10px;
+}
+
+.workbench-conversation-panel .message-agent {
+  padding: 8px 12px;
+  border-radius: 10px 10px 10px 3px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.workbench-conversation-panel .conversation-message + .conversation-message {
+  margin-top: 2px;
+}
+
 .workbench-conversation-timeline {
   position: relative;
   display: flex;
-  min-height: 220px;
+  min-height: 0;
   flex: 1;
   flex-direction: column;
-  padding: 4px 3px;
-  gap: 9px;
+  padding: 2px;
+  gap: 5px;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
@@ -334,11 +371,11 @@ input {
 
 .workbench-conversation-empty {
   display: flex;
-  min-height: 190px;
+  min-height: 120px;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 4px;
   color: #7d8798;
   text-align: center;
 }
@@ -354,14 +391,37 @@ input {
   line-height: 1.6;
 }
 
+.workbench-run-terminal {
+  padding: 8px 12px;
+  border-radius: 8px;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.workbench-run-terminal.terminal-success {
+  background: #e1f3d8;
+  color: #67c23a;
+}
+
+.workbench-run-terminal.terminal-warning {
+  background: #fdf6ec;
+  color: #e6a23c;
+}
+
+.workbench-run-terminal.terminal-error {
+  background: #fef0f0;
+  color: #f56c6c;
+}
+
 .workbench-timeline-block,
 .workbench-test-event,
 .workbench-file-event {
-  padding: 10px 12px;
+  padding: 6px 10px;
   color: #435066;
   background: #f7f9fc;
   border: 1px solid #e6eaf1;
-  border-radius: 9px;
+  border-radius: 6px;
 }
 
 .workbench-timeline-block.kind-agent_chunk {
@@ -370,7 +430,7 @@ input {
 }
 
 .workbench-timeline-block.kind-tool {
-  padding: 6px 10px;
+  padding: 4px 8px;
 }
 
 .workbench-timeline-block header,
@@ -378,7 +438,7 @@ input {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 6px;
 }
 
 .workbench-timeline-block header span,
@@ -396,14 +456,14 @@ input {
 
 .workbench-timeline-block p,
 .workbench-test-event p {
-  margin: 7px 0 0;
+  margin: 3px 0 0;
   font-size: 12px;
-  line-height: 1.65;
+  line-height: 1.5;
   white-space: pre-wrap;
 }
 
 .workbench-timeline-block details {
-  margin-top: 6px;
+  margin-top: 4px;
   font-size: 11px;
 }
 
@@ -459,10 +519,10 @@ input {
 
 .workbench-composer {
   flex: 0 0 auto;
-  padding: 11px;
+  padding: 8px;
   background: #f6f8fb;
   border: 1px solid #e3e8f0;
-  border-radius: 11px;
+  border-radius: 8px;
   transition: border-color 0.16s ease, box-shadow 0.16s ease;
 }
 
@@ -471,36 +531,25 @@ input {
   box-shadow: 0 0 0 3px rgb(95 130 216 / 14%);
 }
 
-.workbench-composer-mode,
+/* 覆盖 conversation.css 的共享 Composer 骨架，消除双重 padding */
+.workbench-composer .conversation-composer {
+  padding: 0;
+}
+
+.workbench-composer .conversation-composer-actions {
+  margin-top: 6px;
+  gap: 6px;
+}
+
 .workbench-composer-actions {
   display: flex;
   align-items: center;
   gap: 9px;
 }
 
-.workbench-composer-mode {
-  margin-bottom: 8px;
-  flex-wrap: wrap;
-}
-
-.workbench-composer-mode > span {
-  color: #697386;
-  font-size: 10px;
-  font-weight: 700;
-}
-
-.workbench-composer-mode small {
-  color: #ad6b15;
-  font-size: 9px;
-}
-
-.workbench-run-mode-select {
-  width: 150px;
-}
-
 .workbench-composer-actions {
   justify-content: flex-end;
-  margin-top: 8px;
+  margin-top: 5px;
   flex-wrap: wrap;
 }
 
@@ -640,15 +689,6 @@ input {
 .workbench-resize-handle:focus-visible {
   outline: 2px solid #5274ce;
   outline-offset: -2px;
-}
-
-.workbench-conversation-heading-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  flex: 0 0 auto;
-  flex-wrap: wrap;
-  gap: 5px;
 }
 
 .workbench-document-actions {
@@ -1187,11 +1227,6 @@ input {
   }
 
   .workbench-inspect-row {
-    flex-direction: column;
-  }
-
-  .workbench-composer-mode {
-    align-items: stretch;
     flex-direction: column;
   }
 

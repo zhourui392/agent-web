@@ -1,14 +1,5 @@
 <template>
   <div class="workbench-conversation-panel">
-    <div class="workbench-conversation-heading-actions">
-      <el-tag :type="connectionType" effect="plain">{{ connectionLabel }}</el-tag>
-      <el-tag v-if="runState?.status" :type="runStatusType">{{ runStatusLabel }}</el-tag>
-      <el-button v-if="mobile" text @click="emit('open-document-pane')">打开文档区</el-button>
-      <el-button v-else-if="documentCollapsed" text @click="emit('restore-document-pane')">
-        恢复文档区
-      </el-button>
-    </div>
-
     <el-alert
       v-if="error"
       class="workbench-conversation-alert"
@@ -76,12 +67,13 @@
         @open-document="ref => emit('open-document', ref)"
       />
 
-      <el-result
+      <div
         v-if="runState?.terminal"
-        :icon="terminalIcon"
-        :title="terminalLabel"
-        :sub-title="runState.terminal.publicMessage || undefined"
-      />
+        :class="['workbench-run-terminal', terminalStatusClass]"
+        data-test="workbench-run-terminal"
+      >
+        {{ terminalLabel }}<template v-if="runState.terminal.publicMessage"> · {{ runState.terminal.publicMessage }}</template>
+      </div>
     </div>
 
     <div
@@ -91,37 +83,12 @@
       @dragleave="handleAttachmentDragLeave"
       @drop.prevent="handleAttachmentDrop"
     >
-      <div class="workbench-composer-mode" data-test="workbench-run-mode-selector">
-        <span>运行模式</span>
-        <el-select
-          :model-value="selectedRunMode"
-          size="small"
-          class="workbench-run-mode-select"
-          :placeholder="allowedRunModes.length > 1 ? '请选择运行模式' : '无可用模式'"
-          :disabled="readOnly || submitting || runActive"
-          aria-label="当前 Stage 运行模式"
-          @update:model-value="mode => emit('select-run-mode', mode)"
-        >
-          <el-option
-            v-for="mode in allowedRunModes"
-            :key="mode"
-            :label="runModeLabel(mode)"
-            :value="mode"
-          />
-        </el-select>
-        <small v-if="selectedRunMode === 'MODIFY_WORKSPACE'">
-          此模式允许在冻结仓库范围内修改文件。
-        </small>
-        <small v-else-if="selectedRunMode === 'DISCUSS_READ_ONLY'">
-          此模式仅允许读取和讨论，不修改工作区。
-        </small>
-      </div>
       <ConversationComposer
         ref="composerRef"
         :model-value="modelValue"
         placeholder="输入本阶段问题或任务；普通聊天文字不会授权 commit、push 或部署"
         :maximum-length="16000"
-        :textarea-rows="4"
+        :textarea-rows="3"
         :input-disabled="readOnly || submitting"
         :can-submit="canSubmit"
         :submitting="submitting"
@@ -226,7 +193,7 @@
               :disabled="runActive || submitting"
               @click="emit('start-new-context')"
             >
-              开始新对话上下文
+              清空上下文
             </el-button>
             <input
               ref="imagePicker"
@@ -264,7 +231,6 @@
             >
               选择附件
             </el-button>
-            <small>可粘贴图片或拖入文件 · 合计最多 8 个 · 单个 ≤ 10 MB</small>
           </template>
         </template>
       </ConversationComposer>
@@ -311,7 +277,6 @@ const props = defineProps({
   attachments: { type: Array, required: true },
   uploadItems: { type: Array, default: () => [] },
   uploadNotice: { type: String, default: null },
-  connectionStatus: { type: String, required: true },
   error: { type: String, default: null },
   notice: { type: String, default: null },
   allowedRunModes: { type: Array, required: true },
@@ -320,20 +285,15 @@ const props = defineProps({
   stopping: { type: Boolean, required: true },
   readOnly: { type: Boolean, required: true },
   identityReady: { type: Boolean, required: true },
-  mobile: { type: Boolean, required: true },
-  documentCollapsed: { type: Boolean, required: true },
   terminalDocumentStale: { type: Boolean, required: true },
   workspaceRoot: { type: String, default: '' },
 });
 
 const emit = defineEmits([
   'update:modelValue',
-  'select-run-mode',
   'submit',
   'stop',
   'open-document',
-  'open-document-pane',
-  'restore-document-pane',
   'remove-attachment',
   'upload-files',
   'retry-upload',
@@ -537,33 +497,12 @@ const canSubmit = computed(() =>
   !runActive.value &&
   Boolean(props.modelValue.trim()),
 );
-const connectionLabel = computed(() => ({
-  idle: '未连接',
-  connecting: '连接中',
-  streaming: '实时输出',
-  reconnecting: '正在重连',
-  closed: '流已关闭',
-}[props.connectionStatus] || '流状态未知'));
-const connectionType = computed(() => props.connectionStatus === 'streaming'
-  ? 'success'
-  : props.connectionStatus === 'reconnecting' ? 'warning' : 'info');
-const runStatusLabel = computed(() => ({
-  PENDING: '等待启动',
-  RUNNING: '运行中',
-  CANCEL_REQUESTED: '正在停止',
-  SUCCEEDED: '成功',
-  FAILED: '失败',
-  CANCELLED: '已取消',
-  INTERRUPTED: '已中断',
-}[props.runState?.status || ''] || props.runState?.status || ''));
-const runStatusType = computed(() => props.runState?.status === 'SUCCEEDED'
-  ? 'success'
-  : ['FAILED', 'INTERRUPTED'].includes(props.runState?.status || '')
-    ? 'danger'
-    : ['RUNNING', 'CANCEL_REQUESTED'].includes(props.runState?.status || '') ? 'warning' : 'info');
-const terminalIcon = computed(() => props.runState?.terminal?.status === 'SUCCEEDED'
-  ? 'success'
-  : props.runState?.terminal?.status === 'CANCELLED' ? 'warning' : 'error');
+const terminalStatusClass = computed(() => {
+  const status = props.runState?.terminal?.status;
+  if (status === 'SUCCEEDED') return 'terminal-success';
+  if (status === 'CANCELLED') return 'terminal-warning';
+  return 'terminal-error';
+});
 const terminalLabel = computed(() => ({
   SUCCEEDED: '本轮运行成功',
   FAILED: '本轮运行失败',
@@ -573,10 +512,6 @@ const terminalLabel = computed(() => ({
 
 function updateText(value) {
   if (typeof value === 'string') emit('update:modelValue', value);
-}
-
-function runModeLabel(mode) {
-  return mode === 'MODIFY_WORKSPACE' ? '修改工作区' : '只读讨论';
 }
 
 function emitSubmit() {

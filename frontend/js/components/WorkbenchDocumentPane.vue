@@ -1,18 +1,8 @@
 <template>
   <aside :class="['workbench-document-panel', { mobile }]">
-    <div class="workbench-panel-heading">
+    <div v-if="mobile" class="workbench-panel-heading">
       <div class="workbench-document-actions">
-        <template v-if="mobile">
-          <el-button text @click="$emit('close')">关闭</el-button>
-        </template>
-        <template v-else-if="maximized">
-          <el-button text @click="$emit('restore')">恢复</el-button>
-          <el-button text @click="$emit('collapse')">收起</el-button>
-        </template>
-        <template v-else>
-          <el-button text @click="$emit('maximize')">最大化</el-button>
-          <el-button text @click="$emit('collapse')">收起</el-button>
-        </template>
+        <el-button text @click="$emit('close')">关闭</el-button>
       </div>
     </div>
 
@@ -384,14 +374,11 @@ const props = defineProps({
   downloadLoading: { type: Boolean, default: false },
   documentError: { type: String, default: '' },
   mobile: { type: Boolean, default: false },
-  maximized: { type: Boolean, default: false },
   attachmentSelected: { type: Boolean, default: false },
 });
 
 const emit = defineEmits([
   'close',
-  'collapse',
-  'maximize',
   'restore',
   'select-repository',
   'open-directory',

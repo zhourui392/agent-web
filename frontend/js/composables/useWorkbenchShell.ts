@@ -44,6 +44,7 @@ interface UseWorkbenchShell {
   username: Ref<string>;
   currentUserId: Ref<string>;
   authEnabled: Ref<boolean>;
+  sidebarCollapsed: Ref<boolean>;
   listLoading: Ref<boolean>;
   detailLoading: Ref<boolean>;
   inspectLoading: Ref<boolean>;
@@ -75,6 +76,7 @@ interface UseWorkbenchShell {
   clearError: () => void;
   goHome: () => void;
   doLogout: () => Promise<void>;
+  toggleSidebar: () => void;
 }
 
 function readErrorCode(error: unknown): string | null {
@@ -100,6 +102,7 @@ export function useWorkbenchShell(): UseWorkbenchShell {
     initAuth,
     doLogout,
   } = useAuth();
+  const sidebarCollapsed = ref(false);
   const listLoading = ref(false);
   const detailLoading = ref(false);
   const inspectLoading = ref(false);
@@ -134,6 +137,40 @@ export function useWorkbenchShell(): UseWorkbenchShell {
 
   function storageIdentity(): string {
     return currentUserId.value || username.value || 'anonymous';
+  }
+
+  function sidebarStorageKey(): string {
+    return `workbench:sidebar:${storageIdentity()}`;
+  }
+
+  function persistSidebarCollapsed(): void {
+    try {
+      localStorage.setItem(
+        sidebarStorageKey(),
+        JSON.stringify({ collapsed: sidebarCollapsed.value }),
+      );
+    } catch {
+      // localStorage 禁用时仍允许内存态切换
+    }
+  }
+
+  function restoreSidebarCollapsed(): void {
+    try {
+      const stored = localStorage.getItem(sidebarStorageKey());
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed && typeof parsed.collapsed === 'boolean') {
+          sidebarCollapsed.value = parsed.collapsed;
+        }
+      }
+    } catch {
+      // 损坏的存储键忽略，默认展开
+    }
+  }
+
+  function toggleSidebar(): void {
+    sidebarCollapsed.value = !sidebarCollapsed.value;
+    persistSidebarCollapsed();
   }
 
   function clearError(): void {
@@ -410,6 +447,7 @@ export function useWorkbenchShell(): UseWorkbenchShell {
   async function initialize(): Promise<void> {
     const authenticated = await initAuth();
     if (!authenticated) return;
+    restoreSidebarCollapsed();
     await refreshList();
     const workbenchId = new URLSearchParams(window.location.search).get('id');
     if (workbenchId) {
@@ -425,6 +463,7 @@ export function useWorkbenchShell(): UseWorkbenchShell {
     username,
     currentUserId,
     authEnabled,
+    sidebarCollapsed,
     listLoading,
     detailLoading,
     inspectLoading,
@@ -456,5 +495,6 @@ export function useWorkbenchShell(): UseWorkbenchShell {
     clearError,
     goHome,
     doLogout,
+    toggleSidebar,
   };
 }

@@ -10,20 +10,31 @@
       @close="clearError"
     />
 
-    <div class="workbench-body">
-      <aside class="workbench-sidebar">
+    <div :class="['workbench-body', { 'sidebar-collapsed': sidebarCollapsed }]">
+      <aside :class="['workbench-sidebar', { collapsed: sidebarCollapsed }]">
         <div class="workbench-sidebar-actions">
-          <el-button text @click="goHome">← 返回对话</el-button>
-          <el-button type="primary" @click="openCreateDialog">
-            <el-icon><plus /></el-icon>
-            新建
-          </el-button>
-          <el-button text :loading="listLoading" title="刷新列表" @click="refreshList">
-            <el-icon><refresh /></el-icon>
+          <template v-if="!sidebarCollapsed">
+            <el-button text @click="goHome">← 返回对话</el-button>
+            <el-button type="primary" @click="openCreateDialog">
+              <el-icon><plus /></el-icon>
+              新建
+            </el-button>
+            <el-button text :loading="listLoading" title="刷新列表" @click="refreshList">
+              <el-icon><refresh /></el-icon>
+            </el-button>
+          </template>
+          <el-button
+            text
+            class="workbench-sidebar-toggle"
+            :title="sidebarCollapsed ? '展开侧栏' : '收起侧栏'"
+            :data-test="sidebarCollapsed ? 'expand-sidebar' : 'collapse-sidebar'"
+            @click="toggleSidebar"
+          >
+            <el-icon><expand v-if="sidebarCollapsed" /><fold v-else /></el-icon>
           </el-button>
         </div>
 
-        <div v-loading="listLoading" class="workbench-list">
+        <div v-if="!sidebarCollapsed" v-loading="listLoading" class="workbench-list">
           <button
             v-for="item in workbenches"
             :key="item.id"
@@ -106,6 +117,16 @@
             <el-button
               plain
               size="small"
+              data-test="toggle-document-pane"
+              :title="isMobile ? '打开文档区' : desktopMode === 'COLLAPSED' ? '显示文档区' : '隐藏文档区'"
+              @click="toggleDocumentPane"
+            >
+              <el-icon><document /></el-icon>
+              文档
+            </el-button>
+            <el-button
+              plain
+              size="small"
               data-test="open-run-history"
               @click="openRunHistory"
             >
@@ -157,7 +178,6 @@
               :attachments="pendingAttachments"
               :upload-items="workbenchUploadItems"
               :upload-notice="workbenchUploadNotice"
-              :connection-status="connectionStatus"
               :error="conversationError"
               :notice="conversationNotice"
               :allowed-run-modes="allowedRunModes"
@@ -166,16 +186,11 @@
               :stopping="stopping"
               :read-only="archived"
               :identity-ready="identityReady"
-              :mobile="isMobile"
-              :document-collapsed="desktopMode === 'COLLAPSED'"
               :terminal-document-stale="Boolean(runState?.terminal && currentDocument?.stale)"
               @update:model-value="updateComposerText"
-              @select-run-mode="selectRunMode"
               @submit="submitConversation"
               @stop="stopConversation"
               @open-document="openRunDocument"
-              @open-document-pane="openMobileDrawer"
-              @restore-document-pane="restore"
               @remove-attachment="removeAttachment"
               @upload-files="uploadWorkbenchFiles"
               @retry-upload="retryWorkbenchUpload"
@@ -202,7 +217,6 @@
             <workbench-document-pane
               v-if="!isMobile && desktopMode !== 'COLLAPSED'"
               :repositories="detail.repositoryScope.repositories"
-              :maximized="desktopMode === 'MAXIMIZED'"
               :selected-repository-key="selectedRepositoryKey"
               :current-directory-path="currentDirectoryPath"
               :tree-entries="treeEntries"
@@ -215,8 +229,6 @@
               :download-loading="downloadLoading"
               :document-error="documentError"
               :attachment-selected="currentDocumentAttachmentSelected"
-              @collapse="collapse"
-              @maximize="maximize"
               @restore="restore"
               @select-repository="selectRepository"
               @open-directory="openDirectory"
@@ -691,6 +703,12 @@ export default {
       await documentPane.openDocument(reference);
     }
 
+    function toggleDocumentPane() {
+      if (documentPane.isMobile.value) documentPane.openMobileDrawer();
+      else if (documentPane.desktopMode.value === 'COLLAPSED') documentPane.restore();
+      else documentPane.collapse();
+    }
+
     async function uploadWorkbenchFiles(files) {
       for (const file of Array.from(files || [])) {
         await uploadedAttachments.upload(file);
@@ -831,6 +849,7 @@ export default {
       toggleRepository,
       updateComposerText,
       openRunDocument,
+      toggleDocumentPane,
       uploadWorkbenchFiles,
       retryWorkbenchUpload,
       removeWorkbenchUpload,
