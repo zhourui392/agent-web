@@ -23,7 +23,7 @@ public final class CommandDefinition {
             Pattern.compile("[a-z0-9][a-z0-9:_-]{0,127}");
     private static final Pattern PLACEHOLDER_PATTERN =
             Pattern.compile("\\$[A-Z][A-Z0-9_]*");
-    private static final String ARGUMENTS_PLACEHOLDER = "$ARGUMENTS";
+    static final String ARGUMENTS_PLACEHOLDER = "$ARGUMENTS";
 
     private final String identifier;
     private final String version;

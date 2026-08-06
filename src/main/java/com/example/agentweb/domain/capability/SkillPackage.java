@@ -113,4 +113,38 @@ public final class SkillPackage {
         }
         return Collections.unmodifiableMap(copy);
     }
+
+    /**
+     * 按冻结 Stage 期望的 packageHash 校验并展开 Skill entry 为 prompt。
+     *
+     * <p>与 {@link CommandDefinition#resolve} 对称：校验内容 hash 未漂移、
+     * 把 {@code $ARGUMENTS} 替换为用户参数、校验展开长度上限，返回
+     * {@link ResolvedCommandBinding}。
+     *
+     * @param expectedPackageHash 冻结 Stage Snapshot 记录的期望 package hash
+     * @param arguments 用户传入的参数文本，可为 {@code null}
+     * @return 展开后的不可变 Command Binding
+     * @throws CommandResolutionException hash 不匹配或展开超长
+     */
+    public ResolvedCommandBinding resolve(
+            String expectedPackageHash, String arguments) {
+        String expected = DomainText.requireSha256(
+                expectedPackageHash, "expected skill package hash");
+        if (!packageHash.equals(expected)) {
+            throw new CommandResolutionException(
+                    "WORKBENCH_SKILL_CONTENT_CHANGED",
+                    "skill content no longer matches the frozen stage definition");
+        }
+        String normalizedArguments = arguments == null ? "" : arguments.trim();
+        String expandedPrompt = entryContent.replace(
+                CommandDefinition.ARGUMENTS_PLACEHOLDER, normalizedArguments);
+        if (expandedPrompt.length() > CommandDefinition.MAX_EXPANDED_PROMPT_LENGTH) {
+            throw new CommandResolutionException(
+                    "WORKBENCH_SKILL_EXPANSION_TOO_LARGE",
+                    "expanded skill prompt exceeds the allowed size");
+        }
+        return new ResolvedCommandBinding(
+                manifest.getId(), manifest.getVersion(),
+                packageHash, expandedPrompt);
+    }
 }

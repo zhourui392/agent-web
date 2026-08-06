@@ -93,25 +93,32 @@ public final class WorkbenchStageCapabilityResolver {
         if (invocation == null) {
             return null;
         }
-        StageCommandReference selected = null;
+        String identifier = invocation.getIdentifier();
         for (StageCommandReference reference
                 : stageSnapshot.getCommandReferences()) {
-            if (reference.getIdentifier().equals(
-                    invocation.getIdentifier())) {
-                selected = reference;
-                break;
+            if (reference.getIdentifier().equals(identifier)) {
+                CommandDefinition command = artifactRegistry.requireCommand(
+                        reference.getIdentifier(), reference.getVersion(),
+                        reference.getContentHash());
+                return command.resolve(
+                        reference.getContentHash(),
+                        invocation.getArguments());
             }
         }
-        if (selected == null) {
-            throw new CommandResolutionException(
-                    "WORKBENCH_STAGE_COMMAND_NOT_ALLOWED",
-                    "Command is not selected by the frozen Stage Snapshot");
+        for (StageSkillReference reference
+                : stageSnapshot.getSkillReferences()) {
+            if (reference.getIdentifier().equals(identifier)) {
+                SkillPackage skill = artifactRegistry.requireSkill(
+                        reference.getIdentifier(), reference.getVersion(),
+                        reference.getPackageHash());
+                return skill.resolve(
+                        reference.getPackageHash(),
+                        invocation.getArguments());
+            }
         }
-        CommandDefinition command = artifactRegistry.requireCommand(
-                selected.getIdentifier(), selected.getVersion(),
-                selected.getContentHash());
-        return command.resolve(
-                selected.getContentHash(), invocation.getArguments());
+        throw new CommandResolutionException(
+                "WORKBENCH_STAGE_COMMAND_NOT_ALLOWED",
+                "Command or Skill is not selected by the frozen Stage Snapshot");
     }
 
     public List<CommandDefinition> listCommands(
@@ -129,6 +136,22 @@ public final class WorkbenchStageCapabilityResolver {
                     reference.getContentHash()));
         }
         return Collections.unmodifiableList(commands);
+    }
+
+    public List<SkillPackage> listSkills(
+            WorkbenchStageSnapshot stageSnapshot) {
+        if (stageSnapshot == null) {
+            throw new IllegalArgumentException(
+                    "Stage Snapshot is required for Skill listing");
+        }
+        List<SkillPackage> skills = new ArrayList<SkillPackage>();
+        for (StageSkillReference reference
+                : stageSnapshot.getSkillReferences()) {
+            skills.add(artifactRegistry.requireSkill(
+                    reference.getIdentifier(), reference.getVersion(),
+                    reference.getPackageHash()));
+        }
+        return Collections.unmodifiableList(skills);
     }
 
     private ResolvedRuleBinding stageRule(

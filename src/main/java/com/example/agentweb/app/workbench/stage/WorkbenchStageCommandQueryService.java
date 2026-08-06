@@ -2,6 +2,7 @@ package com.example.agentweb.app.workbench.stage;
 
 import com.example.agentweb.app.workbench.WorkbenchNotFoundException;
 import com.example.agentweb.domain.capability.CommandDefinition;
+import com.example.agentweb.domain.capability.SkillPackage;
 import com.example.agentweb.domain.workbench.OwnerReference;
 import com.example.agentweb.domain.workbench.Workbench;
 import com.example.agentweb.domain.workbench.WorkbenchDomainException;
@@ -9,6 +10,7 @@ import com.example.agentweb.domain.workbench.WorkbenchErrorCode;
 import com.example.agentweb.domain.workbench.WorkbenchId;
 import com.example.agentweb.domain.workbench.WorkbenchRepository;
 import com.example.agentweb.domain.workbench.stage.WorkbenchStageCapabilityResolver;
+import com.example.agentweb.domain.workbench.stage.WorkbenchStageSnapshot;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -49,12 +51,18 @@ public class WorkbenchStageCommandQueryService {
         Workbench workbench = workbenchRepository.findById(workbenchId)
                 .orElseThrow(WorkbenchNotFoundException::new);
         requireVisibleStage(workbench, actor, stageInstanceIdentifier);
-        List<CommandDefinition> commands = capabilityResolver.listCommands(
-                workbench.stage(stageInstanceIdentifier).getSnapshot());
+        WorkbenchStageSnapshot snapshot =
+                workbench.stage(stageInstanceIdentifier).getSnapshot();
+        List<CommandDefinition> commands = capabilityResolver.listCommands(snapshot);
+        List<SkillPackage> skills = capabilityResolver.listSkills(snapshot);
         List<WorkbenchStageCommandView> views =
-                new ArrayList<WorkbenchStageCommandView>(commands.size());
+                new ArrayList<WorkbenchStageCommandView>(
+                        commands.size() + skills.size());
         for (CommandDefinition command : commands) {
             views.add(WorkbenchStageCommandView.from(command));
+        }
+        for (SkillPackage skill : skills) {
+            views.add(WorkbenchStageCommandView.fromSkill(skill));
         }
         return Collections.unmodifiableList(views);
     }

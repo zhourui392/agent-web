@@ -26,6 +26,7 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -95,6 +96,47 @@ class WorkbenchStageCapabilityResolverTest {
         assertEquals("WORKBENCH_STAGE_COMMAND_NOT_ALLOWED",
                 failure.getCode());
         assertEquals(1, registry.commandReads);
+    }
+
+    @Test
+    void should_ResolveSkillInvocationFromFrozenStage() {
+        // Given
+        InMemoryArtifactRegistry registry = artifacts();
+        WorkbenchStageCapabilityResolver resolver =
+                new WorkbenchStageCapabilityResolver(registry);
+        WorkbenchStageSnapshot snapshot = stageSnapshot(registry);
+
+        // When
+        ResolvedCommandBinding binding = resolver.resolveCommand(
+                snapshot, WorkbenchStageCommandInvocation.parse(
+                        "/domain-modeling-audit"));
+
+        // Then
+        assertEquals("domain-modeling-audit", binding.getIdentifier());
+        assertEquals("1.0.0", binding.getVersion());
+        assertEquals(registry.skill.getPackageHash(),
+                binding.getContentHash());
+        assertEquals("# Domain Modeling Audit",
+                binding.getExpandedPrompt());
+        assertFalse(binding.getExpandedPrompt().contains("$ARGUMENTS"));
+    }
+
+    @Test
+    void should_ListStageSkillsAlongsideCommands() {
+        // Given
+        InMemoryArtifactRegistry registry = artifacts();
+        WorkbenchStageCapabilityResolver resolver =
+                new WorkbenchStageCapabilityResolver(registry);
+        WorkbenchStageSnapshot snapshot = stageSnapshot(registry);
+
+        // When
+        java.util.List<SkillPackage> skills =
+                resolver.listSkills(snapshot);
+
+        // Then
+        assertEquals(1, skills.size());
+        assertEquals("domain-modeling-audit",
+                skills.get(0).getManifest().getId());
     }
 
     @Test
