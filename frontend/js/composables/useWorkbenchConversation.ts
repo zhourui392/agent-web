@@ -651,7 +651,11 @@ function normalizeAllowedRunModes(
 function initialRunMode(
   allowedRunModes: ReadonlyArray<WorkbenchRunMode>,
 ): WorkbenchRunMode | null {
-  return allowedRunModes.length === 1 ? allowedRunModes[0] : null;
+  if (allowedRunModes.length === 0) return null;
+  // 多模式时默认选 MODIFY_WORKSPACE（开发/重构阶段需改仓库），避免无 UI 选择器时按钮被禁用
+  return allowedRunModes.includes('MODIFY_WORKSPACE')
+    ? 'MODIFY_WORKSPACE'
+    : allowedRunModes[0];
 }
 
 function restartFingerprint(
