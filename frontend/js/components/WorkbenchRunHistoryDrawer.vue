@@ -90,6 +90,14 @@
                     <p v-if="block.outputSummary" data-test="workbench-history-command-output-summary">
                       {{ block.outputSummary }}
                     </p>
+                    <template v-if="block.commandContent">
+                      <small>命令</small>
+                      <pre data-test="workbench-history-command-content">{{ block.commandContent }}</pre>
+                    </template>
+                    <template v-if="block.outputContent">
+                      <small>{{ block.outputTruncated ? '输出（已截断）' : '输出' }}</small>
+                      <pre data-test="workbench-history-command-output">{{ block.outputContent }}</pre>
+                    </template>
                     <dl>
                       <template v-if="block.repositoryKey"><dt>仓库</dt><dd>{{ block.repositoryKey }}</dd></template>
                       <template v-if="block.status"><dt>状态</dt><dd>{{ block.status }}</dd></template>
@@ -422,6 +430,15 @@ function blockLabel(kind) {
   padding: 28px 12px;
   color: var(--el-text-color-secondary);
   text-align: center;
+}
+.workbench-timeline-block pre {
+  max-height: 240px;
+  overflow: auto;
+  padding: 10px;
+  border-radius: 6px;
+  background: var(--el-fill-color-dark);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .workbench-run-capability-meta {
   display: grid;

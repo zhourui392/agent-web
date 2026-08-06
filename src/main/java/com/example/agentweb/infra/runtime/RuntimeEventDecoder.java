@@ -104,7 +104,8 @@ public final class RuntimeEventDecoder {
         String assistantText = normalizedAssistantText(
                 root, providerEventType, capabilities);
         SemanticProjection projection = eventType == RuntimeEventType.OUTPUT
-                ? semantics(root, providerEventType, workspaceLayout)
+                ? semantics(root, providerEventType,
+                capabilities, workspaceLayout)
                 : SemanticProjection.empty();
         String safePayload = providerEventType.isEmpty()
                 ? "unstructured provider output suppressed"
@@ -179,6 +180,7 @@ public final class RuntimeEventDecoder {
 
     private SemanticProjection semantics(
             JsonNode root, String providerEventType,
+            RuntimeCapabilityMaterialization capabilities,
             WorkspaceLayout workspaceLayout) {
         if (root == null || !ITEM_STARTED.equals(providerEventType)
                 && !ITEM_COMPLETED.equals(providerEventType)) {
@@ -192,7 +194,7 @@ public final class RuntimeEventDecoder {
         try {
             if ("command_execution".equals(itemType)) {
                 return commandSemantics(
-                        providerEventType, item, workspaceLayout);
+                        providerEventType, item, capabilities, workspaceLayout);
             }
             if (MCP_TOOL_CALL.equals(itemType)) {
                 return mcpSemantics(providerEventType, item);
@@ -209,6 +211,7 @@ public final class RuntimeEventDecoder {
 
     private SemanticProjection commandSemantics(
             String providerEventType, JsonNode item,
+            RuntimeCapabilityMaterialization capabilities,
             WorkspaceLayout workspaceLayout) {
         JsonNode commandNode = item.get("command");
         if (commandNode == null || !commandNode.isTextual()) {
@@ -242,7 +245,8 @@ public final class RuntimeEventDecoder {
         RuntimeCommandClass commandClass = assessment.getCommandClass();
         if (ITEM_STARTED.equals(providerEventType)) {
             events.add(RuntimeSemanticEvent.toolStarted(
-                    "shell", callId, "RUNNING"));
+                    "shell", callId, "RUNNING",
+                    safeCommandContent(commandNode.asText(), capabilities)));
             events.add(RuntimeSemanticEvent.commandStarted(
                     repositoryKey, commandClass.name()));
             addProgress(events, repositoryKey, commandClass,
@@ -253,7 +257,8 @@ public final class RuntimeEventDecoder {
                     && !"failed".equals(item.path("status").asText());
             events.add(RuntimeSemanticEvent.toolFinished(
                     "shell", callId,
-                    succeeded ? "SUCCEEDED" : "FAILED"));
+                    succeeded ? "SUCCEEDED" : "FAILED",
+                    safeCommandOutput(item, capabilities)));
             events.add(RuntimeSemanticEvent.commandFinished(
                     repositoryKey, commandClass.name(), exitCode,
                     succeeded ? "SUCCEEDED" : "FAILED"));
@@ -262,6 +267,28 @@ public final class RuntimeEventDecoder {
                     succeeded ? "命令已完成" : "命令执行失败");
         }
         return SemanticProjection.of(events);
+    }
+
+    private String safeCommandContent(
+            String command,
+            RuntimeCapabilityMaterialization capabilities) {
+        String redacted = capabilities == null
+                ? command : capabilities.redact(command, outputRedactor);
+        return outputRedactor.boundEvidenceLine(
+                outputRedactor.sanitizeDisplayText(redacted),
+                RuntimeEvent.MAX_SAFE_PAYLOAD_LENGTH);
+    }
+
+    private String safeCommandOutput(
+            JsonNode item,
+            RuntimeCapabilityMaterialization capabilities) {
+        String output = textual(item.get("aggregated_output"));
+        if (output == null) {
+            output = "";
+        }
+        String redacted = capabilities == null
+                ? output : capabilities.redact(output, outputRedactor);
+        return outputRedactor.sanitizeDisplayText(redacted);
     }
 
     private void addProgress(

@@ -50,6 +50,14 @@ describe('Workbench interactive panels', () => {
     expect(page).toContain('@load-older-messages="loadOlderConversationMessages"');
   });
 
+  it('renders live shell command content and bounded output in the shared tool block', async () => {
+    const panel = await source('frontend/js/components/WorkbenchConversationPanel.vue');
+
+    expect(panel).toContain('block.commandContent');
+    expect(panel).toContain('block.outputContent');
+    expect(panel).toContain('commandExecutionContent(block)');
+  });
+
   it('projects live Stage test progress with a stable selector and terminal status', async () => {
     const panel = await source('frontend/js/components/WorkbenchConversationPanel.vue');
     const message = await source('frontend/js/components/conversation/ConversationMessage.vue');

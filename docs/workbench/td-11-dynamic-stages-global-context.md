@@ -623,6 +623,10 @@ Run 访问的以下情况统一返回 Run 不存在：
 
 日志只记录安全标识或不可逆摘要，不输出 Prompt、Secret、Token、附件内容或绝对路径。
 
+Owner 工具时间线可以展示当前 Run 的 SHELL 命令正文和输出，但必须先按本轮物化 Secret
+脱敏；命令正文有界，输出最多保留 2000 字符并显式标记截断。该内容不得进入 Admin
+Workbench 投影或服务日志。
+
 ### 17.2 Repository Scope 与路径
 
 `MODIFY_WORKSPACE` 只授权冻结 Repository Scope 内的普通文件修改。所有 Document 与 Attachment 路径必须规范化，并防御绝对路径、`..`、符号链接、链接竞争和边界外真实路径。

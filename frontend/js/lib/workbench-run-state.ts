@@ -20,6 +20,8 @@ export const WORKBENCH_RUN_LIMITS = {
   genericSummaryChars: 4000,
   commandSummaryChars: 1024,
   outputSummaryChars: 1024,
+  commandContentChars: 65_536,
+  outputContentChars: 2080,
   textChars: 32 * 1024,
   eventPayloadChars: 128 * 1024,
 } as const;
@@ -106,7 +108,7 @@ export type WorkbenchRunBlockKind =
   | 'generic';
 
 /**
- * 对话时间线的白名单投影；不保留完整环境、stderr 或绝对路径。
+ * 对话时间线的白名单投影；不保留完整环境，命令内容由服务端脱敏并限制长度。
  */
 export interface WorkbenchRunBlock {
   kind: WorkbenchRunBlockKind;
@@ -122,6 +124,9 @@ export interface WorkbenchRunBlock {
   exitCode?: number;
   commandSummary?: string;
   outputSummary?: string;
+  commandContent?: string;
+  outputContent?: string;
+  outputTruncated?: boolean;
   eventType?: string;
   summary?: string;
 }
@@ -460,6 +465,19 @@ function reduceTool(
     ? undefined
     : finiteNonNegativeInteger(envelope.data.durationMs);
   if (envelope.data.durationMs != null && durationMs == null) return state;
+  const commandContent = optionalText(
+    envelope.data.commandContent,
+    WORKBENCH_RUN_LIMITS.commandContentChars,
+  );
+  const outputContent = optionalText(
+    envelope.data.outputContent,
+    WORKBENCH_RUN_LIMITS.outputContentChars,
+  );
+  const outputTruncated = envelope.data.outputTruncated == null
+    ? undefined : typeof envelope.data.outputTruncated === 'boolean'
+      ? envelope.data.outputTruncated : null;
+  if (commandContent === undefined || outputContent === undefined
+    || outputTruncated === null) return state;
 
   if (kind === 'tool_started') {
     return withBlock(state, sequence, {
@@ -470,6 +488,7 @@ function reduceTool(
       callId,
       status: status || 'RUNNING',
       durationMs: undefined,
+      commandContent: commandContent || undefined,
     });
   }
   // tool_finished: merge into the existing tool block matched by callId
@@ -481,6 +500,9 @@ function reduceTool(
         ...b,
         status: status || b.status,
         durationMs: durationMs == null ? b.durationMs : durationMs,
+        outputContent: outputContent || b.outputContent,
+        outputTruncated: outputTruncated == null
+          ? b.outputTruncated : outputTruncated,
       };
       return { ...state, lastAppliedEventSeq: sequence, blocks };
     }
@@ -493,6 +515,8 @@ function reduceTool(
     callId,
     status: status || undefined,
     durationMs: durationMs == null ? undefined : durationMs,
+    outputContent: outputContent || undefined,
+    outputTruncated,
   });
 }
 

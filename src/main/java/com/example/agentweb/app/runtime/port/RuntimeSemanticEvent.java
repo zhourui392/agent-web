@@ -12,7 +12,8 @@ import java.util.Map;
 /**
  * Provider 输出中可恢复、可展示的结构化语义投影。
  *
- * <p>工厂只接受前端合同需要的最小字段；不提供原始命令、环境、stderr 或绝对路径字段。</p>
+ * <p>工厂只接受前端合同需要的最小字段；命令工具可携带已脱敏、有界的命令和输出，
+ * 不提供环境字段。</p>
  *
  * @author alex
  * @since 2026-08-01
@@ -25,6 +26,7 @@ public final class RuntimeSemanticEvent {
     private static final int MAX_IDENTIFIER_LENGTH = 512;
     private static final int MAX_TEXT_LENGTH = 65_536;
     private static final int MAX_COMMAND_SUMMARY_LENGTH = 1024;
+    private static final int MAX_COMMAND_OUTPUT_LENGTH = 2000;
 
     private final String eventType;
     private final Map<String, Object> data;
@@ -47,12 +49,26 @@ public final class RuntimeSemanticEvent {
 
     public static RuntimeSemanticEvent toolStarted(
             String tool, String callId, String status) {
-        return tool("tool_started", tool, callId, status);
+        return tool("tool_started", tool, callId, status, null, null);
+    }
+
+    public static RuntimeSemanticEvent toolStarted(
+            String tool, String callId, String status,
+            String commandContent) {
+        return tool("tool_started", tool, callId, status,
+                commandContent, null);
     }
 
     public static RuntimeSemanticEvent toolFinished(
             String tool, String callId, String status) {
-        return tool("tool_finished", tool, callId, status);
+        return tool("tool_finished", tool, callId, status, null, null);
+    }
+
+    public static RuntimeSemanticEvent toolFinished(
+            String tool, String callId, String status,
+            String outputContent) {
+        return tool("tool_finished", tool, callId, status,
+                null, outputContent);
     }
 
     public RuntimeSemanticEvent withDurationMs(long durationMs) {
@@ -71,13 +87,30 @@ public final class RuntimeSemanticEvent {
     }
 
     private static RuntimeSemanticEvent tool(
-            String eventType, String tool, String callId, String status) {
+            String eventType, String tool, String callId, String status,
+            String commandContent, String outputContent) {
         Map<String, Object> data = data();
         data.put("tool", requireIdentifier(
                 tool, "tool name", MAX_IDENTIFIER_LENGTH));
         data.put("callId", requireIdentifier(
                 callId, "tool call id", MAX_IDENTIFIER_LENGTH));
         data.put("status", requireIdentifier(status, "tool status", 80));
+        if (commandContent != null) {
+            data.put("commandContent", requireText(
+                    commandContent, "command content", MAX_TEXT_LENGTH));
+        }
+        if (outputContent != null) {
+            boolean truncated = outputContent.length()
+                    > MAX_COMMAND_OUTPUT_LENGTH;
+            String bounded = truncated
+                    ? outputContent.substring(0, MAX_COMMAND_OUTPUT_LENGTH)
+                    + "\n... (共 " + outputContent.length() + " 字符，已截断)"
+                    : outputContent;
+            data.put("outputContent", requireText(
+                    bounded, "command output content",
+                    MAX_COMMAND_OUTPUT_LENGTH + 80));
+            data.put("outputTruncated", Boolean.valueOf(truncated));
+        }
         return new RuntimeSemanticEvent(eventType, data);
     }
 

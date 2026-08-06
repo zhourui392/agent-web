@@ -206,12 +206,15 @@ describe('workbench run SSE reducer', () => {
       tool: 'shell',
       callId: 'tool-1',
       status: 'RUNNING',
+      commandContent: './mvnw -q test -Dtoken=[REDACTED]',
     });
     state = reduce(state, 4, 'tool_finished', {
       tool: 'shell',
       callId: 'tool-1',
       status: 'SUCCEEDED',
       durationMs: 25,
+      outputContent: 'Tests run: 12\n... (共 2400 字符，已截断)',
+      outputTruncated: true,
     });
     state = reduce(state, 5, 'command_started', {
       repositoryKey: 'agent-web',
@@ -264,8 +267,12 @@ describe('workbench run SSE reducer', () => {
       commandSummary: '在仓库 agent-web 执行 TEST 类命令',
       outputSummary: 'TEST 类命令执行成功（退出码 0）',
       exitCode: 0,
+      commandContent: './mvnw -q test -Dtoken=[REDACTED]',
+      outputContent: 'Tests run: 12\n... (共 2400 字符，已截断)',
+      outputTruncated: true,
     }));
-    expect(JSON.stringify(state.blocks)).not.toContain('./mvnw');
+    expect(JSON.stringify(state.blocks)).toContain('./mvnw -q test -Dtoken=[REDACTED]');
+    expect(JSON.stringify(state.blocks)).toContain('Tests run: 12');
     expect(JSON.stringify(state.blocks)).not.toContain('/home/alex/secret');
     expect(JSON.stringify(state.blocks)).not.toContain('decoder-secret-never-visible');
     expect(state.staleDocuments).toEqual([expect.objectContaining({

@@ -81,25 +81,31 @@ class RuntimeEventDecoderTest {
     }
 
     @Test
-    void mapsCommandToolAndTestLifecycleWithoutExposingCommandOrOutput() {
+    void shouldMapRedactedCommandAndBoundedOutputWhenDecodingCommandLifecycle() {
+        // Given
         WorkspaceLayout layout = workspaceLayout();
+        RuntimeCapabilityMaterialization capabilities = capabilitiesWithSecret();
+        String longOutput = "/home/alex/secret " + SECRET + "\n"
+                + String.join("", Collections.nCopies(2100, "x"));
 
+        // When
         RuntimeEventDecoder.DecodedEvent started = decoder.decode(
                 "exec-command", 10L,
                 "{\"type\":\"item.started\",\"item\":{"
                         + "\"id\":\"item-10\",\"type\":\"command_execution\","
-                        + "\"command\":\"./mvnw -q test\","
+                        + "\"command\":\"./mvnw -q test -Dtoken=" + SECRET + "\","
                         + "\"status\":\"in_progress\"}}",
-                null, layout);
+                capabilities, layout);
         RuntimeEventDecoder.DecodedEvent completed = decoder.decode(
                 "exec-command", 11L,
                 "{\"type\":\"item.completed\",\"item\":{"
                         + "\"id\":\"item-10\",\"type\":\"command_execution\","
                         + "\"command\":\"./mvnw -q test\","
-                        + "\"aggregated_output\":\"/home/alex/secret " + SECRET + "\","
+                        + "\"aggregated_output\":" + json(longOutput) + ","
                         + "\"exit_code\":0,\"status\":\"completed\"}}",
-                null, layout);
+                capabilities, layout);
 
+        // Then
         assertEquals(Arrays.asList("tool_started", "command_started", "test_progress"),
                 eventTypes(started));
         assertEquals(Arrays.asList("tool_finished", "command_finished", "test_progress"),
@@ -113,19 +119,26 @@ class RuntimeEventDecoderTest {
                         .get(1).getData().get("commandSummary"));
         assertEquals("RUNNING", started.getEvent().getSemanticEvents()
                 .get(1).getData().get("status"));
+        assertEquals("./mvnw -q test -Dtoken=[REDACTED]",
+                started.getEvent().getSemanticEvents()
+                        .get(0).getData().get("commandContent"));
         assertEquals("TEST 类命令执行成功（退出码 0）",
                 completed.getEvent().getSemanticEvents()
                         .get(1).getData().get("outputSummary"));
         assertEquals("SUCCEEDED", completed.getEvent().getSemanticEvents()
                 .get(1).getData().get("status"));
+        String outputContent = (String) completed.getEvent().getSemanticEvents()
+                .get(0).getData().get("outputContent");
+        assertTrue(outputContent.startsWith(
+                "/home/alex/secret [REDACTED]\n"));
+        assertTrue(outputContent.endsWith("字符，已截断)"));
+        assertEquals(Boolean.TRUE, completed.getEvent().getSemanticEvents()
+                .get(0).getData().get("outputTruncated"));
         assertFalse(completed.getEvent().getSafePayload().contains("/home/"));
         assertFalse(completed.getEvent().getSafePayload().contains(SECRET));
         assertFalse(completed.getEvent().getSemanticEvents().toString()
-                .contains("./mvnw"));
-        assertFalse(completed.getEvent().getSemanticEvents().toString()
-                .contains("/home/alex/secret"));
-        assertFalse(completed.getEvent().getSemanticEvents().toString()
                 .contains(SECRET));
+        capabilities.close();
     }
 
     @Test
@@ -202,5 +215,25 @@ class RuntimeEventDecoderTest {
                 Arrays.asList("/workspace/service-a", "/workspace/platform/service-b"),
                 Arrays.asList("/workspace/service-a", "/workspace/platform/service-b"),
                 SandboxMode.WORKSPACE_WRITE);
+    }
+
+    private RuntimeCapabilityMaterialization capabilitiesWithSecret() {
+        java.util.Map<String, char[]> secrets =
+                new java.util.LinkedHashMap<String, char[]>();
+        secrets.put("RUNTIME_TOKEN", SECRET.toCharArray());
+        return new RuntimeCapabilityMaterialization(
+                "a".repeat(64),
+                Collections.<RuntimeCapabilityMaterialization.MaterializedSkill>emptyList(),
+                Collections.<RuntimeCapabilityMaterialization.MaterializedMcpServer>emptyList(),
+                secrets);
+    }
+
+    private String json(String value) {
+        try {
+            return new com.fasterxml.jackson.databind.ObjectMapper()
+                    .writeValueAsString(value);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException failure) {
+            throw new IllegalStateException(failure);
+        }
     }
 }

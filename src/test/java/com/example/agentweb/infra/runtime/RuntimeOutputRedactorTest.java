@@ -49,4 +49,16 @@ class RuntimeOutputRedactorTest {
         assertThrows(IllegalArgumentException.class,
                 () -> redactor.boundEvidenceLine("abc", -1));
     }
+
+    @Test
+    void shouldSanitizeAnsiAndControlCharactersWhenPreparingDisplayText() {
+        // Given
+        String output = "\u001B[31mfailed\u001B[0m\nnext\u0007\tvalue";
+
+        // When
+        String sanitized = redactor.sanitizeDisplayText(output);
+
+        // Then
+        assertEquals("failed\nnext\tvalue", sanitized);
+    }
 }

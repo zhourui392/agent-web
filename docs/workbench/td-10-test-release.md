@@ -137,7 +137,8 @@ POST /api/workbenches/{workbenchId}/stages/{stageInstanceIdentifier}/runs
 
 - Stage 生命周期、Conversation、Attachment、Run History、SSE 与 Stop。
 - `If-Match`、Idempotency Key、参数上限、400/404/409/410/413/503。
-- Owner 安全响应不泄漏绝对路径、Secret、完整命令、Prompt 或原始输出。
+- Owner 错误响应不泄漏绝对路径、Secret、命令、Prompt 或原始输出；Owner 工具时间线只展示
+  已脱敏、有界的 SHELL 命令正文和最多 2000 字符的输出，并显式标记截断。
 - Admin 只能查询安全投影、Stop 和单 Run Reconcile，不能代 Owner 提交 Run。
 - 已删除路径不通过适配器复活。
 

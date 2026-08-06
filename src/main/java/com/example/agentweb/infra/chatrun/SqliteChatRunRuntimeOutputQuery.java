@@ -154,14 +154,32 @@ public class SqliteChatRunRuntimeOutputQuery
         event.put("type", "content_block_start");
         event.put("index", 0);
         event.put("content_block", block);
-        return streamEventJson(event);
+        String started = streamEventJson(event);
+        JsonNode commandContent = root.get("commandContent");
+        if (commandContent == null || !commandContent.isTextual()) {
+            return started;
+        }
+        Map<String, Object> command = new LinkedHashMap<>();
+        command.put("command", commandContent.textValue());
+        Map<String, Object> delta = new LinkedHashMap<>();
+        delta.put("type", "input_json_delta");
+        try {
+            delta.put("partial_json", MAPPER.writeValueAsString(command));
+        } catch (java.io.IOException failure) {
+            return null;
+        }
+        Map<String, Object> commandEvent = new LinkedHashMap<>();
+        commandEvent.put("type", "content_block_delta");
+        commandEvent.put("index", 0);
+        commandEvent.put("delta", delta);
+        return started + "\n" + streamEventJson(commandEvent);
     }
 
     @SuppressWarnings("unchecked")
     private String toolFinishedStreamJson(JsonNode root) {
         JsonNode callId = root.get("callId");
         JsonNode status = root.get("status");
-        JsonNode outputSummary = root.get("outputSummary");
+        JsonNode outputContent = root.get("outputContent");
         if (callId == null) return null;
         Map<String, Object> content = new LinkedHashMap<>();
         content.put("type", "tool_result");
@@ -175,8 +193,8 @@ public class SqliteChatRunRuntimeOutputQuery
         Map<String, Object> wrapper = new LinkedHashMap<>();
         wrapper.put("type", "user");
         wrapper.put("message", message);
-        if (outputSummary != null && outputSummary.isTextual()) {
-            wrapper.put("tool_use_result", outputSummary.textValue());
+        if (outputContent != null && outputContent.isTextual()) {
+            wrapper.put("tool_use_result", outputContent.textValue());
         }
         try {
             return MAPPER.writeValueAsString(wrapper);

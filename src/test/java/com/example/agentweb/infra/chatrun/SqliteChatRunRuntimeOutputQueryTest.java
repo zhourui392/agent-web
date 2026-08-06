@@ -72,6 +72,40 @@ class SqliteChatRunRuntimeOutputQueryTest {
     }
 
     @Test
+    void shouldRecoverShellCommandAndBoundedOutputWhenLoadingRuntimeOutput()
+            throws Exception {
+        // Given
+        insert("run-shell", 1L, "tool_started",
+                "{\"runtimeSequence\":1,\"tool\":\"shell\","
+                        + "\"callId\":\"tool-1\",\"status\":\"RUNNING\","
+                        + "\"commandContent\":\"mvn -q test\"}");
+        insert("run-shell", 2L, "tool_finished",
+                "{\"runtimeSequence\":2,\"tool\":\"shell\","
+                        + "\"callId\":\"tool-1\",\"status\":\"SUCCEEDED\","
+                        + "\"outputContent\":\"Tests run: 12\\n... (已截断)\","
+                        + "\"outputTruncated\":true}");
+        SqliteChatRunRuntimeOutputQuery query =
+                new SqliteChatRunRuntimeOutputQuery(jdbc, 4096L);
+
+        // When
+        RecoveredRuntimeOutput result = query.load(
+                ChatRunId.of("run-shell"),
+                new RuntimeHandle("run-shell", "handle-shell"));
+
+        // Then
+        assertTrue(result.isComplete());
+        String[] events = result.getContent().split("\\n");
+        assertEquals(3, events.length);
+        assertEquals("{\"command\":\"mvn -q test\"}",
+                new com.fasterxml.jackson.databind.ObjectMapper()
+                        .readTree(events[1]).path("event").path("delta")
+                        .path("partial_json").asText());
+        assertEquals("Tests run: 12\n... (已截断)",
+                new com.fasterxml.jackson.databind.ObjectMapper()
+                        .readTree(events[2]).path("tool_use_result").asText());
+    }
+
+    @Test
     void malformedOrNonMonotonicOutputShouldFailClosed() {
         insert("run-malformed", 1L, "agent_chunk", "not-json");
         SqliteChatRunRuntimeOutputQuery query =

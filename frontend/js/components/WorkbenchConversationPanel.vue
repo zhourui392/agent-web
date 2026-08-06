@@ -469,7 +469,8 @@ const streamingRunMessage = computed(() => {
     } else if (block.kind === 'tool') {
       segments.push({
         type: 'tool',
-        content: block.commandSummary || block.outputSummary || '',
+        content: commandExecutionContent(block)
+          || block.commandSummary || block.outputSummary || '',
         toolName: block.tool || block.commandClass || 'tool',
         status: block.status,
         durationMs: block.durationMs,
@@ -514,6 +515,16 @@ const streamingRunMessage = computed(() => {
     streaming: runActive.value && !props.runState?.terminal,
   };
 });
+
+function commandExecutionContent(block) {
+  const content = [];
+  if (block.commandContent) {
+    content.push(JSON.stringify({ command: block.commandContent }));
+  }
+  if (block.outputContent) content.push(block.outputContent);
+  return content.join('\n');
+}
+
 const hasTimeline = computed(() => Boolean(
   conversationMessages.value.length > 0 || props.runState?.terminal,
 ));

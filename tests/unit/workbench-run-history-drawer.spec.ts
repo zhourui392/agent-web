@@ -44,12 +44,14 @@ describe('WorkbenchRunHistoryDrawer source contract', () => {
     expect(scope).not.toMatch(/absolutePath|repositoryRoot|workspaceRoot|workingDir|command|env/i);
   });
 
-  it('renders only bounded safe command summaries and keeps output collapsed', async () => {
+  it('renders bounded shell command and output content while keeping details collapsed', async () => {
     const drawer = await source('frontend/js/components/WorkbenchRunHistoryDrawer.vue');
 
     expect(drawer).toContain('block.commandSummary || block.outputSummary');
-    expect(drawer).toContain('v-if="block.outputSummary"');
-    expect(drawer).toContain('{{ block.outputSummary }}');
+    expect(drawer).toContain('data-test="workbench-history-command-content"');
+    expect(drawer).toContain('{{ block.commandContent }}');
+    expect(drawer).toContain('data-test="workbench-history-command-output"');
+    expect(drawer).toContain('{{ block.outputContent }}');
     expect(drawer).not.toContain('<details open');
   });
 });
