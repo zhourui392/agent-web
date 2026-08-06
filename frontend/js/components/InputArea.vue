@@ -92,9 +92,9 @@ export default {
       pendingImages: s.pendingImages, pendingFile: s.pendingFile, maxImagesPerMessage: s.maxImagesPerMessage,
       showCommandPopup: s.showCommandPopup, filteredCommands: s.filteredCommands, selectedCommandIdx: s.selectedCommandIdx,
       // actions (普通函数)
-      handleEnter: a.handleEnter, handleArrowUp: a.handleArrowUp, handleArrowDown: a.handleArrowDown,
-      handleTab: a.handleTab, selectCommand: a.selectCommand, hideCommandPopup: a.hideCommandPopup,
-      insertNewline: a.insertNewline, handlePaste: a.handlePaste, clearContext: a.clearContext,
+      handleArrowUp: a.handleArrowUp, handleArrowDown: a.handleArrowDown,
+      selectCommand: a.selectCommand, hideCommandPopup: a.hideCommandPopup,
+      handlePaste: a.handlePaste, clearContext: a.clearContext,
       stopSession: a.stopSession, sendMessageStream: a.sendMessageStream,
       uploadChatImage: a.uploadChatImage, beforeChatImageUpload: a.beforeChatImageUpload, removePendingImage: a.removePendingImage,
       uploadChatFile: a.uploadChatFile, beforeChatFileUpload: a.beforeChatFileUpload, removePendingFile: a.removePendingFile,

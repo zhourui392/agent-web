@@ -88,7 +88,7 @@ describe('useWorkbenchConversation Stage Run Mode', () => {
     }));
   });
 
-  it('requires an explicit selection when the frozen Stage allows both Run Modes', async () => {
+  it('automatically selects the writable Run Mode when both modes are allowed', async () => {
     const apiClient = runApi();
     const state = conversation(
       apiClient,
@@ -96,9 +96,7 @@ describe('useWorkbenchConversation Stage Run Mode', () => {
     );
 
     state.updateComposerText('执行任务');
-    expect(state.selectedRunMode.value).toBeNull();
-    expect(state.conversationCanSubmit.value).toBe(false);
-    expect(state.selectRunMode('MODIFY_WORKSPACE')).toBe(true);
+    expect(state.selectedRunMode.value).toBe('MODIFY_WORKSPACE');
     expect(state.conversationCanSubmit.value).toBe(true);
     await state.submitConversation();
 

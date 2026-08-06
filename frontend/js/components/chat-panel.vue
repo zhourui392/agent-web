@@ -77,7 +77,7 @@ import { copySegment } from '../lib/clipboard.js';
 import { shareSession as shareSessionFn } from '../lib/share-session.js';
 import { useFeedback } from '../composables/useFeedback.js';
 import { useImageUpload } from '../composables/useImageUpload.js';
-import { useSlashCommand } from '../composables/useSlashCommand.js';
+import { useSlashCommandInteraction } from '../composables/useSlashCommandInteraction.ts';
 import { useResumableRun } from '../composables/useResumableRun.js';
 import { ref, computed, onMounted, nextTick, watch, provide } from 'vue';
 import { ElMessageBox, ElMessage } from 'element-plus';
@@ -136,17 +136,6 @@ const ChatPanel = {
       const userMessageEntry = (id, content) => {
         const parsed = parseUserMessage(content);
         return { id: id, role: 'user', text: content, bodyText: parsed.text, images: parsed.images };
-      };
-
-      const insertNewline = () => {
-        const ta = document.querySelector('.chat-input-area textarea');
-        if (ta) {
-          const start = ta.selectionStart;
-          const end = ta.selectionEnd;
-          const value = userInput.value;
-          userInput.value = value.substring(0, start) + '\n' + value.substring(end);
-          nextTick(() => { ta.selectionStart = ta.selectionEnd = start + 1; });
-        }
       };
 
       // ===== 共享消息视图映射 =====
@@ -300,9 +289,26 @@ const ChatPanel = {
       });
       const {
         slashCommands, showCommandPopup, selectedCommandIdx, filteredCommands,
-        loadSlashCommands, handleEnter, handleArrowUp, handleArrowDown,
-        handleTab, selectCommand, hideCommandPopup
-      } = useSlashCommand({ userInput, workingDir: workingDirRef, sendMessageStream });
+        loadSlashCommands, handleArrowUp, handleArrowDown,
+        selectCommand, hideCommandPopup
+      } = useSlashCommandInteraction({
+        userInput,
+        loadCommands: async () => {
+          if (!workingDirRef.value) return [];
+          const response = await fetch(
+            '/api/chat/commands?workingDir='
+            + encodeURIComponent(workingDirRef.value),
+          );
+          if (!response.ok) return [];
+          const commands = await response.json();
+          return Array.isArray(commands) ? commands : [];
+        },
+        focusTextarea: () => {
+          document.querySelector(
+            '.chat-container .conversation-composer textarea',
+          )?.focus();
+        },
+      });
 
       const stopSession = async () => {
         if (!sessionId.value || !sending.value) return;
@@ -386,8 +392,6 @@ const ChatPanel = {
           });
           loadFeedback(sid);
           addMessage('system', '已恢复历史会话');
-          fetch('/api/chat/session/' + encodeURIComponent(sid) + '/commands')
-            .then(r => r.json()).then(cmds => { slashCommands.value = cmds; }).catch(() => {});
           ElMessage.success('已恢复历史会话');
           await restoreActiveRun(sid);
         } catch (e) {
@@ -439,8 +443,8 @@ const ChatPanel = {
         showCommandPopup, filteredCommands, selectedCommandIdx,
       });
       provide('inputAreaActions', {
-        handleEnter, handleArrowUp, handleArrowDown, handleTab, selectCommand, hideCommandPopup,
-        insertNewline, handlePaste, clearContext, stopSession, sendMessageStream,
+        handleArrowUp, handleArrowDown, selectCommand, hideCommandPopup,
+        handlePaste, clearContext, stopSession, sendMessageStream,
         uploadChatImage, beforeChatImageUpload, removePendingImage,
         uploadChatFile, beforeChatFileUpload, removePendingFile, formatChatFileSize,
       });
@@ -459,7 +463,7 @@ const ChatPanel = {
         // methods
         setRating, openFeedbackDialog, submitFeedbackComment, shareSession,
         rewindToMessage, rewindByMessageId, copySegment,
-        handleEnter, handleArrowUp, handleArrowDown, handleTab, selectCommand, hideCommandPopup, insertNewline, handlePaste,
+        handleArrowUp, handleArrowDown, selectCommand, hideCommandPopup, handlePaste,
         clearContext, stopSession, sendMessageStream,
         uploadChatImage, beforeChatImageUpload, removePendingImage,
         uploadChatFile, beforeChatFileUpload, removePendingFile, formatChatFileSize,

@@ -19,8 +19,6 @@ interface SlashCommand {
 interface SlashCommandInteractionOptions {
   userInput: Ref<string>;
   loadCommands: () => Promise<SlashCommand[]>;
-  onSubmit: () => void;
-  textareaElement?: Ref<HTMLTextAreaElement | null>;
   focusTextarea?: () => void;
 }
 
@@ -32,10 +30,8 @@ export function useSlashCommandInteraction(
   selectedCommandIdx: Ref<number>;
   filteredCommands: ComputedRef<SlashCommand[]>;
   loadSlashCommands: () => Promise<void>;
-  handleEnter: () => void;
   handleArrowUp: () => void;
   handleArrowDown: () => void;
-  handleTab: () => void;
   selectCommand: (cmd: SlashCommand) => void;
   hideCommandPopup: () => void;
 } {
@@ -77,18 +73,8 @@ export function useSlashCommandInteraction(
     nextTick(() => {
       if (options.focusTextarea) {
         options.focusTextarea();
-      } else if (options.textareaElement?.value) {
-        options.textareaElement.value.focus();
       }
     });
-  };
-
-  const handleEnter = () => {
-    if (showCommandPopup.value && filteredCommands.value.length > 0) {
-      selectCommand(filteredCommands.value[selectedCommandIdx.value]);
-    } else {
-      options.onSubmit();
-    }
   };
 
   const handleArrowUp = () => {
@@ -106,12 +92,6 @@ export function useSlashCommandInteraction(
     scrollCommandIntoView();
   };
 
-  const handleTab = () => {
-    if (showCommandPopup.value && filteredCommands.value.length > 0) {
-      selectCommand(filteredCommands.value[selectedCommandIdx.value]);
-    }
-  };
-
   const hideCommandPopup = () => {
     showCommandPopup.value = false;
   };
@@ -122,10 +102,8 @@ export function useSlashCommandInteraction(
     selectedCommandIdx,
     filteredCommands,
     loadSlashCommands,
-    handleEnter,
     handleArrowUp,
     handleArrowDown,
-    handleTab,
     selectCommand,
     hideCommandPopup,
   };

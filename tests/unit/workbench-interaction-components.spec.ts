@@ -12,7 +12,7 @@ async function source(relativePath: string): Promise<string> {
 }
 
 describe('Workbench interactive panels', () => {
-  it('renders the Stage timeline, stop, mode selection and composer controls', async () => {
+  it('renders the Stage timeline, stop and composer controls', async () => {
     const page = await source('frontend/js/pages/Workbench.vue');
 
     expect(page).toContain("import WorkbenchConversationPanel from '../components/WorkbenchConversationPanel.vue'");
@@ -20,7 +20,7 @@ describe('Workbench interactive panels', () => {
     expect(page).toContain('@submit="submitConversation"');
     expect(page).toContain('@stop="stopConversation"');
     expect(page).toContain(':allowed-run-modes="allowedRunModes"');
-    expect(page).toContain('@select-run-mode="selectRunMode"');
+    expect(page).not.toContain('@select-run-mode="selectRunMode"');
     expect(page).not.toContain('阶段对话尚未接入');
     expect(page).not.toContain('阶段对话能力尚未开放');
     expect(page).not.toContain('useWorkbenchDocumentRunIntegration');
@@ -52,10 +52,22 @@ describe('Workbench interactive panels', () => {
 
   it('renders live shell command content and bounded output in the shared tool block', async () => {
     const panel = await source('frontend/js/components/WorkbenchConversationPanel.vue');
+    const toolBlock = await source('frontend/js/components/ToolBlock.vue');
 
-    expect(panel).toContain('block.commandContent');
     expect(panel).toContain('block.outputContent');
     expect(panel).toContain('commandExecutionContent(block)');
+    expect(toolBlock).toContain('repositoryKey');
+    expect(toolBlock).toContain('commandClass');
+    expect(toolBlock).toContain('退出码');
+  });
+
+  it('uses one slash-command interaction adapter across Chat and Workbench', async () => {
+    const chat = await source('frontend/js/components/chat-panel.vue');
+    const workbench = await source('frontend/js/components/WorkbenchConversationPanel.vue');
+
+    expect(chat).toContain("useSlashCommandInteraction");
+    expect(workbench).toContain("useSlashCommandInteraction");
+    expect(chat).not.toContain("useSlashCommand.js");
   });
 
   it('projects live Stage test progress with a stable selector and terminal status', async () => {

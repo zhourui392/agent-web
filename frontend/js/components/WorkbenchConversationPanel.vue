@@ -327,14 +327,15 @@ const {
   userInput: userInputWritable,
   loadCommands: async () => {
     if (!props.workbenchId || !props.stageInstanceIdentifier) return [];
-    const cmds = await fetch(
+    const response = await fetch(
       '/api/workbenches/' + encodeURIComponent(props.workbenchId)
       + '/stages/' + encodeURIComponent(props.stageInstanceIdentifier)
       + '/commands',
-    ).then(r => r.json());
-    return cmds;
+    );
+    if (!response.ok) return [];
+    const commands = await response.json();
+    return Array.isArray(commands) ? commands : [];
   },
-  onSubmit: () => { if (canSubmit.value) emit('submit'); },
   focusTextarea: () => { composerRef.value?.focus?.(); },
 });
 
@@ -352,19 +353,46 @@ const attachmentCapacityReached = computed(() => {
   const uploading = props.uploadItems.filter(item => item.status === 'UPLOADING').length;
   return props.attachments.length + uploading >= 8;
 });
-const visibleMessages = computed(() => props.messages.map(message => {
-  const documentReferences = message.role === 'assistant'
-    ? extractAuthorizedAgentDocumentReferences(message.content, props.repositoryKeys)
+const visibleMessages = computed(() => {
+  const activeRunId = props.runState?.context?.runId;
+  const activeToolBlocks = activeRunId
+    ? (props.runState?.blocks || []).filter(b => b.kind === 'tool')
     : [];
-  if (message.role === 'user') {
-    const parsed = parseUserMessage(message.content);
-    return { ...message, bodyText: parsed.text, images: parsed.images, documentReferences };
-  }
-  const segments = isStreamJson(message.content)
-    ? parseStreamJson(message.content)
-    : [{ type: 'text', content: message.content }];
-  return { ...message, segments, documentReferences };
-}));
+  return props.messages.map(message => {
+    const documentReferences = message.role === 'assistant'
+      ? extractAuthorizedAgentDocumentReferences(message.content, props.repositoryKeys)
+      : [];
+    if (message.role === 'user') {
+      const parsed = parseUserMessage(message.content);
+      return { ...message, bodyText: parsed.text, images: parsed.images, documentReferences };
+    }
+    let segments = isStreamJson(message.content)
+      ? parseStreamJson(message.content)
+      : [{ type: 'text', content: message.content }];
+    // 当助手消息所属 run 仍为当前活跃 run 时，用 runState tool 块的语义元数据
+    // 增强 parseStreamJson 产出的基础 tool 段，使执行结束后展示与流式时一致
+    if (message.runId && message.runId === activeRunId && activeToolBlocks.length > 0) {
+      let toolIdx = 0;
+      segments = segments.map(seg => {
+        if (seg.type !== 'tool' && seg.type !== 'mcp_tool_call') return seg;
+        const block = activeToolBlocks[toolIdx++];
+        if (!block) return seg;
+        return {
+          ...seg,
+          toolName: block.tool || block.commandClass || seg.name,
+          status: block.status,
+          durationMs: block.durationMs,
+          commandSummary: block.commandSummary,
+          outputSummary: block.outputSummary,
+          repositoryKey: block.repositoryKey,
+          commandClass: block.commandClass,
+          exitCode: block.exitCode,
+        };
+      });
+    }
+    return { ...message, segments, documentReferences };
+  });
+});
 const conversationMessages = computed(() => {
   const msgs = visibleMessages.value.map((message, index) => {
     const role = toMessageRole(message.role);
