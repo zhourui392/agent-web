@@ -164,6 +164,7 @@ import type {
   CapabilityDiscoveryItem,
   CapabilitySourceValidationResult,
 } from '../api/capability-sources.js';
+import { capabilitySelectionLabel } from '../../lib/capability-selection-label.js';
 import {
   createStageDefinitionApiClient,
   type RequiredVersionSelectionInput,
@@ -221,7 +222,9 @@ const CapabilitySelection = defineComponent({
         }, () => selectionProps.options.map(option => h(ElOption, {
           key: keyOf(option),
           value: keyOf(option),
-          label: `${option.displayName} · ${option.identifier}@${option.version}`,
+          label: capabilitySelectionLabel(
+            selectionProps.kind as ReferenceKind, option,
+          ),
         }))),
         selectionProps.requiredEnabled
           ? h(ElCheckbox, {

@@ -11,10 +11,12 @@ export interface CommandCatalogDirectoryInput {
   enabled: boolean;
 }
 
+export type SkillTrustSource = 'PLATFORM' | 'APPROVED_USER' | 'WORKSPACE';
+
 export interface SkillCatalogDirectoryInput {
   directoryIdentifier: string;
   absoluteDirectory: string;
-  trustSource: string;
+  trustSource: SkillTrustSource;
   enabled: boolean;
 }
 

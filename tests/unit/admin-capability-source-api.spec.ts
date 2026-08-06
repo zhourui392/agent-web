@@ -7,6 +7,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   createCapabilitySourceApiClient,
+  type CapabilitySourceCandidate,
   type CapabilitySourceFetch,
 } from '../../frontend/js/admin/api/capability-sources.js';
 
@@ -18,7 +19,7 @@ function jsonResponse(status: number, body: unknown): Response {
   } as unknown as Response;
 }
 
-const candidate = {
+const candidate: CapabilitySourceCandidate = {
   commandCatalogDirectories: [{
     directoryIdentifier: 'commands',
     absoluteDirectory: '/opt/agent/commands',

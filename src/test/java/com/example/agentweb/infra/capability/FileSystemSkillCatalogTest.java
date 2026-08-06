@@ -65,6 +65,102 @@ class FileSystemSkillCatalogTest {
     }
 
     @Test
+    void should_DiscoverAllCodexSkills_When_RootContainsNestedSkillDirectories()
+            throws IOException {
+        // Given
+        writeCodexSkill(tempDir.resolve("java-tdd"), "java-tdd",
+                "Develop Java changes with TDD", "references/workflow.md");
+        writeCodexSkill(tempDir.resolve(".system/imagegen"), "imagegen",
+                "Generate and edit images", "references/safety.md");
+        FileSystemSkillCatalog catalog = new FileSystemSkillCatalog(
+                tempDir, SkillTrustSource.APPROVED_USER);
+
+        // When
+        List<SkillPackage> skills = catalog.discover();
+
+        // Then
+        assertEquals(2, skills.size());
+        SkillPackage javaTdd = findSkill(skills, "java-tdd");
+        SkillPackage imageGeneration = findSkill(skills, "imagegen");
+        assertTrue(javaTdd != null);
+        assertTrue(imageGeneration != null);
+        assertEquals("Develop Java changes with TDD",
+                javaTdd.getManifest().getDescription());
+        assertEquals(SkillTrustSource.APPROVED_USER,
+                javaTdd.getManifest().getTrustSource());
+        assertTrue(javaTdd.getManifest().getVersion()
+                .matches("sha256-[A-Za-z0-9_-]{43}"));
+        assertTrue(javaTdd.getEntryContent().startsWith("---\nname: java-tdd\n"));
+        assertEquals("java-tdd resource", new String(javaTdd.getResourceContents()
+                .get("references/workflow.md"), StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void should_PreserveCodexSkillDescription_When_DescriptionUsesSupportedMaximum()
+            throws IOException {
+        // Given
+        String codexMaximumDescription = "x".repeat(1024);
+        writeCodexSkill(tempDir.resolve("imagegen"), "imagegen",
+                codexMaximumDescription, "references/safety.md");
+        FileSystemSkillCatalog catalog = new FileSystemSkillCatalog(
+                tempDir, SkillTrustSource.PLATFORM);
+
+        // When
+        SkillPackage skill = catalog.discover().get(0);
+
+        // Then
+        assertEquals(codexMaximumDescription,
+                skill.getManifest().getDescription());
+    }
+
+    @Test
+    void should_DeriveNewVersion_When_CodexSkillContentChanges()
+            throws IOException {
+        // Given
+        Path skillDirectory = tempDir.resolve("java-tdd");
+        writeCodexSkill(skillDirectory, "java-tdd",
+                "Develop Java changes with TDD", "references/workflow.md");
+        FileSystemSkillCatalog catalog = new FileSystemSkillCatalog(
+                tempDir, SkillTrustSource.APPROVED_USER);
+        SkillPackage first = catalog.discover().get(0);
+
+        // When
+        Files.writeString(skillDirectory.resolve("references/workflow.md"),
+                "changed workflow");
+        SkillPackage changed = catalog.discover().get(0);
+
+        // Then
+        assertNotEquals(first.getPackageHash(), changed.getPackageHash());
+        assertNotEquals(first.getManifest().getVersion(),
+                changed.getManifest().getVersion());
+    }
+
+    @Test
+    void should_IgnoreUnsafeFiles_When_CodexSkillContainsNativeInstructionsAndLinks()
+            throws IOException {
+        // Given
+        Path skillDirectory = tempDir.resolve("safe-skill");
+        writeCodexSkill(skillDirectory, "safe-skill",
+                "Use only package files", "references/rules.md");
+        Files.writeString(skillDirectory.resolve("AGENTS.md"), "do not import");
+        Path external = Files.writeString(tempDir.resolve("external.txt"), "secret");
+        Files.createSymbolicLink(
+                skillDirectory.resolve("references/external.txt"), external);
+        FileSystemSkillCatalog catalog = new FileSystemSkillCatalog(
+                tempDir, SkillTrustSource.APPROVED_USER);
+
+        // When
+        SkillPackage skill = catalog.discover().get(0);
+
+        // Then
+        assertFalse(skill.getResourceHashes().containsKey("AGENTS.md"));
+        assertFalse(skill.getResourceHashes().containsKey(
+                "references/external.txt"));
+        assertFalse(skill.getResourceContents().containsKey(
+                "references/external.txt"));
+    }
+
+    @Test
     void shouldParsePublicApplicableUseCasesForStageDefinitions() throws IOException {
         Path skillDir = writeSkill(
                 tempDir, "solution-design", "references/rules.md");
@@ -161,6 +257,17 @@ class FileSystemSkillCatalogTest {
             Files.write(declared, "rules".getBytes(StandardCharsets.UTF_8));
         }
         return skillDir;
+    }
+
+    private void writeCodexSkill(
+            Path skillDirectory, String name, String description, String resource)
+            throws IOException {
+        Files.createDirectories(skillDirectory.resolve("references"));
+        Files.writeString(skillDirectory.resolve("SKILL.md"), "---\n"
+                + "name: " + name + "\n"
+                + "description: " + description + "\n"
+                + "---\n\n# " + name + "\n");
+        Files.writeString(skillDirectory.resolve(resource), name + " resource");
     }
 
     private void replaceManifestDeclaration(

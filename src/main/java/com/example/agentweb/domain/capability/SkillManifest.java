@@ -42,7 +42,7 @@ public final class SkillManifest {
                          List<CapabilityRequest> capabilityRequests) {
         this.id = DomainText.require(id, "skill id", 120);
         this.version = DomainText.require(version, "skill version", 60);
-        this.description = DomainText.require(description, "skill description", 500);
+        this.description = DomainText.require(description, "skill description");
         this.applicableUseCases = immutableUppercase(applicableUseCases, "applicable use case");
         this.techTags = immutableLowercase(techTags, "technical tag");
         this.explicitTriggers = immutable(explicitTriggers, "explicit trigger", 120);

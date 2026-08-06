@@ -66,6 +66,8 @@ public class FileSystemSkillCatalog implements SkillCatalog {
             for (Path manifest : CapabilityCatalogFiles.manifests(realRoot)) {
                 packages.add(parse(realRoot, manifest, trustedRoot.getTrustSource()));
             }
+            packages.addAll(CodexSkillPackageReader.discover(
+                    realRoot, trustedRoot.getTrustSource()));
         }
         packages.sort(Comparator.comparing((SkillPackage value) -> value.getManifest().getId())
                 .thenComparing(value -> value.getManifest().getVersion()));

@@ -36,7 +36,11 @@ describe('Dynamic Stage admin page', () => {
     expect(component).toContain('data-test="capability-source-save"');
     expect(component).toContain('api.validate');
     expect(component).toContain('api.update');
+    expect(component).toContain('递归识别 SKILL.md');
     expect(component).toContain('Secret Reference');
+    expect(component).toContain('value="APPROVED_USER"');
+    expect(component).toContain("trustSource: 'APPROVED_USER'");
+    expect(component).not.toContain('ADMINISTRATOR');
     expect(component).not.toContain('v-html');
   });
 

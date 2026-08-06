@@ -73,11 +73,11 @@
           />
           <el-input
             v-model="directory.absoluteDirectory"
-            placeholder="服务端绝对目录"
+            placeholder="服务端 Skill 根目录（递归识别 SKILL.md）"
           />
           <el-select v-model="directory.trustSource" aria-label="可信来源">
             <el-option label="Platform" value="PLATFORM" />
-            <el-option label="Administrator" value="ADMINISTRATOR" />
+            <el-option label="Administrator" value="APPROVED_USER" />
           </el-select>
           <el-switch v-model="directory.enabled" active-text="启用" />
           <el-button text type="danger" @click="removeSkillDirectory(index)">
@@ -265,7 +265,7 @@ function removeCommandDirectory(index: number): void {
 function addSkillDirectory(): void {
   form.skillCatalogDirectories.push({
     directoryIdentifier: '', absoluteDirectory: '',
-    trustSource: 'ADMINISTRATOR', enabled: true,
+    trustSource: 'APPROVED_USER', enabled: true,
   });
 }
 

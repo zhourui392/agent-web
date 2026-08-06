@@ -4,6 +4,8 @@ import com.example.agentweb.app.capability.CapabilitySourceCandidate;
 import com.example.agentweb.app.capability.CapabilitySourceProbeResult;
 import com.example.agentweb.domain.capability.CapabilityCatalogException;
 import com.example.agentweb.domain.capability.CommandCatalogDirectory;
+import com.example.agentweb.domain.capability.SkillCatalogDirectory;
+import com.example.agentweb.domain.capability.SkillTrustSource;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -74,6 +76,59 @@ class FileSystemCapabilitySourceProbeTest {
 
         // Then
         assertEquals("CATALOG_PATH_UNSAFE", failure.getCode());
+    }
+
+    @Test
+    void should_DiscoverCodexSkills_When_ValidatingSkillSourceDirectory()
+            throws IOException {
+        // Given
+        Path skillRoot = Files.createDirectories(tempDir.resolve("codex-skills"));
+        Path skillDirectory = Files.createDirectories(
+                skillRoot.resolve("domain-modeling-audit"));
+        Files.writeString(skillDirectory.resolve("SKILL.md"), "---\n"
+                + "name: domain-modeling-audit\n"
+                + "description: Audit domain models\n"
+                + "---\n\n# Domain modeling audit\n");
+        CapabilitySourceCandidate candidate = new CapabilitySourceCandidate(
+                Collections.emptyList(),
+                Collections.singletonList(SkillCatalogDirectory.create(
+                        "codex-skills", skillRoot.toString(),
+                        SkillTrustSource.APPROVED_USER, true)),
+                emptyMcp());
+
+        // When
+        CapabilitySourceProbeResult result = buildProbe().probe(candidate);
+
+        // Then
+        assertEquals(1, result.getSkills().size());
+        assertEquals("domain-modeling-audit",
+                result.getSkills().get(0).getIdentifier());
+    }
+
+    @Test
+    void should_PreserveLongCodexSkillDescription_When_ValidatingSkillSourceDirectory()
+            throws IOException {
+        // Given
+        String longDescription = "x".repeat(2048);
+        Path skillRoot = Files.createDirectories(tempDir.resolve("codex-skills"));
+        Path skillDirectory = Files.createDirectories(skillRoot.resolve("imagegen"));
+        Files.writeString(skillDirectory.resolve("SKILL.md"), "---\n"
+                + "name: imagegen\n"
+                + "description: " + longDescription + "\n"
+                + "---\n\n# Image generation\n");
+        CapabilitySourceCandidate candidate = new CapabilitySourceCandidate(
+                Collections.emptyList(),
+                Collections.singletonList(SkillCatalogDirectory.create(
+                        "codex-skills", skillRoot.toString(),
+                        SkillTrustSource.PLATFORM, true)),
+                emptyMcp());
+
+        // When
+        CapabilitySourceProbeResult result = buildProbe().probe(candidate);
+
+        // Then
+        assertEquals(longDescription,
+                result.getSkills().get(0).getDisplayName());
     }
 
     private FileSystemCapabilitySourceProbe buildProbe() {

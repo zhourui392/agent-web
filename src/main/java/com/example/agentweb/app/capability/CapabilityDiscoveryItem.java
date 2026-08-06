@@ -24,6 +24,6 @@ public final class CapabilityDiscoveryItem {
         this.contentHash = DomainText.requireSha256(
                 contentHash, "capability content hash");
         this.displayName = DomainText.require(
-                displayName, "capability display name", 256);
+                displayName, "capability display name");
     }
 }
