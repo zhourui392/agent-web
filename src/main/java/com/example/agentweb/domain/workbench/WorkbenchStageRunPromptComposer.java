@@ -195,7 +195,9 @@ public final class WorkbenchStageRunPromptComposer {
                 + "\nName: " + stage.getDisplayName()
                 + "\nDescription: " + stage.getDescription()
                 + "\nSnapshot hash: " + stage.getSnapshotHash()
-                + "\nRunMode: " + plan.getRunMode().name();
+                + "\nRunMode: " + plan.getRunMode().name()
+                + "\nHandoff directory: ~/.workbench/handoff/"
+                + stage.getDefinitionIdentifier() + "/";
     }
 
     private static String capabilities(

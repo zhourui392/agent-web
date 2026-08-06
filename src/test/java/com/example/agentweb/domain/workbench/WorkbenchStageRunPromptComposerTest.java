@@ -93,6 +93,9 @@ class WorkbenchStageRunPromptComposerTest {
                 part(prompt, WorkbenchPromptPartType.STAGE_RULES).getContent());
         assertTrue(part(prompt, WorkbenchPromptPartType.STAGE_DEFINITION)
                 .getContent().contains("方案设计"));
+        assertTrue(part(prompt, WorkbenchPromptPartType.STAGE_DEFINITION)
+                .getContent().contains(
+                        "Handoff directory: ~/.workbench/handoff/solution-design/"));
         assertEquals(contextManifest.getPromptContent(),
                 part(prompt, WorkbenchPromptPartType.GLOBAL_CONTEXT)
                         .getContent());

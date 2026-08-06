@@ -84,6 +84,7 @@
               v-model="draft.stageRules"
               type="textarea"
               :autosize="{ minRows: 7, maxRows: 18 }"
+              placeholder="阶段规则自由文本。系统会自动在 prompt 中注入 Handoff directory（基于 Definition Identifier）。&#10;&#10;交接约定示例：&#10;请将本阶段产出写入 Handoff directory（见 prompt 中注入的路径），若目录不存在先 mkdir -p。&#10;其他阶段的交接文档在 ~/.workbench/handoff/ 下的子目录中，请按需阅读。&#10;交接文档至少包含：本阶段做了什么、关键决策和理由、遗留问题和给下一阶段的建议。"
             />
           </el-form-item>
           <el-form-item label="允许的 Run Mode">
