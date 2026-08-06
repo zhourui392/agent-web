@@ -424,14 +424,14 @@ const persistedAssistantRunIds = computed(() => new Set(
 ));
 const visibleRunBlocks = computed(() => (props.runState?.blocks || [])
   .filter(block => {
-    if (block.kind === 'agent_chunk'
-        && persistedAssistantRunIds.value.has(props.runState?.context.runId || '')) {
+    const runId = props.runState?.context.runId || '';
+    const persisted = persistedAssistantRunIds.value.has(runId);
+    // 已持久化的助手消息已含 agent_chunk 文本，流式块去重
+    if (block.kind === 'agent_chunk' && persisted) {
       return false;
     }
-    // 运行结束后已持久化助手消息时，tool 块也不再展示，避免结论后堆叠 CLI 调用
-    if (block.kind === 'tool'
-        && props.runState?.terminal
-        && persistedAssistantRunIds.value.has(props.runState?.context.runId || '')) {
+    // 运行结束后立即隐藏 tool 块，避免等持久化刷新的时序窗口里堆叠 CLI 调用
+    if (block.kind === 'tool' && props.runState?.terminal) {
       return false;
     }
     return true;
