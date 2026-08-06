@@ -2,6 +2,7 @@ package com.example.agentweb.app.workbench;
 
 import com.example.agentweb.app.workbench.port.WorkspaceScopeGateway;
 import com.example.agentweb.app.workbench.port.WorkspaceSnapshotGateway;
+import com.example.agentweb.app.workbench.port.WorkspaceHandoffGuard;
 import com.example.agentweb.app.workbench.port.WorkbenchTelemetry;
 import com.example.agentweb.app.agentrun.AgentCatalogService;
 import com.example.agentweb.domain.workbench.OwnerReference;
@@ -51,6 +52,7 @@ public class WorkbenchCreationAppService {
     private final AgentCatalogService agentCatalogService;
     private final WorkbenchReleasePolicy releasePolicy;
     private final WorkbenchTelemetry telemetry;
+    private final WorkspaceHandoffGuard handoffGuard;
     private final Clock clock;
 
     public WorkbenchCreationAppService(
@@ -66,7 +68,8 @@ public class WorkbenchCreationAppService {
             WorkbenchCreationCommitter committer,
             AgentCatalogService agentCatalogService,
             WorkbenchReleasePolicy releasePolicy,
-            WorkbenchTelemetry telemetry, Clock clock) {
+            WorkbenchTelemetry telemetry,
+            WorkspaceHandoffGuard handoffGuard, Clock clock) {
         this.creationRepository = creationRepository;
         this.workbenchRepository = workbenchRepository;
         this.scopeGateway = scopeGateway;
@@ -79,6 +82,7 @@ public class WorkbenchCreationAppService {
         this.agentCatalogService = agentCatalogService;
         this.releasePolicy = releasePolicy;
         this.telemetry = telemetry;
+        this.handoffGuard = handoffGuard;
         this.clock = clock;
     }
 
@@ -121,6 +125,7 @@ public class WorkbenchCreationAppService {
                         command.getExpectedStageCatalogVersion());
         RepositoryScope scope = scopeGateway.resolve(
                 command.getWorkspaceRoot(), command.getRepositorySelection());
+        handoffGuard.ensureHandoffIgnored(scope);
         String snapshotId = snapshotIdGenerator.nextId();
         WorkspaceSnapshot snapshot = snapshotGateway.capture(
                 snapshotId, scope, CREATE_PURPOSE);

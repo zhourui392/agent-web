@@ -40,6 +40,7 @@ public final class WorkbenchStageRunPreparationPlan {
     private final List<String> writableRepositoryRoots;
     private final List<String> writableRepositoryKeys;
     private final WorkspaceAccess workspaceAccess;
+    private final List<WorkbenchStageHandoff> stageHandoffs;
 
     private WorkbenchStageRunPreparationPlan(
             Workbench workbench, WorkbenchStageState stage,
@@ -76,6 +77,7 @@ public final class WorkbenchStageRunPreparationPlan {
             this.writableRepositoryKeys = Collections.emptyList();
             this.workspaceAccess = WorkspaceAccess.READ_ONLY;
         }
+        this.stageHandoffs = stageHandoffs(workbench);
     }
 
     static WorkbenchStageRunPreparationPlan plan(
@@ -117,5 +119,18 @@ public final class WorkbenchStageRunPreparationPlan {
             keys.add(repository.getRepositoryKey());
         }
         return Collections.unmodifiableList(keys);
+    }
+
+    private static List<WorkbenchStageHandoff> stageHandoffs(Workbench workbench) {
+        List<WorkbenchStageHandoff> entries =
+                new ArrayList<WorkbenchStageHandoff>();
+        for (WorkbenchStageState state : workbench.getStages()) {
+            WorkbenchStageSnapshot snapshot = state.getSnapshot();
+            entries.add(new WorkbenchStageHandoff(
+                    snapshot.getDefinitionIdentifier(),
+                    snapshot.getSequenceNumber(),
+                    snapshot.getDisplayName()));
+        }
+        return Collections.unmodifiableList(entries);
     }
 }

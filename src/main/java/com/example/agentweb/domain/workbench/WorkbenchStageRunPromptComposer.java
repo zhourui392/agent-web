@@ -188,16 +188,28 @@ public final class WorkbenchStageRunPromptComposer {
     private static String stageDefinition(
             WorkbenchStageRunPreparationPlan plan) {
         WorkbenchStageSnapshot stage = plan.getStageSnapshot();
-        return "Stage instance: " + plan.getStageInstanceIdentifier()
-                + "\nDefinition: " + stage.getDefinitionIdentifier()
-                + "@" + stage.getDefinitionRevision()
-                + "\nSequence: " + stage.getSequenceNumber()
-                + "\nName: " + stage.getDisplayName()
-                + "\nDescription: " + stage.getDescription()
-                + "\nSnapshot hash: " + stage.getSnapshotHash()
-                + "\nRunMode: " + plan.getRunMode().name()
-                + "\nHandoff directory: ~/.workbench/handoff/"
-                + stage.getDefinitionIdentifier() + "/";
+        StringBuilder result = new StringBuilder();
+        result.append("Stage instance: ").append(plan.getStageInstanceIdentifier())
+                .append("\nDefinition: ").append(stage.getDefinitionIdentifier())
+                .append("@").append(stage.getDefinitionRevision())
+                .append("\nSequence: ").append(stage.getSequenceNumber())
+                .append("\nName: ").append(stage.getDisplayName())
+                .append("\nDescription: ").append(stage.getDescription())
+                .append("\nSnapshot hash: ").append(stage.getSnapshotHash())
+                .append("\nRunMode: ").append(plan.getRunMode().name())
+                .append("\nHandoff directories (persisted in repository):");
+        String currentDefinition = stage.getDefinitionIdentifier();
+        for (WorkbenchStageHandoff handoff : plan.getStageHandoffs()) {
+            result.append("\n- .workbench/handoff/")
+                    .append(handoff.getDefinitionIdentifier())
+                    .append("/ (").append(handoff.getDisplayName()).append(")");
+            if (handoff.getDefinitionIdentifier().equals(currentDefinition)) {
+                result.append(" [current stage]");
+            }
+        }
+        result.append("\nWrite this stage's outputs to [current stage] directory;")
+                .append(" read prior stages' outputs from theirs.");
+        return result.toString();
     }
 
     private static String capabilities(

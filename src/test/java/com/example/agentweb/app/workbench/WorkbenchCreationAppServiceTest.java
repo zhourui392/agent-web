@@ -2,6 +2,7 @@ package com.example.agentweb.app.workbench;
 
 import com.example.agentweb.app.workbench.port.WorkspaceScopeGateway;
 import com.example.agentweb.app.workbench.port.WorkspaceSnapshotGateway;
+import com.example.agentweb.app.workbench.port.WorkspaceHandoffGuard;
 import com.example.agentweb.app.workbench.port.WorkbenchTelemetry;
 import com.example.agentweb.app.agentrun.AgentCatalogService;
 import com.example.agentweb.domain.agentrun.AgentPolicyViolationException;
@@ -77,6 +78,7 @@ class WorkbenchCreationAppServiceTest {
     private WorkbenchCreationCommitter committer;
     private WorkbenchReleasePolicy releasePolicy;
     private WorkbenchTelemetry telemetry;
+    private WorkspaceHandoffGuard handoffGuard;
     private WorkbenchCreationAppService service;
 
     @BeforeEach
@@ -94,6 +96,7 @@ class WorkbenchCreationAppServiceTest {
         committer = mock(WorkbenchCreationCommitter.class);
         releasePolicy = mock(WorkbenchReleasePolicy.class);
         telemetry = mock(WorkbenchTelemetry.class);
+        handoffGuard = mock(WorkspaceHandoffGuard.class);
         when(stageCatalogRepository.find()).thenReturn(stageCatalog());
         when(stageInstanceIdentifierGenerator.nextIdentifier())
                 .thenReturn("stage-requirement", "stage-implementation");
@@ -101,7 +104,7 @@ class WorkbenchCreationAppServiceTest {
                 creationRepository, workbenchRepository, scopeGateway, snapshotGateway,
                 workbenchIdGenerator, snapshotIdGenerator, stageCatalogRepository,
                 stageInstanceIdentifierGenerator, committer, agentCatalogService,
-                releasePolicy, telemetry,
+                releasePolicy, telemetry, handoffGuard,
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
@@ -118,7 +121,7 @@ class WorkbenchCreationAppServiceTest {
                 creationRepository, workbenchRepository, scopeGateway,
                 snapshotGateway, workbenchIdGenerator, snapshotIdGenerator,
                 stageCatalogRepository, stageInstanceIdentifierGenerator,
-                committer, agentCatalogService);
+                committer, agentCatalogService, handoffGuard);
         verify(telemetry, times(1)).workbenchCreated("FAILED");
     }
 
@@ -139,7 +142,8 @@ class WorkbenchCreationAppServiceTest {
         assertTrue(result.isReplayed());
         verifyNoInteractions(scopeGateway, snapshotGateway, workbenchIdGenerator,
                 snapshotIdGenerator, stageCatalogRepository,
-                stageInstanceIdentifierGenerator, committer, agentCatalogService);
+                stageInstanceIdentifierGenerator, committer, agentCatalogService,
+                handoffGuard);
         verify(telemetry, times(1)).workbenchCreated("REPLAYED");
     }
 
@@ -205,7 +209,7 @@ class WorkbenchCreationAppServiceTest {
                 () -> service.create(OWNER, command));
 
         verifyNoInteractions(scopeGateway, snapshotGateway, workbenchIdGenerator,
-                snapshotIdGenerator, committer);
+                snapshotIdGenerator, committer, handoffGuard);
     }
 
     @Test
