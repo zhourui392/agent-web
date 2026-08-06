@@ -451,6 +451,8 @@ test('真实可写 Stage 经 Runtime/SSE 持久化文件与受影响测试并可
     .toBeVisible();
   await expect(page.getByText('本轮运行成功')).toBeVisible();
 
+  // 展开"相关文件"折叠区后再查找文件
+  await page.getByTestId('conversation-file-references-toggle').click();
   const changedFile = page.getByTestId('workbench-structured-document-reference')
     .filter({ hasText: 'stage-e2e.txt' });
   await expect(changedFile).toBeVisible();

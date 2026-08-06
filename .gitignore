@@ -73,3 +73,6 @@ __pycache__/
 # 本地分析脚本与其产物
 tools/
 out/
+
+# agent-web workbench handoff artifacts
+.workbench/handoff/

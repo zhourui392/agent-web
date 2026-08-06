@@ -355,6 +355,41 @@
   margin-left: auto;
 }
 
+/* ========== 文件引用折叠区 ========== */
+
+.conversation-file-references {
+  margin: 4px 0;
+}
+.conversation-file-references-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px solid #e6eaf1;
+  border-radius: 9px;
+  background: #f7f9fc;
+  color: #435066;
+  cursor: pointer;
+  transition: background 0.15s;
+  user-select: none;
+}
+.conversation-file-references-header:hover {
+  background: #eef2f8;
+}
+.conversation-file-references-arrow {
+  font-size: 12px;
+  width: 14px;
+  text-align: center;
+}
+.conversation-file-references-hint {
+  color: #909399;
+  font-size: 11px;
+  margin-left: auto;
+}
+.conversation-file-references-list {
+  margin-top: 2px;
+}
+
 /* ========== 测试进度 segment ========== */
 
 .conversation-test-progress {
