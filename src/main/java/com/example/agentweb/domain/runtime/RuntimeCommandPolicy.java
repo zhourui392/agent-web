@@ -221,7 +221,11 @@ public final class RuntimeCommandPolicy {
                     return true;
                 }
             }
-            if (program.matches("(?i)(deploy|release)(\\.sh|\\.ps1|\\.cmd|\\.bat)?")) {
+        }
+        // deploy/release 独立命令只检查首个 token，避免 grep/rg 搜索参数误判
+        if (!tokens.isEmpty()) {
+            String firstProgram = program(tokens.get(0));
+            if (firstProgram.matches("(?i)(deploy|release)(\\.sh|\\.ps1|\\.cmd|\\.bat)?")) {
                 return true;
             }
         }

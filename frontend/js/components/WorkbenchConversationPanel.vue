@@ -477,12 +477,7 @@ const streamingRunMessage = computed(() => {
 });
 
 function commandExecutionContent(block) {
-  const content = [];
-  if (block.commandContent) {
-    content.push(JSON.stringify({ command: block.commandContent }));
-  }
-  if (block.outputContent) content.push(block.outputContent);
-  return content.join('\n');
+  return block.outputContent || '';
 }
 
 const hasTimeline = computed(() => Boolean(

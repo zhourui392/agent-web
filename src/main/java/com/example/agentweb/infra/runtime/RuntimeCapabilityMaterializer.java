@@ -98,8 +98,6 @@ public final class RuntimeCapabilityMaterializer {
             SkillPackage skill = discovered.get(key(binding.getId(), binding.getVersion()));
             if (skill == null
                     || !binding.getPackageHash().equals(skill.getPackageHash())
-                    || !binding.getSource().equals(
-                    skill.getManifest().getTrustSource().name())
                     || !binding.getTrustTier().equals(
                     skill.getManifest().getTrustSource().name())
                     || !skill.getManifest().getCompatibleRuntimes().contains(runtime)) {

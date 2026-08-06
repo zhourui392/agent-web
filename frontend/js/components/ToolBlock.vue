@@ -15,10 +15,8 @@
       <p v-if="commandSummary" class="tool-command-summary">{{ commandSummary }}</p>
       <p v-if="outputSummary" class="tool-output-summary">{{ outputSummary }}</p>
       <pre v-if="segment.content">{{ segment.content }}</pre>
-      <dl v-if="hasMeta" class="tool-meta">
-        <template v-if="repositoryKey"><dt>仓库</dt><dd>{{ repositoryKey }}</dd></template>
-        <template v-if="commandClass"><dt>类型</dt><dd>{{ commandClass }}</dd></template>
-        <template v-if="exitCode != null"><dt>退出码</dt><dd>{{ exitCode }}</dd></template>
+      <dl v-if="exitCode != null && exitCode !== 0" class="tool-meta">
+        <dt>退出码</dt><dd>{{ exitCode }}</dd>
       </dl>
     </div>
   </div>
@@ -56,7 +54,4 @@ const statusType = computed(() => {
   if (props.status === 'FAILED') return 'danger';
   return 'primary';
 });
-
-const hasMeta = computed(() =>
-  Boolean(props.repositoryKey || props.commandClass || props.exitCode != null));
 </script>

@@ -147,7 +147,7 @@ public final class ChatRunRuntimeLauncher implements ChatRunLauncher {
     }
 
     private void logFailure(String action, ChatRunId runId, RuntimeException failure) {
-        log.error("{} runId={} failureType={}", action, runId.getValue(),
-                failure.getClass().getSimpleName());
+        log.error("{} runId={} failureType={} message={}", action, runId.getValue(),
+                failure.getClass().getSimpleName(), failure.getMessage(), failure);
     }
 }
