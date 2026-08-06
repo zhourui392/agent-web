@@ -61,11 +61,6 @@ agent:
     enabled: <见 application.yml>
     create-enabled: <见 application.yml>
     write-run-enabled: <见 application.yml>
-    high-impact:
-      commit-enabled: false
-      push-enabled: false
-      local-deploy-enabled: false
-      production-write-enabled: false
 ```
 
 关键语义：
@@ -73,7 +68,7 @@ agent:
 - `agent.default-type` 只是数据库尚无值时的首启种子，落库后以管理后台设置为准。
 - Claude 默认使用 `stream-json`；Codex `args` 为空时使用真实 `codex exec --json`，填写模板时回退 legacy 文本路径。
 - `agent.runtime.workbench-enabled` 与 `agent.runtime.chat-enabled` 分别控制 Workbench 和普通 Chat 是否使用公共进程 Runtime，二者互不隐式开启。
-- Workbench 页面、创建、写 Run 和公共 Workbench Runtime 使用独立开关分级发布，默认值以当前 `application.yml` 为准；高影响 Executor 全部默认关闭。Operation Proposal 的创建不构成授权。
+- Workbench 页面、创建、写 Run 和公共 Workbench Runtime 使用独立开关分级发布，默认值以当前 `application.yml` 为准。
 - Knowledge Refinery 与 NATIVE 默认关闭。
 
 ## NATIVE 进程内诊断 Agent
@@ -166,8 +161,6 @@ AGENT_BOOTSTRAP_ADMIN_PASSWORD=<仅首次公网启动使用的新管理员密码
 | `AGENT_WORKBENCH_ENABLED` | 见 `application.yml` | Workbench 页面和 API 总开关；关闭时下级开关也必须关闭 |
 | `AGENT_WORKBENCH_CREATE_ENABLED` / `AGENT_WORKBENCH_WRITE_RUN_ENABLED` | 见 `application.yml` | Workbench 创建和写 Run 分级发布开关 |
 | `AGENT_COMMON_RUNTIME_WORKBENCH_ENABLED` | 见 `application.yml` | Workbench 使用公共 Codex Runtime 的独立开关，不改变普通 Chat 路径 |
-| `AGENT_WORKBENCH_HIGH_IMPACT_COMMIT_ENABLED` / `AGENT_WORKBENCH_HIGH_IMPACT_PUSH_ENABLED` | `false` / `false` | Git commit/push Executor 发布开关；Proposal 本身不构成授权 |
-| `AGENT_WORKBENCH_HIGH_IMPACT_LOCAL_DEPLOY_ENABLED` / `AGENT_WORKBENCH_HIGH_IMPACT_PRODUCTION_WRITE_ENABLED` | `false` / `false` | 本地部署/生产写 Executor 发布开关，默认 fail-closed |
 | `AGENT_WORKBENCH_RUN_TIMEOUT_SECONDS` / `AGENT_WORKBENCH_RUN_MAX_OUTPUT_BYTES` | `1800` / `8388608` | Workbench 单次 Run 超时和输出上限 |
 | `AGENT_WORKBENCH_ATTACHMENT_STORAGE_ROOT` | `data/workbench/uploads` | 浏览器上传附件的 Git 忽略受控根，不写入 Repository Scope |
 | `AGENT_WORKBENCH_ATTACHMENT_MAXIMUM_BYTES` / `AGENT_WORKBENCH_ATTACHMENT_MAXIMUM_AVAILABLE` | `10485760` / `16` | 单附件大小和每阶段会话可用附件数上限 |

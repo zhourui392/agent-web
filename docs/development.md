@@ -22,7 +22,7 @@ src/main/resources/
 ├── agent-paths.yml              数据库尚未配置时的机器路径种子
 ├── schema.sql                   SQLite 建表脚本
 ├── *-prompt.md                  Refinery 评分与 issue-log prompt
-└── workbench/profiles/          四阶段默认 Capability Profile
+└── capability/                  可信 Capability Catalog（rules / skills / mcp-servers）
 
 frontend/                        Vue 3 + Element Plus + Vite MPA 源码
 frontend/dist/                   前端构建产物

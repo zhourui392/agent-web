@@ -2,7 +2,6 @@
 
 > 状态：TD-11 实施中
 > 日期：2026-08-05
-> 产品输入：[本地开发工作台 MVP 产品设计](../local-development-workbench-mvp-design.md)
 > 权威当前设计：[TD-11 Workbench 动态阶段与全局上下文](td-11-dynamic-stages-global-context.md)
 > @author alex
 
@@ -252,6 +251,3 @@ Run 指标不使用旧工作单元标签，也不使用高基数 Stage Instance 
 - [TD-01 公共 Runtime 与 Capability 解耦](td-01-runtime-capability-decoupling.md)
 - [TD-04 多仓库工作区](td-04-multi-repository-workspace.md)
 - [TD-06 文档查看器](td-06-document-viewer.md)
-- [TD-09 可观测性与运维](td-09-observability-operations.md)
-
-TD-02、TD-03、TD-05 和 TD-07 中与固定工作单元、交接、专属评审或能力覆盖有关的章节仅保留为历史设计记录，不是当前实现合同；与 TD-11 冲突时一律以 TD-11 为准。

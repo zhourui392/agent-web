@@ -19,17 +19,15 @@
 
 ## Local Development Workbench
 
-- **四阶段研发主流程** — `/workbench.html` 提供 `REQUIREMENT_ANALYSIS → SOLUTION_DESIGN → IMPLEMENT_TEST → REVIEW_REFACTOR` 四阶段工作台，每个阶段使用独立会话。
+- **Dynamic Stage 模型** — `/workbench.html` 采用管理员发布的 Stage Definition；用户创建 Workbench 时选择 Stage，服务端按发布顺序冻结不可变 Stage Snapshot，后续配置变化不改写已有 Workbench。
 - **多仓 Repository Scope** — 从受信 Workspace Root 扫描 Git 仓库，由用户选择仓库集合、主仓和精确的 `READ` / `MODIFY` 边界；Scope 在 Workbench 创建后冻结。
-- **可审计能力绑定** — 每阶段有默认 Phase Capability，可为下一轮配置 Override；每个 Run 使用不可变 Snapshot 冻结 Rules、Skills、MCP、Runtime、Repository Scope、Prompt 与 Handoff Reception。
-- **结构化阶段交接** — Agent 只生成 Handoff Candidate，由用户采用、编辑或拒绝；正式 Handoff 固定为 Summary、Decisions、Open Questions、Pinned Files、Referenced Runs 五个字段，首次下游 Run 在提交事务内接收最新版本。
-- **Review 与受控修改** — Review Candidate 支持逐项采用或忽略；只有人工保存 Review Opinion 并精确确认后才能发起 `MODIFY`，同时保留受影响测试建议与执行状态。
+- **可审计能力绑定** — 每个 Run 使用不可变 Snapshot 冻结 Command、Skill、MCP、Runtime、Repository Scope、Prompt 与 Capability Binding；来源目录或 MCP 配置变化不会改写已发布 Revision。
 - **文档与附件上下文** — 只读文档 Pane 支持折叠、最大化、布局记忆和 stale/manual refresh；仓内文档引用可与浏览器上传附件联合提交，附件正文只进入 Git 忽略的受控存储。
 - **后台运行与恢复** — Run 与浏览器连接解耦，支持事件续传、显式 Stop、刷新恢复和服务重启后的状态恢复或对账。
-- **高影响操作默认不授权** — `GIT_COMMIT`、`GIT_PUSH`、`LOCAL_DEPLOY`、`PRODUCTION_WRITE` 使用类型化 Operation Proposal；创建 Proposal 只进入 `PROPOSED`，四类 Executor 发布开关均默认关闭。
-- **Admin 安全投影** — `/admin/workbenches.html` 只提供安全裁剪后的查询、Stop 和单 Run Reconcile；管理员不能代 Owner 对话、修改 Handoff/Override 或批准 Operation。
+- **高影响命令拒绝** — Runtime Command Policy 直接拒绝 commit、push、部署或生产写入等高影响命令；`MODIFY_WORKSPACE` 只授权冻结 Repository Scope 内的普通文件修改。
+- **Admin 安全投影** — `/admin/workbenches.html` 只提供安全裁剪后的查询、Stop 和单 Run Reconcile；管理员不能代 Owner 对话或修改 Owner 业务状态。
 
-Workbench 的页面、创建、写 Run 和公共 Runtime 通过独立开关分级发布，实际默认值以当前 [`application.yml`](../src/main/resources/application.yml) 为准；四类高影响 Executor 默认关闭。当前仅完成自动化和真实 Spring + SQLite + Runtime Stub 边界验证，尚未达到真实用户、真实 Codex/Claude CLI 试点退出标准。产品设计、技术方案与发布证据分别见 [MVP 产品设计](local-development-workbench-mvp-design.md)、[Workbench 技术方案](workbench/README.md)和[发布就绪快照](workbench/release-readiness-2026-08-01.md)。
+Workbench 的页面、创建、写 Run 和公共 Runtime 通过独立开关分级发布，实际默认值以当前 [`application.yml`](../src/main/resources/application.yml) 为准。当前仅完成自动化和真实 Spring + SQLite + Runtime Stub 边界验证，尚未达到真实用户、真实 Codex/Claude CLI 试点退出标准。技术方案与发布证据分别见 [Workbench 技术设计总览](workbench/README.md)和[发布就绪快照](workbench/release-readiness-2026-08-01.md)。
 
 ## 知识精炼与召回
 

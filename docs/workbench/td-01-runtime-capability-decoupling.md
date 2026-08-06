@@ -137,17 +137,17 @@ SkillPackage(id, version, source, packageHash, compatibleRuntimes, trustTier)
 McpServerDefinition(id, version, source, definitionHash, access, risk, transports)
 ```
 
-Catalog 不知道 Workbench Phase。消费者提供 `CapabilityUseCase` 与自己的 Policy：
+Catalog 不知道 Workbench Stage。消费者提供 `CapabilityUseCase` 与自己的 Policy：
 
-- Workbench：`PhaseCapabilityPolicy`；
+- Workbench：`WorkbenchStageCapabilityResolver`；
 - Chat：只有显式启用相关能力时才建立自己的 Policy。
 
-选择算法的公共部分只处理信任、版本、兼容性、required/optional 和 deny；“某阶段默认选什么”归消费者领域。
+选择算法的公共部分只处理信任、版本、兼容性、required/optional 和 deny；“某 Stage 默认选什么”归消费者领域。
 
 ### 5.2 Snapshot 分层
 
 - 公共 `ResolvedCapabilityBinding`：规则/Skill/MCP 的不可变选择结果和 Hash；
-- Workbench `WorkbenchRunSnapshot`：绑定 Phase、Repository Scope、Handoff、Prompt，组合公共 Binding。
+- Workbench `WorkbenchStageRunSnapshot`：绑定 Stage Snapshot、Repository Scope、Prompt，组合公共 Binding。
 
 ## 6. Workspace 模型
 

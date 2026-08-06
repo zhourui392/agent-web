@@ -239,6 +239,8 @@ Workbench 没有待迁移数据。Schema、领域模型、接口和前端均只�
 
 Capability Source Configuration 只配置受信任的 Command 目录、Skill 目录与规范化 MCP 定义来源。保存前进行探测和校验；MCP Secret 只保存引用，不保存明文。
 
+Skill 目录同时支持平台 `manifest.yml` 包和标准 Codex Skill。标准 Codex Skill 通过根目录下递归发现的 `SKILL.md` 识别，使用 frontmatter 的 `name`、`description` 构造 Catalog 项，并将 Skill 目录内的普通文件纳入 Package Hash；没有业务版本时使用完整 SHA-256 的 Base64URL 表示生成内容派生版本。`AGENTS.md`、`CLAUDE.md` 和符号链接不作为 Skill 包内容读取，配置目录的 Trust Source 是不可由 Skill 文件覆盖的权威事实。同目录存在 `manifest.yml` 时优先使用平台包格式，不重复导入其 `SKILL.md`。
+
 来源配置更新只影响之后的发现与发布，不修改已归档 Artifact。
 
 ## 7. Workbench 聚合

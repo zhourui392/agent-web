@@ -12,7 +12,7 @@
 - 用户路径经过真实路径白名单校验，拒绝符号链接逃逸；上传限制文件名、扩展名和大小，并禁止覆盖已有文件。
 - Workbench 在 Workspace Root 白名单之上冻结 Repository Scope；文档、附件引用、Run 写根和 Operation Target 再按 Scope 授权，未选择的 sibling 仓库不可写。
 - Workbench 上传附件保存在受控 Git 忽略目录，使用内容 Hash、大小/数量/TTL 上限和 `NOFOLLOW` 路径检查；附件不能通过文件路径声明伪造。
-- Workbench Runtime Snapshot 冻结 Exec Policy、能力绑定和写根；类型化 Operation 默认只创建 Proposal，高影响 Executor 独立发布并要求 Owner 明确决定。
+- Workbench Runtime Snapshot 冻结 Exec Policy、能力绑定和写根；Runtime Command Policy 直接拒绝 commit、push、部署或生产写入等高影响命令，`MODIFY_WORKSPACE` 只授权冻结 Repository Scope 内的普通文件修改。
 - Admin Workbench 只返回安全投影，不返回消息正文、Prompt、Secret 或原始命令；管理员运维动作写入独立审计记录。
 - Markdown 使用 DOMPurify 白名单净化；响应统一发送 CSP、`nosniff`、拒绝 framing 等浏览器安全头。
 - Agent 子进程使用受控环境变量集合、超时和输出上限；Claude 不使用 `--dangerously-skip-permissions`。
