@@ -219,7 +219,7 @@ class AgentProcessKernelTest {
     }
 
     @Test
-    void executionContextShouldEnhanceFinishedToolWithObservedDurationOnly()
+    void executionContextShouldEnhanceFinishedToolOutputWithObservedDuration()
             throws Exception {
         Path primary = Files.createDirectory(
                 tempDir.resolve("primary-tool-duration"));
@@ -231,7 +231,7 @@ class AgentProcessKernelTest {
                 + "printf '%s\\n' '{\"type\":\"item.completed\",\"item\":{"
                 + "\"id\":\"tool-1\",\"type\":\"command_execution\","
                 + "\"command\":\"pwd\","
-                + "\"aggregated_output\":\"/home/private tool-secret\","
+                + "\"aggregated_output\":\"build complete\","
                 + "\"exit_code\":0,\"status\":\"completed\"}}'\n"
                 + "printf '%s\\n' '{\"type\":\"turn.completed\"}'\n");
         RuntimeProcessRegistry registry = new RuntimeProcessRegistry();
@@ -251,8 +251,9 @@ class AgentProcessKernelTest {
         assertFalse(started.getData().containsKey("durationMs"));
         assertEquals(7L, finished.getData().get("durationMs"));
         assertFalse(finished.getData().toString().contains("pwd"));
-        assertFalse(finished.getData().toString().contains("/home/private"));
-        assertFalse(finished.getData().toString().contains("tool-secret"));
+        assertEquals("build complete", finished.getData().get("outputContent"));
+        assertEquals(Boolean.FALSE,
+                finished.getData().get("outputTruncated"));
     }
 
     @Test
