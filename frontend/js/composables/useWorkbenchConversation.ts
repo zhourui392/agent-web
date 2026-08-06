@@ -595,6 +595,7 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
       if (!key || key === lastTerminalKey || !stream.state.value?.terminal) return;
       lastTerminalKey = key;
       localRunId.value = null;
+      conversationNotice.value = null;
       void refreshConversationMessages();
       options.onTerminal?.(stream.state.value.context.runId);
     },

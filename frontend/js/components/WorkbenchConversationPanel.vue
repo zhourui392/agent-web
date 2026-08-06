@@ -395,10 +395,19 @@ const persistedAssistantRunIds = computed(() => new Set(
     .map(message => message.runId),
 ));
 const visibleRunBlocks = computed(() => (props.runState?.blocks || [])
-  .filter(block => !(
-    block.kind === 'agent_chunk'
-      && persistedAssistantRunIds.value.has(props.runState?.context.runId || '')
-  ))
+  .filter(block => {
+    if (block.kind === 'agent_chunk'
+        && persistedAssistantRunIds.value.has(props.runState?.context.runId || '')) {
+      return false;
+    }
+    // 运行结束后已持久化助手消息时，tool 块也不再展示，避免结论后堆叠 CLI 调用
+    if (block.kind === 'tool'
+        && props.runState?.terminal
+        && persistedAssistantRunIds.value.has(props.runState?.context.runId || '')) {
+      return false;
+    }
+    return true;
+  })
   .map(block => ({
     ...block,
     documentReferences: block.kind === 'agent_chunk'
@@ -461,7 +470,7 @@ const streamingRunMessage = computed(() => {
       summary: test.summary,
     });
   }
-  if (segments.length === 0 && !runActive.value && !props.runState?.terminal) return null;
+  if (segments.length === 0 && (!runActive.value || props.runState?.terminal)) return null;
   return {
     messageKey: 'run-' + runId + '-streaming',
     persistedMessageId: null,
