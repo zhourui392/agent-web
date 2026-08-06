@@ -1,6 +1,6 @@
 # Agent Web 领域模型
 
-> 本文按当前源码描述仍在运行的限界上下文与分层边界。最后更新：2026-07-22。
+> 本文按当前源码描述仍在运行的限界上下文与分层边界。最后更新：2026-08-06。
 
 ## 限界上下文
 
@@ -13,11 +13,13 @@
 | git | 支撑域 | 每用户 Git 身份及加密凭据 | `UserGitConfig`、`GitIdentity` |
 | schedule | 支撑域 | Cron Agent 任务生命周期 | `ScheduledTask` |
 | worktree | 支撑域 | 普通聊天工作区的分支切换和路径约束 | `WorkspacePathPolicy` |
+| workbench | 核心域 | 多仓库工作区、动态阶段、文档和可恢复运行 | `Workbench`、`Stage`、`ChatRun` |
+| capability / runtime | 支撑域 | 可信能力快照、运行时预检和执行事件 | `CapabilityCatalog`、`RuntimeSelection` |
 | slashcommand | 支撑域 | 命令发现、解析与展开 | `SlashCommand` |
-| issuelog | 支撑域 | issue-log 文件生成、去重、合并与锁 | `IssueLogEntry` |
+| issuelog | 诊断预留 | 后续诊断使用的 issue-log 文件生成、去重、合并与锁 | `IssueLogEntry` |
 | metrics | 读模型 | 管理台指标和召回观测 | DTO / Query Service |
 
-`AgentType` 位于 `domain/shared`，供聊天、工作流、定时任务和 CLI 适配共同引用。`AgentGateway` 位于 `adapter`，是应用层驱动本机 CLI 的出站端口。
+`AgentType` 位于 `domain/shared`，供聊天、工作流、定时任务和 CLI 适配共同引用。Chat 的 `AgentGateway` 位于 `app/agentrun/port`，Workbench 使用 `app/runtime/port` 的执行端口；两者均由 Infrastructure 适配器实现。
 
 ## 分层边界
 
@@ -25,7 +27,6 @@
 interfaces  -> 请求校验、DTO 转换、HTTP/SSE 边界
 app         -> 用例编排、事务边界、端口调用
 domain      -> 聚合、值对象、状态迁移、不变量、仓储端口
-adapter     -> 外部网关端口
 infra       -> SQLite、文件系统、CLI 子进程、HTTP 客户端、认证过滤器
 ```
 
@@ -35,7 +36,7 @@ infra       -> SQLite、文件系统、CLI 子进程、HTTP 客户端、认证�
 - 纯查询走 Query Service，返回 DTO / 视图，不返回半截聚合。
 - Controller 不直接访问 Repository 或 Mapper。
 
-这些边界由 `ArchitectureTest` 持续校验；存量 app → infra 依赖由 `FreezingArchRule` 冻结，禁止新增。
+这些边界由 `ArchitectureTest` 持续校验；应用层通过端口调用外部能力，禁止直接依赖 Infrastructure 实现。
 
 ## Chat
 
@@ -89,10 +90,10 @@ Refinery 默认关闭。启用后，`ChatRefineryTrigger` 找到静默会话，`
 ## Schedule 与 Issue Log
 
 - `ScheduledTask` 承担启停、Cron 配置和运行元数据；应用服务负责调度器注册与会话创建。
-- issue-log 通过文件仓储写入 workspace，并由工作目录级锁避免并发更新索引。精炼、去重和合并可使用同步 CLI 调用，并保留确定性 fallback。
+- issue-log 写侧由 `IssueLogRepository`、文件仓储和工作目录锁组成，是后续诊断能力的预留边界；当前没有在线 Controller/调度器入口。既有 `docs/issue-log/**` 只读知识索引仍由 Workspace 上下文解析器按 Repository Scope 读取，清理不会删除或改写这些文件。
 
 ## 存储
 
-SQLite 保存用户、登录会话、聊天会话、消息、反馈、定时任务、工作流、RAG chunk、召回观测、Git 配置和运行时设置。上传文件、图片与 issue-log 使用文件系统；活跃聊天会话使用有界内存缓存。
+SQLite 保存用户、登录会话、聊天会话、消息、反馈、定时任务、工作流、RAG chunk、召回观测、Git 配置、运行时设置和 ChatRun 事件。上传文件、图片与 issue-log 使用文件系统；活跃聊天会话使用有界内存缓存。
 
 新安装数据库以 `schema.sql` 为准，兼容性列和表由 `SqliteInitializer` 做幂等迁移。

@@ -49,7 +49,7 @@ type="primary" size="large" style="width:100%; margin-top:16px;"
  * 管理后台外壳组件 AdminShell (ES module)。
  *
  * AdminShell 承载所有横切 chrome:ADMIN 角色门、顶栏(标题 / 退出 + #header-actions 插槽)、
- * 侧栏菜单(含 backfill badge),内容区用默认 <slot>。鉴权通过后 emit('ready') 通知宿主拉数。
+ * 侧栏菜单与内容区用默认 <slot>。鉴权通过后 emit('ready') 通知宿主拉数。
  * 单页(admin.html)与未来 MPA 各页共享同一份实现。
  *
  * Vue / ElementPlus / 图标全部经 ES import (npm),

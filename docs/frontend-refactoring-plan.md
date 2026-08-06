@@ -1,15 +1,17 @@
 # 前端重构设计方案
 
-> 依据：2026-07-25 前端现状评估（3 路并行探索：主聊天应用 / admin MPA / 构建工具链与测试）。
+> 依据：2026-07-25 前端现状评估（3 路并行探索：主聊天应用 / admin MPA / 构建工具链与测试）。本文保留历史迁移记录；当前实现为 Vite + Vue SFC/TS，最后核对：2026-08-06。
 > 原则：每步独立可合、行为不变优先、每步完成跑前端测试全绿再进下一步；**不自动打包/重启服务**。
-> 范围：`src/main/resources/static/` 下前端代码（JS/CSS/HTML），不含后端 API 契约变更。
+> 范围：`frontend/` 下前端代码（JS/TS/CSS/Vue/HTML），不含后端 API 契约变更。
 > 决策状态：**引入 Vite + 渐进 TS**（决策 A 已定，依据见 §3）。迁移策略为"分功能建测试围栏 -> 改造 -> 迁 TS"，每个功能模块独立可合、独立可回滚。本文件里程碑统一使用 `FE-R*`。
+>
+> 注：§1～§7 保留迁移前基线和实施记录，不代表当前目录、入口或工具链；当前事实以 `frontend/`、`package.json`、`vite.config.ts` 和本文件的里程碑状态为准。
 
 ## 1. 现状诊断
 
 ### 1.1 规模与结构
 
-前端是 **CDN-only Vue 3 MPA**，无构建、无 ES module、无 TS、无 ESLint、无 CI。共 ~5000 行 JS：
+FE-R3 之前的历史基线是 **CDN-only Vue 3 MPA**，无构建、无 ES module、无 TS、无 ESLint、无 CI。共 ~5000 行 JS：
 
 | 文件 | 行数 | 角色 |
 |---|---|---|
@@ -22,8 +24,7 @@
 ### 1.2 三个核心问题
 
 **P1 巨型单文件 setup，无内部分层**
-- `app.js` setup()（35-861 行）混合 401 拦截 + 状态 + 文件系统 UI + worktree 业务 + 历史业务 + 定时任务业务 + 宿主回调，无 store、无 api 层，末尾 84 行 return 手工罗列 80+ 暴露项。
-- `chat-panel.js` setup()（220-1091 行）承载完整聊天闭环（可恢复 SSE / 斜杠命令 / 图片附件 / 反馈 / 回退），零子组件拆分，189 行 HTML template 内联且含大量 inline style。
+- 以上两项是 FE-R3 之前的历史基线；当前入口已拆为 Vue SFC、composable 和按领域 API 模块。
 
 **P2 大面积逐字重复，已开始脱节**
 - `copySegment`/`copyToClipboard` ×3（app.js / chat-panel.js / share.html）。
@@ -318,9 +319,9 @@ FE-R4  契约层 + 类型收尾 ──────  集中 api client + 后端�
 | FE-R3.2 | `app.js` auth + file-system | Playwright auth/fs spec | 拆 `useAuth`/`useFileSystem` composable |
 | FE-R3.3 | `app.js` worktree | Playwright worktree spec | 拆 `useWorktree` composable |
 | FE-R3.4 | `app.js` history + scheduled-task | Playwright chat/history spec | 拆 `useHistory`/`useScheduledTask` |
-| FE-R3.5 | `chat-panel` image-upload + feedback + slash-command | Playwright chat spec（扩充上传/反馈/命令用例） | 拆 `useImageUpload`/`useFeedback`/`useSlashCommand` |
+| FE-R3.5 | `chat-panel` image-upload + feedback + slash-command | Playwright chat spec（扩充上传/反馈/命令用例） | 已拆为 `useImageUpload`/`useFeedback`/`useSlashCommandInteraction` |
 | FE-R3.6 | `chat-panel` resumable-run（最复杂，212 行） | Playwright chat spec（扩充断连/刷新恢复用例，参考 `resumable-chat-stream-design.md` 测试矩阵） | 拆 `useResumableRun` composable |
-| FE-R3.7 | `chat-panel` message-rendering + 子组件拆分 | Playwright chat spec + share.html spec | 拆 `MessageItem`/`ToolBlock`/`RecallCard`/`CommandPopup`/`InputArea` SFC |
+| FE-R3.7 | `chat-panel` message-rendering + 子组件拆分 | Playwright chat spec + share.html spec | 已由 `ConversationMessage`/`ConversationTimeline`/`ToolBlock`/`CommandPopup`/`InputArea` 承载 |
 | FE-R3.8 | admin 小 pages（conversations/refinery/recall/workflows/settings/users/dashboard） | 对应 Playwright admin-* spec | 逐页迁 SFC + TS，复用 FE-R1 lib |
 | FE-R3.10 | `share.html` + `login.html` + `git-settings.html` | Playwright share spec | 迁 SFC，share.html 复用 FE-R3.7 消息组件 |
 
@@ -343,7 +344,7 @@ FE-R4  契约层 + 类型收尾 ──────  集中 api client + 后端�
 
 | 子组件 SFC | 来源 template 片段 |
 |---|---|
-| `MessageItem.vue` | 消息行（user/agent/recall/tool） |
+| `ConversationMessage.vue` | 消息行（user/agent/recall/tool） |
 | `ToolBlock.vue` | 工具调用块 |
 | `RecallCard.vue` | RAG 召回卡片 |
 | `CommandPopup.vue` | 斜杠命令弹窗（118-125） |
@@ -355,7 +356,7 @@ FE-R4  契约层 + 类型收尾 ──────  集中 api client + 后端�
 | `useResumableRun` | 可恢复 SSE/ChatRun 编排（684-895，212 行） |
 | `useImageUpload` | 图片/附件上传（418-532） |
 | `useFeedback` | 分析评价（534-592） |
-| `useSlashCommand` | 命令弹窗交互（613-652） |
+| `useSlashCommandInteraction` | 命令弹窗交互（已从 Chat 与 Workbench 共用） |
 
 ### 8.4 CSP `unsafe-eval` 移除
 
@@ -381,7 +382,7 @@ FE-R3.7（chat-panel 消息渲染 SFC 化）后，所有运行时模板编译消
 
 ### 9.3 ESLint + Prettier
 
-- FE-R4 引入 ESLint（`@vue/eslint-config-typescript`）+ Prettier，补静态分析门禁。
+- FE-R4 当前使用 ESLint + Prettier，类型检查由 `tsc --noEmit` 负责；由于 TypeScript 7 尚未被 typescript-eslint 支持，未启用 `@vue/eslint-config-typescript`。
 - CI job 扩展 lint 检查。
 
 ## 10. 顺序与里程碑
@@ -399,7 +400,7 @@ FE-R3.7（chat-panel 消息渲染 SFC 化）后，所有运行时模板编译消
 | FE-R3.5-3.7 | chat-panel 拆 composable + 子组件 SFC | FE-R3.4 | ✅ 完成 |
 | FE-R3.8 | admin 小 pages 迁 SFC + TS | FE-R3.7 | ✅ 完成（SFC 化,TS 留后续） |
 | FE-R3.10 | share/login/git-settings 迁 SFC + 移除 CSP unsafe-eval | FE-R3.8 | ✅ 完成 |
-| FE-R4 | 集中 api client + 类型契约 + ESLint | FE-R3.10 | ✅ ESLint/Prettier 完成;api client 留后续 |
+| FE-R4 | 集中 api client + 类型契约 + ESLint | FE-R3.10 | ✅ ESLint/Prettier/typecheck 完成；未接线的旧 API 包装已于 2026-08-06 删除，领域 API 迁移仍是后续债务 |
 
 ## 11. 风险与回滚
 

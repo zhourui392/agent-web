@@ -30,6 +30,9 @@ tests/                           独立前端测试工程：Vitest + Playwright
 docs/                            使用、架构、设计、发布和运维文档
 ```
 
+issue-log 写侧（诊断预留）位于 `domain/issuelog` 与 `infra/issuelog`；其配置、模板和测试保留。
+Workspace Context 对既有 `docs/issue-log/` 的读取仍是受 Scope 约束的只读入口。
+
 分层职责：
 
 - `interfaces` 只做 Controller、请求/响应 DTO、边界校验与转换。

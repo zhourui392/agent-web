@@ -6,7 +6,7 @@
  *
  * 严格照搬 app.js 原实现 (formatSize / renderMarkdown / parseUserMessage /
  * imageUrl / formatTime / formatBeijingDateTime / escapeHtml),行为必须完全等价 -- 任何细微差异都会
- * 让 chat / diagnose / issue-log UI 出现回归。
+ * 让聊天消息、Workbench 消息和文档视图出现回归。
  */
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';

@@ -1,6 +1,6 @@
 # Event Storming — agent-web
 
-> 本文只描述当前仍有生产入口的命令、事件和跨上下文协作。最后更新：2026-07-22。
+> 本文只描述当前仍有生产入口的命令、事件和跨上下文协作；诊断预留边界单独标明。最后更新：2026-08-06。
 
 ## 上下文总览
 
@@ -15,6 +15,9 @@ flowchart LR
     Schedule --> AgentRun
     AgentRun --> CLI[Claude / Codex CLI]
     Chat --> Refinery[Refinery]
+    Chat --> ChatRun[ChatRun / SSE]
+    Workbench[Workbench / Stage] --> ChatRun
+    ChatRun --> Runtime[Runtime / Capability]
     Refinery --> Embedding[Embedding API]
     Chat --> Git[Git Config]
     Workflow --> Git
@@ -83,6 +86,18 @@ flowchart LR
 
 **Aggregates / Policies**：`UserGitConfig` 约束 identity 与凭据状态；`WorkspacePathPolicy` 约束可访问的真实路径。凭据密文持久化，明文仅用于当前子进程。
 
+## Workbench / Runtime Context
+
+**Commands**：CreateWorkbench · SelectRepositoryScope · SubmitStageRun · StopStageRun · ReadScopedDocument · RestartStageConversation。
+
+**Events / Outcomes**：WorkbenchCreated · StageRunPrepared · ChatRunSubmitted · RuntimeEventAppended · StageRunTerminal · DocumentRead。
+
+**Policies**：Stage Run 只能从冻结的 Stage Snapshot 和 Capability Artifact 解析能力；Repository Scope 是文档、附件和运行时写入的共同授权边界。
+
+## Issue Log（诊断预留）
+
+issue-log 写侧当前没有在线命令或 Controller，但保留 `IssueLogEntry`、`IssueLogDraft`、仓储、索引锁、精炼/回填/合并/去重配置，供后续诊断用例通过应用端口接入。Workspace Context 对既有 `docs/issue-log/INDEX.md` 的读取是只读知识入口，不会自动写回或升级文件。
+
 ## 跨上下文协作
 
 - Chat / Workflow / Schedule → AgentRun：统一 prompt 组装与 CLI 调用。
@@ -91,4 +106,4 @@ flowchart LR
 - Git → CLI Infrastructure：当前用户的 identity 和可选凭据注入子进程环境。
 - Worktree → Chat：当前工作目录改变后，前端清空活动会话标识并重新加载命令与分支信息。
 
-持久化采用 SQLite 写侧仓储和 CQRS 查询服务；文件浏览、上传、图片和 issue-log 使用受白名单保护的文件系统；SSE 订阅和活跃会话缓存保留在内存中。
+持久化采用 SQLite 写侧仓储和 CQRS 查询服务；文件浏览、上传、图片和 issue-log 使用受白名单保护的文件系统；SSE 订阅和活跃会话缓存保留在内存中。ChatRun 事件按 `runId + seq` 持久化，Workbench 与 Chat 共用运行时事件模型。

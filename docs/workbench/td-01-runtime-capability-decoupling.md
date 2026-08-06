@@ -1,6 +1,6 @@
 # TD-01 公共 Runtime 与 Capability 解耦
 
-> 状态：Draft v0.1
+> 状态：Accepted / Implemented（TD-11 已吸收后续动态阶段变化）
 > 日期：2026-08-01
 > 前置：无；这是 Workbench 实现的 Phase 0 门禁
 > @author alex

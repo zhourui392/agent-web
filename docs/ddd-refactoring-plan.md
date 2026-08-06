@@ -3,7 +3,7 @@
 > 依据：2026-07-23 架构审查（domain 零污染、Repository 端口位置正确，债务集中在 worktree 子域、CLI 调用旁路、边界 DTO 泄漏）。
 > 原则：每步独立可合、行为不变优先、每步完成跑 `mvn test` 全绿再进下一步。**不自动打包/重启服务**。
 >
-> **完成状态（2026-07-23）：DDD-R1—DDD-R4 已全部完成并提交。** 下文“现状/步骤”保留为重构前基线与实施记录，实际结果以各 Phase 的“完成结果”和文末验证记录为准。本文件历史里程碑统一使用 `DDD-R*`。
+> **完成状态（2026-07-23）：DDD-R1—DDD-R4 已全部完成并提交。** 下文“现状/步骤”保留为重构前基线与实施记录，实际结果以各 Phase 的“完成结果”和文末验证记录为准。本文件历史里程碑统一使用 `DDD-R*`。2026-08-06 的过期代码清理另行删除了无消费者的 `UserDirectory` 与 `JsonFileSessionRepo`，不改变已完成的分层决策。
 
 ## 目标分层（不变）
 
@@ -124,7 +124,7 @@ interfaces/ → app/ → domain/ ← infra/(实现 domain 与 app 端口)
 
 ### 完成结果
 
-- 删除空的 `adapter/`：`UserDirectory` 迁入 `app/auth/port`；Agent 端口已在 Phase 2 迁入 `app/agentrun/port`。
+- 删除空的 `adapter/`；Agent 端口已在 Phase 2 迁入 `app/agentrun/port`。后续清理确认 `UserDirectory` 没有实现或消费者，已于 2026-08-06 删除。
 - `AgentRunProperties`、`ChatProperties`、`EnvProperties`、`FsProperties`、`ResumableChatStreamProperties` 统一迁入 `config/`；`RefineryProperties` 位于 `config/refinery/`。
 - App 通过 `TraceContext` 使用 MDC，`Slf4jMdcTraceContext` 留在 Infra；App 已无 `infra` import。
 - `DynamicTaskScheduler` 迁入 `infra/schedule` 并实现 `ScheduledTaskRegistrar`，定时触发按任务 ID 重新加载最新聚合。
@@ -161,5 +161,5 @@ interfaces/ → app/ → domain/ ← infra/(实现 domain 与 app 端口)
 ## 明确不做
 
 - 不引入 `sqlite-vec`、不拆模块（单 Maven module 保持）
-- 不给 `JsonFileSessionRepo` 这类孤儿 bean 重新接线（另行评估删除）
+- 不给 `JsonFileSessionRepo` 这类孤儿 bean 重新接线；该孤儿已于 2026-08-06 删除，正式会话仓储仍是 SQLite/内存实现。
 - 不改前端契约：所有 View record 序列化结果与现有 Map/DTO 的 JSON 一致

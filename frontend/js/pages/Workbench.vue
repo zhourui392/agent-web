@@ -149,7 +149,7 @@
               :disabled="!canCompleteSelectedWorkUnit"
               @click="completeSelectedWorkUnit"
             >
-              人工完成
+              阶段完成
             </el-button>
           </nav>
 

@@ -1,6 +1,6 @@
 # TD-06 文档查看器
 
-> 状态：Draft v0.1
+> 状态：Accepted / Implemented（TD-11 已吸收后续动态阶段变化）
 > 日期：2026-08-01
 > 前置：[TD-04](td-04-multi-repository-workspace.md)
 > @author alex

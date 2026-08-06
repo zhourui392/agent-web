@@ -1,6 +1,6 @@
 # TD-04 多仓库工作区
 
-> 状态：Draft v0.1
+> 状态：Accepted / Implemented（TD-11 已吸收后续动态阶段变化）
 > 日期：2026-08-01
 > 前置：[TD-01](td-01-runtime-capability-decoupling.md)
 > @author alex
