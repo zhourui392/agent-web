@@ -110,31 +110,31 @@
 
     <section v-if="currentDocument" class="workbench-document-viewer">
       <header class="workbench-document-viewer-heading">
-        <div class="workbench-document-viewer-actions">
-          <div
-            v-if="renderMode === 'MARKDOWN'"
-            class="workbench-document-markdown-modes"
-            aria-label="Markdown 查看模式"
+        <div
+          v-if="renderMode === 'MARKDOWN'"
+          class="workbench-document-markdown-modes"
+          aria-label="Markdown 查看模式"
+        >
+          <el-button
+            size="small"
+            :type="markdownViewMode === 'PREVIEW' ? 'primary' : 'default'"
+            :aria-pressed="markdownViewMode === 'PREVIEW'"
+            data-test="workbench-markdown-preview"
+            @click="markdownViewMode = 'PREVIEW'"
           >
-            <el-button
-              size="small"
-              :type="markdownViewMode === 'PREVIEW' ? 'primary' : 'default'"
-              :aria-pressed="markdownViewMode === 'PREVIEW'"
-              data-test="workbench-markdown-preview"
-              @click="markdownViewMode = 'PREVIEW'"
-            >
-              预览
-            </el-button>
-            <el-button
-              size="small"
-              :type="markdownViewMode === 'SOURCE' ? 'primary' : 'default'"
-              :aria-pressed="markdownViewMode === 'SOURCE'"
-              data-test="workbench-markdown-source"
-              @click="markdownViewMode = 'SOURCE'"
-            >
-              源码
-            </el-button>
-          </div>
+            预览
+          </el-button>
+          <el-button
+            size="small"
+            :type="markdownViewMode === 'SOURCE' ? 'primary' : 'default'"
+            :aria-pressed="markdownViewMode === 'SOURCE'"
+            data-test="workbench-markdown-source"
+            @click="markdownViewMode = 'SOURCE'"
+          >
+            源码
+          </el-button>
+        </div>
+        <div class="workbench-document-viewer-actions">
           <el-button
             size="small"
             plain
@@ -531,6 +531,8 @@ watch(
 }
 
 .workbench-document-viewer-actions {
+  min-width: 0;
+  margin-left: auto;
   justify-content: flex-end;
   flex-wrap: wrap;
 }
