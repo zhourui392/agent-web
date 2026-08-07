@@ -38,6 +38,7 @@ interface CreateForm {
   originalGoal: string;
   agentType: string;
   environment: string;
+  useWorktree: boolean;
 }
 
 interface UseWorkbenchShell {
@@ -125,6 +126,7 @@ export function useWorkbenchShell(): UseWorkbenchShell {
     originalGoal: '',
     agentType: 'CODEX',
     environment: 'test',
+    useWorktree: false,
   });
   let creationIdempotencyKey = '';
 
@@ -262,6 +264,7 @@ export function useWorkbenchShell(): UseWorkbenchShell {
     createForm.originalGoal = '';
     createForm.agentType = 'CODEX';
     createForm.environment = 'test';
+    createForm.useWorktree = false;
     creationIdempotencyKey = newIdempotencyKey();
   }
 
@@ -363,6 +366,7 @@ export function useWorkbenchShell(): UseWorkbenchShell {
         repositories: selectedRepositories.value.slice(),
         stageDefinitionIdentifiers: orderedStageIdentifiers,
         expectedStageCatalogVersion: selectableStageCatalog.value.stageCatalogVersion,
+        useWorktree: createForm.useWorktree,
       }, creationIdempotencyKey);
       createDialogVisible.value = false;
       await refreshList();

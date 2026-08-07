@@ -6,7 +6,6 @@ import com.example.agentweb.app.agentrun.port.AgentRuntime;
 import com.example.agentweb.app.agentrun.port.AgentStreamResult;
 import com.example.agentweb.app.agentrun.port.HistoryDeliveryMode;
 import com.example.agentweb.domain.shared.AgentType;
-import com.example.agentweb.infra.AgentCliGateway;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -42,8 +41,7 @@ class RoutingAgentGatewayTest {
         cli = runtime(AgentType.CODEX, AgentType.CLAUDE);
         nativeRuntime = runtime(AgentType.NATIVE);
         when(nativeRuntime.historyDeliveryMode()).thenReturn(HistoryDeliveryMode.TYPED);
-        gateway = new RoutingAgentGateway(mock(AgentCliGateway.class),
-                Arrays.asList(cli, nativeRuntime));
+        gateway = new RoutingAgentGateway(Arrays.asList(cli, nativeRuntime));
     }
 
     @Test

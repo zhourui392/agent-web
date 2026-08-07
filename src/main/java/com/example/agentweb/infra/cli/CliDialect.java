@@ -20,6 +20,16 @@ public interface CliDialect {
      */
     AgentType type();
 
+    /** 子进程显式 API Key 的目标环境变量名，只返回变量名不返回秘密值。 */
+    default String credentialEnvironmentVariable() {
+        return null;
+    }
+
+    /** Profile endpoint 的可选环境变量名；未提供时沿用 CLI 本地配置。 */
+    default String endpointEnvironmentVariable() {
+        return null;
+    }
+
     /**
      * 拼装最终启动 CLI 子进程所需的命令行 token 列表。
      * <p>实现应自行处理 resume 逻辑（同位 flag 或子命令位置参数等差异）。</p>

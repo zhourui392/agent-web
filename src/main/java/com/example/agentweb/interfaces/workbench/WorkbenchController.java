@@ -75,7 +75,8 @@ public class WorkbenchController {
                 AgentType.parseKnown(request.getAgentType()), request.getEnvironment(),
                 request.getWorkspaceRoot(), request.getPrimaryRepository(),
                 request.getRepositories(), request.getStageDefinitionIdentifiers(),
-                request.getExpectedStageCatalogVersion());
+                request.getExpectedStageCatalogVersion(),
+                request.isUseWorktree());
         WorkbenchCreationResult result = appService.create(actor, command);
         return ResponseEntity.created(
                         URI.create("/api/workbenches/" + result.getWorkbenchId()))

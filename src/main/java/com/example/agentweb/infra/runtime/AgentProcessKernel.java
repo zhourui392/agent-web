@@ -9,6 +9,9 @@ import com.example.agentweb.app.runtime.port.RuntimeHandle;
 import com.example.agentweb.app.runtime.port.RuntimeObservation;
 import com.example.agentweb.app.runtime.port.RuntimeState;
 import com.example.agentweb.app.runtime.port.RuntimeTerminationReason;
+import com.example.agentweb.infra.AgentCliProperties;
+import com.example.agentweb.infra.cli.BuildContext;
+import com.example.agentweb.infra.cli.CliDialect;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -103,6 +106,26 @@ public final class AgentProcessKernel implements AgentExecutionGateway, AutoClos
 
     @Override
     public RuntimeHandle start(AgentExecutionPlan plan, RuntimeEventSink sink) {
+        return startInternal(plan, sink, null, null, null);
+    }
+
+    /**
+     * CLI Runtime 入口：由 CliAgentRuntime 选择方言和 Profile 后调用。
+     * 旧的公共入口继续使用 RuntimeCommandFactory 以保持迁移期兼容。
+     */
+    public RuntimeHandle start(AgentExecutionPlan plan, RuntimeEventSink sink,
+                               CliDialect dialect, AgentCliProperties.Client client,
+                               String apiKey) {
+        if (dialect == null || client == null) {
+            throw new IllegalArgumentException("CLI dialect and client are required");
+        }
+        return startInternal(plan, sink, dialect, client, apiKey);
+    }
+
+    private RuntimeHandle startInternal(AgentExecutionPlan plan, RuntimeEventSink sink,
+                                        CliDialect dialect,
+                                        AgentCliProperties.Client client,
+                                        String apiKey) {
         Objects.requireNonNull(plan, "plan");
         Objects.requireNonNull(sink, "sink");
         RuntimeWorkspaceMaterializer.MaterializedWorkspace workspace = null;
@@ -113,7 +136,17 @@ public final class AgentProcessKernel implements AgentExecutionGateway, AutoClos
         try {
             workspace = workspaceMaterializer.materialize(plan);
             capabilities = capabilityMaterializer.materialize(plan, workspace);
-            List<String> command = commandFactory.create(plan, workspace, capabilities);
+            List<String> command = dialect == null
+                    ? commandFactory.create(plan, workspace, capabilities)
+                    : dialect.buildCommand(BuildContext.builder()
+                    .config(client)
+                    .userMessage(plan.getPromptPayload().getFinalPrompt())
+                    .resumeId(plan.getResumeId())
+                    .workingDir(workspace.getPrimaryRepositoryRoot().toString())
+                    .model(plan.getRuntimeSelection().getModel())
+                    .endpoint(plan.getRuntimeSelection().getEndpoint())
+                    .reasoningEffort(plan.getRuntimeSelection().getReasoningEffort())
+                    .build());
             ProcessBuilder builder = new ProcessBuilder(command);
             builder.directory(workspace.getPrimaryRepositoryRoot().toFile());
             builder.redirectErrorStream(true);
@@ -121,15 +154,34 @@ public final class AgentProcessKernel implements AgentExecutionGateway, AutoClos
             processEnvironment.put(
                     "AGENT_WORKBENCH_ATTACHMENT_DIR",
                     workspace.getAttachmentRoot().toString());
+            if (dialect != null) {
+                if (apiKey != null && !apiKey.isBlank()) {
+                    processEnvironment.put(
+                            dialect.credentialEnvironmentVariable(), apiKey);
+                }
+                if (plan.getRuntimeSelection().getEndpoint() != null
+                        && dialect.endpointEnvironmentVariable() != null) {
+                    processEnvironment.put(dialect.endpointEnvironmentVariable(),
+                            plan.getRuntimeSelection().getEndpoint());
+                }
+            }
             attachmentVerifier.verify(plan, workspace);
             capabilities.applySecretEnvironment(processEnvironment);
             process = builder.start();
             capabilities.clearSecretEnvironment(processEnvironment);
+            if (dialect != null) {
+                if (dialect.credentialEnvironmentVariable() != null) {
+                    processEnvironment.remove(dialect.credentialEnvironmentVariable());
+                }
+                if (dialect.endpointEnvironmentVariable() != null) {
+                    processEnvironment.remove(dialect.endpointEnvironmentVariable());
+                }
+            }
             handle = processRegistry.register(
                     plan.getExecutionIdentity().getExecutionId(), process);
             ExecutionContext context = new ExecutionContext(plan, sink, handle, process,
                     workspace, capabilities, System.nanoTime(),
-                    toolNanoTimeSource);
+                    toolNanoTimeSource, dialect);
             ExecutionContext previous = contexts.putIfAbsent(handle.getHandleId(), context);
             if (previous != null) {
                 throw new IllegalStateException("runtime handle context is already active");
@@ -142,6 +194,7 @@ public final class AgentProcessKernel implements AgentExecutionGateway, AutoClos
             if (capabilities != null) {
                 capabilities.clearSecretEnvironment(processEnvironment);
             }
+            clearProfileEnvironment(processEnvironment, dialect);
             terminateProcessTree(process);
             if (handle != null) {
                 try {
@@ -158,6 +211,19 @@ public final class AgentProcessKernel implements AgentExecutionGateway, AutoClos
             }
             cleanup.cleanup(workspace == null ? null : workspace.getExecutionRoot());
             throw new IllegalStateException("Agent process could not be started", ex);
+        }
+    }
+
+    private void clearProfileEnvironment(java.util.Map<String, String> environment,
+                                         CliDialect dialect) {
+        if (environment == null || dialect == null) {
+            return;
+        }
+        if (dialect.credentialEnvironmentVariable() != null) {
+            environment.remove(dialect.credentialEnvironmentVariable());
+        }
+        if (dialect.endpointEnvironmentVariable() != null) {
+            environment.remove(dialect.endpointEnvironmentVariable());
         }
     }
 
@@ -264,6 +330,11 @@ public final class AgentProcessKernel implements AgentExecutionGateway, AutoClos
         }
         if (decoded.isOperationBlocked()) {
             return ConsumeResult.stop(RuntimeTerminationReason.SECURITY_POLICY);
+        }
+        if (context.getDialect() != null && context.getDialect().isTurnEnd(line)) {
+            return ConsumeResult.stop(decoded.isTurnFailed()
+                    ? RuntimeTerminationReason.PROCESS_FAILURE
+                    : RuntimeTerminationReason.COMPLETED);
         }
         return ConsumeResult.output(decoded.isTurnFailed());
     }
@@ -376,6 +447,7 @@ public final class AgentProcessKernel implements AgentExecutionGateway, AutoClos
         private final RuntimeCapabilityMaterialization capabilities;
         private final long startedNanos;
         private final RuntimeToolTimingTracker toolTiming;
+        private final CliDialect dialect;
         private final AtomicLong sequence = new AtomicLong();
         private final AtomicBoolean stopEventEmitted = new AtomicBoolean();
 
@@ -384,7 +456,8 @@ public final class AgentProcessKernel implements AgentExecutionGateway, AutoClos
                                  RuntimeWorkspaceMaterializer.MaterializedWorkspace workspace,
                                  RuntimeCapabilityMaterialization capabilities,
                                  long startedNanos,
-                                 LongSupplier toolNanoTimeSource) {
+                                 LongSupplier toolNanoTimeSource,
+                                 CliDialect dialect) {
             this.plan = plan;
             this.sink = sink;
             this.handle = handle;
@@ -394,6 +467,7 @@ public final class AgentProcessKernel implements AgentExecutionGateway, AutoClos
             this.startedNanos = startedNanos;
             this.toolTiming = new RuntimeToolTimingTracker(
                     handle.getExecutionId(), toolNanoTimeSource);
+            this.dialect = dialect;
         }
 
         private synchronized void emit(RuntimeEventType type, String payload) {
@@ -420,7 +494,7 @@ public final class AgentProcessKernel implements AgentExecutionGateway, AutoClos
                 RuntimeEventDecoder decoder, String line) {
             RuntimeEventDecoder.DecodedEvent decoded = decoder.decode(
                     handle.getExecutionId(), sequence.incrementAndGet(), line,
-                    capabilities, plan.getWorkspaceLayout());
+                    capabilities, plan.getWorkspaceLayout(), dialect);
             if (decoded.getEvent() != null) {
                 sink.onEvent(toolTiming.enhance(decoded.getEvent()));
             }
@@ -449,6 +523,10 @@ public final class AgentProcessKernel implements AgentExecutionGateway, AutoClos
 
         private RuntimeCapabilityMaterialization getCapabilities() {
             return capabilities;
+        }
+
+        private CliDialect getDialect() {
+            return dialect;
         }
 
         private long getStartedNanos() {

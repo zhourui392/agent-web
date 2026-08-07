@@ -96,6 +96,7 @@
                 {{ workbenchStatusLabel(detail.status) }}
               </el-tag>
               <el-tag v-if="detail.environment" effect="plain">{{ detail.environment }}</el-tag>
+              <el-tag v-if="detail.useWorktree" type="warning" effect="plain">worktree: {{ detail.worktreeBranch || 'wb' }}</el-tag>
               <span class="workbench-version">v{{ detail.version }}</span>
             </div>
           </section>
@@ -391,6 +392,9 @@
         <label class="workbench-field">
           <span>环境</span>
           <el-input v-model="createForm.environment" maxlength="256" placeholder="test" />
+        </label>
+        <label class="workbench-field workbench-field-wide">
+          <el-checkbox v-model="createForm.useWorktree">使用 worktree 隔离开发</el-checkbox>
         </label>
         <label class="workbench-field workbench-field-wide">
           <span>原始目标</span>

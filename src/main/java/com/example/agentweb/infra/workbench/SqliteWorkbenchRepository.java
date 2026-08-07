@@ -45,7 +45,8 @@ public class SqliteWorkbenchRepository implements WorkbenchRepository {
                     + "creation_snapshot_topology_hash, "
                     + "creation_snapshot_state_hash, "
                     + "creation_snapshot_repository_count, "
-                    + "active_write_run_id, status, created_at, updated_at, version";
+                    + "active_write_run_id, use_worktree, worktree_path, "
+                    + "worktree_branch, status, created_at, updated_at, version";
     private static final String STAGE_COLUMNS =
             "workbench_id, stage_instance_identifier, definition_identifier, "
                     + "definition_revision, definition_hash, sequence_number, "
@@ -76,7 +77,7 @@ public class SqliteWorkbenchRepository implements WorkbenchRepository {
                     workbench.getCreationSnapshotReference();
             jdbc.update(
                     "INSERT INTO workbench (" + WORKBENCH_COLUMNS
-                            + ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                            + ") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     workbench.getId().getValue(),
                     workbench.getOwner().getOwnerId(),
                     workbench.getOwner().getOwnerName(), workbench.getTitle(),
@@ -89,6 +90,9 @@ public class SqliteWorkbenchRepository implements WorkbenchRepository {
                     snapshot.getSnapshotId(), snapshot.getTopologyHash(),
                     snapshot.getStateHash(), snapshot.getRepositoryCount(),
                     activeWriteRunIdentifier(workbench),
+                    workbench.isUseWorktree() ? 1 : 0,
+                    workbench.getWorktreePath(),
+                    workbench.getWorktreeBranch(),
                     workbench.getStatus().name(),
                     millis(workbench.getCreatedAt()),
                     millis(workbench.getUpdatedAt()), workbench.getVersion());
@@ -166,7 +170,8 @@ public class SqliteWorkbenchRepository implements WorkbenchRepository {
                             row.creationSnapshotTopologyHash,
                             row.creationSnapshotStateHash,
                             row.creationSnapshotRepositoryCount),
-                    stages, writeLease,
+                    stages, row.useWorktree, row.worktreePath,
+                    row.worktreeBranch, writeLease,
                     WorkbenchStatus.valueOf(row.status),
                     row.createdAt, row.updatedAt, row.version));
         } catch (IllegalArgumentException failure) {
@@ -373,6 +378,9 @@ public class SqliteWorkbenchRepository implements WorkbenchRepository {
                 resultSet.getString("creation_snapshot_state_hash"),
                 resultSet.getInt("creation_snapshot_repository_count"),
                 resultSet.getString("active_write_run_id"),
+                resultSet.getInt("use_worktree") != 0,
+                resultSet.getString("worktree_path"),
+                resultSet.getString("worktree_branch"),
                 resultSet.getString("status"),
                 instant(resultSet, "created_at"),
                 instant(resultSet, "updated_at"),
@@ -456,6 +464,9 @@ public class SqliteWorkbenchRepository implements WorkbenchRepository {
         private final String creationSnapshotStateHash;
         private final int creationSnapshotRepositoryCount;
         private final String activeWriteRunId;
+        private final boolean useWorktree;
+        private final String worktreePath;
+        private final String worktreeBranch;
         private final String status;
         private final Instant createdAt;
         private final Instant updatedAt;
@@ -469,7 +480,9 @@ public class SqliteWorkbenchRepository implements WorkbenchRepository {
                 String creationSnapshotTopologyHash,
                 String creationSnapshotStateHash,
                 int creationSnapshotRepositoryCount,
-                String activeWriteRunId, String status,
+                String activeWriteRunId, boolean useWorktree,
+                String worktreePath, String worktreeBranch,
+                String status,
                 Instant createdAt, Instant updatedAt, long version) {
             this.id = id;
             this.ownerId = ownerId;
@@ -488,6 +501,9 @@ public class SqliteWorkbenchRepository implements WorkbenchRepository {
             this.creationSnapshotRepositoryCount =
                     creationSnapshotRepositoryCount;
             this.activeWriteRunId = activeWriteRunId;
+            this.useWorktree = useWorktree;
+            this.worktreePath = worktreePath;
+            this.worktreeBranch = worktreeBranch;
             this.status = status;
             this.createdAt = createdAt;
             this.updatedAt = updatedAt;

@@ -44,6 +44,11 @@ class CodexCliDialectTest {
     }
 
     @Test
+    void credentialEnvironmentVariable_shouldReturnOpenAiKey() {
+        assertEquals("OPENAI_API_KEY", dialect.credentialEnvironmentVariable());
+    }
+
+    @Test
     void clientDefaults_should_notBypassSandbox() {
         assertFalse(new AgentCliProperties.Client().isSandboxBypass());
     }

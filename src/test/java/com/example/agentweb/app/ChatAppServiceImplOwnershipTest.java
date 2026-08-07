@@ -1,6 +1,5 @@
 package com.example.agentweb.app;
 
-import com.example.agentweb.app.agentrun.port.AgentGateway;
 import com.example.agentweb.domain.auth.CurrentUserProvider;
 import com.example.agentweb.domain.chat.ChatSession;
 import com.example.agentweb.domain.chat.SessionCache;
@@ -45,7 +44,7 @@ class ChatAppServiceImplOwnershipTest {
         sessionCache = mock(SessionCache.class);
         sessionRepository = mock(SessionRepository.class);
         currentUserProvider = mock(CurrentUserProvider.class);
-        service = new ChatAppServiceImpl(sessionCache, sessionRepository, mock(AgentGateway.class),
+        service = new ChatAppServiceImpl(sessionCache, sessionRepository,
                 mock(SlashCommandExpander.class), mock(ChatAgentDefaults.class),
                 mock(UploadPicStorage.class), mock(UploadFileStorage.class), Optional.empty(), currentUserProvider);
     }

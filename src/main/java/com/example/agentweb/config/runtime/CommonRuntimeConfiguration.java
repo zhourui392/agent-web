@@ -38,6 +38,8 @@ import com.example.agentweb.infra.runtime.RuntimeOutputRedactor;
 import com.example.agentweb.infra.runtime.RuntimeProcessRegistry;
 import com.example.agentweb.infra.runtime.RuntimeSecretResolver;
 import com.example.agentweb.infra.runtime.RuntimeWorkspaceMaterializer;
+import com.example.agentweb.infra.runtime.profile.AgentRuntimeProfileCatalog;
+import com.example.agentweb.infra.runtime.profile.AgentRuntimeProfileFileLoader;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -76,6 +78,12 @@ public class CommonRuntimeConfiguration {
             CommonRuntimeProperties properties) {
         return new RuntimeCommandFactory(
                 properties.getCodexCommand(), properties.isSandboxBypass());
+    }
+
+    @Bean
+    public AgentRuntimeProfileCatalog commonRuntimeProfileCatalog(
+            CommonRuntimeProperties properties) {
+        return AgentRuntimeProfileFileLoader.load(Paths.get(properties.getProfileFile()));
     }
 
     @Bean

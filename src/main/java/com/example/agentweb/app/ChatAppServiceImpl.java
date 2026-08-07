@@ -1,12 +1,10 @@
 package com.example.agentweb.app;
 
-import com.example.agentweb.app.agentrun.port.AgentGateway;
 import com.example.agentweb.app.agentrun.AgentCatalogService;
 import com.example.agentweb.domain.agentrun.AgentRuntimeAvailability;
 import com.example.agentweb.app.refinery.RecallObservationRecorder;
 import com.example.agentweb.domain.auth.CurrentUserProvider;
 import com.example.agentweb.domain.shared.AgentType;
-import com.example.agentweb.domain.chat.ChatMessage;
 import com.example.agentweb.domain.chat.ChatSession;
 import com.example.agentweb.domain.chat.ChatSessionNotFoundException;
 import com.example.agentweb.domain.chat.ChatSessionTruncation;
@@ -19,20 +17,18 @@ import com.example.agentweb.domain.chat.SessionCache;
 import com.example.agentweb.domain.chatrun.ChatRunActivityGuard;
 import com.example.agentweb.domain.slashcommand.SlashCommandExpander;
 import com.example.agentweb.domain.worktree.WorkspacePathPolicy;
-import com.example.agentweb.app.logging.LogSafe;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.Assert;
 
-import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
 
 /**
- * 聊天应用服务实现，编排会话生命周期、消息收发与对话摘要生成。
+ * 聊天应用服务实现，编排会话生命周期、消息历史、反馈与分享。
  * <p>通过 {@link SessionCache} 做内存快查，{@link SessionRepository} 做持久化，
- * 并委托 {@link AgentGateway} 调用 CLI Agent 完成实际推理。</p>
+ * 并编排会话、反馈、分享和消息历史相关用例。</p>
  * @author zhourui(V33215020)
  */
 @Service
@@ -41,7 +37,6 @@ public class ChatAppServiceImpl implements ChatAppService {
 
     private final SessionCache sessionCache;
     private final SessionRepository sessionRepository;
-    private final AgentGateway gateway;
     private final SlashCommandExpander commandExpander;
     private final ChatAgentDefaults chatAgentDefaults;
     private final UploadPicStorage uploadPicStore;
@@ -84,14 +79,13 @@ public class ChatAppServiceImpl implements ChatAppService {
 
     public ChatAppServiceImpl(SessionCache sessionCache,
                               SessionRepository sessionRepository,
-                              AgentGateway gateway,
                               SlashCommandExpander commandExpander,
                               ChatAgentDefaults chatAgentDefaults,
                               UploadPicStorage uploadPicStore,
                               UploadFileStorage uploadFileStore,
                               Optional<RecallObservationRecorder> recallObservationRecorder,
                               CurrentUserProvider currentUserProvider) {
-        this(sessionCache, sessionRepository, gateway, commandExpander, chatAgentDefaults,
+        this(sessionCache, sessionRepository, commandExpander, chatAgentDefaults,
                 uploadPicStore, uploadFileStore, recallObservationRecorder, currentUserProvider,
                 legacyAgentCatalogService());
     }
@@ -99,7 +93,6 @@ public class ChatAppServiceImpl implements ChatAppService {
     @Autowired
     public ChatAppServiceImpl(SessionCache sessionCache,
                               SessionRepository sessionRepository,
-                              AgentGateway gateway,
                               SlashCommandExpander commandExpander,
                               ChatAgentDefaults chatAgentDefaults,
                               UploadPicStorage uploadPicStore,
@@ -109,7 +102,6 @@ public class ChatAppServiceImpl implements ChatAppService {
                               AgentCatalogService agentCatalogService) {
         this.sessionCache = sessionCache;
         this.sessionRepository = sessionRepository;
-        this.gateway = gateway;
         this.commandExpander = commandExpander;
         this.chatAgentDefaults = chatAgentDefaults;
         this.uploadPicStore = uploadPicStore;
@@ -167,33 +159,6 @@ public class ChatAppServiceImpl implements ChatAppService {
         log.debug("chat-session-persisted sessionId={} agentType={} workingDir={} env={} clientIp={} userId={} userName={}",
                 s.getId(), type, s.getWorkingDir(), s.getEnv(), s.getClientIp(), s.getUserId(), s.getUserName());
         return s;
-    }
-
-    @Override
-    public String sendMessage(String sessionId, SendMessageCommand command) throws IOException, InterruptedException {
-        ChatSession s = getSession(sessionId);
-        if (s == null) {
-            log.warn("chat-send-rejected reason=session-not-found sessionId={}", sessionId);
-            throw new ChatSessionNotFoundException(sessionId);
-        }
-        log.info("chat-send-once sessionId={} agentType={} messageLen={}",
-                sessionId, s.getAgentType(), LogSafe.safeLen(command.message()));
-        gateway.requireOneShotSupported(s.getAgentType());
-        // persist user message
-        ChatMessage userMsg = new ChatMessage("user", command.message());
-        sessionRepository.addMessage(sessionId, userMsg);
-
-        long startMs = System.currentTimeMillis();
-        // 注入会话 owner 的 git 身份: 该会话内 agent 的 git commit 用属主身份 (默认用户/未配置回落机器默认)
-        String output = gateway.runOnce(s.getAgentType(), s.getWorkingDir(), command.message(), s.getUserId());
-        log.info("chat-send-once-done sessionId={} outputLen={} elapsedMs={}",
-                sessionId, LogSafe.safeLen(output), System.currentTimeMillis() - startMs);
-
-        // persist assistant response
-        ChatMessage assistantMsg = new ChatMessage("assistant", output);
-        sessionRepository.addMessage(sessionId, assistantMsg);
-
-        return output;
     }
 
     @Override

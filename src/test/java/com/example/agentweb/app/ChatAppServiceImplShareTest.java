@@ -1,6 +1,5 @@
 package com.example.agentweb.app;
 
-import com.example.agentweb.app.agentrun.port.AgentGateway;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.chat.ChatSession;
 import com.example.agentweb.domain.chat.ChatSessionNotFoundException;
@@ -41,12 +40,11 @@ public class ChatAppServiceImplShareTest {
     public void setUp() {
         sessionRepository = mock(SessionRepository.class);
         SessionCache sessionCache = mock(SessionCache.class);
-        AgentGateway gateway = mock(AgentGateway.class);
         SlashCommandExpander commandExpander = mock(SlashCommandExpander.class);
         ChatAgentDefaults chatAgentDefaults = mock(ChatAgentDefaults.class);
         UploadPicStorage uploadPicStore = mock(UploadPicStorage.class);
         UploadFileStorage uploadFileStore = mock(UploadFileStorage.class);
-        service = new ChatAppServiceImpl(sessionCache, sessionRepository, gateway,
+        service = new ChatAppServiceImpl(sessionCache, sessionRepository,
                 commandExpander, chatAgentDefaults, uploadPicStore, uploadFileStore,
                 java.util.Optional.empty(),
                 new com.example.agentweb.domain.auth.CurrentUserProvider(() -> java.util.Optional.empty()));

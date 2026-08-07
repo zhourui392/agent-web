@@ -167,6 +167,20 @@ public class SqliteInitializer {
         migrateChatRecallObservation();
         migrateWorkflowTables();
         createToolInvocationStatisticsIndexes();
+        migrateWorkbenchWorktree();
+    }
+
+    private void migrateWorkbenchWorktree() {
+        for (String column : new String[]{
+                "use_worktree INTEGER NOT NULL DEFAULT 0",
+                "worktree_path TEXT",
+                "worktree_branch TEXT"}) {
+            try {
+                jdbc.execute("ALTER TABLE workbench ADD COLUMN " + column);
+            } catch (Exception ignored) {
+                // column already exists
+            }
+        }
     }
 
     private void requireStageOnlyChatSessionSchema() {

@@ -1,8 +1,7 @@
 package com.example.agentweb.app;
 
-import com.example.agentweb.app.agentrun.port.AgentGateway;
-import com.example.agentweb.domain.chat.ChatMessage;
 import com.example.agentweb.domain.chat.ChatSession;
+import com.example.agentweb.domain.chat.ChatMessage;
 import com.example.agentweb.domain.chat.ChatSessionNotFoundException;
 import com.example.agentweb.domain.chat.SessionCache;
 import com.example.agentweb.domain.chat.SessionRepository;
@@ -58,7 +57,6 @@ class ChatAppServiceImplBranchesTest {
     private UploadFileStorage uploadFileStore;
     private WorkspacePathPolicy workspacePathPolicy;
     private ChatRunActivityGuard chatRunActivityGuard;
-    private AgentGateway gateway;
     private ChatAppServiceImpl service;
 
     @TempDir
@@ -74,10 +72,9 @@ class ChatAppServiceImplBranchesTest {
         uploadFileStore = mock(UploadFileStorage.class);
         workspacePathPolicy = mock(WorkspacePathPolicy.class);
         chatRunActivityGuard = mock(ChatRunActivityGuard.class);
-        gateway = mock(AgentGateway.class);
         when(workspacePathPolicy.requireExistingDirectory(anyString()))
                 .thenAnswer(invocation -> invocation.getArgument(0));
-        service = new ChatAppServiceImpl(sessionCache, sessionRepository, gateway,
+        service = new ChatAppServiceImpl(sessionCache, sessionRepository,
                 commandExpander, chatAgentDefaults, uploadPicStore, uploadFileStore,
                 Optional.empty(),
                 new com.example.agentweb.domain.auth.CurrentUserProvider(() -> Optional.empty()));
@@ -139,27 +136,6 @@ class ChatAppServiceImplBranchesTest {
     void getSession_cacheMissAndRepoEmpty_returnsNull() {
         assertNull(service.getSession("nope"));
         verify(sessionCache, never()).save(any());
-    }
-
-    @Test
-    void sendMessage_sessionNotFound_throws() {
-        SendMessageCommand command = new SendMessageCommand("hi");
-
-        assertThrows(ChatSessionNotFoundException.class,
-                () -> service.sendMessage("nope", command));
-    }
-
-    @Test
-    void sendMessageShouldHideWorkbenchSessionBeforeMessageOrGatewaySideEffects() {
-        when(sessionCache.find("stage-session"))
-                .thenReturn(workbenchSession("stage-session"));
-
-        assertThrows(ChatSessionNotFoundException.class,
-                () -> service.sendMessage(
-                        "stage-session", new SendMessageCommand("question")));
-
-        verify(sessionRepository, never()).addMessage(anyString(), any(ChatMessage.class));
-        verifyNoInteractions(gateway);
     }
 
     @Test

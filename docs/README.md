@@ -21,6 +21,7 @@
 | [开发指南](development.md) | 项目结构、测试金字塔、命令和发布前门禁 |
 | [领域模型](domain-model.md) | 核心领域对象与关系 |
 | [事件风暴](event-storming.md) | 业务命令、事件和策略 |
+| [Agent Runtime 统一设计](agent-runtime-unification-design.md) | Codex CLI、Claude Code CLI、NATIVE 的统一 Runtime、Profile、单次调用绑定和迁移方案 |
 
 ## Local Development Workbench
 

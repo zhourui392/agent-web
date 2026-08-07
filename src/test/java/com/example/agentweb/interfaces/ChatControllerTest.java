@@ -3,7 +3,6 @@ package com.example.agentweb.interfaces;
 import com.example.agentweb.app.ChatAppService;
 import com.example.agentweb.app.ChatMessageView;
 import com.example.agentweb.app.ChatSessionQueryService;
-import com.example.agentweb.app.SendMessageCommand;
 import com.example.agentweb.app.StartSessionCommand;
 import com.example.agentweb.app.TruncateResult;
 import com.example.agentweb.app.agentrun.AgentCatalogService;
@@ -17,7 +16,6 @@ import com.example.agentweb.domain.slashcommand.SlashCommand;
 import com.example.agentweb.domain.slashcommand.SlashCommandExpander;
 import com.example.agentweb.infra.auth.AuthProperties;
 import com.example.agentweb.config.EnvProperties;
-import com.example.agentweb.interfaces.dto.SendMessageRequest;
 import com.example.agentweb.interfaces.dto.StartSessionRequest;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -34,11 +32,11 @@ import java.util.Collections;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -189,26 +187,13 @@ class ChatControllerTest {
     }
 
     @Test
-    void sendMessage_should_return_output() throws Exception {
-        when(appService.sendMessage(eq("sess-1"), any(SendMessageCommand.class)))
-                .thenReturn("hello");
-
+    void synchronousMessageEndpoint_should_beRetired() throws Exception {
         mvc.perform(post("/api/chat/session/sess-1/message")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"message\":\"hi\"}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.output").value("hello"));
-    }
+                .andExpect(status().isNotFound());
 
-    @Test
-    void sendMessage_should_return_400_when_message_blank() throws Exception {
-        mvc.perform(post("/api/chat/session/sess-1/message")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"message\":\"\"}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error").value("validation failed"));
-
-        verify(appService, never()).sendMessage(anyString(), any(SendMessageCommand.class));
+        verifyNoInteractions(appService);
     }
 
     @Test

@@ -40,6 +40,11 @@ class ClaudeCliDialectTest {
     }
 
     @Test
+    void credentialEnvironmentVariable_shouldReturnAnthropicKey() {
+        assertEquals("ANTHROPIC_API_KEY", dialect.credentialEnvironmentVariable());
+    }
+
+    @Test
     void buildCommand_noResumeId_shouldUseTemplateArgs() {
         BuildContext ctx = BuildContext.builder()
                 .config(config)

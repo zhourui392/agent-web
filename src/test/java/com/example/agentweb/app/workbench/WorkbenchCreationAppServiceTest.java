@@ -4,6 +4,7 @@ import com.example.agentweb.app.workbench.port.WorkspaceScopeGateway;
 import com.example.agentweb.app.workbench.port.WorkspaceSnapshotGateway;
 import com.example.agentweb.app.workbench.port.WorkspaceHandoffGuard;
 import com.example.agentweb.app.workbench.port.WorkbenchTelemetry;
+import com.example.agentweb.app.workbench.port.WorkbenchWorktreeGateway;
 import com.example.agentweb.app.agentrun.AgentCatalogService;
 import com.example.agentweb.domain.agentrun.AgentPolicyViolationException;
 import com.example.agentweb.domain.shared.AgentType;
@@ -97,6 +98,8 @@ class WorkbenchCreationAppServiceTest {
         releasePolicy = mock(WorkbenchReleasePolicy.class);
         telemetry = mock(WorkbenchTelemetry.class);
         handoffGuard = mock(WorkspaceHandoffGuard.class);
+        WorkbenchWorktreeGateway worktreeGateway = mock(
+                WorkbenchWorktreeGateway.class);
         when(stageCatalogRepository.find()).thenReturn(stageCatalog());
         when(stageInstanceIdentifierGenerator.nextIdentifier())
                 .thenReturn("stage-requirement", "stage-implementation");
@@ -104,7 +107,7 @@ class WorkbenchCreationAppServiceTest {
                 creationRepository, workbenchRepository, scopeGateway, snapshotGateway,
                 workbenchIdGenerator, snapshotIdGenerator, stageCatalogRepository,
                 stageInstanceIdentifierGenerator, committer, agentCatalogService,
-                releasePolicy, telemetry, handoffGuard,
+                releasePolicy, telemetry, handoffGuard, worktreeGateway,
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
@@ -297,7 +300,7 @@ class WorkbenchCreationAppServiceTest {
                 "create-key-1", "Workbench MVP", "实现本地开发工作台",
                 AgentType.CODEX, "local", "/workspace", "agent-web",
                 Arrays.asList("agent-web", "shared-library"),
-                Arrays.asList("implementation", "requirement-analysis"), 3L);
+                Arrays.asList("implementation", "requirement-analysis"), 3L, false);
     }
 
     private static WorkbenchStageCatalog stageCatalog() {

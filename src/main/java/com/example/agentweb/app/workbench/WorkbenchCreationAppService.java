@@ -4,6 +4,7 @@ import com.example.agentweb.app.workbench.port.WorkspaceScopeGateway;
 import com.example.agentweb.app.workbench.port.WorkspaceSnapshotGateway;
 import com.example.agentweb.app.workbench.port.WorkspaceHandoffGuard;
 import com.example.agentweb.app.workbench.port.WorkbenchTelemetry;
+import com.example.agentweb.app.workbench.port.WorkbenchWorktreeGateway;
 import com.example.agentweb.app.agentrun.AgentCatalogService;
 import com.example.agentweb.domain.workbench.OwnerReference;
 import com.example.agentweb.domain.workbench.Workbench;
@@ -23,6 +24,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -53,6 +55,7 @@ public class WorkbenchCreationAppService {
     private final WorkbenchReleasePolicy releasePolicy;
     private final WorkbenchTelemetry telemetry;
     private final WorkspaceHandoffGuard handoffGuard;
+    private final WorkbenchWorktreeGateway worktreeGateway;
     private final Clock clock;
 
     public WorkbenchCreationAppService(
@@ -69,7 +72,8 @@ public class WorkbenchCreationAppService {
             AgentCatalogService agentCatalogService,
             WorkbenchReleasePolicy releasePolicy,
             WorkbenchTelemetry telemetry,
-            WorkspaceHandoffGuard handoffGuard, Clock clock) {
+            WorkspaceHandoffGuard handoffGuard,
+            WorkbenchWorktreeGateway worktreeGateway, Clock clock) {
         this.creationRepository = creationRepository;
         this.workbenchRepository = workbenchRepository;
         this.scopeGateway = scopeGateway;
@@ -83,6 +87,7 @@ public class WorkbenchCreationAppService {
         this.releasePolicy = releasePolicy;
         this.telemetry = telemetry;
         this.handoffGuard = handoffGuard;
+        this.worktreeGateway = worktreeGateway;
         this.clock = clock;
     }
 
@@ -131,10 +136,38 @@ public class WorkbenchCreationAppService {
                 snapshotId, scope, CREATE_PURPOSE);
         WorkbenchId workbenchId = workbenchIdGenerator.nextId();
         Instant now = clock.instant();
-        Workbench workbench = Workbench.create(
-                workbenchId, actor, command.getTitle(), command.getOriginalGoal(),
-                command.getAgentType(), command.getEnvironment(), scope,
-                snapshot.reference(), stageStates(selectedStageRevisions), now);
+        Workbench workbench;
+        if (command.isUseWorktree()) {
+            String worktreeBranch = "wb/" + workbenchId.getValue();
+            String worktreeDir = scope.getWorkspaceRoot()
+                    + "/.worktrees/wb/" + workbenchId.getValue();
+            String worktreePath;
+            try {
+                worktreePath = worktreeGateway.createWorktree(
+                        scope.primaryRepository().getRepositoryRoot(),
+                        java.nio.file.Paths.get(worktreeDir),
+                        worktreeBranch);
+            } catch (IOException | InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                throw new WorkspaceOperationException(
+                        WorkspaceFailureCode.WORKSPACE_PATH_FORBIDDEN,
+                        "worktree could not be created: " + ex.getMessage(),
+                        ex);
+            }
+            workbench = Workbench.createWithWorktree(
+                    workbenchId, actor, command.getTitle(),
+                    command.getOriginalGoal(),
+                    command.getAgentType(), command.getEnvironment(), scope,
+                    snapshot.reference(), stageStates(selectedStageRevisions),
+                    now, worktreePath, worktreeBranch);
+        } else {
+            workbench = Workbench.create(
+                    workbenchId, actor, command.getTitle(),
+                    command.getOriginalGoal(),
+                    command.getAgentType(), command.getEnvironment(), scope,
+                    snapshot.reference(), stageStates(selectedStageRevisions),
+                    now);
+        }
         WorkbenchCreationReceipt receipt = WorkbenchCreationReceipt.record(
                 actor, command.getIdempotencyKey(), command.getRequestHash(),
                 workbenchId, now);

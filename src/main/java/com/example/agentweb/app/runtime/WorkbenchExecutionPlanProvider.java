@@ -98,6 +98,22 @@ public final class WorkbenchExecutionPlanProvider
         RepositoryScope scope = workbench.getRepositoryScope();
         runtime.requireRepositoryScope(scope);
 
+        String primaryRoot = scope.primaryRepository().getRepositoryRoot();
+        List<String> readableRoots = scope.repositoryRoots();
+        List<String> writableRoots = scope.requireRepositoryRoots(
+                runtime.getWritableRepositoryKeys());
+        String attachmentPrimaryRoot = primaryRoot;
+        if (workbench.isUseWorktree()) {
+            String worktreeRoot = workbench.getWorktreePath();
+            String primaryKey = scope.getPrimaryRepositoryKey();
+            primaryRoot = worktreeRoot;
+            readableRoots = substituteRootByKey(
+                    readableRoots, scope, primaryKey, worktreeRoot);
+            writableRoots = substituteRootByKey(
+                    writableRoots, scope, primaryKey, worktreeRoot);
+            attachmentPrimaryRoot = worktreeRoot;
+        }
+
         return new AgentExecutionPlan(
                 new ExecutionIdentity(
                         runId, workbench.getOwner().getOwnerId(),
@@ -111,24 +127,24 @@ public final class WorkbenchExecutionPlanProvider
                                 prompt.getHistoryDelivery().name())),
                 new WorkspaceLayout(
                         scope.getWorkspaceRoot(),
-                        scope.primaryRepository().getRepositoryRoot(),
-                        scope.repositoryRoots(),
-                        scope.requireRepositoryRoots(
-                                runtime.getWritableRepositoryKeys()),
+                        primaryRoot,
+                        readableRoots,
+                        writableRoots,
                         sandboxMode),
                 snapshot.getCapabilityBinding(),
                 new RuntimeLimits(
                         Duration.ofSeconds(runtime.getTimeoutSeconds()),
                         runtime.getOutputLimitBytes()),
-                attachmentExpectations(snapshot, scope));
+                attachmentExpectations(snapshot, scope, attachmentPrimaryRoot));
     }
 
     private List<RuntimeAttachmentExpectation> attachmentExpectations(
-            WorkbenchStageRunSnapshot snapshot, RepositoryScope scope) {
+            WorkbenchStageRunSnapshot snapshot, RepositoryScope scope,
+            String primaryRoot) {
         List<RuntimeAttachmentExpectation> result =
                 new ArrayList<RuntimeAttachmentExpectation>();
         appendRepositoryAttachments(
-                result, snapshot.getVerifiedAttachments(), scope);
+                result, snapshot.getVerifiedAttachments(), scope, primaryRoot);
         for (VerifiedWorkbenchStageUploadedConversationAttachment attachment
                 : snapshot.getVerifiedUploadedAttachments()) {
             result.add(RuntimeAttachmentExpectation.uploadedConversation(
@@ -142,16 +158,48 @@ public final class WorkbenchExecutionPlanProvider
     private void appendRepositoryAttachments(
             List<RuntimeAttachmentExpectation> result,
             List<VerifiedWorkbenchRunAttachment> attachments,
-            RepositoryScope scope) {
+            RepositoryScope scope, String primaryRoot) {
         for (VerifiedWorkbenchRunAttachment attachment : attachments) {
             ResolvedRepository repository = scope.requireRepository(
                     attachment.getDocumentReference().getRepositoryKey());
+            String root = scope.getPrimaryRepositoryKey().equals(
+                    repository.getRepositoryKey())
+                    ? primaryRoot : repository.getRepositoryRoot();
             result.add(new RuntimeAttachmentExpectation(
                     repository.getRepositoryKey(),
-                    repository.getRepositoryRoot(),
+                    root,
                     attachment.getDocumentReference().getRelativePath(),
                     attachment.getContentVersion(), attachment.getSize()));
         }
+    }
+
+    /**
+     * 按 key 替换列表中 primary 仓库的根路径为 worktree 路径，其余仓库保持不变。
+     * 不得按下标替换——RepositoryScope 按 repositoryKey 字典序排序，primary 不保证在首位。
+     */
+    private static List<String> substituteRootByKey(
+            List<String> roots, RepositoryScope scope,
+            String primaryKey, String worktreeRoot) {
+        List<String> result = new ArrayList<String>(roots.size());
+        for (String root : roots) {
+            ResolvedRepository repo = findRepositoryByRoot(scope, root);
+            if (repo != null && primaryKey.equals(repo.getRepositoryKey())) {
+                result.add(worktreeRoot);
+            } else {
+                result.add(root);
+            }
+        }
+        return Collections.unmodifiableList(result);
+    }
+
+    private static ResolvedRepository findRepositoryByRoot(
+            RepositoryScope scope, String root) {
+        for (ResolvedRepository repo : scope.getRepositories()) {
+            if (repo.getRepositoryRoot().equals(root)) {
+                return repo;
+            }
+        }
+        return null;
     }
 
     private static Map<RunMode, SandboxMode> sandboxModes() {

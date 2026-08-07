@@ -53,4 +53,6 @@ public class CreateWorkbenchRequest {
 
     @Min(1)
     private long expectedStageCatalogVersion;
+
+    private boolean useWorktree;
 }

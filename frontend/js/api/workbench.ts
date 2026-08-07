@@ -37,6 +37,7 @@ export interface CreateWorkbenchRequest {
   repositories: string[];
   stageDefinitionIdentifiers: string[];
   expectedStageCatalogVersion: number;
+  useWorktree: boolean;
 }
 
 export interface SelectableWorkbenchStageDefinition {

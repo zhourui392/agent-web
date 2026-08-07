@@ -29,11 +29,13 @@ public class CommonRuntimeProperties {
     private long versionProbeMaxBytes = 4096L;
     private long chatTimeoutSeconds = 7200L;
     private long chatMaxOutputBytes = 8L * 1024L * 1024L;
+    private String profileFile = "data/secrets.properties";
 
     @PostConstruct
     public void validate() {
         if (isBlank(codexCommand)
                 || isBlank(tempRoot)
+                || isBlank(profileFile)
                 || isBlank(compatibilityMatrixVersion)
                 || versionProbeTimeoutSeconds < 1L
                 || versionProbeMaxBytes < 1L

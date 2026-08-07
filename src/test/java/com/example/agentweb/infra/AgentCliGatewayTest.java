@@ -110,26 +110,6 @@ class AgentCliGatewayTest {
     }
 
     @Test
-    void runOnce_finishesWhenProcessExits_evenIfOrphanHoldsStdout() throws Exception {
-        List<String> cmd = writeOrphanStub();
-        AgentCliGateway gateway = newGateway(cmd, null);
-
-        final String[] output = new String[1];
-        long elapsed;
-        try {
-            elapsed = timed(() ->
-                    output[0] = gateway.runOnce(AgentType.CODEX, WORKING_DIR, "ignored"));
-        } finally {
-            deleteQuietly(cmd);
-        }
-
-        assertTrue(elapsed < MAX_FINISH_MILLIS,
-                "runOnce 应在进程退出后数秒内返回，实际耗时 " + elapsed + "ms");
-        assertTrue(output[0].contains("line1") && output[0].contains("line2"),
-                "应返回进程退出前排空的输出，实际：" + output[0]);
-    }
-
-    @Test
     void runStream_rejectsSecondLiveProcessForSameSession() throws Exception {
         List<String> cmd = writeLongRunningStub();
         AgentCliGateway gateway = newGateway(cmd, null);
@@ -289,7 +269,6 @@ class AgentCliGatewayTest {
         AgentCliProperties.Client codex = props.getCodex();
         codex.setExec(cmd.get(0));
         codex.setStdin(false);
-        codex.setTimeoutSeconds(0);
         codex.setStreamIdleTimeoutSeconds(idleTimeoutSeconds);
         codex.setStreamMaxRuntimeSeconds(maxRuntimeSeconds);
         codex.setStdoutDrainGraceMs(200L);

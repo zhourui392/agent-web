@@ -22,6 +22,8 @@ public final class WorkbenchDetailView {
     private final String agentType;
     private final String environment;
     private final String activeWriteRunId;
+    private final boolean useWorktree;
+    private final String worktreeBranch;
     private final String status;
     private final long createdAt;
     private final long updatedAt;
@@ -33,7 +35,8 @@ public final class WorkbenchDetailView {
     public WorkbenchDetailView(
             String id, String title, String originalGoal,
             String agentType, String environment,
-            String activeWriteRunId, String status,
+            String activeWriteRunId, boolean useWorktree,
+            String worktreeBranch, String status,
             long createdAt, long updatedAt, long version,
             RepositoryScopeView repositoryScope,
             CreationSnapshotView creationSnapshot,
@@ -44,6 +47,8 @@ public final class WorkbenchDetailView {
         this.agentType = agentType;
         this.environment = environment;
         this.activeWriteRunId = activeWriteRunId;
+        this.useWorktree = useWorktree;
+        this.worktreeBranch = worktreeBranch;
         this.status = status;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;

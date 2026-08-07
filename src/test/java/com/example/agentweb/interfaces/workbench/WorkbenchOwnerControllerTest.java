@@ -376,7 +376,7 @@ class WorkbenchOwnerControllerTest {
                 activeRun, 1300L, null);
         return new WorkbenchDetailView(
                 WORKBENCH_ID, "Workbench MVP", "实现本地开发工作台",
-                "CODEX", "local", "run-1", "ACTIVE",
+                "CODEX", "local", "run-1", false, null, "ACTIVE",
                 1000L, 1300L, 7L, scope, snapshot,
                 Collections.singletonList(stage));
     }

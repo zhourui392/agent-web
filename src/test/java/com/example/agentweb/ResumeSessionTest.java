@@ -36,7 +36,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 1. ChatSession domain: resumeId field
  * 2. SqliteSessionRepo: updateResumeId + resumeId in queries
  * 3. ChatAppServiceImpl: getSession fallback to persistent storage
- * 4. API: history list returns resumeId; resumed session can send messages
+ * 4. API: history list returns resumeId; retired synchronous send route stays unavailable
  */
 @SpringBootTest(properties = {
         "agent.fs.roots=/tmp",
@@ -120,12 +120,11 @@ public class ResumeSessionTest {
         inMemoryRepo.remove(sid);
         assertNull(inMemoryRepo.find(sid), "In-memory should be empty after remove");
 
-        // Sending a message should still work (service falls back to DB)
+        // The retired synchronous message route must not be revived by the fallback path.
         mvc.perform(post("/api/chat/session/" + sid + "/message")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"message\":\"hello after restart\"}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.output", containsString("Echo")));
+                .andExpect(status().isNotFound());
     }
 
     // ── 4. API: history list returns resumeId ──

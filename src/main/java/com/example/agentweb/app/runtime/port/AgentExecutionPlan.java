@@ -29,6 +29,7 @@ public final class AgentExecutionPlan {
     private final ResolvedCapabilityBinding capabilityBinding;
     private final RuntimeLimits runtimeLimits;
     private final List<RuntimeAttachmentExpectation> attachmentExpectations;
+    private final String resumeId;
 
     public AgentExecutionPlan(ExecutionIdentity executionIdentity,
                               RuntimeSelection runtimeSelection,
@@ -38,7 +39,7 @@ public final class AgentExecutionPlan {
                               RuntimeLimits runtimeLimits) {
         this(executionIdentity, runtimeSelection, promptPayload,
                 workspaceLayout, capabilityBinding, runtimeLimits,
-                Collections.<RuntimeAttachmentExpectation>emptyList());
+                Collections.<RuntimeAttachmentExpectation>emptyList(), null);
     }
 
     public AgentExecutionPlan(
@@ -49,6 +50,19 @@ public final class AgentExecutionPlan {
             ResolvedCapabilityBinding capabilityBinding,
             RuntimeLimits runtimeLimits,
             List<RuntimeAttachmentExpectation> attachmentExpectations) {
+        this(executionIdentity, runtimeSelection, promptPayload, workspaceLayout,
+                capabilityBinding, runtimeLimits, attachmentExpectations, null);
+    }
+
+    public AgentExecutionPlan(
+            ExecutionIdentity executionIdentity,
+            RuntimeSelection runtimeSelection,
+            PromptPayload promptPayload,
+            WorkspaceLayout workspaceLayout,
+            ResolvedCapabilityBinding capabilityBinding,
+            RuntimeLimits runtimeLimits,
+            List<RuntimeAttachmentExpectation> attachmentExpectations,
+            String resumeId) {
         this.executionIdentity = Objects.requireNonNull(
                 executionIdentity, "executionIdentity");
         this.runtimeSelection = Objects.requireNonNull(runtimeSelection, "runtimeSelection");
@@ -59,6 +73,8 @@ public final class AgentExecutionPlan {
         this.runtimeLimits = Objects.requireNonNull(runtimeLimits, "runtimeLimits");
         this.attachmentExpectations = immutableAttachments(
                 attachmentExpectations, workspaceLayout);
+        this.resumeId = resumeId == null || resumeId.trim().isEmpty()
+                ? null : resumeId.trim();
     }
 
     private static List<RuntimeAttachmentExpectation> immutableAttachments(

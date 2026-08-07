@@ -9,6 +9,7 @@ import com.example.agentweb.domain.runtime.RuntimeCommandClass;
 import com.example.agentweb.domain.runtime.RuntimeCommandPolicy;
 import com.example.agentweb.domain.shared.CanonicalHashing;
 import com.example.agentweb.infra.cli.CodexEventNormalizer;
+import com.example.agentweb.infra.cli.CliDialect;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Getter;
@@ -86,7 +87,32 @@ public final class RuntimeEventDecoder {
             String executionId, long sequence, String providerLine,
             RuntimeCapabilityMaterialization capabilities,
             WorkspaceLayout workspaceLayout) {
+        return decode(executionId, sequence, providerLine, capabilities,
+                workspaceLayout, null);
+    }
+
+    /** Decode using the selected CLI dialect; non-Codex CLI output is projected generically. */
+    public DecodedEvent decode(
+            String executionId, long sequence, String providerLine,
+            RuntimeCapabilityMaterialization capabilities,
+            WorkspaceLayout workspaceLayout, CliDialect dialect) {
         Objects.requireNonNull(providerLine, "providerLine");
+        if (dialect != null && dialect.type() != com.example.agentweb.domain.shared.AgentType.CODEX) {
+            List<String> normalized = dialect.normalizeChunk(providerLine);
+            if (normalized == null || normalized.isEmpty()) {
+                return DecodedEvent.skipped();
+            }
+            JsonNode root = parseObject(providerLine);
+            String type = providerEventType(root);
+            RuntimeEventType eventType = "result".equals(type)
+                    && root != null && "error".equals(root.path("subtype").asText())
+                    ? RuntimeEventType.DIAGNOSTIC : RuntimeEventType.OUTPUT;
+            String assistantText = claudeAssistantText(root);
+            return new DecodedEvent(new RuntimeEvent(
+                    executionId, sequence, eventType,
+                    type.isEmpty() ? "cli output" : type,
+                    assistantText), type, eventType == RuntimeEventType.DIAGNOSTIC, false);
+        }
         JsonNode root = parseObject(providerLine);
         String providerEventType = providerEventType(root);
 
@@ -115,6 +141,31 @@ public final class RuntimeEventDecoder {
                 assistantText, projection.getEvents()),
                 providerEventType, turnFailed,
                 projection.isOperationBlocked());
+    }
+
+    private String claudeAssistantText(JsonNode root) {
+        if (root == null) {
+            return null;
+        }
+        if ("assistant".equals(root.path("type").asText())) {
+            JsonNode content = root.path("message").path("content");
+            if (content.isArray()) {
+                for (JsonNode block : content) {
+                    if ("text".equals(block.path("type").asText())
+                            && !block.path("text").asText().isBlank()) {
+                        return outputRedactor.boundEvidenceLine(
+                                block.path("text").asText(), RuntimeEvent.MAX_SAFE_PAYLOAD_LENGTH);
+                    }
+                }
+            }
+        }
+        if ("stream_event".equals(root.path("type").asText())
+                && "text_delta".equals(root.path("event").path("delta").path("type").asText())) {
+            String text = root.path("event").path("delta").path("text").asText("");
+            return text.isBlank() ? null : outputRedactor.boundEvidenceLine(
+                    text, RuntimeEvent.MAX_SAFE_PAYLOAD_LENGTH);
+        }
+        return null;
     }
 
     public String providerEventType(String providerLine) {

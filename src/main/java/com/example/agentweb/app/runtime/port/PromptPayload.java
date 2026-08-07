@@ -2,7 +2,12 @@ package com.example.agentweb.app.runtime.port;
 
 import com.example.agentweb.domain.shared.CanonicalHashing;
 import com.example.agentweb.domain.shared.DomainText;
+import com.example.agentweb.app.agentrun.port.AgentHistoryMessage;
 import lombok.Getter;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 /**
  * 已完成业务组装的最终 Prompt、内容哈希与历史投递方式。
@@ -16,9 +21,17 @@ public final class PromptPayload {
     private final String finalPrompt;
     private final String promptHash;
     private final HistoryDelivery historyDelivery;
+    private final List<AgentHistoryMessage> typedHistory;
 
     public PromptPayload(String finalPrompt, String promptHash,
                          HistoryDelivery historyDelivery) {
+        this(finalPrompt, promptHash, historyDelivery,
+                Collections.<AgentHistoryMessage>emptyList());
+    }
+
+    public PromptPayload(String finalPrompt, String promptHash,
+                         HistoryDelivery historyDelivery,
+                         List<AgentHistoryMessage> typedHistory) {
         if (finalPrompt == null || finalPrompt.trim().isEmpty()) {
             throw new IllegalArgumentException("final prompt must not be blank");
         }
@@ -31,5 +44,10 @@ public final class PromptPayload {
             throw new IllegalArgumentException("history delivery must not be null");
         }
         this.historyDelivery = historyDelivery;
+        if (typedHistory == null || typedHistory.contains(null)) {
+            throw new IllegalArgumentException("typed history must be complete");
+        }
+        this.typedHistory = Collections.unmodifiableList(
+                new ArrayList<AgentHistoryMessage>(typedHistory));
     }
 }

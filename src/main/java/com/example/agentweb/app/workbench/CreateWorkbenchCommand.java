@@ -22,7 +22,7 @@ import java.util.List;
 @Getter
 public final class CreateWorkbenchCommand {
 
-    private static final String HASH_SCHEMA = "workbench-create-request@2";
+    private static final String HASH_SCHEMA = "workbench-create-request@3";
 
     private final String idempotencyKey;
     private final String title;
@@ -33,6 +33,7 @@ public final class CreateWorkbenchCommand {
     private final RepositorySelection repositorySelection;
     private final List<String> stageDefinitionIdentifiers;
     private final long expectedStageCatalogVersion;
+    private final boolean useWorktree;
     private final String requestHash;
 
     public CreateWorkbenchCommand(
@@ -40,7 +41,7 @@ public final class CreateWorkbenchCommand {
             AgentType agentType, String environment, String workspaceRoot,
             String primaryRepositoryKey, List<String> repositoryKeys,
             List<String> stageDefinitionIdentifiers,
-            long expectedStageCatalogVersion) {
+            long expectedStageCatalogVersion, boolean useWorktree) {
         this.idempotencyKey = DomainText.require(
                 idempotencyKey, "workbench creation idempotency key", 128);
         this.title = DomainText.require(title, "workbench title", 512);
@@ -61,6 +62,7 @@ public final class CreateWorkbenchCommand {
                     "expected Stage Catalog version must be positive");
         }
         this.expectedStageCatalogVersion = expectedStageCatalogVersion;
+        this.useWorktree = useWorktree;
         this.requestHash = computeRequestHash();
     }
 
@@ -81,6 +83,7 @@ public final class CreateWorkbenchCommand {
         }
         CanonicalHashing.appendFramed(canonical, "stageCatalogVersion",
                 expectedStageCatalogVersion);
+        CanonicalHashing.appendFramed(canonical, "useWorktree", useWorktree);
         for (String definitionIdentifier : stageDefinitionIdentifiers) {
             CanonicalHashing.appendFramed(
                     canonical, "stageDefinitionIdentifier", definitionIdentifier);

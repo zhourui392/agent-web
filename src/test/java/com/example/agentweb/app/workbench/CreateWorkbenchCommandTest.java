@@ -73,17 +73,17 @@ class CreateWorkbenchCommandTest {
                 () -> new CreateWorkbenchCommand(
                         "create-key", "Workbench", "目标", AgentType.CODEX, "local",
                         "/workspace", "missing", Arrays.asList("agent-web"),
-                        Arrays.asList("requirement-analysis"), 1L));
+                        Arrays.asList("requirement-analysis"), 1L, false));
         assertThrows(IllegalArgumentException.class,
                 () -> new CreateWorkbenchCommand(
                         "create-key", "Workbench", "目标", AgentType.CODEX, "local",
                         "/workspace", "agent-web", Arrays.asList("agent-web"),
-                        java.util.Collections.emptyList(), 1L));
+                        java.util.Collections.emptyList(), 1L, false));
         assertThrows(IllegalArgumentException.class,
                 () -> new CreateWorkbenchCommand(
                         "create-key", "Workbench", "目标", AgentType.CODEX, "local",
                         "/workspace", "agent-web", Arrays.asList("agent-web"),
-                        Arrays.asList("requirement-analysis"), 0L));
+                        Arrays.asList("requirement-analysis"), 0L, false));
     }
 
     private static CreateWorkbenchCommand command(
@@ -91,7 +91,7 @@ class CreateWorkbenchCommandTest {
         return new CreateWorkbenchCommand(
                 "create-key", "Workbench MVP", goal, AgentType.CODEX, "local",
                 workspaceRoot, "agent-web", repositories,
-                Arrays.asList("requirement-analysis", "implementation"), 3L);
+                Arrays.asList("requirement-analysis", "implementation"), 3L, false);
     }
 
     private static CreateWorkbenchCommand command(
@@ -100,6 +100,6 @@ class CreateWorkbenchCommandTest {
         return new CreateWorkbenchCommand(
                 "create-key", "Workbench MVP", goal, AgentType.CODEX, "local",
                 workspaceRoot, "agent-web", repositories,
-                stageDefinitions, catalogVersion);
+                stageDefinitions, catalogVersion, false);
     }
 }

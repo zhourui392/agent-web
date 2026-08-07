@@ -4,7 +4,6 @@ import com.example.agentweb.app.ChatAppService;
 import com.example.agentweb.app.ChatMessageView;
 import com.example.agentweb.app.ChatSessionQueryService;
 import com.example.agentweb.app.ChatSessionSummary;
-import com.example.agentweb.app.SendMessageCommand;
 import com.example.agentweb.app.StartSessionCommand;
 import com.example.agentweb.app.TruncateResult;
 import com.example.agentweb.app.agentrun.AgentCatalogService;
@@ -14,15 +13,12 @@ import com.example.agentweb.domain.slashcommand.SlashCommand;
 import com.example.agentweb.infra.ClientIpResolver;
 import com.example.agentweb.config.EnvProperties;
 import com.example.agentweb.infra.setting.RuntimeAgentSettings;
-import com.example.agentweb.app.logging.LogSafe;
 import com.example.agentweb.infra.log.MdcContext;
 import com.example.agentweb.interfaces.dto.CommandDto;
 import com.example.agentweb.interfaces.dto.AgentCatalogResponse;
 import com.example.agentweb.interfaces.dto.EnvDto;
 import com.example.agentweb.interfaces.dto.FeedbackRequest;
 import com.example.agentweb.interfaces.dto.FeedbackResponse;
-import com.example.agentweb.interfaces.dto.SendMessageRequest;
-import com.example.agentweb.interfaces.dto.SendMessageResponse;
 import com.example.agentweb.interfaces.dto.StartSessionRequest;
 import com.example.agentweb.interfaces.dto.StartSessionResponse;
 import com.example.agentweb.interfaces.dto.SuccessResponse;
@@ -33,7 +29,6 @@ import org.springframework.web.bind.annotation.*;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -79,15 +74,6 @@ public class ChatController {
         log.info("chat-session-created sessionId={} agentType={} workingDir={} env={} clientIp={}",
                 s.getId(), s.getAgentType(), s.getWorkingDir(), s.getEnv(), s.getClientIp());
         return new StartSessionResponse(s.getId(), s.getAgentType().name(), s.getWorkingDir(), s.getEnv());
-    }
-
-    @PostMapping("/session/{id}/message")
-    public SendMessageResponse send(@PathVariable("id") String id, @Valid @RequestBody SendMessageRequest req) throws IOException, InterruptedException {
-        MdcContext.putSessionId(id);
-        log.info("chat-message-request sessionId={} messageLen={}", id, LogSafe.safeLen(req.getMessage()));
-        String out = appService.sendMessage(id, new SendMessageCommand(req.getMessage()));
-        log.info("chat-message-response sessionId={} outputLen={}", id, LogSafe.safeLen(out));
-        return new SendMessageResponse(out);
     }
 
     @GetMapping("/session/{id}/commands")

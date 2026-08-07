@@ -31,8 +31,6 @@ public class AgentCliProperties {
         private List<String> args = new ArrayList<String>();
         /** If true, write user message to stdin of the process. */
         private boolean stdin = true;
-        /** 同步 runOnce 的硬执行上限（秒）；流式运行使用下方两个独立期限。 */
-        private int timeoutSeconds = 120;
         /** 流式运行 stdout 无活动多久后终止；小于等于 0 表示禁用空闲期限。 */
         private long streamIdleTimeoutSeconds;
         /** 流式运行的绝对时长上限，不会被 stdout 活动续期；小于等于 0 表示禁用。 */

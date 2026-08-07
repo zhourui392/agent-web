@@ -6,9 +6,14 @@ import com.example.agentweb.app.agentrun.port.AgentRunInvocation;
 import com.example.agentweb.app.agentrun.port.AgentRuntime;
 import com.example.agentweb.app.agentrun.port.AgentStreamResult;
 import com.example.agentweb.app.agentrun.port.HistoryDeliveryMode;
+import com.example.agentweb.app.runtime.port.AgentExecutionGateway;
+import com.example.agentweb.app.runtime.port.AgentExecutionPlan;
+import com.example.agentweb.app.runtime.port.RuntimeEventSink;
+import com.example.agentweb.app.runtime.port.RuntimeHandle;
+import com.example.agentweb.app.runtime.port.RuntimeObservation;
+import com.example.agentweb.app.runtime.port.RuntimeState;
 import com.example.agentweb.domain.agentrun.AgentRuntimeUnavailableException;
 import com.example.agentweb.domain.shared.AgentType;
-import com.example.agentweb.infra.AgentCliGateway;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
 
@@ -32,32 +37,78 @@ import java.util.function.IntConsumer;
  */
 @Component
 @Primary
-public class RoutingAgentGateway implements AgentGateway {
+public class RoutingAgentGateway implements AgentGateway, AgentExecutionGateway {
 
     private static final int TERMINAL_RUN_CACHE_LIMIT = 4096;
 
-    private final AgentCliGateway cli;
     private final Map<AgentType, AgentRuntime> runtimes;
     private final Map<String, AgentRuntime> active = new ConcurrentHashMap<String, AgentRuntime>();
     private final Set<String> pendingCancellation = ConcurrentHashMap.newKeySet();
     private final Set<String> terminalRuns = ConcurrentHashMap.newKeySet();
     private final Queue<String> terminalRunOrder = new ConcurrentLinkedQueue<String>();
+    private final Map<String, AgentRuntime> activeRuntimeHandles =
+            new ConcurrentHashMap<String, AgentRuntime>();
+    private final Map<String, RuntimeObservation> terminalRuntimeHandles =
+            new ConcurrentHashMap<String, RuntimeObservation>();
+    private final Set<String> pendingRuntimeStops = ConcurrentHashMap.newKeySet();
 
-    public RoutingAgentGateway(AgentCliGateway cli, List<AgentRuntime> runtimeBeans) {
-        this.cli = cli;
+    public RoutingAgentGateway(List<AgentRuntime> runtimeBeans) {
         this.runtimes = index(runtimeBeans);
     }
 
     @Override
-    public String runOnce(AgentType type, String workingDir, String userMessage, String userId)
-            throws IOException, InterruptedException {
-        requireOneShotSupported(type);
-        return cli.runOnce(type, workingDir, userMessage, userId);
+    public RuntimeHandle start(AgentExecutionPlan plan, RuntimeEventSink sink) {
+        if (plan == null || sink == null) {
+            throw new IllegalArgumentException("runtime plan and sink are required");
+        }
+        AgentRuntime runtime = requireRuntime(plan.getRuntimeSelection().getAgentType());
+        RuntimeHandle handle = runtime.start(plan, sink);
+        if (handle == null) {
+            throw new IllegalStateException("runtime returned no handle");
+        }
+        AgentRuntime previous = activeRuntimeHandles.putIfAbsent(handle.getHandleId(), runtime);
+        if (previous != null) {
+            throw new IllegalStateException("runtime handle is already routed");
+        }
+        if (pendingRuntimeStops.remove(handle.getExecutionId())) {
+            runtime.requestStop(handle);
+        }
+        return handle;
     }
 
     @Override
-    public void requireOneShotSupported(AgentType type) {
-        requireCli(type);
+    public void requestStop(RuntimeHandle handle) {
+        if (handle == null) {
+            return;
+        }
+        AgentRuntime runtime = activeRuntimeHandles.get(handle.getHandleId());
+        if (runtime == null) {
+            RuntimeObservation terminal = terminalRuntimeHandles.get(handle.getHandleId());
+            if (terminal != null && terminal.getState() == RuntimeState.TERMINATED) {
+                return;
+            }
+            pendingRuntimeStops.add(handle.getExecutionId());
+            return;
+        }
+        runtime.requestStop(handle);
+    }
+
+    @Override
+    public RuntimeObservation observe(RuntimeHandle handle) {
+        if (handle == null) {
+            throw new IllegalArgumentException("runtime handle is required");
+        }
+        AgentRuntime runtime = activeRuntimeHandles.get(handle.getHandleId());
+        if (runtime != null) {
+            RuntimeObservation observation = runtime.observe(handle);
+            if (observation.getState() == RuntimeState.TERMINATED) {
+                activeRuntimeHandles.remove(handle.getHandleId(), runtime);
+                terminalRuntimeHandles.put(handle.getHandleId(), observation);
+            }
+            return observation;
+        }
+        RuntimeObservation terminal = terminalRuntimeHandles.get(handle.getHandleId());
+        return terminal == null ? RuntimeObservation.notFound(handle) : terminal;
     }
 
     @Override
@@ -154,13 +205,6 @@ public class RoutingAgentGateway implements AgentGateway {
                     "AGENT_RUNTIME_UNAVAILABLE", "Agent runtime is unavailable: " + type);
         }
         return runtime;
-    }
-
-    private void requireCli(AgentType type) {
-        if (type == AgentType.NATIVE) {
-            throw new AgentRuntimeUnavailableException(
-                    "AGENT_SURFACE_UNAVAILABLE", "NATIVE only supports ChatRun streaming");
-        }
     }
 
     private void register(String runId, AgentRuntime runtime) {

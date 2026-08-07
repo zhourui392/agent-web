@@ -15,6 +15,8 @@ public final class BuildContext {
     private final String resumeId;
     private final String workingDir;
     private final String model;
+    private final String endpoint;
+    private final String reasoningEffort;
 
     private BuildContext(Builder builder) {
         this.config = builder.config;
@@ -22,6 +24,8 @@ public final class BuildContext {
         this.resumeId = builder.resumeId;
         this.workingDir = builder.workingDir;
         this.model = builder.model;
+        this.endpoint = builder.endpoint;
+        this.reasoningEffort = builder.reasoningEffort;
     }
 
     public AgentCliProperties.Client getConfig() {
@@ -44,6 +48,14 @@ public final class BuildContext {
         return model;
     }
 
+    public String getEndpoint() {
+        return endpoint;
+    }
+
+    public String getReasoningEffort() {
+        return reasoningEffort;
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -57,6 +69,8 @@ public final class BuildContext {
         private String resumeId;
         private String workingDir;
         private String model;
+        private String endpoint;
+        private String reasoningEffort;
 
         public Builder config(AgentCliProperties.Client value) {
             this.config = value;
@@ -80,6 +94,16 @@ public final class BuildContext {
 
         public Builder model(String value) {
             this.model = value;
+            return this;
+        }
+
+        public Builder endpoint(String value) {
+            this.endpoint = value;
+            return this;
+        }
+
+        public Builder reasoningEffort(String value) {
+            this.reasoningEffort = value;
             return this;
         }
 

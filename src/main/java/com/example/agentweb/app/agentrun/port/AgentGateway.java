@@ -33,43 +33,6 @@ public interface AgentGateway {
     }
 
     /**
-     * Verifies that the selected runtime supports the legacy synchronous one-shot surface.
-     * Implementations with only the resumable ChatRun contract must reject before callers
-     * persist a user message.
-     */
-    default void requireOneShotSupported(AgentType type) {
-        // Legacy CLI gateways support this surface.
-    }
-
-    /**
-     * Execute one prompt against the selected agent in the given working directory.
-     * @param type Agent type
-     * @param workingDir Working directory (must exist)
-     * @param userMessage User prompt content
-     * @return stdout/stderr merged output
-     * @throws IOException 进程启动失败或读 IO 异常
-     * @throws InterruptedException 等待进程退出时被中断
-     */
-    default String runOnce(AgentType type, String workingDir, String userMessage)
-            throws IOException, InterruptedException {
-        return runOnce(type, workingDir, userMessage, null);
-    }
-
-    /**
-     * 同 {@link #runOnce(AgentType, String, String)}，但带会话 owner userId 用于注入 per-user git 身份。
-     *
-     * @param type        Agent type
-     * @param workingDir  工作目录
-     * @param userMessage 用户提示词
-     * @param userId      会话 owner 工号；{@code null}（系统路径 / 默认用户）→ 不注入，走机器默认 git
-     * @return stdout/stderr merged output
-     * @throws IOException          进程启动失败或读 IO 异常
-     * @throws InterruptedException 等待进程退出时被中断
-     */
-    String runOnce(AgentType type, String workingDir, String userMessage, String userId)
-            throws IOException, InterruptedException;
-
-    /**
      * Stream output chunks as the agent runs. Implementations should invoke onChunk for each
      * available stdout/stderr chunk and call onExit with the final exit code (or -1 on timeout).
      * This method should block until the process exits.

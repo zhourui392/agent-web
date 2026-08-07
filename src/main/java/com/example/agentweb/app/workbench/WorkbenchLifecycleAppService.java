@@ -1,14 +1,19 @@
 package com.example.agentweb.app.workbench;
 
+import com.example.agentweb.app.workbench.port.WorkbenchWorktreeGateway;
 import com.example.agentweb.domain.workbench.OwnerReference;
 import com.example.agentweb.domain.workbench.Workbench;
 import com.example.agentweb.domain.workbench.WorkbenchDomainException;
 import com.example.agentweb.domain.workbench.WorkbenchErrorCode;
 import com.example.agentweb.domain.workbench.WorkbenchId;
 import com.example.agentweb.domain.workbench.WorkbenchRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.IOException;
+import java.nio.file.Paths;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Objects;
@@ -26,13 +31,20 @@ import java.util.Objects;
 @Transactional(readOnly = true)
 public class WorkbenchLifecycleAppService {
 
+    private static final Logger log = LoggerFactory.getLogger(
+            WorkbenchLifecycleAppService.class);
+
     private final WorkbenchRepository workbenchRepository;
+    private final WorkbenchWorktreeGateway worktreeGateway;
     private final Clock clock;
 
     public WorkbenchLifecycleAppService(
-            WorkbenchRepository workbenchRepository, Clock clock) {
+            WorkbenchRepository workbenchRepository,
+            WorkbenchWorktreeGateway worktreeGateway, Clock clock) {
         this.workbenchRepository = Objects.requireNonNull(
                 workbenchRepository, "workbenchRepository");
+        this.worktreeGateway = Objects.requireNonNull(
+                worktreeGateway, "worktreeGateway");
         this.clock = Objects.requireNonNull(clock, "clock");
     }
 
@@ -69,7 +81,24 @@ public class WorkbenchLifecycleAppService {
         boolean changed = workbench.archive(
                 actor, expectedVersion, clock.instant());
         updateWhenChanged(workbench, changed);
+        if (changed && workbench.isUseWorktree()) {
+            cleanupWorktree(workbench);
+        }
         return WorkbenchLifecycleResult.afterMutation(workbench, changed);
+    }
+
+    private void cleanupWorktree(Workbench workbench) {
+        try {
+            worktreeGateway.removeWorktree(
+                    workbench.getRepositoryScope().primaryRepository()
+                            .getRepositoryRoot(),
+                    Paths.get(workbench.getWorktreePath()),
+                    workbench.getWorktreeBranch());
+        } catch (IOException | InterruptedException ex) {
+            log.warn("worktree-cleanup-failed workbenchId={} reason={}",
+                    workbench.getId().getValue(), ex.getMessage());
+            Thread.currentThread().interrupt();
+        }
     }
 
     private WorkbenchStageLifecycleResult mutateStage(

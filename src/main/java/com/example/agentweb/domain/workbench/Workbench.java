@@ -40,6 +40,9 @@ public final class Workbench {
     private final RepositoryScope repositoryScope;
     private final WorkspaceSnapshotReference creationSnapshotReference;
     private final Map<String, WorkbenchStageState> stages;
+    private final boolean useWorktree;
+    private final String worktreePath;
+    private final String worktreeBranch;
     private WorkbenchStageRunReference activeWriteRunReference;
     private WorkbenchStatus status;
     private final Instant createdAt;
@@ -53,6 +56,7 @@ public final class Workbench {
             RepositoryScope repositoryScope,
             WorkspaceSnapshotReference creationSnapshotReference,
             List<WorkbenchStageState> stages,
+            boolean useWorktree, String worktreePath, String worktreeBranch,
             WorkbenchStageRunReference activeWriteRunReference,
             WorkbenchStatus status, Instant createdAt,
             Instant updatedAt, long version) {
@@ -76,6 +80,17 @@ public final class Workbench {
                 repositoryScope, creationSnapshotReference);
         this.stages = indexStages(stages);
         requireRestoredConversationOwnership(this.stages, owner);
+        this.useWorktree = useWorktree;
+        this.worktreePath = useWorktree
+                ? DomainText.require(worktreePath, "Workbench worktree path", 4096)
+                : null;
+        this.worktreeBranch = useWorktree
+                ? DomainText.require(worktreeBranch, "Workbench worktree branch", 512)
+                : null;
+        if (!useWorktree && (worktreePath != null || worktreeBranch != null)) {
+            throw new IllegalArgumentException(
+                    "Workbench worktree path and branch must be null when worktree is not used");
+        }
         this.activeWriteRunReference = activeWriteRunReference;
         this.status = status;
         this.createdAt = DomainText.requireTime(
@@ -103,7 +118,23 @@ public final class Workbench {
             List<WorkbenchStageState> stages, Instant now) {
         return new Workbench(
                 id, owner, title, originalGoal, agentType, environment,
-                repositoryScope, creationSnapshotReference, stages, null,
+                repositoryScope, creationSnapshotReference, stages,
+                false, null, null, null,
+                WorkbenchStatus.ACTIVE, now, now, 0L);
+    }
+
+    public static Workbench createWithWorktree(
+            WorkbenchId id, OwnerReference owner,
+            String title, String originalGoal,
+            AgentType agentType, String environment,
+            RepositoryScope repositoryScope,
+            WorkspaceSnapshotReference creationSnapshotReference,
+            List<WorkbenchStageState> stages, Instant now,
+            String worktreePath, String worktreeBranch) {
+        return new Workbench(
+                id, owner, title, originalGoal, agentType, environment,
+                repositoryScope, creationSnapshotReference, stages,
+                true, worktreePath, worktreeBranch, null,
                 WorkbenchStatus.ACTIVE, now, now, 0L);
     }
 
@@ -114,12 +145,14 @@ public final class Workbench {
             RepositoryScope repositoryScope,
             WorkspaceSnapshotReference creationSnapshotReference,
             List<WorkbenchStageState> stages,
+            boolean useWorktree, String worktreePath, String worktreeBranch,
             WorkbenchStageRunReference activeWriteRunReference,
             WorkbenchStatus status, Instant createdAt,
             Instant updatedAt, long version) {
         return new Workbench(
                 id, owner, title, originalGoal, agentType, environment,
                 repositoryScope, creationSnapshotReference, stages,
+                useWorktree, worktreePath, worktreeBranch,
                 activeWriteRunReference, status,
                 createdAt, updatedAt, version);
     }

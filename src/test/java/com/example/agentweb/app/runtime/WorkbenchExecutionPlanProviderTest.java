@@ -5,6 +5,7 @@ import com.example.agentweb.app.runtime.port.HistoryDelivery;
 import com.example.agentweb.app.runtime.port.RuntimeAttachmentExpectation;
 import com.example.agentweb.app.runtime.port.RuntimeVersionPolicy;
 import com.example.agentweb.app.runtime.port.SandboxMode;
+import com.example.agentweb.app.runtime.port.WorkspaceLayout;
 import com.example.agentweb.domain.capability.ResolvedCapabilityBinding;
 import com.example.agentweb.domain.chatrun.ChatRun;
 import com.example.agentweb.domain.chatrun.ChatRunId;
@@ -48,6 +49,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -249,6 +251,90 @@ class WorkbenchExecutionPlanProviderTest {
 
         assertThrows(RuntimeException.class,
                 () -> provider.prepare(mismatched));
+    }
+
+    @Test
+    void should_SubstituteOnlyPrimaryRootByKey_When_PrimaryNotFirstAndWorktreeEnabled() {
+        // primary = "z-service" (alphabetically AFTER "a-library")
+        // RepositoryScope sorts by key: [a-library, z-service]
+        // Without key-based substitution, [0] would hit a-library -- wrong.
+        String libraryRoot = "/workspace/a-library";
+        String primaryRoot = "/workspace/z-service";
+        String worktreePath = "/workspace/.worktrees/wb/workbench-wt";
+
+        RepositoryScope wtScope = RepositoryScope.create(
+                "/workspace",
+                RepositorySelection.of(
+                        "z-service", Arrays.asList("a-library", "z-service")),
+                Arrays.asList(
+                        ResolvedRepository.fromVerifiedFacts(
+                                "a-library", libraryRoot,
+                                repeat('c'), false),
+                        ResolvedRepository.fromVerifiedFacts(
+                                "z-service", primaryRoot,
+                                repeat('d'), false)),
+                8);
+
+        WorkspaceTopology wtTopology = WorkspaceTopology.of(
+                "/workspace", RepositorySelection.of(
+                        "z-service", Arrays.asList("a-library", "z-service")));
+        WorkspaceSnapshotReference wtSnapshotRef = new WorkspaceSnapshotReference(
+                "workspace-snapshot-wt", wtTopology.getTopologyHash(),
+                repeat('e'), 2);
+
+        Workbench wtWorkbench = Workbench.createWithWorktree(
+                WORKBENCH_ID, OwnerReference.of("owner-1", "Alex"),
+                "Workbench WT", "Implement with worktree isolation",
+                AgentType.CODEX, "local", wtScope, wtSnapshotRef,
+                Collections.singletonList(WorkbenchStageState.initial(
+                        STAGE_IDENTIFIER, stageSnapshot())), NOW,
+                worktreePath, "wb/workbench-wt");
+        wtWorkbench.bindStageConversation(
+                STAGE_IDENTIFIER, "stage-session-wt",
+                OwnerReference.of("owner-1", "Alex"),
+                0L, NOW.plusSeconds(1));
+        wtWorkbench.prepareStageRun(
+                STAGE_IDENTIFIER, RUN_ID, RunMode.MODIFY_WORKSPACE,
+                OwnerReference.of("owner-1", "Alex"),
+                1L, NOW.plusSeconds(2));
+
+        WorkbenchStageRunSnapshot wtSnapshot = WorkbenchStageRunSnapshot.create(
+                RUN_ID, WORKBENCH_ID, STAGE_IDENTIFIER, stageSnapshot(),
+                "stage-submit-wt", repeat('1'),
+                RunMode.MODIFY_WORKSPACE, wtScope, wtSnapshotRef,
+                binding(stageSnapshot()), null, 0L, repeat('2'),
+                Collections.emptyList(),
+                Collections.singletonList(PromptPartSnapshot.of(
+                        "USER_INPUT", "owner", repeat('3'), 23)),
+                promptPayload.getPromptHash(),
+                RuntimeEnforcementSnapshot.modify(
+                        "CODEX", "0.145.0", wtScope.getScopeHash(),
+                        "z-service", Arrays.asList("a-library", "z-service"),
+                        1800L, 8_388_608L),
+                Collections.emptyList(), Collections.emptyList(),
+                NOW.plusSeconds(2));
+
+        when(snapshotRepository.findByRunId(RUN_ID))
+                .thenReturn(Optional.of(wtSnapshot));
+        when(promptRepository.findByRunId(RUN_ID))
+                .thenReturn(Optional.of(promptPayload));
+        when(workbenchRepository.findById(WORKBENCH_ID))
+                .thenReturn(Optional.of(wtWorkbench));
+
+        AgentExecutionPlan plan = provider.prepare(run);
+        WorkspaceLayout layout = plan.getWorkspaceLayout();
+
+        // primary root must be worktree path (not original z-service root)
+        assertEquals(worktreePath, layout.getPrimaryRepositoryRoot());
+        // worktree path in readable + writable roots
+        assertTrue(layout.getReadableRoots().contains(worktreePath));
+        assertTrue(layout.getWritableRoots().contains(worktreePath));
+        // a-library root unchanged
+        assertTrue(layout.getReadableRoots().contains(libraryRoot));
+        assertTrue(layout.getWritableRoots().contains(libraryRoot));
+        // original primary root must NOT appear (replaced)
+        assertFalse(layout.getReadableRoots().contains(primaryRoot));
+        assertFalse(layout.getWritableRoots().contains(primaryRoot));
     }
 
     private WorkbenchStageRunSnapshot snapshot(

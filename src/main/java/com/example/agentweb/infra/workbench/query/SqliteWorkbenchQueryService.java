@@ -47,7 +47,8 @@ public class SqliteWorkbenchQueryService implements WorkbenchQueryService {
                     + "WHERE scope.workbench_id=w.id) repository_count ";
     private static final String DETAIL_SQL =
             "SELECT id, title, original_goal, agent_type, environment, "
-                    + "active_write_run_id, status, created_at, updated_at, "
+                    + "active_write_run_id, use_worktree, worktree_branch, "
+                    + "status, created_at, updated_at, "
                     + "version, primary_repository_key, repository_scope_hash, "
                     + "creation_snapshot_id, creation_snapshot_topology_hash, "
                     + "creation_snapshot_state_hash, "
@@ -157,7 +158,8 @@ public class SqliteWorkbenchQueryService implements WorkbenchQueryService {
         return Optional.of(new WorkbenchDetailView(
                 root.getId(), root.getTitle(), root.getOriginalGoal(),
                 root.getAgentType(), root.getEnvironment(),
-                root.getActiveWriteRunId(), root.getStatus(),
+                root.getActiveWriteRunId(), root.isUseWorktree(),
+                root.getWorktreeBranch(), root.getStatus(),
                 root.getCreatedAt(), root.getUpdatedAt(), root.getVersion(),
                 repositoryScope, creationSnapshot, stages));
     }
@@ -235,6 +237,8 @@ public class SqliteWorkbenchQueryService implements WorkbenchQueryService {
                 resultSet.getString("agent_type"),
                 resultSet.getString("environment"),
                 resultSet.getString("active_write_run_id"),
+                resultSet.getInt("use_worktree") != 0,
+                resultSet.getString("worktree_branch"),
                 resultSet.getString("status"),
                 resultSet.getLong("created_at"),
                 resultSet.getLong("updated_at"),
@@ -473,6 +477,8 @@ public class SqliteWorkbenchQueryService implements WorkbenchQueryService {
         private final String agentType;
         private final String environment;
         private final String activeWriteRunId;
+        private final boolean useWorktree;
+        private final String worktreeBranch;
         private final String status;
         private final long createdAt;
         private final long updatedAt;
@@ -488,7 +494,8 @@ public class SqliteWorkbenchQueryService implements WorkbenchQueryService {
         private WorkbenchRow(
                 String id, String title, String originalGoal,
                 String agentType, String environment,
-                String activeWriteRunId, String status,
+                String activeWriteRunId, boolean useWorktree,
+                String worktreeBranch, String status,
                 long createdAt, long updatedAt, long version,
                 String primaryRepositoryKey,
                 String repositoryScopeHash, String workspaceRoot,
@@ -502,6 +509,8 @@ public class SqliteWorkbenchQueryService implements WorkbenchQueryService {
             this.agentType = agentType;
             this.environment = environment;
             this.activeWriteRunId = activeWriteRunId;
+            this.useWorktree = useWorktree;
+            this.worktreeBranch = worktreeBranch;
             this.status = status;
             this.createdAt = createdAt;
             this.updatedAt = updatedAt;

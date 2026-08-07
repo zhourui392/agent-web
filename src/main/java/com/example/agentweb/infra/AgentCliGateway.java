@@ -12,10 +12,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.io.BufferedReader;
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
@@ -90,48 +88,6 @@ public class AgentCliGateway implements AgentGateway {
     private static ThreadFactory namedFactory(String prefix) {
         AtomicInteger counter = new AtomicInteger(0);
         return r -> new Thread(r, prefix + "-" + counter.incrementAndGet());
-    }
-
-    @Override
-    public String runOnce(AgentType type, String workingDir, String userMessage, String userId)
-            throws IOException, InterruptedException {
-        AgentCliProperties.Client cfg = resolve(type);
-        List<String> cmd = resolveDialect(type).buildCommand(BuildContext.builder()
-                .config(cfg)
-                .userMessage(userMessage)
-                .workingDir(workingDir)
-                .build());
-
-        ProcessBuilder pb = new ProcessBuilder(cmd);
-        pb.directory(new File(workingDir));
-        pb.redirectErrorStream(true);
-        environmentSanitizer.sanitize(pb);
-        gitEnvCustomizer.applyIdentityOnly(pb, userId);
-
-        long startNanos = System.nanoTime();
-        log.debug("cli-runonce-build agentType={} cwd={} cmd={}",
-                type, workingDir, LogSafe.summarizeCmd(cmd));
-        Process p = pb.start();
-        log.info("cli-runonce-spawn agentType={} pid={} cwd={}", type, processId(p), workingDir);
-        // Optionally write message to stdin
-        if (cfg.isStdin()) {
-            OutputStream os = p.getOutputStream();
-            os.write(userMessage.getBytes(StandardCharsets.UTF_8));
-            os.flush();
-            os.close();
-        } else {
-            try {
-                p.getOutputStream().close();
-            } catch (IOException ignore) { /* no-op */ }
-        }
-
-        String output = readWithTimeout(p, cfg.getTimeoutSeconds(), cfg.getStdoutDrainGraceMs(),
-                cfg.getMaxOutputBytes());
-        int code = p.waitFor();
-        log.info("cli-runonce-exit agentType={} exitCode={} outputLen={} elapsedMs={}",
-                type, code, LogSafe.safeLen(output), elapsedMs(startNanos));
-        // Keep output even on non-zero exit to help debugging
-        return "[exit=" + code + "]\n" + output;
     }
 
     @Override
@@ -423,11 +379,6 @@ public class AgentCliGateway implements AgentGateway {
         return (System.nanoTime() - startNanos) / 1_000_000L;
     }
 
-    /** 兼容旧调用点；新代码请直接用 {@link LogSafe#summarizeCmd}。 */
-    private String summarizeCommand(List<String> cmd) {
-        return LogSafe.summarizeCmd(cmd);
-    }
-
     /** 取进程 PID，反射失败回退到 hashCode（仅供日志使用）。 */
     private String processId(Process p) {
         if (p == null) {
@@ -485,64 +436,6 @@ public class AgentCliGateway implements AgentGateway {
     @Override
     public List<String> normalizeChunk(AgentType type, String stdoutLine) {
         return resolveDialect(type).normalizeChunk(stdoutLine);
-    }
-
-    private String readWithTimeout(Process p, int timeoutSeconds, long drainGraceMs, long configuredMaxOutputBytes)
-            throws InterruptedException {
-        // collected 由读线程写入、收尾后由本线程读取；用其自身做锁保证可见性。
-        // 取共享缓冲而非 Future<String>，是为了在读线程被孤儿管道阻塞、需放弃等待时，
-        // 仍能拿回进程退出前已排空的部分输出。
-        final ByteArrayOutputStream collected = new ByteArrayOutputStream();
-        final AtomicBoolean outputLimited = new AtomicBoolean(false);
-        final long maxOutputBytes = normalizeMaxOutputBytes(configuredMaxOutputBytes);
-        Future<?> reader = readExecutor.submit(new Runnable() {
-            @Override
-            public void run() {
-                try (InputStream is = p.getInputStream()) {
-                    byte[] buf = new byte[4096];
-                    int r;
-                    while ((r = is.read(buf)) != -1) {
-                        synchronized (collected) {
-                            int remaining = (int) Math.max(0L, maxOutputBytes - collected.size());
-                            int accepted = Math.min(r, remaining);
-                            if (accepted > 0) {
-                                collected.write(buf, 0, accepted);
-                            }
-                            if (accepted < r) {
-                                outputLimited.set(true);
-                                destroyProcessTree(p);
-                                break;
-                            }
-                        }
-                    }
-                } catch (IOException ignore) {
-                    // 已读部分保留在 collected 中
-                }
-            }
-        });
-        try {
-            if (timeoutSeconds > 0) {
-                reader.get(timeoutSeconds, TimeUnit.SECONDS);
-            } else {
-                // 无总超时：仍须独立等进程退出，退出后给读线程宽限期排空缓冲，
-                // 避免被 codex 孤儿子进程持有的 stdout 管道久阻
-                p.waitFor();
-                reader.get(normalizeDrainGraceMs(drainGraceMs), TimeUnit.MILLISECONDS);
-            }
-        } catch (TimeoutException te) {
-            destroyProcessTree(p);
-            reader.cancel(true);
-            if (timeoutSeconds > 0) {
-                return "[timeout]";
-            }
-            // timeoutSeconds<=0 超时：进程已退出，返回已排空的部分输出
-        } catch (ExecutionException ee) {
-            return "[error] " + ee.getCause();
-        }
-        synchronized (collected) {
-            String output = new String(collected.toByteArray(), StandardCharsets.UTF_8);
-            return outputLimited.get() ? output + "\n[output-limit]" : output;
-        }
     }
 
     private long normalizeDrainGraceMs(long drainGraceMs) {

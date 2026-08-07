@@ -1,6 +1,5 @@
 package com.example.agentweb.app;
 
-import com.example.agentweb.app.agentrun.port.AgentGateway;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.chat.ChatSession;
 import com.example.agentweb.domain.chat.ChatSessionNotFoundException;
@@ -45,11 +44,10 @@ public class ChatAppServiceImplDeleteSessionTest {
         uploadFileStore = mock(UploadFileStorage.class);
         chatRunActivityGuard = mock(ChatRunActivityGuard.class);
 
-        AgentGateway gateway = mock(AgentGateway.class);
         SlashCommandExpander commandExpander = mock(SlashCommandExpander.class);
         ChatAgentDefaults chatAgentDefaults = mock(ChatAgentDefaults.class);
 
-        service = new ChatAppServiceImpl(sessionCache, sessionRepository, gateway,
+        service = new ChatAppServiceImpl(sessionCache, sessionRepository,
                 commandExpander, chatAgentDefaults, uploadPicStore, uploadFileStore,
                 java.util.Optional.empty(),
                 new com.example.agentweb.domain.auth.CurrentUserProvider(() -> java.util.Optional.empty()));

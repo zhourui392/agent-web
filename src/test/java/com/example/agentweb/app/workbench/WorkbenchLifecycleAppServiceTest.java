@@ -1,5 +1,6 @@
 package com.example.agentweb.app.workbench;
 
+import com.example.agentweb.app.workbench.port.WorkbenchWorktreeGateway;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.workbench.OwnerReference;
 import com.example.agentweb.domain.workbench.RunMode;
@@ -68,8 +69,11 @@ class WorkbenchLifecycleAppServiceTest {
     @BeforeEach
     void setUp() {
         repository = mock(WorkbenchRepository.class);
+        WorkbenchWorktreeGateway worktreeGateway = mock(
+                WorkbenchWorktreeGateway.class);
         service = new WorkbenchLifecycleAppService(
-                repository, Clock.fixed(NOW, ZoneOffset.UTC));
+                repository, worktreeGateway,
+                Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     @Test

@@ -54,6 +54,16 @@ public class CodexCliDialect implements CliDialect {
     }
 
     @Override
+    public String credentialEnvironmentVariable() {
+        return "OPENAI_API_KEY";
+    }
+
+    @Override
+    public String endpointEnvironmentVariable() {
+        return "OPENAI_BASE_URL";
+    }
+
+    @Override
     public List<String> buildCommand(BuildContext ctx) {
         AgentCliProperties.Client cfg = ctx.getConfig();
         validateExec(cfg);

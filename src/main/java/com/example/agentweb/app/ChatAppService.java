@@ -4,7 +4,6 @@ import com.example.agentweb.domain.chat.ChatSession;
 import com.example.agentweb.domain.chat.Feedback;
 import com.example.agentweb.domain.slashcommand.SlashCommand;
 
-import java.io.IOException;
 import java.util.List;
 
 /**
@@ -20,17 +19,6 @@ public interface ChatAppService {
      * @return 新建的会话聚合根
      */
     ChatSession startSession(StartSessionCommand command, String clientIp);
-
-    /**
-     * Send one message to an agent and get consolidated output.
-     * Note: Interactive PTY is not supported in v0; the CLI must be invokable non-interactively.
-     * @param sessionId 会话 ID
-     * @param req 发送请求
-     * @return CLI 合并输出
-     * @throws IOException 进程启动失败或读 IO 异常
-     * @throws InterruptedException 等待进程退出时被中断
-     */
-    String sendMessage(String sessionId, SendMessageCommand command) throws IOException, InterruptedException;
 
     /**
      * 按 sessionId 查询会话.

@@ -41,6 +41,16 @@ public class ClaudeCliDialect implements CliDialect {
     }
 
     @Override
+    public String credentialEnvironmentVariable() {
+        return "ANTHROPIC_API_KEY";
+    }
+
+    @Override
+    public String endpointEnvironmentVariable() {
+        return "ANTHROPIC_BASE_URL";
+    }
+
+    @Override
     public List<String> buildCommand(BuildContext ctx) {
         AgentCliProperties.Client cfg = ctx.getConfig();
         // 1. 参数验证
