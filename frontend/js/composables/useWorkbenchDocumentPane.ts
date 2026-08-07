@@ -608,21 +608,12 @@ export function useWorkbenchDocumentPane(
 
   async function initializeDocumentScope(epoch: number): Promise<void> {
     const repositories = scopedRepositories();
-    const restoredReference = retainedState.currentDocument?.reference ?? null;
-    const restoredRepository = restoredReference
-      && repositories.some(item => item.repositoryKey === restoredReference.repositoryKey)
-      ? restoredReference.repositoryKey
-      : null;
-    const selected = restoredRepository
-      ?? repositories.find(repository => repository.primary)?.repositoryKey
+    const selected = repositories.find(repository => repository.primary)?.repositoryKey
       ?? repositories[0]?.repositoryKey
       ?? '';
     if (!selected || epoch !== scopeEpoch) return;
     selectedRepositoryKey.value = selected;
     await loadTreeForScope(selected, '', epoch);
-    if (epoch === scopeEpoch && restoredReference && restoredRepository) {
-      await readDocument(restoredReference, false, epoch);
-    }
   }
 
   function restoreIdentity(): void {
@@ -647,8 +638,10 @@ export function useWorkbenchDocumentPane(
       ...storageIdentity,
     }, isMobile.value);
     activeStore = restored.store;
-    retainedState = restored.state;
-    currentDocument.value = retainedState.currentDocument;
+    retainedState = { ...restored.state, currentDocument: null };
+    currentDocument.value = null;
+    loadedContent.value = null;
+    currentEtag.value = null;
     recentDocuments.value = retainedState.recentDocuments;
     applyLayout(retainedState.layout);
     // 文档区最大化已移除；存量持久化状态为 MAXIMIZED 时自动恢复到 NORMAL
