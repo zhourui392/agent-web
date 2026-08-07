@@ -21,7 +21,7 @@ GET /api/chat/runs/{runId}/events
 Last-Event-ID: <最后确认的事件序号>
 ```
 
-客户端断线后使用指数退避重连，并通过 `Last-Event-ID` 回放未确认事件。旧 POST SSE、session status 和 session stop 入口已经移除。详细生命周期、事件保留与游标过期语义见[可恢复聊天流设计](resumable-chat-stream-design.md)。
+提交接口要求长度不超过 128 的 `Idempotency-Key`，成功时返回 `202 Accepted`。客户端断线后使用指数退避重连，并通过 `Last-Event-ID` 回放未确认事件；游标早于最早保留事件时返回 `410 EVENT_CURSOR_EXPIRED`，客户端应重新加载消息和 Run 状态。Run 的 `PENDING / RUNNING / CANCEL_REQUESTED` 与各终态由服务端持久化，停止命令保持幂等。旧 POST SSE、session status 和 session stop 入口已经移除。
 
 ## Workbench API
 

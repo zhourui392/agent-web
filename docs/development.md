@@ -106,6 +106,6 @@ cd frontend && npm run typecheck && npm run lint && npm run build
 cd tests && npm run typecheck && npm test
 ```
 
-2026-08-01 的 Workbench 发布候选曾记录默认后端集 2442 项、`ArchitectureTest` 18/18、Vitest 50 files / 523 tests、Workbench Mock 14/14、Admin Workbench 2/2、真实边界 Stub 4/4。它们只是历史证据，不能替代当前工作树验证；详细口径、慢分组和未完成门禁见[发布就绪快照](workbench/release-readiness-2026-08-01.md)。
+历史测试数量和旧发布快照不能替代当前工作树验证。Workbench 的慢分组、Runtime Stub 与真实浏览器边界以本节命令、`pom.xml` 分组和 `tests/package.json` 脚本为准。
 
 除非任务明确要求，不主动执行 `mvn package`、服务重启或部署命令。

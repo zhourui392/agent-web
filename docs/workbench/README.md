@@ -1,7 +1,7 @@
 # Local Development Workbench 技术设计总览
 
-> 状态：TD-11 实施中
-> 日期：2026-08-05
+> 状态：Dynamic Stage 已是当前在线模型；Global Context 与可选 worktree 隔离仍在开发
+> 日期：2026-08-07
 > 权威当前设计：[TD-11 Workbench 动态阶段与全局上下文](td-11-dynamic-stages-global-context.md)
 > @author alex
 
@@ -225,8 +225,6 @@ Run 指标不使用旧工作单元标签，也不使用高基数 Stage Instance 
 
 ## 12. 测试与发布
 
-完整策略见 [TD-10](td-10-test-release.md)，当前证据见[发布就绪快照](release-readiness-2026-08-01.md)。
-
 至少包括：
 
 - Java 领域、应用、接口与真实 SQLite；
@@ -238,16 +236,4 @@ Run 指标不使用旧工作单元标签，也不使用高基数 Stage Instance 
 
 ## 13. 专题索引
 
-当前权威：
-
 - [TD-11 Dynamic Stage 与 Global Context](td-11-dynamic-stages-global-context.md)
-- [TD-11 实施进度](td-11-implementation-progress.md)
-- [TD-10 Stage-only 测试与发布](td-10-test-release.md)
-- [发布就绪快照](release-readiness-2026-08-01.md)
-- [TD-08 高影响命令边界](td-08-high-impact-operations.md)
-
-仍适用的基础专题：
-
-- [TD-01 公共 Runtime 与 Capability 解耦](td-01-runtime-capability-decoupling.md)
-- [TD-04 多仓库工作区](td-04-multi-repository-workspace.md)
-- [TD-06 文档查看器](td-06-document-viewer.md)

@@ -2,7 +2,7 @@
 
 > 状态：已接受，实施中
 > 日期：2026-08-05
-> 前置：[Workbench 技术设计总览](README.md)、[TD-01 公共 Runtime 与 Capability 解耦](td-01-runtime-capability-decoupling.md)、[TD-04 多仓库工作区](td-04-multi-repository-workspace.md)、[TD-06 文档查看器](td-06-document-viewer.md)
+> 基线：[Workbench 技术设计总览](README.md)
 > @author alex
 
 ## 1. 结论

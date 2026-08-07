@@ -27,7 +27,7 @@
 - **高影响命令拒绝** — Runtime Command Policy 直接拒绝 commit、push、部署或生产写入等高影响命令；`MODIFY_WORKSPACE` 只授权冻结 Repository Scope 内的普通文件修改。
 - **Admin 安全投影** — `/admin/workbenches.html` 只提供安全裁剪后的查询、Stop 和单 Run Reconcile；管理员不能代 Owner 对话或修改 Owner 业务状态。
 
-Workbench 的页面、创建、写 Run 和公共 Runtime 通过独立开关分级发布，实际默认值以当前 [`application.yml`](../src/main/resources/application.yml) 为准。当前仅完成自动化和真实 Spring + SQLite + Runtime Stub 边界验证，尚未达到真实用户、真实 Codex/Claude CLI 试点退出标准。技术方案与发布证据分别见 [Workbench 技术设计总览](workbench/README.md)和[发布就绪快照](workbench/release-readiness-2026-08-01.md)。
+Workbench 的页面、创建、写 Run 和公共 Runtime 通过独立开关分级发布，实际默认值以当前 [`application.yml`](../src/main/resources/application.yml) 为准。自动化和 Runtime Stub 结果不能替代真实用户、真实 Codex/Claude CLI 试点；当前模型与验收边界见 [Workbench 技术设计总览](workbench/README.md)。
 
 ## 知识精炼与召回
 

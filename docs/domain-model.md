@@ -40,11 +40,13 @@ infra       -> SQLite、文件系统、CLI 子进程、HTTP 客户端、认证�
 
 ## Chat
 
-`ChatSession` 是聊天聚合根，负责消息追加、反馈、恢复标识和截断等会话语义。`ChatAppServiceImpl` 负责加载会话、组装运行上下文、调用 `AgentGateway`、持久化结果并把输出交给 `StreamChunkHandler`。
+`ChatSession` 是长生命周期的聊天聚合根，负责消息追加、反馈、恢复标识和截断等会话语义。`ChatRun` 是单次用户消息到 Agent 结果的执行聚合，独立维护幂等键、状态机、停止请求和终态；高频 Run Event 作为独立持久化投影提供 SSE 回放，不塞入会话或 Run 聚合集合。
+
+`ChatAppServiceImpl` 负责会话生命周期、分享和查询编排；`ChatRunAppServiceImpl` 负责编排 Run 提交、状态与停止，事务提交后才启动 `ChatRunExecutor` 或公共 Runtime。成功结果、Run 终态和最终事件由终态服务收敛，浏览器连接不是执行生命周期的事实来源。
 
 写侧使用 `SessionRepository`，活跃对象由 `InMemorySessionRepo` 缓存，SQLite 负责跨重启持久化。会话列表、分享和管理台浏览由 `ChatSessionQueryService` 提供 CQRS 读模型。
 
-普通用户的会话可见性由 `CurrentUserProvider` 和 `ChatProperties.userIsolationEnabled` 共同约束；公开分享只返回只读投影，不能恢复会话或启动子进程。
+普通用户的会话可见性由 `CurrentUserProvider` 和 `ChatProperties.userIsolationEnabled` 共同约束；公开分享只返回只读投影，不能恢复会话或启动子进程。NATIVE 会话复用同一 ChatRun 生命周期，由 `RoutingAgentGateway` 选择进程内只读诊断 Runtime，并以成功 Run 的消息边界保存不可变 checkpoint。
 
 ## Auth
 

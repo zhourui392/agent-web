@@ -85,7 +85,7 @@ AGENT_NATIVE_BOUND_ENVIRONMENT=test
 
 NATIVE 默认把宿主 `logs/` 目录作为 test-bound 只读日志源，只允许配置的 `*.log`，逻辑服务为 `agent-web`、逻辑数据源为 `local-agent-web-logs`。日志根由 `AGENT_NATIVE_LOCAL_LOG_ROOT` 固定，不能由用户消息或聊天 `workingDir` 改写；根目录必须是存在且可读的绝对目录。
 
-如果改用远程 `agent.native.backends.log-query-url`，必须设置 `AGENT_NATIVE_LOCAL_LOGS_ENABLED=false`。本地和远程 LogQuery 同时启用会 fail-fast，防止同名工具被静默覆盖。完整设计见 [NATIVE 诊断 Agent 集成](native-diagnosis-agent-integration-design.md)。
+如果改用远程 `agent.native.backends.log-query-url`，必须设置 `AGENT_NATIVE_LOCAL_LOGS_ENABLED=false`。本地和远程 LogQuery 同时启用会 fail-fast，防止同名工具被静默覆盖。运行时选择、历史 checkpoint 和只读工具边界以当前 `NativeDiagnosisAgentRuntime`、`RoutingAgentGateway` 及其测试为准。
 
 ## Knowledge Refinery
 

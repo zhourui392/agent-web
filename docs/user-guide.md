@@ -9,7 +9,7 @@
 5. 在历史列表查看或继续已有对话；删除操作只允许会话创建者执行。
 6. 点击“分享”生成只读公开链接。链接持有者可以查看历史和消息中明确引用的图片，但不能续聊、启动 Agent 或获得 owner 的工作目录和 Git 凭据。
 
-页面聊天统一通过后台 `ChatRun` 执行。提交与 SSE 恢复协议见 [API 指南](api.md)，生命周期和事件模型见[可恢复聊天流设计](resumable-chat-stream-design.md)。
+页面聊天统一通过后台 `ChatRun` 执行。提交、停止、SSE 恢复和游标过期语义见 [API 指南](api.md)。
 
 ## Local Development Workbench
 
@@ -36,7 +36,4 @@ Runtime Command Policy 直接拒绝 commit、push、部署或生产写入等高�
 
 ADMIN 可以在 `/admin/workbenches.html` 查询安全投影、停止 Run 或对单个 Run 执行 Reconcile，但不能代 Owner 对话或修改 Owner 业务状态。
 
-Workbench 当前使用 Runtime Stub 完成了真实 Spring、SQLite 和进程边界的自动化验证，这不代表真实 Codex/Claude CLI 试点已经完成。使用前应阅读：
-
-- [Workbench 技术设计总览](workbench/README.md)
-- [发布就绪快照与剩余门禁](workbench/release-readiness-2026-08-01.md)
+Workbench 的 Runtime Stub 自动化不代表真实 Codex/Claude CLI 试点已经完成。使用前应阅读 [Workbench 技术设计总览](workbench/README.md)。

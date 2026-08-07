@@ -9,11 +9,11 @@ README 只保留项目入口信息。功能、配置、使用、开发和运维�
 - **CLI Agent 对话**：支持 Claude CLI、Codex CLI、可恢复 SSE、多会话持久化、文件上下文、反馈和只读分享。
 - **工作空间管理**：在授权目录内浏览和上传文件，管理 Git worktree、分支与每用户 Git 身份。
 - **自动化与知识召回**：支持 Cron 定时任务、多步工作流，以及默认关闭的 Knowledge Refinery/RAG。
-- **Local Development Workbench**：提供多仓 Repository Scope、四阶段研发会话、不可变 Run Snapshot、人工 Handoff/Review 和后台恢复。
+- **Local Development Workbench**：提供多仓 Repository Scope、动态 Stage、不可变 Run Snapshot、受控文档上下文和后台恢复。
 - **NATIVE 诊断 Agent**：可在普通聊天中手动选择进程内只读诊断运行时，独立使用专用 Provider 配置。
 - **管理与安全**：数据库用户认证、ADMIN 管理台、会话隔离、路径白名单和默认关闭的高影响操作执行器。
 
-完整能力清单见[功能说明](docs/features.md)。Workbench 的自动化边界已经验证，但尚未完成真实用户、真实 Codex/Claude CLI 试点；结论与剩余门禁见[发布就绪快照](docs/workbench/release-readiness-2026-08-01.md)。
+完整能力清单见[功能说明](docs/features.md)。Workbench 的当前模型、授权边界和验证要求见[技术设计总览](docs/workbench/README.md)。
 
 ## 技术栈
 

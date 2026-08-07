@@ -27,7 +27,7 @@ flowchart LR
 
 **Actors**：登录用户、定时任务、管理员只读查询。
 
-**Commands**：StartSession · SendMessage · StreamMessage · ResumeSession · TruncateSession · DeleteSession · ShareSession · SubmitFeedback。
+**Commands**：StartSession · SubmitChatRun · ResumeSession · TruncateSession · DeleteSession · ShareSession · SubmitFeedback。
 
 **Events / Outcomes**：SessionStarted · UserMessageAdded · AssistantChunkReceived · AssistantMessageCompleted · SessionFailed · SessionTruncated · FeedbackRecorded · ShareCreated。
 
