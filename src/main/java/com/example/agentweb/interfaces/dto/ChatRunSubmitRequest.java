@@ -19,6 +19,12 @@ public class ChatRunSubmitRequest {
 
     private Boolean recall;
 
+    private String profileId;
+
+    private String model;
+
+    private String reasoningEffort;
+
     public boolean isRecallEnabled() {
         return recall == null || recall.booleanValue();
     }

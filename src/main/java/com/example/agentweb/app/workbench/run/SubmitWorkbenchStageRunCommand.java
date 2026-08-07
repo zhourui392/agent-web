@@ -36,12 +36,25 @@ public final class SubmitWorkbenchStageRunCommand {
     private final WorkbenchStageCommandInvocation commandInvocation;
     private final List<WorkbenchRunAttachmentReference> attachments;
     private final String requestHash;
+    private final String profileId;
+    private final String model;
+    private final String reasoningEffort;
 
     public SubmitWorkbenchStageRunCommand(
             WorkbenchId workbenchId, String stageInstanceIdentifier,
             long expectedVersion, String idempotencyKey,
             String message, RunMode runMode,
             List<WorkbenchRunAttachmentReference> attachments) {
+        this(workbenchId, stageInstanceIdentifier, expectedVersion, idempotencyKey,
+                message, runMode, attachments, null, null, null);
+    }
+
+    public SubmitWorkbenchStageRunCommand(
+            WorkbenchId workbenchId, String stageInstanceIdentifier,
+            long expectedVersion, String idempotencyKey,
+            String message, RunMode runMode,
+            List<WorkbenchRunAttachmentReference> attachments,
+            String profileId, String model, String reasoningEffort) {
         if (workbenchId == null || runMode == null) {
             throw new IllegalArgumentException(
                     "Workbench Stage Run identity and mode are required");
@@ -63,6 +76,9 @@ public final class SubmitWorkbenchStageRunCommand {
                 this.message);
         this.attachments = WorkbenchRunAttachmentSelection.immutable(
                 attachments);
+        this.profileId = normalize(profileId);
+        this.model = normalize(model);
+        this.reasoningEffort = normalize(reasoningEffort);
         this.requestHash = calculateRequestHash();
     }
 
@@ -71,6 +87,16 @@ public final class SubmitWorkbenchStageRunCommand {
             long expectedVersion, String idempotencyKey,
             String message, String runMode,
             List<WorkbenchRunAttachmentReference> attachments) {
+        return fromExternal(workbenchId, stageInstanceIdentifier, expectedVersion,
+                idempotencyKey, message, runMode, attachments, null, null, null);
+    }
+
+    public static SubmitWorkbenchStageRunCommand fromExternal(
+            WorkbenchId workbenchId, String stageInstanceIdentifier,
+            long expectedVersion, String idempotencyKey,
+            String message, String runMode,
+            List<WorkbenchRunAttachmentReference> attachments,
+            String profileId, String model, String reasoningEffort) {
         if (runMode == null) {
             throw new IllegalArgumentException(
                     "Workbench Stage Run mode is required");
@@ -79,7 +105,7 @@ public final class SubmitWorkbenchStageRunCommand {
                 workbenchId, stageInstanceIdentifier, expectedVersion,
                 idempotencyKey, message,
                 RunMode.valueOf(runMode.trim().toUpperCase(Locale.ROOT)),
-                attachments);
+                attachments, profileId, model, reasoningEffort);
     }
 
     private String calculateRequestHash() {
@@ -93,6 +119,9 @@ public final class SubmitWorkbenchStageRunCommand {
         CanonicalHashing.appendFramed(canonical, "message", message);
         CanonicalHashing.appendFramed(
                 canonical, "runMode", runMode.name());
+        CanonicalHashing.appendFramed(canonical, "profileId", profileId);
+        CanonicalHashing.appendFramed(canonical, "model", model);
+        CanonicalHashing.appendFramed(canonical, "reasoningEffort", reasoningEffort);
         CanonicalHashing.appendFramed(
                 canonical, "commandIdentifier",
                 commandInvocation == null
@@ -107,6 +136,10 @@ public final class SubmitWorkbenchStageRunCommand {
             attachment.appendCanonical(canonical);
         }
         return CanonicalHashing.sha256(canonical.toString());
+    }
+
+    private String normalize(String value) {
+        return value == null || value.trim().isEmpty() ? null : value.trim();
     }
 
     private static String requireStageIdentifier(String value) {

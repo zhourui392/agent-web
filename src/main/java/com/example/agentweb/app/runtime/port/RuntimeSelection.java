@@ -8,8 +8,8 @@ import java.util.Objects;
 /**
  * 已选 Runtime 和版本约束。
  *
- * <p>单用户本机模式下 Codex 子进程直接继承服务进程用户的登录态，
- * 不再携带凭据引用。</p>
+ * <p>profileId、endpoint、model、reasoningEffort 和 runtimeEnvironment 是提交 Run 时
+ * 冻结的非秘密绑定；API Key 永远不进入该值对象。</p>
  *
  * @author alex
  * @since 2026-08-01

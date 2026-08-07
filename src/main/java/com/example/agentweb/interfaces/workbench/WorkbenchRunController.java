@@ -116,7 +116,8 @@ public class WorkbenchRunController {
                         id, stageInstanceIdentifier, expectedVersion,
                         idempotencyKey, request.getMessage(),
                         request.getRunMode(),
-                        attachments(request.getAttachments()));
+                        attachments(request.getAttachments()), request.getProfileId(),
+                        request.getModel(), request.getReasoningEffort());
         WorkbenchStageRunSubmissionResult result = stageRunAppService.submit(
                 currentOwner(), command);
         return ResponseEntity.accepted()

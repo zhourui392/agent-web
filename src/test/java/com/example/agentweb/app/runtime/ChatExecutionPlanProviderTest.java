@@ -7,6 +7,7 @@ import com.example.agentweb.app.chatrun.PreparedChatRunPrompt;
 import com.example.agentweb.app.runtime.port.AgentExecutionPlan;
 import com.example.agentweb.app.runtime.port.HistoryDelivery;
 import com.example.agentweb.app.runtime.port.RuntimeLimits;
+import com.example.agentweb.app.runtime.port.RuntimeVersionPolicy;
 import com.example.agentweb.app.runtime.port.SandboxMode;
 import com.example.agentweb.domain.capability.ResolvedCapabilityBinding;
 import com.example.agentweb.domain.chatrun.ChatRun;
@@ -15,6 +16,7 @@ import com.example.agentweb.domain.chatrun.ExecutionContextReference;
 import com.example.agentweb.domain.chatrun.RunOrigin;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.shared.CanonicalHashing;
+import com.example.agentweb.infra.runtime.profile.AgentRuntimeProfileCatalog;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -101,6 +103,29 @@ class ChatExecutionPlanProviderTest {
                 plan.getWorkspaceLayout().getSandboxMode());
         assertSame(capabilityBinding, plan.getCapabilityBinding());
         assertSame(runtimeLimits, plan.getRuntimeLimits());
+    }
+
+    @Test
+    void should_KeepCodexCompatibility_When_ProfileFileHasNoProfiles() {
+        // Given
+        provider = new ChatExecutionPlanProvider(
+                queryService, promptBuilder, capabilityBinding, runtimeLimits,
+                new AgentRuntimeProfileCatalog(Collections.emptyList()), null);
+        ChatRun run = chatRun(false);
+        ChatRunExecutionContext context = context(
+                AgentType.CODEX, null, false);
+        when(queryService.findExecutionContext("chat-run-1"))
+                .thenReturn(Optional.of(context));
+        when(promptBuilder.prepareDetailed(context, "question"))
+                .thenReturn(new PreparedChatRunPrompt("assembled prompt", null));
+
+        // When
+        AgentExecutionPlan plan = provider.prepare(run);
+
+        // Then
+        assertEquals(AgentType.CODEX, plan.getRuntimeSelection().getAgentType());
+        assertEquals(RuntimeVersionPolicy.Mode.CONFIGURED,
+                plan.getRuntimeSelection().getRuntimeVersionPolicy().getMode());
     }
 
     @Test

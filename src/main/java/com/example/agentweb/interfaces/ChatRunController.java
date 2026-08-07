@@ -68,7 +68,8 @@ public class ChatRunController {
         }
         ChatRunSubmission result = appService.submit(new SubmitChatRunCommand(
                 sessionId, request.getMessage(), request.getResumeId(),
-                request.isRecallEnabled(), idempotencyKey));
+                request.isRecallEnabled(), idempotencyKey, request.getProfileId(),
+                request.getModel(), request.getReasoningEffort()));
         return ResponseEntity.accepted()
                 .location(URI.create("/api/chat/runs/" + result.getRunId()))
                 .body(result);

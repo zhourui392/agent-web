@@ -25,7 +25,7 @@ import com.example.agentweb.domain.workbench.WorkbenchRepository;
 import com.example.agentweb.domain.workbench.WorkbenchStageRunPromptPayloadRepository;
 import com.example.agentweb.domain.workbench.WorkbenchStageRunSnapshotRepository;
 import com.example.agentweb.infra.chatrun.SqliteChatRunRuntimeOutputQuery;
-import com.example.agentweb.infra.runtime.AgentProcessKernel;
+import com.example.agentweb.infra.agentrun.RoutingAgentGateway;
 import com.example.agentweb.infra.runtime.EnvironmentRuntimeSecretResolver;
 import com.example.agentweb.infra.runtime.RuntimeCapabilityMaterializer;
 import com.example.agentweb.infra.runtime.RuntimeSecretResolver;
@@ -71,7 +71,7 @@ class CommonRuntimeConfigurationTest {
                     ExecutionPlanProviderRegistry.class);
             assertThat(context).hasSingleBean(AgentExecutionGateway.class);
             assertThat(context.getBean(AgentExecutionGateway.class))
-                    .isInstanceOf(AgentProcessKernel.class);
+                    .isInstanceOf(RoutingAgentGateway.class);
             assertThat(context).hasSingleBean(RuntimePreflightGateway.class);
             assertThat(context).hasSingleBean(RuntimeCapabilityMaterializer.class);
             assertThat(context).hasSingleBean(RuntimeSecretResolver.class);

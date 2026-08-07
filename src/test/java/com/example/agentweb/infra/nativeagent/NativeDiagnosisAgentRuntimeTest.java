@@ -12,10 +12,20 @@ import com.example.agentweb.app.agentrun.port.AgentExecutionResult;
 import com.example.agentweb.app.agentrun.port.AgentHistoryMessage;
 import com.example.agentweb.app.agentrun.port.AgentRunInvocation;
 import com.example.agentweb.app.agentrun.port.HistoryDeliveryMode;
+import com.example.agentweb.app.runtime.port.AgentExecutionPlan;
+import com.example.agentweb.app.runtime.port.ExecutionIdentity;
+import com.example.agentweb.app.runtime.port.PromptPayload;
+import com.example.agentweb.app.runtime.port.RuntimeEventSink;
+import com.example.agentweb.app.runtime.port.RuntimeLimits;
+import com.example.agentweb.app.runtime.port.RuntimeSelection;
+import com.example.agentweb.app.runtime.port.RuntimeVersionPolicy;
+import com.example.agentweb.app.runtime.port.SandboxMode;
+import com.example.agentweb.app.runtime.port.WorkspaceLayout;
 import com.example.agentweb.config.nativeagent.NativeDiagnosisProperties;
 import com.example.agentweb.domain.diagnosis.DiagnosisCheckpoint;
 import com.example.agentweb.domain.diagnosis.DiagnosisCheckpointRepository;
 import com.example.agentweb.domain.shared.AgentType;
+import com.example.agentweb.domain.shared.CanonicalHashing;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -23,11 +33,14 @@ import org.mockito.ArgumentCaptor;
 import java.time.Instant;
 import java.time.Clock;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -35,6 +48,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
@@ -200,6 +214,65 @@ class NativeDiagnosisAgentRuntimeTest {
         assertThrows(IllegalArgumentException.class,
                 () -> runtime.run(invocation(120L, "staging"), ignored -> { }, ignored -> { }));
         org.mockito.Mockito.verifyNoInteractions(prodEngine);
+    }
+
+    @Test
+    void commonStart_shouldRouteByFrozenProfileIdToProfileEngine() throws Exception {
+        DiagnoseEngine testEngine = mock(DiagnoseEngine.class);
+        DiagnoseEngine profileEngine = mock(DiagnoseEngine.class);
+        DiagnoseEngine overrideEngine = mock(DiagnoseEngine.class);
+        NativeDiagnosisProperties test = environmentProperties("test", "test-service", "test-ds");
+        NativeDiagnosisProperties prod = environmentProperties("prod", "prod-service", "prod-ds");
+        NativeDiagnosisEnvironmentBinding testBinding = NativeDiagnosisEnvironmentBinding.from(
+                testEngine, "test", test, Clock.fixed(FIXED_NOW, ZoneId.of("UTC")));
+        NativeDiagnosisEnvironmentBinding prodBinding = NativeDiagnosisEnvironmentBinding.from(
+                profileEngine, "prod", prod, Clock.fixed(FIXED_NOW, ZoneId.of("UTC")));
+        NativeDiagnosisEnvironmentBinding overrideBinding = NativeDiagnosisEnvironmentBinding.from(
+                overrideEngine, "prod", prod, Clock.fixed(FIXED_NOW, ZoneId.of("UTC")));
+        runtime = new NativeDiagnosisAgentRuntime(
+                Map.of("test", testBinding, "prod", prodBinding),
+                Map.of("native-prod", prodBinding),
+                Map.of("native-prod", Map.of("profile-model", prodBinding,
+                        "profile-override", overrideBinding)), checkpoints,
+                new NativeDiagnosisHistoryMapper(new StreamOutputExtractor()),
+                new NativeRunSummaryMapper(), null);
+        when(checkpoints.findLatestValidBefore("conversation-profile", 8L))
+                .thenReturn(Optional.empty());
+        doAnswer(call -> {
+            Consumer<com.anthropic.agentkit.interfaces.engine.RunSummary> completion =
+                    call.getArgument(2);
+            completion.accept(new RunSummary(
+                    com.anthropic.agentkit.interfaces.engine.ExitReason.SUCCESS,
+                    "", RunSummary.Usage.zero(), ""));
+            return null;
+        }).when(overrideEngine).run(any(RunRequest.class), any(), any());
+        AgentExecutionPlan plan = org.mockito.Mockito.mock(AgentExecutionPlan.class);
+        when(plan.getExecutionIdentity()).thenReturn(new ExecutionIdentity(
+                "profile-run", "owner-1", "chat:profile", "conversation-profile", 8L));
+        when(plan.getRuntimeSelection()).thenReturn(new RuntimeSelection(
+                "native-prod", AgentType.NATIVE, "https://profile.example", "profile-override",
+                "high", "prod", RuntimeVersionPolicy.configured()));
+        when(plan.getPromptPayload()).thenReturn(new PromptPayload(
+                "profile question", CanonicalHashing.sha256("profile question"),
+                com.example.agentweb.app.runtime.port.HistoryDelivery.TYPED));
+        when(plan.getWorkspaceLayout()).thenReturn(new WorkspaceLayout(
+                "/workspace", "/workspace", new ArrayList<String>(List.of("/workspace")),
+                new ArrayList<String>(List.of("/workspace")), SandboxMode.WORKSPACE_WRITE));
+        when(plan.getRuntimeLimits()).thenReturn(new RuntimeLimits(
+                java.time.Duration.ofSeconds(30L), 1024L));
+        CountDownLatch terminal = new CountDownLatch(1);
+        RuntimeEventSink sink = event -> {
+            if (event.getType() == com.example.agentweb.app.runtime.port.RuntimeEventType.TERMINATED) {
+                terminal.countDown();
+            }
+        };
+
+        runtime.start(plan, sink);
+
+        assertTrue(terminal.await(2L, TimeUnit.SECONDS));
+        verify(overrideEngine).run(any(RunRequest.class), any(), any());
+        org.mockito.Mockito.verifyNoInteractions(profileEngine);
+        org.mockito.Mockito.verifyNoInteractions(testEngine);
     }
 
     @Test

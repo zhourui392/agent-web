@@ -1,6 +1,8 @@
 package com.example.agentweb.infra.runtime.profile;
 
 import com.example.agentweb.app.runtime.port.RuntimeSelection;
+import com.example.agentweb.app.runtime.port.AgentRuntimeSurface;
+import com.example.agentweb.app.runtime.port.RuntimeProfileSelector;
 import com.example.agentweb.app.runtime.port.RuntimeVersionPolicy;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.workbench.RunMode;
@@ -16,7 +18,7 @@ import java.util.Objects;
  * @author alex
  * @since 2026-08-07
  */
-public final class AgentRuntimeProfileCatalog {
+public final class AgentRuntimeProfileCatalog implements RuntimeProfileSelector {
 
     private final List<AgentRuntimeProfile> profiles;
 
@@ -76,10 +78,17 @@ public final class AgentRuntimeProfileCatalog {
         }
         AgentRuntimeProfile selected = candidates.get(0);
         selected.resolveModel(model);
+        if (agentType == AgentType.NATIVE && reasoningEffort != null
+                && !reasoningEffort.isBlank()
+                && !selected.getDefaultReasoningEffort().equals(reasoningEffort.trim())) {
+            throw new AgentRuntimeProfileSelectionException(
+                    "NATIVE reasoning override is not supported by the current AgentKit");
+        }
         selected.resolveReasoningEffort(reasoningEffort);
         return selected;
     }
 
+    @Override
     public RuntimeSelection selection(AgentType agentType, AgentRuntimeSurface surface,
                                       RunMode runMode, String profileId,
                                       String model, String reasoningEffort) {
@@ -93,5 +102,10 @@ public final class AgentRuntimeProfileCatalog {
 
     public List<AgentRuntimeProfile> profiles() {
         return profiles;
+    }
+
+    @Override
+    public boolean hasProfiles() {
+        return !profiles.isEmpty();
     }
 }

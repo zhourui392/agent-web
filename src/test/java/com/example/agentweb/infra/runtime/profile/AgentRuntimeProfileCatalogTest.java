@@ -1,5 +1,6 @@
 package com.example.agentweb.infra.runtime.profile;
 
+import com.example.agentweb.app.runtime.port.AgentRuntimeSurface;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.workbench.RunMode;
 import org.junit.jupiter.api.Test;
@@ -45,6 +46,20 @@ class AgentRuntimeProfileCatalogTest {
         assertThrows(AgentRuntimeProfileSelectionException.class, () -> catalog.select(
                 AgentType.CODEX, AgentRuntimeSurface.CHAT, RunMode.DISCUSS_READ_ONLY,
                 null, "m2", null));
+    }
+
+    @Test
+    void shouldRejectNativeReasoningOverrideUntilAgentKitSupportsIt() {
+        AgentRuntimeProfile profile = new AgentRuntimeProfile(
+                "native-a", AgentType.NATIVE, "https://native.example", "key",
+                "diagnosis-model", Set.of("diagnosis-model"), "medium",
+                Set.of("low", "medium", "high"), "test",
+                Set.of(AgentRuntimeSurface.CHAT), Set.of(RunMode.DISCUSS_READ_ONLY), true);
+        AgentRuntimeProfileCatalog catalog = new AgentRuntimeProfileCatalog(List.of(profile));
+
+        assertThrows(AgentRuntimeProfileSelectionException.class, () -> catalog.select(
+                AgentType.NATIVE, AgentRuntimeSurface.CHAT, RunMode.DISCUSS_READ_ONLY,
+                null, null, "high"));
     }
 
     private AgentRuntimeProfile profile(String id, String endpoint, String model) {

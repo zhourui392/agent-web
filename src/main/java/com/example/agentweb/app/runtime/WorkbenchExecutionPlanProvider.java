@@ -1,12 +1,15 @@
 package com.example.agentweb.app.runtime;
 
 import com.example.agentweb.app.runtime.port.AgentExecutionPlan;
+import com.example.agentweb.app.runtime.port.AgentRuntimeSurface;
+import com.example.agentweb.app.runtime.port.ChatRunRuntimeSelectionStore;
 import com.example.agentweb.app.runtime.port.ExecutionIdentity;
 import com.example.agentweb.app.runtime.port.HistoryDelivery;
 import com.example.agentweb.app.runtime.port.PromptPayload;
 import com.example.agentweb.app.runtime.port.RuntimeLimits;
 import com.example.agentweb.app.runtime.port.RuntimeAttachmentExpectation;
 import com.example.agentweb.app.runtime.port.RuntimeSelection;
+import com.example.agentweb.app.runtime.port.RuntimeProfileSelector;
 import com.example.agentweb.app.runtime.port.RuntimeVersionPolicy;
 import com.example.agentweb.app.runtime.port.SandboxMode;
 import com.example.agentweb.app.runtime.port.WorkspaceLayout;
@@ -49,17 +52,39 @@ public final class WorkbenchExecutionPlanProvider
     private final WorkbenchStageRunSnapshotRepository snapshotRepository;
     private final WorkbenchStageRunPromptPayloadRepository promptRepository;
     private final WorkbenchRepository workbenchRepository;
+    private final RuntimeProfileSelector profileSelector;
+    private final ChatRunRuntimeSelectionStore selectionStore;
 
     public WorkbenchExecutionPlanProvider(
             WorkbenchStageRunSnapshotRepository snapshotRepository,
             WorkbenchStageRunPromptPayloadRepository promptRepository,
             WorkbenchRepository workbenchRepository) {
+        this(snapshotRepository, promptRepository, workbenchRepository, null);
+    }
+
+    public WorkbenchExecutionPlanProvider(
+            WorkbenchStageRunSnapshotRepository snapshotRepository,
+            WorkbenchStageRunPromptPayloadRepository promptRepository,
+            WorkbenchRepository workbenchRepository,
+            RuntimeProfileSelector profileSelector) {
+        this(snapshotRepository, promptRepository, workbenchRepository,
+                profileSelector, null);
+    }
+
+    public WorkbenchExecutionPlanProvider(
+            WorkbenchStageRunSnapshotRepository snapshotRepository,
+            WorkbenchStageRunPromptPayloadRepository promptRepository,
+            WorkbenchRepository workbenchRepository,
+            RuntimeProfileSelector profileSelector,
+            ChatRunRuntimeSelectionStore selectionStore) {
         this.snapshotRepository = Objects.requireNonNull(
                 snapshotRepository, "snapshotRepository");
         this.promptRepository = Objects.requireNonNull(
                 promptRepository, "promptRepository");
         this.workbenchRepository = Objects.requireNonNull(
                 workbenchRepository, "workbenchRepository");
+        this.profileSelector = profileSelector;
+        this.selectionStore = selectionStore;
     }
 
     @Override
@@ -87,7 +112,9 @@ public final class WorkbenchExecutionPlanProvider
 
         RuntimeEnforcementSnapshot runtime = snapshot.getRuntimeEnforcement();
         AgentType agentType = AgentType.parseKnown(runtime.getRuntime());
-        if (agentType != AgentType.CODEX) {
+        boolean profilesConfigured = profileSelector != null
+                && profileSelector.hasProfiles();
+        if (!profilesConfigured && agentType != AgentType.CODEX) {
             throw new IllegalStateException(
                     "common Workbench Runtime currently supports Codex only");
         }
@@ -114,13 +141,22 @@ public final class WorkbenchExecutionPlanProvider
             attachmentPrimaryRoot = worktreeRoot;
         }
 
+        RuntimeSelection persistedSelection = selectionStore == null ? null
+                : selectionStore.find(requiredRun.getId()).orElse(null);
+        RuntimeSelection runtimeSelection;
+        if (persistedSelection != null) {
+            runtimeSelection = persistedSelection;
+        } else if (!profilesConfigured) {
+            runtimeSelection = new RuntimeSelection(agentType,
+                    RuntimeVersionPolicy.exact(runtime.getRuntimeVersion()));
+        } else {
+            runtimeSelection = profileSelection(agentType, runtime);
+        }
         return new AgentExecutionPlan(
                 new ExecutionIdentity(
                         runId, workbench.getOwner().getOwnerId(),
                         snapshot.executionOriginReference()),
-                new RuntimeSelection(
-                        agentType,
-                        RuntimeVersionPolicy.exact(runtime.getRuntimeVersion())),
+                runtimeSelection,
                 new PromptPayload(
                         prompt.getFinalPrompt(), prompt.getPromptHash(),
                         HistoryDelivery.valueOf(
@@ -136,6 +172,16 @@ public final class WorkbenchExecutionPlanProvider
                         Duration.ofSeconds(runtime.getTimeoutSeconds()),
                         runtime.getOutputLimitBytes()),
                 attachmentExpectations(snapshot, scope, attachmentPrimaryRoot));
+    }
+
+    private RuntimeSelection profileSelection(AgentType agentType,
+                                               RuntimeEnforcementSnapshot runtime) {
+        RuntimeSelection selected = profileSelector.selection(agentType,
+                AgentRuntimeSurface.WORKBENCH, runtime.getRunMode(), null, null, null);
+        return new RuntimeSelection(selected.getProfileId(), selected.getAgentType(),
+                selected.getEndpoint(), selected.getModel(), selected.getReasoningEffort(),
+                selected.getRuntimeEnvironment(),
+                RuntimeVersionPolicy.exact(runtime.getRuntimeVersion()));
     }
 
     private List<RuntimeAttachmentExpectation> attachmentExpectations(

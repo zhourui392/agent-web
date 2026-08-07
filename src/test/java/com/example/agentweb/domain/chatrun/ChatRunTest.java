@@ -167,6 +167,23 @@ class ChatRunTest {
     }
 
     @Test
+    void runtimeHandleBindingShouldStopOnlyRunsThatMustNoLongerExecute() {
+        ChatRun pending = newRun();
+        ChatRun running = newRun();
+        running.start(STARTED_AT);
+        ChatRun cancelling = newRun();
+        cancelling.start(STARTED_AT);
+        cancelling.requestCancellation(FINISHED_AT);
+        ChatRun cancelled = newRun();
+        cancelled.requestCancellation(STARTED_AT);
+
+        assertFalse(pending.requiresRuntimeStopAfterHandleBinding());
+        assertFalse(running.requiresRuntimeStopAfterHandleBinding());
+        assertTrue(cancelling.requiresRuntimeStopAfterHandleBinding());
+        assertTrue(cancelled.requiresRuntimeStopAfterHandleBinding());
+    }
+
+    @Test
     void failure_and_interruption_should_require_public_message() {
         ChatRun failed = newRun();
         failed.start(STARTED_AT);

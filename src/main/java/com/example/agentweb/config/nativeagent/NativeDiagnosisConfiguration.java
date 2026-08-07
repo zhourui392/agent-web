@@ -27,17 +27,21 @@ import com.anthropic.agentkit.interfaces.engine.ReadinessPolicy;
 import com.example.agentweb.config.EnvProperties;
 import com.example.agentweb.app.StreamOutputExtractor;
 import com.example.agentweb.domain.diagnosis.DiagnosisCheckpointRepository;
+import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.infra.nativeagent.NativeDiagnosisAgentRuntime;
 import com.example.agentweb.infra.nativeagent.NativeDiagnosisEnvironmentBinding;
 import com.example.agentweb.infra.nativeagent.NativeDiagnosisHistoryMapper;
 import com.example.agentweb.infra.nativeagent.NativeDiagnosisTelemetry;
 import com.example.agentweb.infra.nativeagent.NativeRunSummaryMapper;
 import com.example.agentweb.infra.nativeagent.NativeRuntimeRegistration;
+import com.example.agentweb.infra.runtime.profile.AgentRuntimeProfile;
+import com.example.agentweb.infra.runtime.profile.AgentRuntimeProfileCatalog;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.beans.factory.ObjectProvider;
 
 import java.nio.file.Path;
 import java.time.Clock;
@@ -74,8 +78,19 @@ public class NativeDiagnosisConfiguration {
                                        DiagnosisResourceCatalog resourceCatalog,
                                        DiagnosisToolBackends backends,
                                        ToolGovernance governance) {
+        return buildEngine(properties, resourceCatalog, backends, governance,
+                properties.getApiKey(), properties.getModel(), properties.getBaseUrl());
+    }
+
+    private DiagnoseEngine buildEngine(NativeDiagnosisProperties properties,
+                                       DiagnosisResourceCatalog resourceCatalog,
+                                       DiagnosisToolBackends backends,
+                                       ToolGovernance governance,
+                                       String apiKey,
+                                       String model,
+                                       String baseUrl) {
         DiagnoseEngineBuilder builder = DiagnoseEngineBuilder.create()
-                .llm(LlmClientFactories.create(llmConfig(properties)))
+                .llm(LlmClientFactories.create(llmConfig(properties, apiKey, model, baseUrl)))
                 .toolPolicy(toolPolicy(properties))
                 .toolBackends(backends, governance)
                 .budget(budget(properties))
@@ -137,31 +152,142 @@ public class NativeDiagnosisConfiguration {
             NativeDiagnosisProperties properties, EnvProperties environments,
             DiagnosisCheckpointRepository checkpointRepository,
             NativeDiagnosisHistoryMapper historyMapper, NativeRunSummaryMapper summaryMapper,
-            NativeDiagnosisTelemetry telemetry) {
-        properties.validate(environments);
+            NativeDiagnosisTelemetry telemetry,
+            ObjectProvider<AgentRuntimeProfileCatalog> profileCatalogProvider) {
+        AgentRuntimeProfileCatalog profileCatalog = profileCatalogProvider.getIfAvailable(
+                () -> new AgentRuntimeProfileCatalog(List.of()));
+        List<AgentRuntimeProfile> nativeProfiles = profileCatalog.profiles().stream()
+                .filter(profile -> profile.getAgentType() == AgentType.NATIVE
+                        && profile.isEnabled())
+                .toList();
+        properties.validate(environments, nativeProfiles.isEmpty());
         Map<String, NativeDiagnosisEnvironmentBinding> bindings = new LinkedHashMap<>();
+        Map<String, NativeDiagnosisEnvironmentBinding> profileBindings = new LinkedHashMap<>();
+        Map<String, Map<String, NativeDiagnosisEnvironmentBinding>> profileModelBindings =
+                new LinkedHashMap<>();
+        Map<String, NativeDiagnosisProperties> environmentConfigurations =
+                properties.environmentConfigurations();
+        validateLegacyConnections(nativeProfiles, environmentConfigurations);
         try {
-            properties.environmentConfigurations().forEach((environment, configuration) -> {
-                NativeDiagnosisLogBackendFactory.LogBinding logBinding =
-                        logBackends.create(environment, configuration);
-                DiagnosisToolBackends backends = toolBackends(configuration, logBinding);
-                ToolGovernance governance = new ToolGovernance(
-                        Duration.ofSeconds(30), new DiagnosisToolRedactor(),
-                        telemetry.auditSink(environment),
-                        new FixedWindowToolRateLimiter(
-                                configuration.getTools().getMaxCallsPerMinute(),
-                                Duration.ofMinutes(1)));
-                DiagnoseEngine engine = buildEngine(configuration,
-                        resourceCatalog(environment, logBinding), backends, governance);
+            nativeProfiles.forEach(profile -> {
+                        String environment = profileEnvironment(profile, environmentConfigurations);
+                        NativeDiagnosisProperties configuration =
+                                environmentConfigurations.get(environment);
+                        if (profile.getApiKey() == null || profile.getApiKey().isBlank()) {
+                            throw new IllegalStateException(
+                                    "NATIVE Runtime Profile requires api-key: "
+                                            + profile.getProfileId());
+                        }
+                        NativeDiagnosisLogBackendFactory.LogBinding logBinding =
+                                logBackends.create(environment, configuration);
+                        Map<String, NativeDiagnosisEnvironmentBinding> modelBindings =
+                                new LinkedHashMap<>();
+                        for (String model : profile.getAllowedModels()) {
+                            DiagnoseEngine engine = buildProfileEngine(
+                                    profile, configuration, environment, logBinding,
+                                    telemetry, model);
+                            modelBindings.put(model, NativeDiagnosisEnvironmentBinding.from(
+                                    engine, environment, configuration, Clock.systemUTC()));
+                        }
+                        profileModelBindings.put(profile.getProfileId(), modelBindings);
+                        profileBindings.put(profile.getProfileId(),
+                                modelBindings.get(profile.getDefaultModel()));
+                    });
+            for (Map.Entry<String, NativeDiagnosisProperties> entry
+                    : environmentConfigurations.entrySet()) {
+                String environment = entry.getKey();
+                NativeDiagnosisProperties configuration = entry.getValue();
+                NativeDiagnosisEnvironmentBinding profileBinding = profileBindings.values()
+                        .stream().filter(binding -> binding.environment().equals(environment))
+                        .findFirst().orElse(null);
+                DiagnoseEngine engine;
+                if (profileBinding != null) {
+                    engine = profileBinding.engine();
+                } else {
+                    NativeDiagnosisLogBackendFactory.LogBinding logBinding =
+                            logBackends.create(environment, configuration);
+                    DiagnosisToolBackends backends = toolBackends(configuration, logBinding);
+                    ToolGovernance governance = toolGovernance(configuration, environment, telemetry);
+                    engine = buildEngine(configuration,
+                            resourceCatalog(environment, logBinding), backends, governance);
+                }
                 bindings.put(environment, NativeDiagnosisEnvironmentBinding.from(
                         engine, environment, configuration, Clock.systemUTC()));
-            });
+            }
             return new NativeDiagnosisAgentRuntime(
-                    bindings, checkpointRepository, historyMapper, summaryMapper, telemetry);
+                    bindings, profileBindings, profileModelBindings, checkpointRepository,
+                    historyMapper, summaryMapper, telemetry);
         } catch (RuntimeException failure) {
-            bindings.values().forEach(binding -> binding.engine().close());
+            java.util.stream.Stream<NativeDiagnosisEnvironmentBinding> profileModels =
+                    profileModelBindings.values().stream()
+                            .flatMap(values -> values.values().stream());
+            java.util.stream.Stream.concat(
+                            java.util.stream.Stream.concat(
+                                    bindings.values().stream(), profileBindings.values().stream()),
+                            profileModels)
+                    .map(NativeDiagnosisEnvironmentBinding::engine)
+                    .distinct().forEach(DiagnoseEngine::close);
             throw failure;
         }
+    }
+
+    private void validateLegacyConnections(
+            List<AgentRuntimeProfile> profiles,
+            Map<String, NativeDiagnosisProperties> configurations) {
+        for (AgentRuntimeProfile profile : profiles) {
+            String environment = profileEnvironment(profile, configurations);
+            NativeDiagnosisProperties legacy = configurations.get(environment);
+            if (differentWhenConfigured(legacy.getApiKey(), profile.getApiKey())
+                    || differentWhenConfigured(legacy.getModel(), profile.getDefaultModel())
+                    || differentWhenConfigured(legacy.getBaseUrl(), profile.getEndpoint())) {
+                throw new IllegalStateException(
+                        "Legacy NATIVE connection conflicts with Runtime Profile: "
+                                + profile.getProfileId());
+            }
+        }
+    }
+
+    private boolean differentWhenConfigured(String legacy, String profile) {
+        return hasText(legacy) && !legacy.trim().equals(profile == null ? null : profile.trim());
+    }
+
+    private DiagnoseEngine buildProfileEngine(AgentRuntimeProfile profile,
+                                              NativeDiagnosisProperties properties,
+                                              String environment,
+                                              NativeDiagnosisLogBackendFactory.LogBinding logBinding,
+                                              NativeDiagnosisTelemetry telemetry,
+                                              String model) {
+        DiagnosisToolBackends backends = toolBackends(properties, logBinding);
+        ToolGovernance governance = toolGovernance(properties, environment, telemetry);
+        return buildEngine(properties, resourceCatalog(environment, logBinding), backends,
+                governance, profile.getApiKey(), model, profile.getEndpoint());
+    }
+
+    private ToolGovernance toolGovernance(NativeDiagnosisProperties properties,
+                                          String environment,
+                                          NativeDiagnosisTelemetry telemetry) {
+        return new ToolGovernance(
+                Duration.ofSeconds(30), new DiagnosisToolRedactor(),
+                telemetry.auditSink(environment),
+                new FixedWindowToolRateLimiter(
+                        properties.getTools().getMaxCallsPerMinute(), Duration.ofMinutes(1)));
+    }
+
+    private String profileEnvironment(AgentRuntimeProfile profile,
+                                      Map<String, NativeDiagnosisProperties> configurations) {
+        String configured = profile.getRuntimeEnvironment();
+        if (configured != null && !configured.isBlank()) {
+            if (!configurations.containsKey(configured.trim())) {
+                throw new IllegalStateException("NATIVE Profile environment is not bound: "
+                        + profile.getProfileId());
+            }
+            return configured.trim();
+        }
+        if (configurations.size() == 1) {
+            return configurations.keySet().iterator().next();
+        }
+        throw new IllegalStateException("NATIVE Profile must specify runtime-environment: "
+                + profile.getProfileId());
     }
 
     @Bean
@@ -172,10 +298,13 @@ public class NativeDiagnosisConfiguration {
                 runtime.boundEnvironments(), runtime.operationalEnvironments());
     }
 
-    private AppConfig llmConfig(NativeDiagnosisProperties properties) {
-        String baseUrl = textOrNull(properties.getBaseUrl());
-        return new AppConfig(properties.getApiKey(), properties.getModel(),
-                properties.getMaxTokens(), baseUrl, PermissionMode.DEFAULT,
+    private AppConfig llmConfig(NativeDiagnosisProperties properties,
+                                String apiKey,
+                                String model,
+                                String baseUrl) {
+        String normalizedBaseUrl = textOrNull(baseUrl);
+        return new AppConfig(apiKey, model,
+                properties.getMaxTokens(), normalizedBaseUrl, PermissionMode.DEFAULT,
                 properties.getProvider());
     }
 

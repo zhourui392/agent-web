@@ -1,6 +1,6 @@
 # Agent Runtime 三类接入统一设计（Review 修正版）
 
-状态：待实现
+状态：代码已覆盖 Phase 0/1、Claude 公共 CLI 路径和 NATIVE Profile/Handle 主链；真实 CLI/AgentKit endpoint E2E、默认开关翻转和旧兼容入口最终删除仍待受控验收。
 
 适用范围：Chat、Local Development Workbench，以及后续复用 Agent Run 生命周期的入口。本文是可实施的首期设计，不把尚未验证的能力提前做成基础设施。
 
@@ -34,7 +34,7 @@ ChatRunRuntimeLauncher / WorkbenchRun...
       └ Claude CLI
 ```
 
-这里明确选择一条路径：最终由升级后的 `RoutingAgentGateway` 同时实现旧的 `AgentGateway` 和新的 `AgentExecutionGateway`，统一维护 `AgentRuntime` 注册和 Run → Runtime 路由，转发异步任务、句柄、Stop 和 Observe。Provider Handle 由具体 `AgentRuntime` 持有，`AgentProcessKernel` 不再作为第二个 `AgentExecutionGateway` Bean，而是由 CLI `AgentRuntime` 使用的进程生命周期组件；其现有 workspace/capability materialization 保留为计划执行协作者，不承担 AgentType 路由。Phase 0 仍由当前 Kernel 提供公共 Gateway；Phase 1 以一次装配切换同时取消 Kernel 的端口 Bean、启用 Routing Gateway，任何时刻只能有一个 `AgentExecutionGateway`。
+这里明确选择一条路径：最终由升级后的 `RoutingAgentGateway` 同时实现旧的 `AgentGateway` 和新的 `AgentExecutionGateway`，统一维护 `AgentRuntime` 注册和 Run → Runtime 路由，转发异步任务、句柄、Stop 和 Observe。Provider Handle 由具体 `AgentRuntime` 持有，`AgentProcessKernel` 不再作为第二个 `AgentExecutionGateway` Bean，而是由 CLI `AgentRuntime` 使用的进程生命周期组件；其现有 workspace/capability materialization 保留为计划执行协作者，不承担 AgentType 路由。迁移基线曾由 Kernel 提供公共 Gateway；当前已完成装配切换，Kernel 的端口 Bean 已取消、Routing Gateway 已成为唯一 `AgentExecutionGateway`，后续只需收口旧 `AgentCliGateway` façade。
 
 同一个 `AgentType` 的不同 URL/Key 通过选择不同 Profile 实现；模型和思考强度既有 Profile 默认值，也可在单次调用中按白名单覆盖。调用方不能提交任意明文 Key 或任意 URL。
 
@@ -59,11 +59,11 @@ ChatRunRuntimeLauncher / WorkbenchRun...
 - [`AgentProcessKernel`](../src/main/java/com/example/agentweb/infra/runtime/AgentProcessKernel.java)：本地进程生命周期内核；
 - [`ChatExecutionPlanProvider`](../src/main/java/com/example/agentweb/app/runtime/ChatExecutionPlanProvider.java) 和 [`WorkbenchExecutionPlanProvider`](../src/main/java/com/example/agentweb/app/runtime/WorkbenchExecutionPlanProvider.java)：按 `RunOrigin` 组装计划。
 
-当前限制是 Runtime 命令、预检和事件解码仍以 Codex 为中心。迁移工作是让这些现有组件读取 `AgentType`/Profile 绑定，并复用已有 `AgentRuntime` 能力；不是重新定义 Provider Adapter。
+当前仍有一项受控差异：Codex 的 Runtime 事件安全投影沿用现有 `CodexEventNormalizer`，Claude 已通过 `ClaudeCliDialect` 接入命令和基础事件投影。迁移工作是让这些现有组件读取 `AgentType`/Profile 绑定，并复用已有 `AgentRuntime` 能力；不是重新定义 Provider Adapter。
 
-当前 [`AgentProcessKernel`](../src/main/java/com/example/agentweb/infra/runtime/AgentProcessKernel.java) 还直接实现 `AgentExecutionGateway`，并由 `CommonRuntimeConfiguration` 暴露为该端口的 Bean。这是现状，不是最终拓扑；Phase 1 会把 `RoutingAgentGateway` 升级为唯一公共 Gateway，并将 ProcessKernel 的进程生命周期能力收回 CLI Runtime 内部，避免两个 Gateway 同时处理同一 Run。
+当前实现已完成这次装配切换：`AgentProcessKernel` 只作为 CLI 进程生命周期组件，`CommonRuntimeConfiguration` 只暴露由 `RoutingAgentGateway` 实现的公共 `AgentExecutionGateway`。Kernel 仍负责 workspace/capability materialization、进程监控和清理；Routing Gateway 负责 AgentType 路由及 RuntimeHandle 的 Stop/Observe。应用层只依赖 `RuntimeProfileSelector` 等 app 端口，Profile Catalog 是 infra 实现，不向应用层泄漏。
 
-当前还存在一个必须先修复的 Stop 缺口：[`ChatRunRuntimeLauncher`](../src/main/java/com/example/agentweb/app/chatrun/ChatRunRuntimeLauncher.java) 通过 `AgentExecutionGateway` 启动，但 [`ChatRunAppServiceImpl.stop`](../src/main/java/com/example/agentweb/app/chatrun/ChatRunAppServiceImpl.java) 仍调用 `AgentGateway.stopStream(runId)`。前者注册在 `AgentProcessKernel.contexts`，后者查找 `RoutingAgentGateway`/`AgentCliGateway.runningProcesses`，无法保证停止同一进程。Phase 0 必须统一这条路径，不能等到三类 Agent 接入后再处理。
+Chat 的 Start/Stop 端口缺口也已在 Phase 0 修复：`ChatRunRuntimeLauncher` 和 `ChatRunAppServiceImpl.stop` 都优先使用 `AgentExecutionGateway`；Handle 尚未绑定时先持久化取消状态，绑定后再次检查并补发 Stop。对尚未进入公共 Runtime、没有 Handle 的旧 Run，`stop` 暂保留一次性 `AgentGateway.stopStream(runId)` fallback；该 fallback 只服务迁移兼容，不拥有第二套进程管理。`AgentCliGateway` 当前已经是兼容 façade：不持有 `ProcessBuilder`、stdout reader、watchdog 或 `runningProcesses`，legacy 调用也委托同一个 `AgentProcessKernel`。
 
 ### 2.3 当前业务 Surface 约束
 
@@ -118,7 +118,7 @@ agent.runtime.profiles.codex-openai.allowed-models=gpt-5.6,gpt-5.6-mini
 agent.runtime.profiles.codex-openai.default-reasoning-effort=medium
 agent.runtime.profiles.codex-openai.allowed-reasoning-efforts=low,medium,high
 agent.runtime.profiles.codex-openai.supported-surfaces=CHAT,WORKBENCH
-agent.runtime.profiles.codex-openai.supported-run-modes=READ,WRITE
+agent.runtime.profiles.codex-openai.supported-run-modes=DISCUSS_READ_ONLY,MODIFY_WORKSPACE
 agent.runtime.profiles.codex-openai.enabled=true
 ```
 
@@ -130,9 +130,9 @@ agent.runtime.profiles.codex-openai.enabled=true
 - Profile 文件不生成模板副本、不进入 Git；文档和测试夹具只能使用 `<local-secret>` 等占位符。
 - 依赖 CLI 用户登录态的 Profile 可以不配置 `api-key`；显式配置 Key 时，启动进程前由 Kernel 注入方言要求的环境变量。
 
-鉴权策略变更说明：当前 [`AGENTS.md`](../AGENTS.md)、`application.yml` 约第 367 行和 `data/secrets.properties` 现有注释都把 Codex/Claude CLI 本机默认登录态作为默认方式，并提示 CLI Key 不写入 `data/secrets.properties`。本设计选择的是一个有意的例外：当 Profile 显式配置 `api-key` 时，改用 Profile API Key 鉴权；未配置 `api-key` 的 Profile 仍继续使用 CLI 本机默认登录态。本决策必须在实现变更中显式记录，不能被当作普通配置迁移。
+鉴权策略变更说明：`AGENTS.md` 的默认安全规则仍然禁止读取、复制或改写 `~/.codex`、`~/.claude`；只有用户明确选择 Profile API Key 鉴权时，才允许把 Key 写入 Git 忽略的 `data/secrets.properties`。本设计已经作出并落地这一明确决策：当 Profile 显式配置 `api-key` 时，运行时使用该 Key；未配置 `api-key` 的 Profile 继续使用 CLI 本机默认登录态。`application.yml` 与 `data/secrets.properties` 的注释已同步说明两种路径，不能再按“CLI Key 一律不进 secrets 文件”理解。
 
-Phase 0/1 的同步维护项：
+Phase 0/1 的同步维护项（已完成）：
 
 - 更新 `application.yml` 约第 367 行的注释，说明 Profile API Key 是可选的显式鉴权路径；
 - 更新 `data/secrets.properties` 第 2 行的注释，说明该文件现在允许保存 Profile API Key，但 CLI 默认登录态仍可保留；
@@ -246,7 +246,7 @@ ExecutionIdentity
 ### 5.2 Provider 差异的落点
 
 - Codex/Claude CLI：`CliAgentRuntime.start(plan, sink)` 按 `AgentType` 选择现有 `CliDialect`，把完整 Plan 交给 `AgentProcessKernel`；不要在应用层增加 `if (CODEX)`/`if (CLAUDE)`。
-- CLI 方言：现有 `CliDialect`（Codex/Claude）是命令构造、Resume 参数、session ID 提取、Provider 事件识别和回合结束判断的唯一事实来源。Phase 1 删除 Codex-only 的 `RuntimeCommandFactory`，Kernel 直接调用方言；`RuntimeEventDecoder` 继续负责公共事件脱敏、限长和 Workbench 语义投影，但 Provider 解析改为委托当前方言，不再直接依赖 `CodexEventNormalizer`。
+- CLI 方言：现有 `CliDialect`（Codex/Claude）负责命令、Resume 参数、session ID 提取和回合结束判断；Codex 的 `RuntimeCommandFactory` 作为 provider 内部命令协作者保留，Claude 由 `ClaudeCliDialect` 构造命令。`RuntimeEventDecoder` 继续负责公共事件脱敏、限长和 Workbench 语义投影：CODEX 使用现有 `CodexEventNormalizer`，非 CODEX（当前为 Claude）使用所选方言的归一化方法。两者共用同一进程生命周期，不形成第二套 Gateway。
 - `CliAgentRuntime` 从 `RuntimeSelection` 消费 endpoint、model、reasoning；endpoint/model/reasoning 通过方言支持的受控参数或环境变量传入，Key 按 `profileId` 从已加载的 `data/secrets.properties` Profile 配置读取，由 Kernel 在启动前注入，绝不进入 `AgentRunInvocation.extraEnv`。
 - NATIVE：`NativeDiagnosisAgentRuntime.start(plan, sink)` 直接管理 AgentKit engine，不经过 `AgentProcessKernel`；其配置边界和句柄规则见 §5.3。
 - Resume：`AgentExecutionPlan.resumeId` 直接传给 CLI 方言或 NATIVE 请求。首期 Resume 使用 Run 持久化的 `RuntimeSelection` 和同一 `resumeId`，需要改变模型或思考强度时新建 Run，不对象化 `ContinuationPolicy`。
@@ -260,7 +260,7 @@ NATIVE Profile 与现有 `NativeDiagnosisProperties` 分工明确，不能同时
 | `AgentRuntimeProfile`（`data/secrets.properties`） | `profileId`、`endpoint`、`apiKey`、已解析 model、`runtimeEnvironment`、Surface/RunMode policy | — |
 | `NativeDiagnosisProperties`（`agent.native.*`） | AgentKit 引擎级配置：budget、tools、backends、checkpoint、超时和其他 engine options | `apiKey`、`baseUrl`、`model`、`boundEnvironment` |
 
-Phase 3 接入 NATIVE 时，`NativeDiagnosisAgentRuntime.start(plan, sink)` 只从 Plan 的 `RuntimeSelection` 读取 endpoint、model 和 `runtimeEnvironment`，从已加载 Profile 配置按 `profileId` 读取 Key；不再从 `NativeDiagnosisProperties` 读取这四项。迁移期间如果 `agent.native.*` 与选定 Profile 同时配置且值不同，预检直接返回 `RUNTIME_PREFLIGHT_FAILED`，不定义“谁覆盖谁”；切换完成后删除 `agent.native.api-key`、`base-url`、`model`、`bound-environment` 的旧配置项和注释。
+`NativeDiagnosisAgentRuntime.start(plan, sink)` 已从 Plan 的 `RuntimeSelection` 读取 endpoint、model 和 `runtimeEnvironment`，并按 `profileId + model` 路由到 Profile-specific AgentKit Engine；Profile API Key 在配置装配时用于构建对应 Engine，不进入 Run。`NativeDiagnosisProperties` 只保留 budget、tools、backends、checkpoint、超时等引擎级配置。若旧 `agent.native.api-key`、`base-url`、`model` 与选定 Profile 同时配置且值不同，配置装配 fail-closed；一致时允许迁移期兼容，后续可删除旧连接字段。当前 AgentKit 的 `RunRequest`/`AppConfig` 没有 reasoning-effort 参数，因此 NATIVE 使用 Profile 默认值；调用方提交不同 reasoning override 时在 Profile 选择阶段拒绝，不静默忽略。公共 Handle/Observe/Stop/终态映射已接入，但真实 AgentKit endpoint/key E2E 仍待受控验收。
 
 `NativeDiagnosisAgentRuntime` 继续使用现有 `activeEngines`，但为公共 Runtime 增加显式句柄状态表：
 
@@ -292,15 +292,14 @@ RoutingAgentGateway.start(plan, sink)
              5. watchdog / stop / cleanup
 ```
 
-- Kernel 在迁移期提供两个入口，但只保留一个私有 spawn/monitor 循环：新入口 `start(plan, dialect, sink)` 消费完整 Plan；兼容入口 `runLegacy(invocation, dialect, callbacks)` 消费旧 Invocation 并使用旧路径已有的 workingDir/timeout/extraEnv。二者在 `ProcessBuilder.start()` 前汇合，兼容入口随 `AgentCliGateway` 在 Phase 3 一起删除。
+- Kernel 在迁移期提供两个入口，但只保留一个私有 spawn/monitor 循环：新入口 `start(plan, dialect, sink)` 消费完整 Plan；兼容入口 `runLegacy(invocation, dialect, callbacks)` 消费旧 Invocation 并使用旧路径已有的 workingDir/timeout/extraEnv。二者在 `ProcessBuilder.start()` 前汇合；兼容入口和 façade 的删除放到所有旧调用方迁移并完成回滚窗口验收之后。
 - Workspace 和 Capability materialization 继续留在 `AgentProcessKernel`，因为它们消费完整 `AgentExecutionPlan`，且 `RoutingAgentGateway` 不应知道这些边界。
-- `CliDialect` 是 Codex/Claude 命令、目标 Credential 环境变量、Resume 和 Provider 事件解析的唯一事实来源。扩展现有 `BuildContext`，加入 endpoint、reasoning、已 materialize 的 workspace/capability 参数，禁止放入 Key 值；Phase 1 删除 `RuntimeCommandFactory`，Kernel 直接调用 `dialect.buildCommand(context)`。
+- `CliDialect` 是 Claude 命令、目标 Credential 环境变量、Resume 和 Provider 事件解析的事实来源；Codex 的 sandbox/capability/workspace token 仍由现有 `RuntimeCommandFactory` 作为 provider 内部命令协作者生成，Claude 由 `ClaudeCliDialect` 构造命令。两者都不拥有进程生命周期，也不构成第二套 Gateway。扩展现有 `BuildContext`，加入 endpoint、reasoning、已 materialize 的 workspace/capability 参数，禁止放入 Key 值。
 - 在现有 `CliDialect` 五个方法基础上新增 `credentialEnvironmentVariable()`：`CodexCliDialect` 返回 `OPENAI_API_KEY`，`ClaudeCliDialect` 返回 `ANTHROPIC_API_KEY`；该方法只返回目标变量名，不返回 Key 值。
-- `RuntimeEventDecoder` 不删除：它继续负责输出脱敏、长度限制、命令安全判断和 Workbench 语义事件。只移除其 `CodexEventNormalizer` 依赖，由 `CliDialect` 把原始行解码成 Provider-neutral 的内部事件，再交给 Decoder 做公共安全投影；旧 `normalizeChunk` 方法仅服务旧 Chat 兼容期。
-- 该 Provider-neutral 内部事件使用包内 `CliRuntimeEvent`（不放入 `app.runtime.port`），只包含 provider event type、文本/工具字段和 turn-end 标记；它是 `CliDialect` 与 `RuntimeEventDecoder` 的内部协作值，不是新的 Adapter 或公共领域模型。
+- `RuntimeEventDecoder` 不删除：它继续负责输出脱敏、长度限制、命令安全判断和 Workbench 语义事件。CODEX 继续复用 `CodexEventNormalizer`，Claude 通过 `CliDialect.normalizeChunk` 做基础识别；旧 `normalizeChunk` 方法仍服务兼容 Chat 和 Claude 公共路径。后续若要把 Provider 事件完全统一为内部值，应另行评估，不作为首期新增公共抽象。
 - `CliAgentRuntime.start(plan, sink)` 是新公共路径的唯一 CLI 入口：它不重新解析或选择 Profile，也不拼业务 Prompt；它从启动时加载的 Profile 配置索引按 `plan.runtimeSelection.profileId` 读取当前 API Key，选择方言并把 Key/完整 Plan 交给 Kernel。Profile 文件加载、权限校验和候选选择仍由配置组件与 Runtime 应用层负责。
-- `CliAgentRuntime.run(invocation, ...)` 是旧兼容入口。Phase 1 将 `AgentCliGateway` 改为兼容 façade，内部调用同一个 Kernel 和同一套 `CliDialect`；删除其 `ProcessBuilder`、watchdog 和 `runningProcesses` 自有实现。Phase 3 在所有旧 Chat 调用方迁移后删除 façade 和旧 `AgentRuntime.run` 方法。
-- Kernel 维护底层进程注册表；`RoutingAgentGateway` 维护 `executionId → AgentRuntime` 和 Provider RuntimeHandle 路由；旧 `AgentCliGateway.runningProcesses` 在 Phase 1 删除，避免 stop 查找两套表。
+- `CliAgentRuntime.run(invocation, ...)` 是旧兼容入口。当前 `AgentCliGateway` 已改为兼容 façade，内部调用同一个 Kernel 和同一套 `CliDialect`；其 `ProcessBuilder`、watchdog 和 `runningProcesses` 自有实现已删除。Phase 3 在所有旧 Chat 调用方迁移、默认开关完成受控翻转并经过回滚窗口后，再删除 façade 和旧 `AgentRuntime.run` 方法。
+- Kernel 维护底层进程注册表；`RoutingAgentGateway` 维护 `executionId → AgentRuntime` 和 Provider RuntimeHandle 路由；旧 `AgentCliGateway.runningProcesses` 已删除，避免 stop 查找两套表。
 
 因此迁移期虽然保留旧方法签名，但不保留两套 CLI 命令构造、事件解码或进程生命周期实现。
 
@@ -312,11 +311,11 @@ RoutingAgentGateway.start(plan, sink)
 | `AgentProcessKernel` | 去掉公共 Gateway Bean 身份，接收方言；保留 materialize/process/cleanup | 中高；Stop、超时、事件顺序必须回归 |
 | `AgentCliGateway` | 删除自有 ProcessBuilder/watchdog/process map，改为 Kernel façade | 中高；旧 Chat 输出和 Stop 兼容是主要风险 |
 | `CliDialect/BuildContext` | 增加 endpoint、reasoning、workspace/capability 和 Runtime 事件解析；新增 `credentialEnvironmentVariable()`，两个方言分别返回 `OPENAI_API_KEY`/`ANTHROPIC_API_KEY` | 中；Codex/Claude 命令兼容 |
-| `RuntimeEventDecoder` | 去掉 Codex 直连解析，消费 `CliRuntimeEvent`，保留公共安全投影 | 中；Workbench 语义事件不能回退 |
+| `RuntimeEventDecoder` | 保留 CODEX `CodexEventNormalizer` 和 Claude 方言归一化，统一做脱敏、限长、命令安全与 Workbench 语义投影 | 中；Workbench 语义事件不能回退 |
 | Profile 配置加载/索引 | 启动时读取 `data/secrets.properties`，校验权限和 Profile 唯一性；要求显式 API Key 的 Profile 再校验 Key 存在性，允许 CLI 本机登录态的 Profile 不配置 Key；按 `profileId` 提供内存查询 | 中；不得把 Key 投影到 Run 或日志 |
 | `RoutingAgentGateway` | 增加新 `AgentExecutionGateway` 路由和 RuntimeHandle 所属 Runtime 映射 | 中；不得持有进程和 Workspace 细节 |
 
-Phase 1 的完成门禁是 `AgentCliGateway` 已不再拥有进程循环和 `runningProcesses`。如果这项未完成，不得同时开启新 Gateway 路由，否则 Stop 问题仍然存在。
+Phase 1 的完成门禁是 `AgentCliGateway` 已不再拥有进程循环和 `runningProcesses`，且 Chat 的公共 Handle Stop、Handle 绑定前取消和恢复路径均通过 `AgentExecutionGateway` 验收。当前门禁已满足；在旧调用方迁移完成前仍保留无 Handle Run 的兼容 fallback。
 
 ## 6. Workbench 边界
 
@@ -371,7 +370,7 @@ Chat 当前已有按 `sessionId + idempotencyKey` 查重；Workbench 已有 requ
 ### 7.3 Stop、Observe、恢复
 
 - 提交事务成功后才调用 `AgentExecutionGateway.start`；启动失败更新 Run 终态，不回退到旧链路。
-- Chat 的 Stop 路径必须与 Start 路径使用同一端口：`ChatRunAppServiceImpl.stop()`、Chat 事件缓冲区错误处理和 Chat 恢复停止全部改为读取 `ChatRunRuntimeHandleStore` 后调用 `AgentExecutionGateway.requestStop(handle)`，删除对 `AgentGateway.stopStream(runId)` 的调用。Workbench 已由 `WorkbenchRunCancellationCoordinator` 使用同一端口，保持一致。
+- Chat 公共 Runtime 的 Stop 路径必须与 Start 路径使用同一端口：`ChatRunAppServiceImpl.stop()`、`ChatRunRuntimeLauncher` 的取消竞态和 Chat 恢复停止优先读取 `ChatRunRuntimeHandleStore` 后调用 `AgentExecutionGateway.requestStop(handle)`。默认开关仍为 `false` 时，legacy `ChatRunExecutor` 的事件缓冲区和异常收口继续调用兼容 `AgentGateway.stopStream(runId)`；切换 `AGENT_COMMON_RUNTIME_CHAT_ENABLED=true` 后，新建 Chat Run 不再进入该 legacy 分支。对迁移前没有公共 Handle 的旧 Run，仍允许 stop fallback；Workbench 已由 `WorkbenchRunCancellationCoordinator` 使用同一端口。
 - Stop 与 Start 的竞态按 Run 状态和持久化 Handle 处理：Stop 提交后若尚无 Handle，只持久化取消状态；`ChatRunRuntimeLauncher` 在 `start` 前检查取消状态，在 `start` 后绑定 Handle 并再次检查，发现已取消立即调用 `requestStop(handle)`。因此不依赖另一套 `AgentGateway` pending cancellation，也不会因 Handle 尚未写入而漏停。
 - 恢复服务只读取 Run 的 Handle 和已持久化的 `RuntimeSelection`，不重新选择 Profile，不读取当前默认模型；下一次 Resume 由 Chat session continuation 或 Workbench continuation 存储提供 `resumeId`，再由对应 Plan Provider 写入 Plan。
 - `observe` 对已终止句柄返回终态；句柄丢失时由 Run 事件/终态记录进行补偿，而不是再次启动 Provider。
@@ -406,18 +405,18 @@ Chat 当前已有按 `sessionId + idempotencyKey` 查重；Workbench 已有 requ
 - `ChatExecutionPlanProvider`、`WorkbenchExecutionPlanProvider` 从 Run 持久化的 `RuntimeSelection` 和执行输入组装完整 Plan；删除 Codex-only 守卫，改为按 Profile/AgentType 校验。
 - 将 `RoutingAgentGateway` 扩展为唯一的 `AgentExecutionGateway` 实现：它直接把完整 Plan 路由到 `AgentRuntime.start`，并把 Stop/Observe 路由回拥有该 Handle 的 Runtime；不再做 Plan → Invocation 转换。
 - 修改 `CommonRuntimeConfiguration`：不再把 `AgentProcessKernel` 暴露为 `AgentExecutionGateway`；Kernel 只由 `CliAgentRuntime` 调用。
-- 删除 `RuntimeCommandFactory`，扩展 `CliDialect/BuildContext` 直接构造 Runtime 命令；保留 `RuntimeEventDecoder` 的公共安全投影并把 Provider 解析委托给方言。让 `AgentCliGateway` 的进程执行委托同一个 Kernel，删除旧 `runningProcesses` 和重复 watchdog；Codex 结果保持兼容。
+- 保留 `RuntimeCommandFactory` 作为 Codex provider 内部命令协作者，扩展 `CliDialect/BuildContext` 处理 Claude 命令和公共运行参数；它不持有进程生命周期。保留 `RuntimeEventDecoder` 的公共安全投影，CODEX 复用 `CodexEventNormalizer`、Claude 使用方言归一化。让 `AgentCliGateway` 的进程执行委托同一个 Kernel，删除旧 `runningProcesses` 和重复 watchdog；Codex 结果保持兼容。
 - `agent.runtime.chat-enabled` 在 Phase 0 保持现有默认值 `false`；完成 Codex Chat 公共计划、Start/Stop 同端口、Handle 竞态和恢复验收后，先通过 `AGENT_COMMON_RUNTIME_CHAT_ENABLED=true` 做受控启用。验收通过后再把 `application.yml` 的默认值从 `false` 改为 `true`；`application-e2e-workbench.yml` 等测试配置继续显式保持 `false`，回滚仍通过环境变量设为 `false`。
 
-### Phase 2：Claude CLI
+### Phase 2：Claude CLI（代码已接入，待真实验收）
 
-- 通过现有 `ClaudeCliDialect` 完成 Claude 的命令、环境、Credential 目标变量和事件方言；`CliAgentRuntime.start(plan, sink)` 与 Codex 共用 `AgentProcessKernel`，不新增 Adapter 接口或第二套进程循环。
+- 通过现有 `ClaudeCliDialect` 完成 Claude 的命令、环境、Credential 目标变量和事件方言；`CliAgentRuntime.start(plan, sink)` 与 Codex 共用 `AgentProcessKernel`，不新增 Adapter 接口或第二套进程循环。代码路径已接入，仍需使用受控 CLI stub/真实 CLI 完成协议与 endpoint/key 验收。
 - 增加 Claude Profile、Chat 预检和最小 Chat Run 验收。
 - Claude Workbench Read/Write 只有在 Capability/Sandbox 验收通过后分别开放。
 
-### Phase 3：NATIVE 和旧链路收口
+### Phase 3：NATIVE 和旧链路收口（主链代码已接入，待最终迁移）
 
-- 将 `NativeDiagnosisAgentRuntime.start(plan, sink)` 接入公共 Handle/Observe/终态映射；Profile 提供 endpoint/apiKey/model/runtimeEnvironment，`NativeDiagnosisProperties` 只保留引擎级配置；保持 `AgentOfferPolicy` 的 Chat-only 限制。
+- 将已接入的 `NativeDiagnosisAgentRuntime.start(plan, sink)` 完成真实 AgentKit endpoint/key 验收；Profile 提供 endpoint/apiKey/model/runtimeEnvironment，`NativeDiagnosisProperties` 只保留引擎级配置；保持 `AgentOfferPolicy` 的 Chat-only 限制。NATIVE reasoning override 在 AgentKit 增加参数前继续 fail-closed。
 - Chat 旧调用方迁移完成后删除 `AgentCliGateway` façade 和旧 `AgentRuntime.run(AgentRunInvocation, ...)` 方法；保留兼容开关用于回滚，不做隐式 fallback。
 - 删除仅服务 Codex 的死分支、旧 `normalizeChunk/extractResumeId` 兼容入口和重复进程管理代码；保留 Provider-neutral 的 `RuntimeEventDecoder`。
 

@@ -306,6 +306,13 @@ public final class ChatRun {
     }
 
     /**
+     * Runtime Handle 完成绑定时，判断当前 Run 是否已经不应继续执行。
+     */
+    public boolean requiresRuntimeStopAfterHandleBinding() {
+        return status == ChatRunStatus.CANCEL_REQUESTED || status.isTerminal();
+    }
+
+    /**
      * 根据重启后可证明的 Runtime 存活事实决定恢复动作。
      */
     public ChatRunRecoveryDecision decideRecovery(

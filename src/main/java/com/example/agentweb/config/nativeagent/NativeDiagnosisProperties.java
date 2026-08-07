@@ -46,11 +46,19 @@ public class NativeDiagnosisProperties {
             new LinkedHashMap<String, NativeDiagnosisProperties>();
 
     public void validate(EnvProperties environments) {
+        validate(environments, true);
+    }
+
+    /**
+     * Validates host-owned engine settings. When Profile connections are enabled, the
+     * connection fields are supplied by the selected Runtime Profile instead of this object.
+     */
+    public void validate(EnvProperties environments, boolean requireConnection) {
         if (!enabled) {
             return;
         }
         environmentConfigurations().forEach((environment, configuration) ->
-                validateEnvironment(environment, configuration, environments));
+                validateEnvironment(environment, configuration, environments, requireConnection));
     }
 
     public Map<String, NativeDiagnosisProperties> environmentConfigurations() {
@@ -74,14 +82,17 @@ public class NativeDiagnosisProperties {
 
     private void validateEnvironment(String environment,
                                      NativeDiagnosisProperties configuration,
-                                     EnvProperties publicEnvironments) {
+                                     EnvProperties publicEnvironments,
+                                     boolean requireConnection) {
         if (configuration.environments != null && !configuration.environments.isEmpty()) {
             throw invalid("nested NATIVE environment groups are not allowed");
         }
-        configuration.requireText(configuration.model,
-                "agent.native environment model");
-        configuration.requireText(configuration.apiKey,
-                "agent.native environment api-key");
+        if (requireConnection) {
+            configuration.requireText(configuration.model,
+                    "agent.native environment model");
+            configuration.requireText(configuration.apiKey,
+                    "agent.native environment api-key");
+        }
         if (publicEnvironments.findByKey(environment) == null) {
             throw invalid("bound environment is not declared in agent.envs");
         }

@@ -1,5 +1,6 @@
 package com.example.agentweb.infra.runtime.profile;
 
+import com.example.agentweb.app.runtime.port.AgentRuntimeSurface;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.workbench.RunMode;
 
@@ -16,7 +17,11 @@ import java.util.List;
 import java.util.Properties;
 import java.util.Set;
 
-/** Loads Runtime Profiles from the Git-ignored data/secrets.properties file. */
+/** Loads Runtime Profiles from the Git-ignored data/secrets.properties file.
+ *
+ * @author alex
+ * @since 2026-08-07
+ */
 public final class AgentRuntimeProfileFileLoader {
 
     private static final String PREFIX = "agent.runtime.profiles.";
@@ -27,6 +32,9 @@ public final class AgentRuntimeProfileFileLoader {
     public static AgentRuntimeProfileCatalog load(Path file) {
         if (file == null || !Files.exists(file, LinkOption.NOFOLLOW_LINKS)) {
             return new AgentRuntimeProfileCatalog(List.of());
+        }
+        if (Files.isSymbolicLink(file)) {
+            throw new IllegalStateException("Runtime Profile file must not be a symbolic link");
         }
         validatePermissions(file);
         Properties properties = new Properties();
@@ -109,27 +117,26 @@ public final class AgentRuntimeProfileFileLoader {
 
     private static void validatePermissions(Path file) {
         try {
-            Set<PosixFilePermission> permissions = Files.getPosixFilePermissions(
-                    file, LinkOption.NOFOLLOW_LINKS);
-            int mode = 0;
-            for (PosixFilePermission permission : permissions) {
-                mode |= switch (permission) {
-                    case OWNER_READ -> 0400;
-                    case OWNER_WRITE -> 0200;
-                    case OWNER_EXECUTE -> 0100;
-                    case GROUP_READ -> 0040;
-                    case GROUP_WRITE -> 0020;
-                    case GROUP_EXECUTE -> 0010;
-                    case OTHERS_READ -> 0004;
-                    case OTHERS_WRITE -> 0002;
-                    case OTHERS_EXECUTE -> 0001;
-                };
-            }
-            if ((mode & 0077) != 0) {
+            if (hasGroupOrOtherPermissions(file)) {
                 throw new IllegalStateException("Runtime Profile file permissions are too broad");
+            }
+            Path parent = file.toAbsolutePath().normalize().getParent();
+            if (parent != null && hasGroupOrOtherPermissions(parent)) {
+                throw new IllegalStateException("Runtime Profile directory permissions are too broad");
             }
         } catch (UnsupportedOperationException | IOException ex) {
             // Non-POSIX development hosts have no equivalent permission projection.
         }
+    }
+
+    private static boolean hasGroupOrOtherPermissions(Path path) throws IOException {
+        Set<PosixFilePermission> permissions = Files.getPosixFilePermissions(
+                path, LinkOption.NOFOLLOW_LINKS);
+        return permissions.contains(PosixFilePermission.GROUP_READ)
+                || permissions.contains(PosixFilePermission.GROUP_WRITE)
+                || permissions.contains(PosixFilePermission.GROUP_EXECUTE)
+                || permissions.contains(PosixFilePermission.OTHERS_READ)
+                || permissions.contains(PosixFilePermission.OTHERS_WRITE)
+                || permissions.contains(PosixFilePermission.OTHERS_EXECUTE);
     }
 }

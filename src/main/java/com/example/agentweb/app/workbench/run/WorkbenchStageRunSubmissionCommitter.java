@@ -6,6 +6,11 @@ import com.example.agentweb.app.chatrun.ChatRunLauncher;
 import com.example.agentweb.app.chatrun.ChatRunQueryService;
 import com.example.agentweb.app.chatrun.ChatRunStreamSettings;
 import com.example.agentweb.app.chatrun.RunCapacityExceededException;
+import com.example.agentweb.app.runtime.port.ChatRunRuntimeSelectionStore;
+import com.example.agentweb.app.runtime.port.AgentRuntimeSurface;
+import com.example.agentweb.app.runtime.port.RuntimeProfileSelector;
+import com.example.agentweb.app.runtime.port.RuntimeSelection;
+import com.example.agentweb.app.runtime.port.RuntimeVersionPolicy;
 import com.example.agentweb.app.workbench.WorkbenchNotFoundException;
 import com.example.agentweb.domain.chat.ChatMessage;
 import com.example.agentweb.domain.chat.ChatSession;
@@ -34,6 +39,7 @@ import com.example.agentweb.domain.workbench.WorkbenchStageUploadedConversationA
 import com.example.agentweb.domain.workbench.stage.WorkbenchStageConversationProvisioning;
 import com.example.agentweb.domain.workspace.WorkspaceSnapshotRepository;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
@@ -67,6 +73,8 @@ public class WorkbenchStageRunSubmissionCommitter {
     private final ChatRunStreamSettings streamSettings;
     private final WorkbenchStageRunSubmissionExecutor submissionExecutor;
     private final Clock clock;
+    private final RuntimeProfileSelector profileSelector;
+    private final ChatRunRuntimeSelectionStore selectionStore;
 
     public WorkbenchStageRunSubmissionCommitter(
             WorkbenchRepository workbenchRepository,
@@ -85,6 +93,33 @@ public class WorkbenchStageRunSubmissionCommitter {
             ChatRunStreamSettings streamSettings,
             WorkbenchStageRunSubmissionExecutor submissionExecutor,
             Clock clock) {
+        this(workbenchRepository, workspaceSnapshotRepository, snapshotRepository,
+                promptRepository, attachmentRepository, attachmentPolicy,
+                sessionRepository, runRepository, eventAppender, launcher,
+                activityGuard, runQueryService, streamSettings, submissionExecutor,
+                clock, null, null);
+    }
+
+    @Autowired
+    public WorkbenchStageRunSubmissionCommitter(
+            WorkbenchRepository workbenchRepository,
+            WorkspaceSnapshotRepository workspaceSnapshotRepository,
+            WorkbenchStageRunSnapshotRepository snapshotRepository,
+            WorkbenchStageRunPromptPayloadRepository promptRepository,
+            WorkbenchStageUploadedConversationAttachmentRepository
+                    attachmentRepository,
+            UploadedAttachmentPolicy attachmentPolicy,
+            SessionRepository sessionRepository,
+            ChatRunRepository runRepository,
+            ChatRunEventAppender eventAppender,
+            ChatRunLauncher launcher,
+            ChatRunActivityGuard activityGuard,
+            ChatRunQueryService runQueryService,
+            ChatRunStreamSettings streamSettings,
+            WorkbenchStageRunSubmissionExecutor submissionExecutor,
+            Clock clock,
+            RuntimeProfileSelector profileSelector,
+            ChatRunRuntimeSelectionStore selectionStore) {
         this.workbenchRepository = Objects.requireNonNull(
                 workbenchRepository, "workbenchRepository");
         this.workspaceSnapshotRepository = Objects.requireNonNull(
@@ -113,6 +148,8 @@ public class WorkbenchStageRunSubmissionCommitter {
         this.submissionExecutor = Objects.requireNonNull(
                 submissionExecutor, "submissionExecutor");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.profileSelector = profileSelector;
+        this.selectionStore = selectionStore;
     }
 
     public WorkbenchStageRunSubmissionResult commit(
@@ -194,6 +231,7 @@ public class WorkbenchStageRunSubmissionCommitter {
                                 WorkbenchRunEventPayloadFactory.status(
                                         candidate, run.getStatus(), now))),
                 now);
+        persistRuntimeSelection(command, session, candidate, run.getId());
         workspaceSnapshotRepository.add(prepared.getWorkspaceSnapshot());
         snapshotRepository.add(candidate);
         promptRepository.add(prepared.getPromptPayload());
@@ -206,6 +244,26 @@ public class WorkbenchStageRunSubmissionCommitter {
         });
         return WorkbenchStageRunSubmissionResult.from(
                 run, candidate, workbench, false);
+    }
+
+    private void persistRuntimeSelection(SubmitWorkbenchStageRunCommand command,
+                                          ChatSession session,
+                                          WorkbenchStageRunSnapshot candidate,
+                                          ChatRunId runId) {
+        if (profileSelector == null || selectionStore == null
+                || !profileSelector.hasProfiles()) {
+            return;
+        }
+        RuntimeSelection selected = profileSelector.selection(
+                session.getAgentType(), AgentRuntimeSurface.WORKBENCH,
+                command.getRunMode(), command.getProfileId(), command.getModel(),
+                command.getReasoningEffort());
+        RuntimeSelection frozen = new RuntimeSelection(
+                selected.getProfileId(), selected.getAgentType(), selected.getEndpoint(),
+                selected.getModel(), selected.getReasoningEffort(),
+                selected.getRuntimeEnvironment(),
+                RuntimeVersionPolicy.exact(candidate.getRuntimeEnforcement().getRuntimeVersion()));
+        selectionStore.save(runId, frozen);
     }
 
     private void bindUploadedAttachments(

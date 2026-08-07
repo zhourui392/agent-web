@@ -16,9 +16,19 @@ public final class SubmitChatRunCommand {
     private final String resumeId;
     private final boolean recallEnabled;
     private final String idempotencyKey;
+    private final String profileId;
+    private final String model;
+    private final String reasoningEffort;
 
     public SubmitChatRunCommand(String sessionId, String message, String resumeId,
                                 boolean recallEnabled, String idempotencyKey) {
+        this(sessionId, message, resumeId, recallEnabled, idempotencyKey,
+                null, null, null);
+    }
+
+    public SubmitChatRunCommand(String sessionId, String message, String resumeId,
+                                boolean recallEnabled, String idempotencyKey,
+                                String profileId, String model, String reasoningEffort) {
         if (sessionId == null || sessionId.trim().isEmpty()) {
             throw new IllegalArgumentException("session id must not be blank");
         }
@@ -34,5 +44,12 @@ public final class SubmitChatRunCommand {
         this.resumeId = resumeId;
         this.recallEnabled = recallEnabled;
         this.idempotencyKey = idempotencyKey.trim();
+        this.profileId = normalize(profileId);
+        this.model = normalize(model);
+        this.reasoningEffort = normalize(reasoningEffort);
+    }
+
+    private String normalize(String value) {
+        return value == null || value.trim().isEmpty() ? null : value.trim();
     }
 }

@@ -14,8 +14,6 @@ import com.example.agentweb.app.runtime.port.RuntimeObservation;
 import com.example.agentweb.app.runtime.port.RuntimeState;
 import com.example.agentweb.domain.agentrun.AgentRuntimeUnavailableException;
 import com.example.agentweb.domain.shared.AgentType;
-import org.springframework.context.annotation.Primary;
-import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.util.EnumMap;
@@ -35,8 +33,6 @@ import java.util.function.IntConsumer;
  * @author alex
  * @since 2026-07-29
  */
-@Component
-@Primary
 public class RoutingAgentGateway implements AgentGateway, AgentExecutionGateway {
 
     private static final int TERMINAL_RUN_CACHE_LIMIT = 4096;

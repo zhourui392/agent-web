@@ -110,7 +110,7 @@ class ChatRunRuntimeLauncherTest {
 
         scheduled.get().run();
 
-        verify(runRepository).findById(RUN_ID);
+        verify(runRepository, times(2)).findById(RUN_ID);
         verify(planProviderRegistry).prepare(run);
         verify(executionGateway).start(
                 eq(plan), any(RuntimeEventSink.class));
@@ -159,6 +159,19 @@ class ChatRunRuntimeLauncherTest {
         verify(lifecycleService, never()).start(any(ChatRunId.class));
         verify(lifecycleService, never()).append(any(ChatRunId.class), any(String.class),
                 any(String.class));
+    }
+
+    @Test
+    void cancellationBeforeHandleBindingShouldStopNewlyBoundRuntime() {
+        doAnswer(invocation -> {
+            run.requestCancellation(NOW);
+            return HANDLE;
+        }).when(executionGateway).start(eq(plan), any(RuntimeEventSink.class));
+
+        launcher.launch(RUN_ID);
+
+        verify(handleStore).bind(RUN_ID, HANDLE, NOW);
+        verify(executionGateway).requestStop(HANDLE);
     }
 
     @Test

@@ -59,7 +59,19 @@ public class GitProcessEnvCustomizer {
      */
     public void applyIdentityOnly(ProcessBuilder processBuilder, String userId) {
         GitEnvSpec spec = resolver.resolve(userId);
-        processBuilder.environment().putAll(spec.getIdentityEnv());
+        applyIdentityOnly(processBuilder.environment(), userId, spec);
+    }
+
+    /** Applies only commit identity to a detached environment map. */
+    public void applyIdentityOnly(Map<String, String> environment, String userId) {
+        GitEnvSpec spec = resolver.resolve(userId);
+        applyIdentityOnly(environment, userId, spec);
+    }
+
+    private void applyIdentityOnly(Map<String, String> environment,
+                                   String userId,
+                                   GitEnvSpec spec) {
+        environment.putAll(spec.getIdentityEnv());
         log.debug("git-identity-env-injected userId={} identity={}",
                 userId, !spec.getIdentityEnv().isEmpty());
     }

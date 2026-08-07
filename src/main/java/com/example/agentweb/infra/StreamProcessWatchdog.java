@@ -16,9 +16,9 @@ import java.util.function.Consumer;
  * @author zhourui(V33215020)
  * @since 2026-07-22
  */
-final class StreamProcessWatchdog implements AutoCloseable {
+public final class StreamProcessWatchdog implements AutoCloseable {
 
-    enum TimeoutReason {
+    public enum TimeoutReason {
         IDLE,
         MAX_RUNTIME,
         HARD_TIMEOUT
@@ -32,11 +32,11 @@ final class StreamProcessWatchdog implements AutoCloseable {
     private ScheduledFuture<?> idleDeadline;
     private ScheduledFuture<?> absoluteDeadline;
 
-    StreamProcessWatchdog(ScheduledExecutorService scheduler,
-                          Duration idleTimeout,
-                          Duration absoluteTimeout,
-                          TimeoutReason absoluteTimeoutReason,
-                          Consumer<TimeoutReason> timeoutHandler) {
+    public StreamProcessWatchdog(ScheduledExecutorService scheduler,
+                                 Duration idleTimeout,
+                                 Duration absoluteTimeout,
+                                 TimeoutReason absoluteTimeoutReason,
+                                 Consumer<TimeoutReason> timeoutHandler) {
         this.scheduler = Objects.requireNonNull(scheduler, "scheduler");
         this.idleTimeout = Objects.requireNonNull(idleTimeout, "idleTimeout");
         this.timeoutHandler = Objects.requireNonNull(timeoutHandler, "timeoutHandler");
@@ -48,7 +48,7 @@ final class StreamProcessWatchdog implements AutoCloseable {
         }
     }
 
-    void recordActivity() {
+    public void recordActivity() {
         synchronized (deadlineMonitor) {
             if (closed.get() || !isEnabled(idleTimeout)) {
                 return;

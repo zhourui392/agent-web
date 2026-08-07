@@ -90,6 +90,9 @@ public final class ChatRunRuntimeLauncher implements ChatRunLauncher {
                     "Runtime 执行计划准备失败，请稍后重试");
             return;
         }
+        if (run.isTerminal()) {
+            return;
+        }
 
         ChatRunRuntimeEventProcessor processor = new ChatRunRuntimeEventProcessor(
                 requiredRunId, lifecycleService, executionGateway,
@@ -121,6 +124,10 @@ public final class ChatRunRuntimeLauncher implements ChatRunLauncher {
 
         try {
             sink.activate(handle);
+            ChatRun current = runRepository.findById(requiredRunId).orElse(null);
+            if (current != null && current.requiresRuntimeStopAfterHandleBinding()) {
+                safeRequestStop(requiredRunId, handle);
+            }
         } catch (RuntimeException failure) {
             sink.reject();
             logFailure("runtime-event-activation-failed", requiredRunId, failure);

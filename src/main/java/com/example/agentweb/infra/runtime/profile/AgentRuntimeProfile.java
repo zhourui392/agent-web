@@ -3,6 +3,7 @@ package com.example.agentweb.infra.runtime.profile;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.shared.DomainText;
 import com.example.agentweb.domain.workbench.RunMode;
+import com.example.agentweb.app.runtime.port.AgentRuntimeSurface;
 import lombok.Getter;
 
 import java.net.URI;
@@ -127,6 +128,31 @@ public final class AgentRuntimeProfile {
                 && !"https".equalsIgnoreCase(uri.getScheme())) {
             throw new IllegalArgumentException("runtime profile endpoint must use http or https");
         }
+        String host = uri.getHost();
+        if (host == null || host.isBlank() || isBlockedHost(host)) {
+            throw new IllegalArgumentException("runtime profile endpoint host is not trusted");
+        }
         return normalized;
+    }
+
+    private static boolean isBlockedHost(String host) {
+        String normalized = host.toLowerCase(java.util.Locale.ROOT);
+        if ("localhost".equals(normalized) || "::1".equals(normalized)
+                || normalized.startsWith("127.")) {
+            return true;
+        }
+        String[] octets = normalized.split("\\.");
+        if (octets.length != 4) {
+            return false;
+        }
+        try {
+            int first = Integer.parseInt(octets[0]);
+            int second = Integer.parseInt(octets[1]);
+            return first == 10 || first == 192 && second == 168
+                    || first == 172 && second >= 16 && second <= 31
+                    || first == 169 && second == 254;
+        } catch (NumberFormatException ex) {
+            return false;
+        }
     }
 }

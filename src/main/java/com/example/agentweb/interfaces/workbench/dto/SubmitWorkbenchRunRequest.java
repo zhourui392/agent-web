@@ -28,6 +28,12 @@ public class SubmitWorkbenchRunRequest {
     @Size(max = 64)
     private String runMode;
 
+    private String profileId;
+
+    private String model;
+
+    private String reasoningEffort;
+
     @Valid
     @NotNull
     @Size(max = 8)

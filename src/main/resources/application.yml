@@ -364,7 +364,8 @@ spring:
   config:
     # 各机器易变的主机路径拆到 agent-paths.yml(resources),服务端敏感配置放仓库根 data/secrets.properties。
     # 外部环境变量仍具有更高优先级；生产优先使用环境变量或 Secret Store。
-    # Codex / Claude CLI 登录态不从该文件读取，继续使用本机默认配置。
+    # Runtime Profile 的 endpoint/model 与可选 API Key 从 data/secrets.properties 读取；未配置 Key 的
+    # Codex / Claude Profile 继续使用本机默认 CLI 登录态，不读取或复制 ~/.codex / ~/.claude。
     # 本机需要不同路径直接改那个文件(可 git update-index --skip-worktree 避免误提交)。
     # agent-paths.yml 承载文件与 worktree 的授权边界，必须存在；本地敏感配置仍为可选。
     import: "classpath:agent-paths.yml,optional:file:./data/secrets.properties"

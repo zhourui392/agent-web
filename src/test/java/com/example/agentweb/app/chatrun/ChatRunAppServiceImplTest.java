@@ -3,6 +3,10 @@ package com.example.agentweb.app.chatrun;
 import com.example.agentweb.app.agentrun.port.AgentGateway;
 import com.example.agentweb.app.agentrun.AgentCatalogService;
 import com.example.agentweb.app.common.AfterCommitExecutor;
+import com.example.agentweb.app.runtime.port.AgentExecutionGateway;
+import com.example.agentweb.app.runtime.port.ChatRunRuntimeHandleStore;
+import com.example.agentweb.app.runtime.port.ChatRunRuntimeSelectionStore;
+import com.example.agentweb.app.runtime.port.RuntimeHandle;
 import com.example.agentweb.domain.chat.ChatSession;
 import com.example.agentweb.domain.chat.ChatSessionNotFoundException;
 import com.example.agentweb.domain.chat.SessionRepository;
@@ -17,6 +21,7 @@ import com.example.agentweb.domain.chatrun.ExecutionContextReference;
 import com.example.agentweb.domain.chatrun.RunOrigin;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.agentrun.AgentRuntimeUnavailableException;
+import com.example.agentweb.infra.runtime.profile.AgentRuntimeProfileCatalog;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -129,6 +134,35 @@ class ChatRunAppServiceImplTest {
         verify(sessionRepository, never()).addMessageReturningId(any(), any());
         verify(runRepository, never()).add(any());
         verify(launcher, never()).launch(any());
+    }
+
+    @Test
+    void submit_without_profiles_should_keep_cli_login_compatibility() {
+        ChatRunRuntimeSelectionStore selectionStore = mock(ChatRunRuntimeSelectionStore.class);
+        ChatRunIdGenerator idGenerator = mock(ChatRunIdGenerator.class);
+        when(idGenerator.nextId()).thenReturn(ChatRunId.of("run-1"));
+        ChatRunAppServiceImpl runtimeAwareService = new ChatRunAppServiceImpl(
+                sessionRepository, runRepository, eventStore,
+                new ChatRunEventAppender(runRepository, eventStore, eventHub,
+                        new AfterCommitExecutor()),
+                launcher, queryService, gateway, idGenerator,
+                Clock.fixed(NOW, ZoneOffset.UTC), settings, activityGuard,
+                action -> action.get(), agentCatalogService, terminalFinalizer,
+                mock(AgentExecutionGateway.class), mock(ChatRunRuntimeHandleStore.class),
+                new AgentRuntimeProfileCatalog(Collections.emptyList()), selectionStore);
+        when(sessionRepository.findById("session-1")).thenReturn(session("session-1"));
+        when(runRepository.findBySessionAndIdempotencyKey("session-1", "key-profileless"))
+                .thenReturn(Optional.<ChatRun>empty());
+        when(sessionRepository.addMessageReturningId(eq("session-1"), any())).thenReturn(11L);
+        when(eventStore.appendAssigned(eq(ChatRunId.of("run-1")), any(), anyList(), eq(NOW)))
+                .thenReturn(Collections.singletonList(new ChatRunEvent(
+                        ChatRunId.of("run-1"), 1L, "run_status",
+                        "{\"status\":\"PENDING\"}", 20, NOW)));
+        ChatRunSubmission result = runtimeAwareService.submit(new SubmitChatRunCommand(
+                "session-1", "question", null, true, "key-profileless"));
+
+        assertEquals("run-1", result.getRunId());
+        verifyNoInteractions(selectionStore);
     }
 
     @Test
@@ -267,6 +301,51 @@ class ChatRunAppServiceImplTest {
     }
 
     @Test
+    void runtimeAwareStopWithoutHandleShouldStopLegacyProcess() {
+        AgentExecutionGateway executionGateway = mock(AgentExecutionGateway.class);
+        ChatRunRuntimeHandleStore handleStore = mock(ChatRunRuntimeHandleStore.class);
+        ChatRunAppServiceImpl runtimeAwareService = runtimeAwareService(
+                executionGateway, handleStore);
+        ChatRun run = ChatRun.submit(
+                ChatRunId.of("run-legacy"), "session-1", 10L,
+                "key-legacy", NOW.minusSeconds(2));
+        run.start(NOW.minusSeconds(1));
+        when(runRepository.findById(run.getId())).thenReturn(Optional.of(run));
+        when(sessionRepository.findById("session-1")).thenReturn(session("session-1"));
+        when(handleStore.find(run.getId())).thenReturn(Optional.empty());
+        when(eventStore.appendAssigned(eq(run.getId()), any(), anyList(), eq(NOW)))
+                .thenReturn(Collections.emptyList());
+
+        runtimeAwareService.stop(run.getId().getValue());
+
+        verify(gateway).stopStream(run.getId().getValue());
+        verifyNoInteractions(executionGateway);
+    }
+
+    @Test
+    void runtimeAwareStopWithHandleShouldUseCommonExecutionGatewayOnly() {
+        AgentExecutionGateway executionGateway = mock(AgentExecutionGateway.class);
+        ChatRunRuntimeHandleStore handleStore = mock(ChatRunRuntimeHandleStore.class);
+        ChatRunAppServiceImpl runtimeAwareService = runtimeAwareService(
+                executionGateway, handleStore);
+        ChatRun run = ChatRun.submit(
+                ChatRunId.of("run-common"), "session-1", 10L,
+                "key-common", NOW.minusSeconds(2));
+        run.start(NOW.minusSeconds(1));
+        RuntimeHandle handle = new RuntimeHandle("run-common", "handle-common");
+        when(runRepository.findById(run.getId())).thenReturn(Optional.of(run));
+        when(sessionRepository.findById("session-1")).thenReturn(session("session-1"));
+        when(handleStore.find(run.getId())).thenReturn(Optional.of(handle));
+        when(eventStore.appendAssigned(eq(run.getId()), any(), anyList(), eq(NOW)))
+                .thenReturn(Collections.emptyList());
+
+        runtimeAwareService.stop(run.getId().getValue());
+
+        verify(executionGateway).requestStop(handle);
+        verify(gateway, never()).stopStream(any());
+    }
+
+    @Test
     void stopPendingRunShouldCancelAndUseTerminalFinalizerWithoutLegacyGateway() {
         ChatRun run = ChatRun.submit(
                 ChatRunId.of("run-pending"), "session-1", 10L,
@@ -323,6 +402,22 @@ class ChatRunAppServiceImplTest {
 
     private ChatSession session(String id) {
         return session(id, AgentType.CODEX, null);
+    }
+
+    private ChatRunAppServiceImpl runtimeAwareService(
+            AgentExecutionGateway executionGateway,
+            ChatRunRuntimeHandleStore handleStore) {
+        ChatRunIdGenerator idGenerator = mock(ChatRunIdGenerator.class);
+        return new ChatRunAppServiceImpl(
+                sessionRepository, runRepository, eventStore,
+                new ChatRunEventAppender(runRepository, eventStore, eventHub,
+                        new AfterCommitExecutor()),
+                launcher, queryService, gateway, idGenerator,
+                Clock.fixed(NOW, ZoneOffset.UTC), settings, activityGuard,
+                action -> action.get(), agentCatalogService, terminalFinalizer,
+                executionGateway, handleStore,
+                new AgentRuntimeProfileCatalog(Collections.emptyList()),
+                mock(ChatRunRuntimeSelectionStore.class));
     }
 
     private ChatSession session(String id, AgentType type, String env) {

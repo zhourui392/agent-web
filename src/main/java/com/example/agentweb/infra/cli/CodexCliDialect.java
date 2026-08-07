@@ -40,6 +40,7 @@ public class CodexCliDialect implements CliDialect {
     private static final String SANDBOX_BYPASS_FLAG = "--dangerously-bypass-approvals-and-sandbox";
     private static final String CD_FLAG = "--cd";
     private static final String MODEL_FLAG = "--model";
+    private static final String REASONING_OVERRIDE = "model_reasoning_effort=";
     private static final String STDIN_SENTINEL = "-";
 
     private static final String THREAD_STARTED_EVENT = "thread.started";
@@ -169,6 +170,7 @@ public class CodexCliDialect implements CliDialect {
         }
         // 本次调用显式指定的 model (如 refinery 评分) 优先于全局 cfg.model
         appendKeyValueIfPresent(cmd, MODEL_FLAG, resolveModel(cfg, ctx));
+        appendReasoningOverride(cmd, ctx.getReasoningEffort());
         appendExtraArgs(cmd, cfg.getExtraArgs());
 
         cmd.add(STDIN_SENTINEL);
@@ -214,6 +216,14 @@ public class CodexCliDialect implements CliDialect {
             return;
         }
         cmd.addAll(extraArgs);
+    }
+
+    private void appendReasoningOverride(List<String> cmd, String reasoningEffort) {
+        if (reasoningEffort == null || reasoningEffort.trim().isEmpty()) {
+            return;
+        }
+        cmd.add("-c");
+        cmd.add(REASONING_OVERRIDE + reasoningEffort.trim());
     }
 
     private boolean isThreadStartedEvent(JsonNode node) {

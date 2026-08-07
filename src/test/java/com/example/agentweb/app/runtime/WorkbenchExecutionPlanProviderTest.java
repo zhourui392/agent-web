@@ -39,6 +39,7 @@ import com.example.agentweb.domain.workspace.RepositorySelection;
 import com.example.agentweb.domain.workspace.ResolvedRepository;
 import com.example.agentweb.domain.workspace.WorkspaceSnapshotReference;
 import com.example.agentweb.domain.workspace.WorkspaceTopology;
+import com.example.agentweb.infra.runtime.profile.AgentRuntimeProfileCatalog;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -157,6 +158,25 @@ class WorkbenchExecutionPlanProviderTest {
                 plan.getWorkspaceLayout().getSandboxMode());
         assertSame(snapshot.getCapabilityBinding(),
                 plan.getCapabilityBinding());
+    }
+
+    @Test
+    void should_KeepCodexCompatibility_When_ProfileFileHasNoProfiles() {
+        // Given
+        provider = new WorkbenchExecutionPlanProvider(
+                snapshotRepository, promptRepository, workbenchRepository,
+                new AgentRuntimeProfileCatalog(Collections.emptyList()), null);
+        persistAll();
+
+        // When
+        AgentExecutionPlan plan = provider.prepare(run);
+
+        // Then
+        assertEquals(AgentType.CODEX, plan.getRuntimeSelection().getAgentType());
+        assertEquals(RuntimeVersionPolicy.Mode.EXACT,
+                plan.getRuntimeSelection().getRuntimeVersionPolicy().getMode());
+        assertEquals("0.145.0", plan.getRuntimeSelection()
+                .getRuntimeVersionPolicy().exactVersion().orElseThrow());
     }
 
     @Test

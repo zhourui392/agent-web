@@ -32,7 +32,12 @@ public class ProcessEnvironmentSanitizer {
     ));
 
     public void sanitize(ProcessBuilder processBuilder) {
-        Iterator<Map.Entry<String, String>> iterator = processBuilder.environment().entrySet().iterator();
+        sanitize(processBuilder.environment());
+    }
+
+    /** Sanitizes a detached environment map before a process kernel consumes it. */
+    public void sanitize(Map<String, String> environment) {
+        Iterator<Map.Entry<String, String>> iterator = environment.entrySet().iterator();
         while (iterator.hasNext()) {
             String name = iterator.next().getKey();
             String normalizedName = name.toUpperCase(Locale.ROOT);

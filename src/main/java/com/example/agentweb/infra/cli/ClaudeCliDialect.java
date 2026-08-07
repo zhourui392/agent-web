@@ -30,6 +30,7 @@ public class ClaudeCliDialect implements CliDialect {
     private static final String MESSAGE_PLACEHOLDER = "${MESSAGE}";
     private static final String RESUME_FLAG = "--resume";
     private static final String MODEL_FLAG = "--model";
+    private static final String EFFORT_FLAG = "--effort";
     private static final String SESSION_ID_FIELD = "session_id";
     private static final String TYPE_FIELD = "type";
     private static final String RESULT_EVENT_TYPE = "result";
@@ -64,6 +65,7 @@ public class ClaudeCliDialect implements CliDialect {
 
         // 4. 按需追加 --model (仅当本次调用显式指定, 如 refinery 评分走廉价模型); 空则用 CLI 默认
         appendModelFlagIfPresent(cmd, ctx.getModel());
+        appendEffortFlagIfPresent(cmd, ctx.getReasoningEffort());
         log.debug("claude-command-built resumeId={} argCount={}", ctx.getResumeId(), cmd.size());
         return cmd;
     }
@@ -138,5 +140,13 @@ public class ClaudeCliDialect implements CliDialect {
         }
         cmd.add(MODEL_FLAG);
         cmd.add(model.trim());
+    }
+
+    private void appendEffortFlagIfPresent(List<String> cmd, String effort) {
+        if (effort == null || effort.trim().isEmpty()) {
+            return;
+        }
+        cmd.add(EFFORT_FLAG);
+        cmd.add(effort.trim());
     }
 }

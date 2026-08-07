@@ -2,6 +2,14 @@ package com.example.agentweb.app.chatrun;
 
 import com.example.agentweb.app.agentrun.port.AgentGateway;
 import com.example.agentweb.app.agentrun.AgentCatalogService;
+import com.example.agentweb.app.runtime.port.AgentExecutionGateway;
+import com.example.agentweb.app.runtime.port.AgentRuntimeSurface;
+import com.example.agentweb.app.runtime.port.ChatRunRuntimeHandleStore;
+import com.example.agentweb.app.runtime.port.RuntimeHandle;
+import com.example.agentweb.app.runtime.port.ChatRunRuntimeSelectionStore;
+import com.example.agentweb.app.runtime.port.RuntimeProfileSelector;
+import com.example.agentweb.domain.workbench.RunMode;
+import com.example.agentweb.app.runtime.port.RuntimeSelection;
 import com.example.agentweb.domain.chat.ChatMessage;
 import com.example.agentweb.domain.chat.ChatSession;
 import com.example.agentweb.domain.chat.ChatSessionNotFoundException;
@@ -14,6 +22,7 @@ import com.example.agentweb.domain.chatrun.ChatRunNotFoundException;
 import com.example.agentweb.domain.chatrun.ChatRunRepository;
 import com.example.agentweb.domain.chatrun.RunSessionOriginPolicy;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
@@ -45,6 +54,10 @@ public class ChatRunAppServiceImpl implements ChatRunAppService {
     private final ChatRunSubmissionExecutor submissionExecutor;
     private final AgentCatalogService agentCatalogService;
     private final ChatRunTerminalFinalizer terminalFinalizer;
+    private final AgentExecutionGateway executionGateway;
+    private final ChatRunRuntimeHandleStore handleStore;
+    private final RuntimeProfileSelector profileSelector;
+    private final ChatRunRuntimeSelectionStore selectionStore;
 
     public ChatRunAppServiceImpl(SessionRepository sessionRepository,
                                  ChatRunRepository runRepository,
@@ -60,6 +73,31 @@ public class ChatRunAppServiceImpl implements ChatRunAppService {
                                  ChatRunSubmissionExecutor submissionExecutor,
                                  AgentCatalogService agentCatalogService,
                                  ChatRunTerminalFinalizer terminalFinalizer) {
+        this(sessionRepository, runRepository, eventStore, eventAppender, launcher,
+                queryService, gateway, idGenerator, clock, settings, activityGuard,
+                submissionExecutor, agentCatalogService, terminalFinalizer, null, null,
+                null, null);
+    }
+
+    @Autowired
+    public ChatRunAppServiceImpl(SessionRepository sessionRepository,
+                                 ChatRunRepository runRepository,
+                                 ChatRunEventStore eventStore,
+                                 ChatRunEventAppender eventAppender,
+                                 ChatRunLauncher launcher,
+                                 ChatRunQueryService queryService,
+                                 AgentGateway gateway,
+                                 ChatRunIdGenerator idGenerator,
+                                 Clock clock,
+                                 ChatRunStreamSettings settings,
+                                 ChatRunActivityGuard activityGuard,
+                                 ChatRunSubmissionExecutor submissionExecutor,
+                                 AgentCatalogService agentCatalogService,
+                                 ChatRunTerminalFinalizer terminalFinalizer,
+                                 AgentExecutionGateway executionGateway,
+                                 ChatRunRuntimeHandleStore handleStore,
+                                 RuntimeProfileSelector profileSelector,
+                                 ChatRunRuntimeSelectionStore selectionStore) {
         this.sessionRepository = sessionRepository;
         this.runRepository = runRepository;
         this.eventStore = eventStore;
@@ -74,6 +112,10 @@ public class ChatRunAppServiceImpl implements ChatRunAppService {
         this.submissionExecutor = submissionExecutor;
         this.agentCatalogService = agentCatalogService;
         this.terminalFinalizer = terminalFinalizer;
+        this.executionGateway = executionGateway;
+        this.handleStore = handleStore;
+        this.profileSelector = profileSelector;
+        this.selectionStore = selectionStore;
     }
 
     @Override
@@ -103,8 +145,20 @@ public class ChatRunAppServiceImpl implements ChatRunAppService {
                 new ChatMessage("user", command.getMessage(), now));
         final ChatRun run = ChatRun.submit(idGenerator.nextId(), command.getSessionId(), userMessageId,
                 command.getIdempotencyKey(), command.isRecallEnabled(), now);
+        RuntimeSelection pendingSelection = null;
+        if (profileSelector != null && profileSelector.hasProfiles()
+                && selectionStore != null) {
+            RuntimeSelection selection = profileSelector.selection(
+                    session.getAgentType(), AgentRuntimeSurface.CHAT,
+                    RunMode.DISCUSS_READ_ONLY, command.getProfileId(),
+                    command.getModel(), command.getReasoningEffort());
+            pendingSelection = selection;
+        }
         eventAppender.appendToNewRun(run, Collections.singletonList(
                 new ChatRunEventDraft("run_status", statusPayload(run))), now);
+        if (pendingSelection != null) {
+            selectionStore.save(run.getId(), pendingSelection);
+        }
         eventAppender.afterCommit(new Runnable() {
             @Override
             public void run() {
@@ -142,12 +196,25 @@ public class ChatRunAppServiceImpl implements ChatRunAppService {
                 eventAppender.afterCommit(new Runnable() {
                     @Override
                     public void run() {
-                        gateway.stopStream(run.getId().getValue());
+                        requestRuntimeStop(run.getId());
                     }
                 });
             }
         }
         return ChatRunView.from(run, eventStore.findEarliestSequence(run.getId()));
+    }
+
+    private void requestRuntimeStop(ChatRunId runId) {
+        if (executionGateway == null || handleStore == null) {
+            gateway.stopStream(runId.getValue());
+            return;
+        }
+        Optional<RuntimeHandle> handle = handleStore.find(runId);
+        if (handle.isPresent()) {
+            executionGateway.requestStop(handle.get());
+        } else {
+            gateway.stopStream(runId.getValue());
+        }
     }
 
     private ChatRun requireAuthorizedRun(ChatRunId runId) {

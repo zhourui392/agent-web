@@ -8,8 +8,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 /**
  * Chat/Workbench 公共进程 Runtime 的 feature flag、安全边界和受管技术参数。
  *
- * <p>单用户本机模式下 Codex 子进程直接继承服务进程用户的登录态，
- * 不再维护凭据环境引用。</p>
+ * <p>Profile endpoint/model/Key 由 data/secrets.properties 的独立索引管理；未配置 Key
+ * 的 CLI Profile 继续继承本机 CLI 登录态。</p>
  *
  * @author alex
  * @since 2026-08-01

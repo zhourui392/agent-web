@@ -63,6 +63,10 @@ public final class RuntimeCommandFactory {
             throw new IllegalStateException("process Runtime currently supports Codex only");
         }
         List<String> command = createCommonRuntimeCodexJsonPreamble();
+        if (plan.getResumeId() != null && !plan.getResumeId().isBlank()) {
+            command.add("resume");
+            command.add(plan.getResumeId().trim());
+        }
         SandboxMode sandboxMode = plan.getWorkspaceLayout().getSandboxMode();
         if (!sandboxBypass) {
             Collections.addAll(command, "--sandbox", sandboxToken(sandboxMode));
@@ -84,6 +88,17 @@ public final class RuntimeCommandFactory {
         }
         addSkillOverrides(command, capabilities.getSkills());
         addMcpOverrides(command, capabilities.getMcpServers());
+        if (plan.getRuntimeSelection().getModel() != null
+                && !plan.getRuntimeSelection().getModel().isBlank()) {
+            command.add("--model");
+            command.add(plan.getRuntimeSelection().getModel());
+        }
+        if (plan.getRuntimeSelection().getReasoningEffort() != null
+                && !plan.getRuntimeSelection().getReasoningEffort().isBlank()) {
+            command.add("-c");
+            command.add("model_reasoning_effort="
+                    + plan.getRuntimeSelection().getReasoningEffort());
+        }
         command.add("-");
         return Collections.unmodifiableList(command);
     }

@@ -14,6 +14,7 @@ import com.example.agentweb.app.runtime.ExecutionPlanProviderRegistry;
 import com.example.agentweb.app.runtime.WorkbenchExecutionPlanProvider;
 import com.example.agentweb.app.runtime.port.AgentExecutionGateway;
 import com.example.agentweb.app.runtime.port.ChatRunRuntimeHandleStore;
+import com.example.agentweb.app.runtime.port.ChatRunRuntimeSelectionStore;
 import com.example.agentweb.app.runtime.port.RuntimeLimits;
 import com.example.agentweb.app.runtime.port.RuntimePreflightGateway;
 import com.example.agentweb.app.runtime.port.SandboxMode;
@@ -28,6 +29,7 @@ import com.example.agentweb.domain.workbench.WorkbenchRepository;
 import com.example.agentweb.domain.workbench.WorkbenchStageRunPromptPayloadRepository;
 import com.example.agentweb.domain.workbench.WorkbenchStageRunSnapshotRepository;
 import com.example.agentweb.infra.runtime.AgentProcessKernel;
+import com.example.agentweb.infra.runtime.SqliteChatRunRuntimeSelectionStore;
 import com.example.agentweb.infra.runtime.CodexRuntimeCompatibilityMatrix;
 import com.example.agentweb.infra.runtime.CodexRuntimePreflightGateway;
 import com.example.agentweb.infra.runtime.RuntimeCapabilityMaterializer;
@@ -40,6 +42,8 @@ import com.example.agentweb.infra.runtime.RuntimeSecretResolver;
 import com.example.agentweb.infra.runtime.RuntimeWorkspaceMaterializer;
 import com.example.agentweb.infra.runtime.profile.AgentRuntimeProfileCatalog;
 import com.example.agentweb.infra.runtime.profile.AgentRuntimeProfileFileLoader;
+import com.example.agentweb.infra.agentrun.RoutingAgentGateway;
+import com.example.agentweb.app.agentrun.port.AgentRuntime;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -49,6 +53,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
 import org.springframework.core.env.Environment;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.nio.file.Paths;
 import java.time.Clock;
@@ -84,6 +89,13 @@ public class CommonRuntimeConfiguration {
     public AgentRuntimeProfileCatalog commonRuntimeProfileCatalog(
             CommonRuntimeProperties properties) {
         return AgentRuntimeProfileFileLoader.load(Paths.get(properties.getProfileFile()));
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(ChatRunRuntimeSelectionStore.class)
+    public ChatRunRuntimeSelectionStore commonRuntimeSelectionStore(
+            JdbcTemplate jdbcTemplate) {
+        return new SqliteChatRunRuntimeSelectionStore(jdbcTemplate);
     }
 
     @Bean
@@ -158,7 +170,7 @@ public class CommonRuntimeConfiguration {
     }
 
     @Bean(destroyMethod = "close")
-    public AgentProcessKernel commonRuntimeExecutionGateway(
+    public AgentProcessKernel commonRuntimeProcessKernel(
             RuntimeCommandFactory commandFactory,
             RuntimeWorkspaceMaterializer workspaceMaterializer,
             RuntimeCapabilityMaterializer capabilityMaterializer,
@@ -171,6 +183,13 @@ public class CommonRuntimeConfiguration {
                 commandFactory, workspaceMaterializer,
                 capabilityMaterializer, eventDecoder,
                 processRegistry, cleanup, monitorExecutor);
+    }
+
+    @Bean
+    @Primary
+    public RoutingAgentGateway commonRuntimeExecutionGateway(
+            List<AgentRuntime> runtimes) {
+        return new RoutingAgentGateway(runtimes);
     }
 
     @Bean
@@ -201,7 +220,9 @@ public class CommonRuntimeConfiguration {
     public ChatExecutionPlanProvider chatExecutionPlanProvider(
             ChatRunQueryService queryService,
             ChatRunPromptBuilder promptBuilder,
-            CommonRuntimeProperties properties) {
+            CommonRuntimeProperties properties,
+            AgentRuntimeProfileCatalog profileCatalog,
+            ChatRunRuntimeSelectionStore selectionStore) {
         ResolvedCapabilityBinding binding =
                 ResolvedCapabilityBinding.resolve(
                         "common-runtime-policy@1", "chat-default", "1",
@@ -213,16 +234,19 @@ public class CommonRuntimeConfiguration {
                 Duration.ofSeconds(properties.getChatTimeoutSeconds()),
                 properties.getChatMaxOutputBytes());
         return new ChatExecutionPlanProvider(
-                queryService, promptBuilder, binding, limits);
+                queryService, promptBuilder, binding, limits, profileCatalog, selectionStore);
     }
 
     @Bean
     public WorkbenchExecutionPlanProvider workbenchExecutionPlanProvider(
             WorkbenchStageRunSnapshotRepository snapshotRepository,
             WorkbenchStageRunPromptPayloadRepository promptRepository,
-            WorkbenchRepository workbenchRepository) {
+            WorkbenchRepository workbenchRepository,
+            AgentRuntimeProfileCatalog profileCatalog,
+            ChatRunRuntimeSelectionStore selectionStore) {
         return new WorkbenchExecutionPlanProvider(
-                snapshotRepository, promptRepository, workbenchRepository);
+                snapshotRepository, promptRepository, workbenchRepository, profileCatalog,
+                selectionStore);
     }
 
     @Bean

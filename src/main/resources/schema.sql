@@ -85,6 +85,20 @@ CREATE TABLE IF NOT EXISTS chat_run_runtime_handle (
     FOREIGN KEY (run_id) REFERENCES chat_run(id) ON DELETE CASCADE
 );
 
+-- Run 提交时冻结的非秘密 RuntimeSelection；Profile 后续修改不重解析该行。
+CREATE TABLE IF NOT EXISTS chat_run_runtime_selection (
+    run_id               TEXT PRIMARY KEY,
+    profile_id           TEXT,
+    agent_type           TEXT NOT NULL,
+    endpoint             TEXT,
+    model                TEXT,
+    reasoning_effort     TEXT,
+    runtime_environment  TEXT,
+    version_policy       TEXT NOT NULL,
+    version_value        TEXT,
+    FOREIGN KEY (run_id) REFERENCES chat_run(id) ON DELETE CASCADE
+);
+
 -- NATIVE 诊断状态按成功 ChatRun 的消息边界追加，不能用 session 级可变 latest 行。
 CREATE TABLE IF NOT EXISTS native_diagnosis_checkpoint (
     run_id                   TEXT PRIMARY KEY,
