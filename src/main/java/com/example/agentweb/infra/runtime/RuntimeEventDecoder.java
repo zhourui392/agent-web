@@ -61,6 +61,8 @@ public final class RuntimeEventDecoder {
             new ConcurrentHashMap<String, Map<Integer, String>>();
     private final Map<String, Map<String, StringBuilder>> claudeToolInputFragmentsByExecution =
             new ConcurrentHashMap<String, Map<String, StringBuilder>>();
+    private final Set<String> claudeStreamingTextExecutions =
+            ConcurrentHashMap.newKeySet();
 
     public RuntimeEventDecoder(RuntimeOutputRedactor outputRedactor) {
         this(outputRedactor, RuntimeCommandPolicy.platformDefault(),
@@ -118,7 +120,7 @@ public final class RuntimeEventDecoder {
             RuntimeEventType eventType = "result".equals(type)
                     && root != null && "error".equals(root.path("subtype").asText())
                     ? RuntimeEventType.DIAGNOSTIC : RuntimeEventType.OUTPUT;
-            String assistantText = claudeAssistantText(root);
+            String assistantText = claudeAssistantText(executionId, root);
             List<RuntimeSemanticEvent> semanticEvents = claudeSemantics(
                     executionId, root, capabilities);
             if ("result".equals(type)) {
@@ -126,6 +128,7 @@ public final class RuntimeEventDecoder {
                 claudeToolInputsByExecution.remove(executionId);
                 claudeToolIdsByBlockExecution.remove(executionId);
                 claudeToolInputFragmentsByExecution.remove(executionId);
+                claudeStreamingTextExecutions.remove(executionId);
             }
             return new DecodedEvent(new RuntimeEvent(
                     executionId, sequence, eventType,
@@ -162,11 +165,14 @@ public final class RuntimeEventDecoder {
                 projection.isOperationBlocked());
     }
 
-    private String claudeAssistantText(JsonNode root) {
+    private String claudeAssistantText(String executionId, JsonNode root) {
         if (root == null) {
             return null;
         }
         if ("assistant".equals(root.path("type").asText())) {
+            if (claudeStreamingTextExecutions.contains(executionId)) {
+                return null;
+            }
             JsonNode content = root.path("message").path("content");
             if (content.isArray()) {
                 for (JsonNode block : content) {
@@ -181,7 +187,11 @@ public final class RuntimeEventDecoder {
         if ("stream_event".equals(root.path("type").asText())
                 && "text_delta".equals(root.path("event").path("delta").path("type").asText())) {
             String text = root.path("event").path("delta").path("text").asText("");
-            return text.isBlank() ? null : outputRedactor.boundEvidenceLine(
+            if (text.isBlank()) {
+                return null;
+            }
+            claudeStreamingTextExecutions.add(executionId);
+            return outputRedactor.boundEvidenceLine(
                     text, RuntimeEvent.MAX_SAFE_PAYLOAD_LENGTH);
         }
         return null;
@@ -423,6 +433,7 @@ public final class RuntimeEventDecoder {
             claudeToolInputsByExecution.remove(executionId);
             claudeToolIdsByBlockExecution.remove(executionId);
             claudeToolInputFragmentsByExecution.remove(executionId);
+            claudeStreamingTextExecutions.remove(executionId);
         }
     }
 

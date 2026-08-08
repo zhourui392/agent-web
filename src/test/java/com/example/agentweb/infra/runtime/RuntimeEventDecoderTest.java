@@ -206,6 +206,30 @@ class RuntimeEventDecoderTest {
     }
 
     @Test
+    void shouldSuppressClaudeAssistantSnapshotAfterStreamingTextDelta() {
+        // Given
+        ClaudeCliDialect claude = new ClaudeCliDialect();
+        String textDelta = "{\"type\":\"stream_event\","
+                + "\"event\":{\"type\":\"content_block_delta\","
+                + "\"index\":0,\"delta\":{\"type\":\"text_delta\","
+                + "\"text\":\"answer\"}}}";
+        String assistantSnapshot = "{\"type\":\"assistant\",\"message\":{"
+                + "\"content\":[{\"type\":\"text\",\"text\":\"answer\"}]}}";
+
+        // When
+        RuntimeEventDecoder.DecodedEvent delta = decoder.decode(
+                "exec-claude-text", 12L, textDelta, null, null, claude);
+        RuntimeEventDecoder.DecodedEvent snapshot = decoder.decode(
+                "exec-claude-text", 13L, assistantSnapshot, null, null, claude);
+
+        // Then
+        assertEquals("answer", delta.getEvent().assistantText().orElseThrow());
+        assertEquals(Collections.singletonList("agent_chunk"), eventTypes(delta));
+        assertFalse(snapshot.getEvent().assistantText().isPresent());
+        assertTrue(eventTypes(snapshot).isEmpty());
+    }
+
+    @Test
     void shouldProjectClaudeBashCommandFromCompletedToolSnapshot() {
         // Given
         ClaudeCliDialect claude = new ClaudeCliDialect();
