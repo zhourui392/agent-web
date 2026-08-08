@@ -477,6 +477,12 @@ public final class AgentProcessKernel implements AutoCloseable {
                     reason = RuntimeTerminationReason.COMPLETED;
                 }
             }
+            if (reason == RuntimeTerminationReason.COMPLETED) {
+                // Codex emits turn.completed before its process has necessarily exited. The
+                // one-second drain guard may therefore terminate a still-lingering process,
+                // yielding 137 even though the turn itself completed successfully.
+                exitCode = 0;
+            }
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             reason = requestedOrFailure(context);

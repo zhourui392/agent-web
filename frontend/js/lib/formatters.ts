@@ -223,3 +223,94 @@ export function parseStreamJson(raw: string | null | undefined): StreamSegment[]
   }
   return segments;
 }
+
+/**
+ * 将公共 Runtime 的 agent_chunk 事件载荷转换为 ChatPanel 使用的 stream-json 行。
+ * Runtime 事件额外携带 runtimeSequence，正文位于 content 字段；转换后可与旧
+ * ChatRun 的 chunk 事件共用同一套增量渲染和工具片段状态机。
+ */
+export function agentChunkToStreamJson(data: string | null | undefined): string | null {
+  if (!data) return null;
+  try {
+    const payload = JSON.parse(data) as { content?: unknown };
+    if (typeof payload.content !== 'string') return null;
+    return JSON.stringify({
+      type: 'stream_event',
+      event: {
+        type: 'content_block_delta',
+        index: 0,
+        delta: { type: 'text_delta', text: payload.content },
+      },
+    });
+  } catch (e) {
+    return null;
+  }
+}
+
+/**
+ * 将公共 Runtime 的工具开始事件转换为旧 ChatRun 使用的工具片段事件。
+ * 这样 ChatPanel 可以在工具真正结束前先显示工具调用，而不是等 terminal
+ * 事件触发 reloadMessages 后一次性展示完整结果。
+ */
+export function runtimeToolStartedToStreamJson(data: string | null | undefined): string | null {
+  if (!data) return null;
+  try {
+    const payload = JSON.parse(data) as {
+      tool?: unknown;
+      callId?: unknown;
+      commandContent?: unknown;
+    };
+    if (typeof payload.tool !== 'string' || typeof payload.callId !== 'string') return null;
+    const events: Record<string, unknown>[] = [{
+      type: 'stream_event',
+      event: {
+        type: 'content_block_start',
+        index: 0,
+        content_block: { type: 'tool_use', id: payload.callId, name: payload.tool, input: {} },
+      },
+    }];
+    if (typeof payload.commandContent === 'string' && payload.commandContent) {
+      events.push({
+        type: 'stream_event',
+        event: {
+          type: 'content_block_delta',
+          index: 0,
+          delta: {
+            type: 'input_json_delta',
+            partial_json: JSON.stringify({ command: payload.commandContent }),
+          },
+        },
+      });
+    }
+    return events.map(event => JSON.stringify(event)).join('\n');
+  } catch (e) {
+    return null;
+  }
+}
+
+/** 将公共 Runtime 的工具完成事件转换为工具结果片段事件。 */
+export function runtimeToolFinishedToStreamJson(data: string | null | undefined): string | null {
+  if (!data) return null;
+  try {
+    const payload = JSON.parse(data) as {
+      callId?: unknown;
+      status?: unknown;
+      outputContent?: unknown;
+    };
+    if (typeof payload.callId !== 'string') return null;
+    const output = typeof payload.outputContent === 'string' ? payload.outputContent : '';
+    return JSON.stringify({
+      type: 'user',
+      message: {
+        content: [{
+          type: 'tool_result',
+          tool_use_id: payload.callId,
+          content: output,
+          is_error: payload.status === 'FAILED',
+        }],
+      },
+    });
+  } catch (e) {
+    return null;
+  }
+}

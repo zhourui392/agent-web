@@ -90,7 +90,7 @@ Playwright 必须在 `tests/` 目录运行，或者从仓库根显式传入 `-c 
 - `SlashCommandScannerTest` / `SlashCommandExpanderTest`：自定义命令。
 - `WorktreeControllerTest` / `BranchNameValidatorTest`：Worktree 与分支名校验。
 - `cli/Claude|CodexCliDialectTest` / `cli/*EventNormalizer*Test`：CLI 方言与事件归一化。
-- `infra/AgentCliGatewayTest` / `infra/AgentTypeResolverTest`：网关与类型兜底。
+- `infra/AgentCliRuntimeLegacyTest` / `infra/AgentTypeResolverTest`：CLI 兼容端口与类型兜底。
 - `domain/refinery/*` / `app/refinery/*` / `infra/refinery/*`：知识精炼评分、召回重排、embedding 和向量库。
 - `domain/workbench/*` / `app/workbench/*` / `infra/workbench/*` / `interfaces/workbench/*`：Workbench 不变量、编排、SQLite/文件适配和 API。
 - `ArchitectureTest`：分层约束和 Spring AOP 代理类不得 `final` 等架构守卫。

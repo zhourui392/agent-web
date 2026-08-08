@@ -81,15 +81,16 @@ export function useHistory(host: HostState): {
   });
 
   const loadHistory = async (reset?: boolean) => {
-    if (reset) {
-      historyPage.value = 1;
-      historyHasMore.value = true;
-      historyList.value = [];
-    }
-    if (!historyHasMore.value || historyLoading.value) return;
+    // Refreshes are coalesced while a request is in flight. Keep the current
+    // rows visible until the replacement page arrives so sending a message
+    // cannot blank and redraw the sidebar.
+    if (historyLoading.value) return;
+    const replace = !!reset;
+    const requestPage = replace ? 1 : historyPage.value;
+    if (!replace && !historyHasMore.value) return;
     historyLoading.value = true;
     try {
-      const data: HistoryItem[] = await fetch('/api/chat/sessions?page=' + historyPage.value + '&size=' + historyPageSize).then((r) => r.json());
+      const data: HistoryItem[] = await fetch('/api/chat/sessions?page=' + requestPage + '&size=' + historyPageSize).then((r) => r.json());
       const activeBySession: Record<string, boolean> = {};
       try {
         const activeResponse = await fetch('/api/chat/runs/active');
@@ -101,9 +102,9 @@ export function useHistory(host: HostState): {
       const decorated = data.map((item) => Object.assign({}, item, {
         running: !!activeBySession[item.sessionId],
       }));
-      historyList.value = historyList.value.concat(decorated);
+      historyList.value = replace ? decorated : historyList.value.concat(decorated);
       historyHasMore.value = data.length >= historyPageSize;
-      historyPage.value++;
+      historyPage.value = requestPage + 1;
     } catch (e) {
       ElMessage.error('加载历史记录失败');
     } finally {

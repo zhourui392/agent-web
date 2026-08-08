@@ -3,10 +3,7 @@ package com.example.agentweb.infra.nativeagent;
 import com.anthropic.agentkit.interfaces.engine.DiagnoseEngine;
 import com.anthropic.agentkit.interfaces.engine.RunRequest;
 import com.anthropic.agentkit.domain.diagnosis.ReadinessStatus;
-import com.example.agentweb.app.agentrun.port.AgentExecutionResult;
-import com.example.agentweb.app.agentrun.port.AgentRunInvocation;
 import com.example.agentweb.app.agentrun.port.AgentRuntime;
-import com.example.agentweb.app.agentrun.port.HistoryDeliveryMode;
 import com.example.agentweb.app.runtime.port.AgentExecutionPlan;
 import com.example.agentweb.app.runtime.port.RuntimeEvent;
 import com.example.agentweb.app.runtime.port.RuntimeEventSink;
@@ -31,9 +28,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Consumer;
 
 /**
  * In-process runtime adapter for the AgentKit diagnosis engine.
@@ -47,7 +42,6 @@ public final class NativeDiagnosisAgentRuntime
     private final Map<String, NativeDiagnosisEnvironmentBinding> environments;
     private final Map<String, NativeDiagnosisEnvironmentBinding> profiles;
     private final Map<String, Map<String, NativeDiagnosisEnvironmentBinding>> profileModels;
-    private final Map<String, DiagnoseEngine> activeEngines = new ConcurrentHashMap<>();
     private final Map<String, NativeExecution> executions = new ConcurrentHashMap<>();
     private final ExecutorService executionExecutor = Executors.newCachedThreadPool(runnable -> {
         Thread thread = new Thread(runnable, "native-diagnosis-runtime");
@@ -154,50 +148,6 @@ public final class NativeDiagnosisAgentRuntime
     }
 
     @Override
-    public HistoryDeliveryMode historyDeliveryMode() {
-        return HistoryDeliveryMode.TYPED;
-    }
-
-    @Override
-    public void run(AgentRunInvocation invocation, Consumer<String> onChunk,
-                    Consumer<AgentExecutionResult> onComplete) {
-        NativeDiagnosisEnvironmentBinding binding = requireEnvironment(invocation.getEnv());
-        String stateSnapshot = checkpoints.findLatestValidBefore(
-                        invocation.getConversationId(), invocation.getUserMessageId())
-                .map(checkpoint -> checkpoint.getStateSnapshot())
-                .orElse("");
-        RunRequest request = RunRequest.builder()
-                .workingDir(invocation.getWorkingDir())
-                .userMessage(invocation.getPrompt())
-                .sessionId(invocation.getRunId())
-                .operationalContext(binding.operationalContext())
-                .timeoutSeconds(binding.effectiveTimeout(invocation.getTimeoutSeconds()))
-                .history(historyMapper.map(invocation.getHistory()))
-                .stateSnapshot(stateSnapshot)
-                .build();
-        register(invocation.getRunId(), binding.engine());
-        NativeDiagnosisTelemetry.RunObservation observation = telemetry == null ? null
-                : telemetry.start(binding.environment(), invocation.getRunId(),
-                invocation.getConversationId(), stateSnapshot);
-        AtomicBoolean terminalObserved = new AtomicBoolean();
-        try {
-            binding.engine().run(request, onChunk, summary -> {
-                activeEngines.remove(invocation.getRunId(), binding.engine());
-                if (telemetry != null && terminalObserved.compareAndSet(false, true)) {
-                    telemetry.complete(observation, summary);
-                }
-                onComplete.accept(summaryMapper.map(summary));
-            });
-        } catch (RuntimeException failure) {
-            activeEngines.remove(invocation.getRunId(), binding.engine());
-            if (telemetry != null && terminalObserved.compareAndSet(false, true)) {
-                telemetry.failed(observation, failure);
-            }
-            throw failure;
-        }
-    }
-
-    @Override
     public RuntimeHandle start(AgentExecutionPlan plan, RuntimeEventSink sink) {
         Objects.requireNonNull(plan, "plan");
         Objects.requireNonNull(sink, "sink");
@@ -271,26 +221,6 @@ public final class NativeDiagnosisAgentRuntime
                     ? RuntimeTerminationReason.REQUESTED_STOP
                     : RuntimeTerminationReason.PROCESS_FAILURE);
         }
-    }
-
-    @Override
-    public void stop(String runId) {
-        DiagnoseEngine active = activeEngines.get(runId);
-        if (active != null) {
-            active.stop(runId);
-        } else if (environments.size() == 1) {
-            environments.values().iterator().next().engine().stop(runId);
-        }
-    }
-
-    @Override
-    public String extractResumeId(AgentType type, String rawLine) {
-        return null;
-    }
-
-    @Override
-    public List<String> normalizeChunk(AgentType type, String rawLine) {
-        return Collections.singletonList(rawLine);
     }
 
     public Set<String> boundEnvironments() {
@@ -380,12 +310,6 @@ public final class NativeDiagnosisAgentRuntime
             return binding;
         }
         return requireEnvironment(plan.getRuntimeSelection().getRuntimeEnvironment());
-    }
-
-    private void register(String runId, DiagnoseEngine engine) {
-        if (activeEngines.putIfAbsent(runId, engine) != null) {
-            throw new IllegalStateException("NATIVE run already active: " + runId);
-        }
     }
 
     private static Map<String, NativeDiagnosisEnvironmentBinding> checkedBindings(

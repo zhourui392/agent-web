@@ -18,6 +18,8 @@ import com.example.agentweb.domain.capability.McpServerDefinition;
 import com.example.agentweb.domain.capability.ResolvedCapabilityBinding;
 import com.example.agentweb.domain.capability.ResolvedMcpServerBinding;
 import com.example.agentweb.domain.shared.CanonicalHashing;
+import com.example.agentweb.infra.AgentCliProperties;
+import com.example.agentweb.infra.cli.CodexCliDialect;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -99,6 +101,33 @@ class AgentProcessKernelTest {
         assertEquals(RuntimeEventType.TERMINATED, events.terminal().getType());
         assertStrictlyIncreasingSequences(events.events);
         assertRuntimeRootEmpty(tempDir.resolve("runtime-success"));
+    }
+
+    @Test
+    void completedTurnShouldReportZeroExitCodeWhenCleanupStopsLingeringProcess()
+            throws Exception {
+        Path primary = Files.createDirectory(tempDir.resolve("primary-lingering"));
+        Path script = script("lingering-after-complete.sh", "#!/bin/sh\n"
+                + "cat >/dev/null\n"
+                + "printf '%s\\n' \"{\\\"type\\\":\\\"item.completed\\\","
+                + "\\\"item\\\":{\\\"type\\\":\\\"agent_message\\\","
+                + "\\\"text\\\":\\\"done\\\"}}\"\n"
+                + "printf '%s\\n' '{\"type\":\"turn.completed\"}'\n"
+                + "sleep 5\n");
+        RuntimeProcessRegistry registry = new RuntimeProcessRegistry();
+        AgentProcessKernel kernel = kernel(script, "runtime-lingering", registry);
+        AgentExecutionPlan plan = RuntimePlanFixtures.readOnly("exec-lingering", primary,
+                Collections.singletonList(primary));
+        Events events = new Events();
+
+        RuntimeHandle handle = kernel.start(plan, events, new CodexCliDialect(),
+                new AgentCliProperties.Client(), null);
+
+        events.awaitTerminal();
+        assertEquals(RuntimeTerminationReason.COMPLETED,
+                kernel.observe(handle).termination().orElseThrow(AssertionError::new).getReason());
+        assertEquals(0,
+                kernel.observe(handle).termination().orElseThrow(AssertionError::new).getExitCode());
     }
 
     @Test

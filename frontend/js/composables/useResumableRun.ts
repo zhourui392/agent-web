@@ -17,7 +17,13 @@ import { ref, nextTick, type Ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { createStore, selectActiveRun } from '../lib/chat-run-state.js';
 import { open as openResumableSse } from '../lib/resumable-sse-client.js';
-import { parseStreamJson, isStreamJson } from '../lib/formatters.js';
+import {
+  parseStreamJson,
+  isStreamJson,
+  agentChunkToStreamJson,
+  runtimeToolStartedToStreamJson,
+  runtimeToolFinishedToStreamJson,
+} from '../lib/formatters.js';
 
 // 消息结构宽松 typing:chat-panel.js 的 messages 是 ref([]),元素含 role/id/segments 等
 interface ChatMessage {
@@ -134,6 +140,24 @@ export function useResumableRun(p: ResumableRunParams): {
         chunks.push(data);
         if (!flushTimer) flushTimer = setTimeout(flush, 100);
       },
+      agentChunk: function (data: string) {
+        const streamJson = agentChunkToStreamJson(data);
+        if (!streamJson) return;
+        chunks.push(streamJson);
+        if (!flushTimer) flushTimer = setTimeout(flush, 100);
+      },
+      toolStarted: function (data: string) {
+        const streamJson = runtimeToolStartedToStreamJson(data);
+        if (!streamJson) return;
+        chunks.push(streamJson);
+        if (!flushTimer) flushTimer = setTimeout(flush, 100);
+      },
+      toolFinished: function (data: string) {
+        const streamJson = runtimeToolFinishedToStreamJson(data);
+        if (!streamJson) return;
+        chunks.push(streamJson);
+        if (!flushTimer) flushTimer = setTimeout(flush, 100);
+      },
       flush: flush,
     };
   }
@@ -212,6 +236,21 @@ export function useResumableRun(p: ResumableRunParams): {
       rememberEventCursor(event);
       reconnecting.value = false;
       renderer.chunk(event.data);
+    });
+    client.addEventListener('agent_chunk', (event: { lastEventId?: string | number; data: string }) => {
+      rememberEventCursor(event);
+      reconnecting.value = false;
+      renderer.agentChunk(event.data);
+    });
+    client.addEventListener('tool_started', (event: { lastEventId?: string | number; data: string }) => {
+      rememberEventCursor(event);
+      reconnecting.value = false;
+      renderer.toolStarted(event.data);
+    });
+    client.addEventListener('tool_finished', (event: { lastEventId?: string | number; data: string }) => {
+      rememberEventCursor(event);
+      reconnecting.value = false;
+      renderer.toolFinished(event.data);
     });
     client.addEventListener('ping', () => { reconnecting.value = false; });
     client.addEventListener('reconnecting', () => { reconnecting.value = true; });

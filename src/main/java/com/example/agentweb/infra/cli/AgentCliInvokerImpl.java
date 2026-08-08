@@ -21,7 +21,7 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * {@link AgentCliInvoker} 默认实现。复用 {@link CliDialect#buildCommand(BuildContext)} 构造命令,
- * 自管子进程生命周期 + 显式超时,避免与流式 {@code AgentCliGateway} 互相干扰。
+ * 自管子进程生命周期 + 显式超时,避免与公共 Runtime 的异步进程内核互相干扰。
  *
  * @author zhourui(V33215020)
  * @since 2026-05-19

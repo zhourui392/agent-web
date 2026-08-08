@@ -10,6 +10,9 @@ import {
   escapeHtml,
   parseStreamJson,
   isStreamJson,
+  agentChunkToStreamJson,
+  runtimeToolStartedToStreamJson,
+  runtimeToolFinishedToStreamJson,
 } from '../../frontend/js/lib/formatters.js';
 
 // formatters.js 现在静态 import marked / dompurify (npm), 不再读全局。
@@ -155,6 +158,56 @@ describe('parseUserMessage', () => {
     const out = parseUserMessage('/a/1.webp\n/b/2.gif\n/c/3.bmp\n/d/4.jpeg');
     expect(out.images).toEqual(['/a/1.webp', '/b/2.gif', '/c/3.bmp', '/d/4.jpeg']);
     expect(out.text).toBe('');
+  });
+});
+
+describe('agentChunkToStreamJson', () => {
+  it('converts a common Runtime payload into an incremental text event', () => {
+    const line = agentChunkToStreamJson(
+      JSON.stringify({ runtimeSequence: 8, content: '分段输出' }),
+    );
+
+    expect(line).not.toBeNull();
+    expect(parseStreamJson(line)).toEqual([{ type: 'text', content: '分段输出' }]);
+  });
+
+  it('rejects malformed or incomplete Runtime payloads', () => {
+    expect(agentChunkToStreamJson('{broken')).toBeNull();
+    expect(agentChunkToStreamJson(JSON.stringify({ runtimeSequence: 1 }))).toBeNull();
+  });
+});
+
+describe('Runtime tool event stream projection', () => {
+  it('shows a tool block before its result and following text', () => {
+    const started = runtimeToolStartedToStreamJson(JSON.stringify({
+      runtimeSequence: 2,
+      tool: 'shell',
+      callId: 'call-1',
+      status: 'RUNNING',
+      commandContent: 'ls',
+    }));
+    const finished = runtimeToolFinishedToStreamJson(JSON.stringify({
+      runtimeSequence: 3,
+      tool: 'shell',
+      callId: 'call-1',
+      status: 'SUCCEEDED',
+      outputContent: 'README.md',
+    }));
+    const text = agentChunkToStreamJson(JSON.stringify({
+      runtimeSequence: 4,
+      content: '完成',
+    }));
+
+    const segments = parseStreamJson([started, finished, text].join('\n'));
+    expect(segments).toHaveLength(2);
+    expect(segments[0]).toMatchObject({ type: 'tool', name: 'shell' });
+    expect(segments[0].content).toContain('README.md');
+    expect(segments[1]).toEqual({ type: 'text', content: '完成' });
+  });
+
+  it('ignores malformed tool payloads', () => {
+    expect(runtimeToolStartedToStreamJson('{broken')).toBeNull();
+    expect(runtimeToolFinishedToStreamJson(JSON.stringify({ status: 'FAILED' }))).toBeNull();
   });
 });
 

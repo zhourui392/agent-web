@@ -7,6 +7,7 @@ import com.example.agentweb.domain.git.GitConfigPolicy;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.infra.cli.BuildContext;
 import com.example.agentweb.infra.cli.CliDialect;
+import com.example.agentweb.infra.agentrun.CliAgentRuntime;
 import com.example.agentweb.infra.git.GitAskpassScript;
 import com.example.agentweb.infra.git.GitProcessEnvCustomizer;
 import org.junit.jupiter.api.Tag;
@@ -35,7 +36,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * 验证 {@link AgentCliGateway} 的进程编排收尾时机：
+ * 验证 {@link CliAgentRuntime} 兼容端口的进程编排收尾时机：
  * <ul>
  *   <li>读到方言的 turn-end 标记即立即收尾，不再等子进程退出；</li>
  *   <li>无 turn-end 标记时退化为"进程退出 + 宽限期排空"，且不被孤儿子进程持有的 stdout 管道拖死。</li>
@@ -47,7 +48,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * @since 2026-05-14
  */
 @Tag("process-integration")
-class AgentCliGatewayTest {
+class CliAgentRuntimeLegacyTest {
 
     /** stub 脚本：主进程秒退，但后台子进程继承 stdout 并持有约这么多秒。 */
     private static final int ORPHAN_HOLD_SECONDS = 12;
@@ -67,7 +68,7 @@ class AgentCliGatewayTest {
     @Test
     void runStream_completesImmediatelyOnTurnEndMarker() throws Exception {
         List<String> cmd = writeTurnEndStub();
-        AgentCliGateway gateway = newGateway(cmd, "TURN_END");
+        CliAgentRuntime gateway = newGateway(cmd, "TURN_END");
 
         List<String> chunks = new CopyOnWriteArrayList<String>();
         AtomicInteger exitCode = new AtomicInteger(Integer.MIN_VALUE);
@@ -89,7 +90,7 @@ class AgentCliGatewayTest {
     @Test
     void runStream_finishesWhenProcessExits_evenIfOrphanHoldsStdout() throws Exception {
         List<String> cmd = writeOrphanStub();
-        AgentCliGateway gateway = newGateway(cmd, null);
+        CliAgentRuntime gateway = newGateway(cmd, null);
 
         List<String> chunks = new CopyOnWriteArrayList<String>();
         AtomicInteger exitCode = new AtomicInteger(Integer.MIN_VALUE);
@@ -112,7 +113,7 @@ class AgentCliGatewayTest {
     @Test
     void runStream_rejectsSecondLiveProcessForSameSession() throws Exception {
         List<String> cmd = writeLongRunningStub();
-        AgentCliGateway gateway = newGateway(cmd, null);
+        CliAgentRuntime gateway = newGateway(cmd, null);
         ExecutorService executor = Executors.newSingleThreadExecutor();
         Future<?> first = executor.submit(() -> {
             try {
@@ -143,7 +144,7 @@ class AgentCliGatewayTest {
     @Test
     void runStream_killsProcessWhenOutputExceedsConfiguredLimit() throws Exception {
         List<String> cmd = writeOutputFloodStub();
-        AgentCliGateway gateway = newGateway(cmd, null, 128L);
+        CliAgentRuntime gateway = newGateway(cmd, null, 128L);
         List<String> chunks = new CopyOnWriteArrayList<>();
         AtomicReference<AgentStreamResult> result = new AtomicReference<AgentStreamResult>();
         try {
@@ -162,7 +163,7 @@ class AgentCliGatewayTest {
     @Test
     void runStream_killsProcessAfterConfiguredIdleTimeout() throws Exception {
         List<String> cmd = writeLongRunningStub();
-        AgentCliGateway gateway = newGateway(cmd, null,
+        CliAgentRuntime gateway = newGateway(cmd, null,
                 10L * 1024L * 1024L, 1L, 8L);
         List<String> chunks = new CopyOnWriteArrayList<String>();
         AtomicReference<AgentStreamResult> result = new AtomicReference<AgentStreamResult>();
@@ -184,7 +185,7 @@ class AgentCliGatewayTest {
     @Test
     void runStream_stdoutActivityRenewsIdleTimeout() throws Exception {
         List<String> cmd = writeActiveOutputStub(4);
-        AgentCliGateway gateway = newGateway(cmd, null,
+        CliAgentRuntime gateway = newGateway(cmd, null,
                 10L * 1024L * 1024L, 2L, 8L);
         List<String> chunks = new CopyOnWriteArrayList<String>();
         AtomicInteger exitCode = new AtomicInteger(Integer.MIN_VALUE);
@@ -203,7 +204,7 @@ class AgentCliGatewayTest {
     @Test
     void runStream_maxRuntimeIsNotRenewedByStdoutActivity() throws Exception {
         List<String> cmd = writeActiveOutputStub(8);
-        AgentCliGateway gateway = newGateway(cmd, null,
+        CliAgentRuntime gateway = newGateway(cmd, null,
                 10L * 1024L * 1024L, 2L, 3L);
         List<String> chunks = new CopyOnWriteArrayList<String>();
         AtomicReference<AgentStreamResult> result = new AtomicReference<AgentStreamResult>();
@@ -225,7 +226,7 @@ class AgentCliGatewayTest {
     @Test
     void runStream_explicitTimeoutRemainsHardLimit() throws Exception {
         List<String> cmd = writeActiveOutputStub(6);
-        AgentCliGateway gateway = newGateway(cmd, null,
+        CliAgentRuntime gateway = newGateway(cmd, null,
                 10L * 1024L * 1024L, 2L, 8L);
         List<String> chunks = new CopyOnWriteArrayList<String>();
         AtomicInteger exitCode = new AtomicInteger(Integer.MIN_VALUE);
@@ -255,15 +256,15 @@ class AgentCliGatewayTest {
     }
 
     /** {@code timeout-seconds=0}：复现生产配置，正是这条无总超时路径会被孤儿管道久阻。 */
-    private AgentCliGateway newGateway(List<String> cmd, String turnEndMarker) {
+    private CliAgentRuntime newGateway(List<String> cmd, String turnEndMarker) {
         return newGateway(cmd, turnEndMarker, 10L * 1024L * 1024L);
     }
 
-    private AgentCliGateway newGateway(List<String> cmd, String turnEndMarker, long maxOutputBytes) {
+    private CliAgentRuntime newGateway(List<String> cmd, String turnEndMarker, long maxOutputBytes) {
         return newGateway(cmd, turnEndMarker, maxOutputBytes, 0L, 0L);
     }
 
-    private AgentCliGateway newGateway(List<String> cmd, String turnEndMarker, long maxOutputBytes,
+    private CliAgentRuntime newGateway(List<String> cmd, String turnEndMarker, long maxOutputBytes,
                                        long idleTimeoutSeconds, long maxRuntimeSeconds) {
         AgentCliProperties props = new AgentCliProperties();
         AgentCliProperties.Client codex = props.getCodex();
@@ -273,7 +274,7 @@ class AgentCliGatewayTest {
         codex.setStreamMaxRuntimeSeconds(maxRuntimeSeconds);
         codex.setStdoutDrainGraceMs(200L);
         codex.setMaxOutputBytes(maxOutputBytes);
-        return new AgentCliGateway(props, new EnvProperties(), noopGitCustomizer(),
+        return new CliAgentRuntime(props, new EnvProperties(), noopGitCustomizer(),
                 Collections.singletonList(passthroughDialect(cmd, turnEndMarker)));
     }
 

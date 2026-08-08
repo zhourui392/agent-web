@@ -71,7 +71,7 @@ public final class RuntimeCommandFactory {
         if (!sandboxBypass) {
             Collections.addAll(command, "--sandbox", sandboxToken(sandboxMode));
         }
-        command.add("-C");
+        command.add("--cd");
         command.add(workspace.getPrimaryRepositoryRoot().toString());
         List<Path> additionalRoots = workspace.getReadableRoots();
         if (sandboxMode == SandboxMode.WORKSPACE_WRITE) {

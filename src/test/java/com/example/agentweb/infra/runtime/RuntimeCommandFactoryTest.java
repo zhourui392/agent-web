@@ -52,7 +52,7 @@ class RuntimeCommandFactoryTest {
         assertFalse(tokens.contains("--ignore-rules"));
         assertFalse(tokens.contains("--ignore-user-config"));
         assertOption(tokens, "--sandbox", "read-only");
-        assertOption(tokens, "-C", primary.toRealPath().toString());
+        assertOption(tokens, "--cd", primary.toRealPath().toString());
         assertEquals(Arrays.asList(
                         readableSecond.toRealPath().toString(),
                         readableFirst.toRealPath().toString()),
@@ -81,7 +81,7 @@ class RuntimeCommandFactoryTest {
         List<String> tokens = new RuntimeCommandFactory("codex").create(plan, workspace);
 
         assertOption(tokens, "--sandbox", "workspace-write");
-        assertOption(tokens, "-C", primary.toRealPath().toString());
+        assertOption(tokens, "--cd", primary.toRealPath().toString());
         assertEquals(Arrays.asList(
                         writableSecond.toRealPath().toString(),
                         writableFirst.toRealPath().toString()),

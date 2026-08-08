@@ -88,7 +88,7 @@ class ChatRunAppServiceImplTest {
         ChatRunIdGenerator idGenerator = mock(ChatRunIdGenerator.class);
         when(idGenerator.nextId()).thenReturn(ChatRunId.of("run-1"));
         service = new ChatRunAppServiceImpl(sessionRepository, runRepository, eventStore, appender,
-                launcher, queryService, gateway, idGenerator,
+                launcher, queryService, idGenerator,
                 Clock.fixed(NOW, ZoneOffset.UTC), settings, activityGuard, action -> action.get(),
                 agentCatalogService, terminalFinalizer);
     }
@@ -145,7 +145,7 @@ class ChatRunAppServiceImplTest {
                 sessionRepository, runRepository, eventStore,
                 new ChatRunEventAppender(runRepository, eventStore, eventHub,
                         new AfterCommitExecutor()),
-                launcher, queryService, gateway, idGenerator,
+                launcher, queryService, idGenerator,
                 Clock.fixed(NOW, ZoneOffset.UTC), settings, activityGuard,
                 action -> action.get(), agentCatalogService, terminalFinalizer,
                 mock(AgentExecutionGateway.class), mock(ChatRunRuntimeHandleStore.class),
@@ -296,12 +296,12 @@ class ChatRunAppServiceImplTest {
                 eq(ChatRunId.of("run-1")), any(), drafts.capture(), eq(NOW));
         assertEquals(1, drafts.getValue().size());
         assertEquals("run_status", drafts.getValue().get(0).getEventType());
-        verify(gateway).stopStream("run-1");
+        verifyNoInteractions(gateway);
         verify(terminalFinalizer, never()).finalizeFirstTerminal(any(), any());
     }
 
     @Test
-    void runtimeAwareStopWithoutHandleShouldStopLegacyProcess() {
+    void runtimeAwareStopWithoutHandleShouldPersistCancellationWithoutLegacyStop() {
         AgentExecutionGateway executionGateway = mock(AgentExecutionGateway.class);
         ChatRunRuntimeHandleStore handleStore = mock(ChatRunRuntimeHandleStore.class);
         ChatRunAppServiceImpl runtimeAwareService = runtimeAwareService(
@@ -318,7 +318,7 @@ class ChatRunAppServiceImplTest {
 
         runtimeAwareService.stop(run.getId().getValue());
 
-        verify(gateway).stopStream(run.getId().getValue());
+        verifyNoInteractions(gateway);
         verifyNoInteractions(executionGateway);
     }
 
@@ -412,7 +412,7 @@ class ChatRunAppServiceImplTest {
                 sessionRepository, runRepository, eventStore,
                 new ChatRunEventAppender(runRepository, eventStore, eventHub,
                         new AfterCommitExecutor()),
-                launcher, queryService, gateway, idGenerator,
+                launcher, queryService, idGenerator,
                 Clock.fixed(NOW, ZoneOffset.UTC), settings, activityGuard,
                 action -> action.get(), agentCatalogService, terminalFinalizer,
                 executionGateway, handleStore,

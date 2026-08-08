@@ -751,13 +751,13 @@ export default {
     };
 
     // ========== ChatPanel 宿主回调 ==========
-    // 组件新建会话:回填 active* 锁定顶栏 Agent,并刷新历史列表让新会话显现
+    // 组件新建会话:回填 active* 锁定顶栏 Agent。历史列表在任务提交后统一刷新，
+    // 避免创建会话与提交任务之间连续清空/重绘侧栏。
     const onSessionCreated = (payload) => {
       activeSessionId.value = payload.sessionId;
       activeResumeId.value = '';
       activeEnvironment.value = payload.env || selectedEnvironment.value;
       if (payload.agentType) agentType.value = payload.agentType;
-      loadHistory(true);
     };
     // 组件流结束 / 回退后:重拉历史列表,同步标题与消息数
     const onRefreshHistory = () => {

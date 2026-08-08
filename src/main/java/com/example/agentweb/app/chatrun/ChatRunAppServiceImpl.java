@@ -24,6 +24,8 @@ import com.example.agentweb.domain.chatrun.RunSessionOriginPolicy;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -40,13 +42,14 @@ import java.util.Optional;
 @Service
 public class ChatRunAppServiceImpl implements ChatRunAppService {
 
+    private static final Logger LOG = LoggerFactory.getLogger(ChatRunAppServiceImpl.class);
+
     private final SessionRepository sessionRepository;
     private final ChatRunRepository runRepository;
     private final ChatRunEventStore eventStore;
     private final ChatRunEventAppender eventAppender;
     private final ChatRunLauncher launcher;
     private final ChatRunQueryService queryService;
-    private final AgentGateway gateway;
     private final ChatRunIdGenerator idGenerator;
     private final Clock clock;
     private final ChatRunStreamSettings settings;
@@ -59,13 +62,18 @@ public class ChatRunAppServiceImpl implements ChatRunAppService {
     private final RuntimeProfileSelector profileSelector;
     private final ChatRunRuntimeSelectionStore selectionStore;
 
+    /**
+     * Source-compatible legacy construction path. The gateway is intentionally ignored;
+     * Chat cancellation is owned by the common execution port.
+     */
+    @Deprecated
     public ChatRunAppServiceImpl(SessionRepository sessionRepository,
                                  ChatRunRepository runRepository,
                                  ChatRunEventStore eventStore,
                                  ChatRunEventAppender eventAppender,
                                  ChatRunLauncher launcher,
                                  ChatRunQueryService queryService,
-                                 AgentGateway gateway,
+                                 AgentGateway ignoredGateway,
                                  ChatRunIdGenerator idGenerator,
                                  Clock clock,
                                  ChatRunStreamSettings settings,
@@ -74,7 +82,25 @@ public class ChatRunAppServiceImpl implements ChatRunAppService {
                                  AgentCatalogService agentCatalogService,
                                  ChatRunTerminalFinalizer terminalFinalizer) {
         this(sessionRepository, runRepository, eventStore, eventAppender, launcher,
-                queryService, gateway, idGenerator, clock, settings, activityGuard,
+                queryService, idGenerator, clock, settings, activityGuard,
+                submissionExecutor, agentCatalogService, terminalFinalizer);
+    }
+
+    public ChatRunAppServiceImpl(SessionRepository sessionRepository,
+                                 ChatRunRepository runRepository,
+                                 ChatRunEventStore eventStore,
+                                 ChatRunEventAppender eventAppender,
+                                 ChatRunLauncher launcher,
+                                 ChatRunQueryService queryService,
+                                 ChatRunIdGenerator idGenerator,
+                                 Clock clock,
+                                 ChatRunStreamSettings settings,
+                                 ChatRunActivityGuard activityGuard,
+                                 ChatRunSubmissionExecutor submissionExecutor,
+                                 AgentCatalogService agentCatalogService,
+                                 ChatRunTerminalFinalizer terminalFinalizer) {
+        this(sessionRepository, runRepository, eventStore, eventAppender, launcher,
+                queryService, idGenerator, clock, settings, activityGuard,
                 submissionExecutor, agentCatalogService, terminalFinalizer, null, null,
                 null, null);
     }
@@ -86,7 +112,6 @@ public class ChatRunAppServiceImpl implements ChatRunAppService {
                                  ChatRunEventAppender eventAppender,
                                  ChatRunLauncher launcher,
                                  ChatRunQueryService queryService,
-                                 AgentGateway gateway,
                                  ChatRunIdGenerator idGenerator,
                                  Clock clock,
                                  ChatRunStreamSettings settings,
@@ -104,7 +129,6 @@ public class ChatRunAppServiceImpl implements ChatRunAppService {
         this.eventAppender = eventAppender;
         this.launcher = launcher;
         this.queryService = queryService;
-        this.gateway = gateway;
         this.idGenerator = idGenerator;
         this.clock = clock;
         this.settings = settings;
@@ -116,6 +140,35 @@ public class ChatRunAppServiceImpl implements ChatRunAppService {
         this.handleStore = handleStore;
         this.profileSelector = profileSelector;
         this.selectionStore = selectionStore;
+    }
+
+    /**
+     * Source-compatible legacy construction path for tests and rollback integrations. The
+     * gateway is intentionally ignored; the common execution gateway remains authoritative.
+     */
+    @Deprecated
+    public ChatRunAppServiceImpl(SessionRepository sessionRepository,
+                                 ChatRunRepository runRepository,
+                                 ChatRunEventStore eventStore,
+                                 ChatRunEventAppender eventAppender,
+                                 ChatRunLauncher launcher,
+                                 ChatRunQueryService queryService,
+                                 AgentGateway ignoredGateway,
+                                 ChatRunIdGenerator idGenerator,
+                                 Clock clock,
+                                 ChatRunStreamSettings settings,
+                                 ChatRunActivityGuard activityGuard,
+                                 ChatRunSubmissionExecutor submissionExecutor,
+                                 AgentCatalogService agentCatalogService,
+                                 ChatRunTerminalFinalizer terminalFinalizer,
+                                 AgentExecutionGateway executionGateway,
+                                 ChatRunRuntimeHandleStore handleStore,
+                                 RuntimeProfileSelector profileSelector,
+                                 ChatRunRuntimeSelectionStore selectionStore) {
+        this(sessionRepository, runRepository, eventStore, eventAppender, launcher,
+                queryService, idGenerator, clock, settings, activityGuard,
+                submissionExecutor, agentCatalogService, terminalFinalizer,
+                executionGateway, handleStore, profileSelector, selectionStore);
     }
 
     @Override
@@ -206,14 +259,16 @@ public class ChatRunAppServiceImpl implements ChatRunAppService {
 
     private void requestRuntimeStop(ChatRunId runId) {
         if (executionGateway == null || handleStore == null) {
-            gateway.stopStream(runId.getValue());
+            LOG.error("Common execution gateway is unavailable; cancellation remains persisted "
+                    + "until runtime reconciliation, runId={}", runId.getValue());
             return;
         }
         Optional<RuntimeHandle> handle = handleStore.find(runId);
         if (handle.isPresent()) {
             executionGateway.requestStop(handle.get());
         } else {
-            gateway.stopStream(runId.getValue());
+            LOG.debug("Runtime handle is not bound yet; launcher will reconcile cancellation, "
+                    + "runId={}", runId.getValue());
         }
     }
 

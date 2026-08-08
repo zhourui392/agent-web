@@ -6,8 +6,8 @@ import java.util.List;
 
 /**
  * CLI 方言策略。把命令拼装、流事件抽取、归一化这三件 CLI 相关的差异，
- * 从 {@code AgentCliGateway} 中下沉到此接口。
- * <p>每个 {@link AgentType} 对应一个实现 Bean，{@code AgentCliGateway} 根据 type 路由。</p>
+ * 从旧 CLI Gateway 中下沉到此接口。
+ * <p>每个 {@link AgentType} 对应一个实现 Bean，{@code CliAgentRuntime} 根据 type 路由。</p>
  *
  * @author zhourui(V33215020)
  * @since 2026-05-14

@@ -109,11 +109,6 @@
     </logger>
 
     <!-- CLI 子进程 -->
-    <logger name="com.example.agentweb.infra.AgentCliGateway" level="DEBUG" additivity="false">
-        <appender-ref ref="CLI_FILE"/>
-        <appender-ref ref="ERROR_FILE"/>
-        <appender-ref ref="CONSOLE"/>
-    </logger>
     <logger name="com.example.agentweb.infra.cli" level="DEBUG" additivity="false">
         <appender-ref ref="CLI_FILE"/>
         <appender-ref ref="ERROR_FILE"/>
