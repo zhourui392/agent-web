@@ -134,9 +134,9 @@ export function isStreamJson(content: string | null | undefined): boolean {
  */
 export type StreamSegment =
   | { type: 'text'; content: string }
-  | { type: 'tool'; name: string; content: string }
+  | { type: 'tool'; name: string; content: string; callId?: string }
   | { type: 'file_change'; content: string; relativePath?: string; changeType?: string; repositoryKey?: string }
-  | { type: 'mcp_tool_call'; name: string; content: string };
+  | { type: 'mcp_tool_call'; name: string; content: string; callId?: string };
 
 export function parseStreamJson(raw: string | null | undefined): StreamSegment[] {
   if (!raw) return [];
@@ -161,9 +161,32 @@ export function parseStreamJson(raw: string | null | undefined): StreamSegment[]
         var evt = json.event;
         if (evt.type === 'content_block_start' && evt.content_block) {
           if (evt.content_block.type === 'tool_use') {
-            segments.push({ type: 'tool', name: evt.content_block.name, content: '' });
+            const callId = typeof evt.content_block.id === 'string'
+              ? evt.content_block.id : undefined;
+            const existing = callId && segments.find(segment =>
+              (segment.type === 'tool' || segment.type === 'mcp_tool_call')
+              && segment.callId === callId);
+            if (!existing) {
+              const segment: StreamSegment = {
+                type: 'tool', name: evt.content_block.name, content: '',
+              };
+              if (callId) segment.callId = callId;
+              segments.push(segment);
+            }
           } else if (evt.content_block.type === 'mcp_tool_call') {
-            segments.push({ type: 'mcp_tool_call', name: evt.content_block.name || 'mcp_tool', content: '' });
+            const callId = typeof evt.content_block.id === 'string'
+              ? evt.content_block.id : undefined;
+            const existing = callId && segments.find(segment =>
+              (segment.type === 'tool' || segment.type === 'mcp_tool_call')
+              && segment.callId === callId);
+            if (!existing) {
+              const segment: StreamSegment = {
+                type: 'mcp_tool_call',
+                name: evt.content_block.name || 'mcp_tool', content: '',
+              };
+              if (callId) segment.callId = callId;
+              segments.push(segment);
+            }
           } else if (evt.content_block.type === 'file_change') {
             segments.push({
               type: 'file_change',
@@ -201,14 +224,22 @@ export function parseStreamJson(raw: string | null | undefined): StreamSegment[]
               }
               var merged = false;
               for (var k = segments.length - 1; k >= 0; k--) {
-                if (segments[k].type === 'tool' || segments[k].type === 'mcp_tool_call') {
-                  segments[k].content = (segments[k].content || '') + '\n' + result;
+                const candidate = segments[k];
+                if ((candidate.type === 'tool' || candidate.type === 'mcp_tool_call')
+                  && (!block.tool_use_id || candidate.callId === block.tool_use_id)) {
+                  candidate.content = (candidate.content || '') + '\n' + result;
                   merged = true;
                   break;
                 }
               }
               if (!merged) {
-                segments.push({ type: 'tool', name: 'Tool Result', content: result });
+                const segment: Extract<StreamSegment, { type: 'tool' }> = {
+                  type: 'tool', name: 'Tool Result', content: result,
+                };
+                if (typeof block.tool_use_id === 'string') {
+                  segment.callId = block.tool_use_id;
+                }
+                segments.push(segment);
               }
             }
           }

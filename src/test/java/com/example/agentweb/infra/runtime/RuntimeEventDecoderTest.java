@@ -6,6 +6,7 @@ import com.example.agentweb.app.runtime.port.RuntimeEventType;
 import com.example.agentweb.app.runtime.port.SandboxMode;
 import com.example.agentweb.app.runtime.port.WorkspaceLayout;
 import com.example.agentweb.infra.cli.CodexEventNormalizer;
+import com.example.agentweb.infra.cli.ClaudeCliDialect;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
@@ -171,6 +172,102 @@ class RuntimeEventDecoderTest {
         RuntimeSemanticEvent primary = files.getEvent().getSemanticEvents().get(1);
         assertEquals("service-a", primary.getData().get("repositoryKey"));
         assertEquals("src/A.java", primary.getData().get("path"));
+    }
+
+    @Test
+    void shouldProjectClaudeToolLifecycleToChatSemanticEvents() {
+        // Given
+        ClaudeCliDialect claude = new ClaudeCliDialect();
+        String startedLine = "{\"type\":\"stream_event\","
+                + "\"event\":{\"type\":\"content_block_start\","
+                + "\"index\":1,\"content_block\":{\"type\":\"tool_use\","
+                + "\"id\":\"toolu_123\",\"name\":\"Bash\",\"input\":{}}}}";
+        String finishedLine = "{\"type\":\"user\",\"message\":{\"content\":[{"
+                + "\"type\":\"tool_result\",\"tool_use_id\":\"toolu_123\","
+                + "\"content\":[{\"type\":\"text\",\"text\":\"done\"}]}]}}";
+
+        // When
+        RuntimeEventDecoder.DecodedEvent started = decoder.decode(
+                "exec-claude", 10L, startedLine, null, null, claude);
+        RuntimeEventDecoder.DecodedEvent finished = decoder.decode(
+                "exec-claude", 11L, finishedLine, null, null, claude);
+
+        // Then
+        assertEquals(Collections.singletonList("tool_started"), eventTypes(started));
+        assertEquals("Bash", started.getEvent().getSemanticEvents().get(0)
+                .getData().get("tool"));
+        assertEquals("toolu_123", started.getEvent().getSemanticEvents().get(0)
+                .getData().get("callId"));
+        assertEquals(Collections.singletonList("tool_finished"), eventTypes(finished));
+        assertEquals("done", finished.getEvent().getSemanticEvents().get(0)
+                .getData().get("outputContent"));
+        assertEquals("SUCCEEDED", finished.getEvent().getSemanticEvents().get(0)
+                .getData().get("status"));
+    }
+
+    @Test
+    void shouldProjectClaudeBashCommandFromCompletedToolSnapshot() {
+        // Given
+        ClaudeCliDialect claude = new ClaudeCliDialect();
+        String startedLine = "{\"type\":\"stream_event\","
+                + "\"event\":{\"type\":\"content_block_start\","
+                + "\"index\":1,\"content_block\":{\"type\":\"tool_use\","
+                + "\"id\":\"toolu_bash\",\"name\":\"Bash\",\"input\":{}}}}";
+        String assistantSnapshot = "{\"type\":\"assistant\",\"message\":{"
+                + "\"content\":[{\"type\":\"tool_use\","
+                + "\"id\":\"toolu_bash\",\"name\":\"Bash\","
+                + "\"input\":{\"command\":\"pwd && ls -la\","
+                + "\"description\":\"inspect workspace\"}}]}}";
+
+        // When
+        decoder.decode("exec-claude-bash", 20L, startedLine,
+                null, null, claude);
+        RuntimeEventDecoder.DecodedEvent snapshot = decoder.decode(
+                "exec-claude-bash", 21L, assistantSnapshot,
+                null, null, claude);
+
+        // Then
+        assertEquals(Collections.singletonList("tool_started"),
+                eventTypes(snapshot));
+        assertEquals("Bash", snapshot.getEvent().getSemanticEvents().get(0)
+                .getData().get("tool"));
+        assertEquals("pwd && ls -la", snapshot.getEvent().getSemanticEvents()
+                .get(0).getData().get("commandContent"));
+    }
+
+    @Test
+    void shouldProjectClaudeBashCommandFromInputJsonDelta() {
+        // Given
+        ClaudeCliDialect claude = new ClaudeCliDialect();
+        String startedLine = "{\"type\":\"stream_event\","
+                + "\"event\":{\"type\":\"content_block_start\","
+                + "\"index\":2,\"content_block\":{\"type\":\"tool_use\","
+                + "\"id\":\"toolu_delta\",\"name\":\"Bash\",\"input\":{}}}}";
+        String deltaStart = "{\"type\":\"stream_event\","
+                + "\"event\":{\"type\":\"content_block_delta\","
+                + "\"index\":2,\"delta\":{\"type\":\"input_json_delta\","
+                + "\"partial_json\":\"{\\\"command\\\":\\\"git \"}}}";
+        String deltaEnd = "{\"type\":\"stream_event\","
+                + "\"event\":{\"type\":\"content_block_delta\","
+                + "\"index\":2,\"delta\":{\"type\":\"input_json_delta\","
+                + "\"partial_json\":\"status\\\"}\"}}}";
+
+        // When
+        decoder.decode("exec-claude-delta", 30L, startedLine,
+                null, null, claude);
+        RuntimeEventDecoder.DecodedEvent firstDelta = decoder.decode(
+                "exec-claude-delta", 31L, deltaStart,
+                null, null, claude);
+        RuntimeEventDecoder.DecodedEvent delta = decoder.decode(
+                "exec-claude-delta", 32L, deltaEnd,
+                null, null, claude);
+
+        // Then
+        assertEquals(Collections.emptyList(), eventTypes(firstDelta));
+        assertEquals(Collections.singletonList("tool_started"),
+                eventTypes(delta));
+        assertEquals("git status", delta.getEvent().getSemanticEvents().get(0)
+                .getData().get("commandContent"));
     }
 
     @Test

@@ -28,6 +28,7 @@ const createRequest = {
   repositories: ['service/a', 'web 客户端'],
   stageDefinitionIdentifiers: ['requirement-analysis', 'implementation'],
   expectedStageCatalogVersion: 7,
+  useWorktree: false,
 };
 
 function jsonResponse(status = 200, body: unknown = {}): Response {

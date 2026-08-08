@@ -205,6 +205,28 @@ describe('Runtime tool event stream projection', () => {
     expect(segments[1]).toEqual({ type: 'text', content: '完成' });
   });
 
+  it('merges a later Claude tool snapshot that supplies the Bash command', () => {
+    const initial = runtimeToolStartedToStreamJson(JSON.stringify({
+      runtimeSequence: 2,
+      tool: 'Bash',
+      callId: 'toolu-bash',
+      status: 'RUNNING',
+    }));
+    const snapshot = runtimeToolStartedToStreamJson(JSON.stringify({
+      runtimeSequence: 3,
+      tool: 'Bash',
+      callId: 'toolu-bash',
+      status: 'RUNNING',
+      commandContent: 'pwd && ls -la',
+    }));
+
+    const segments = parseStreamJson([initial, snapshot].join('\n'));
+
+    expect(segments).toHaveLength(1);
+    expect(segments[0]).toMatchObject({ type: 'tool', name: 'Bash' });
+    expect(segments[0].content).toContain('pwd && ls -la');
+  });
+
   it('ignores malformed tool payloads', () => {
     expect(runtimeToolStartedToStreamJson('{broken')).toBeNull();
     expect(runtimeToolFinishedToStreamJson(JSON.stringify({ status: 'FAILED' }))).toBeNull();

@@ -19,7 +19,10 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
 /**
@@ -50,6 +53,14 @@ public final class RuntimeEventDecoder {
     private final RuntimeOutputRedactor outputRedactor;
     private final RuntimeCommandPolicy commandPolicy;
     private final CodexEventNormalizer codexNormalizer;
+    private final Map<String, Map<String, String>> claudeToolNamesByExecution =
+            new ConcurrentHashMap<String, Map<String, String>>();
+    private final Map<String, Set<String>> claudeToolInputsByExecution =
+            new ConcurrentHashMap<String, Set<String>>();
+    private final Map<String, Map<Integer, String>> claudeToolIdsByBlockExecution =
+            new ConcurrentHashMap<String, Map<Integer, String>>();
+    private final Map<String, Map<String, StringBuilder>> claudeToolInputFragmentsByExecution =
+            new ConcurrentHashMap<String, Map<String, StringBuilder>>();
 
     public RuntimeEventDecoder(RuntimeOutputRedactor outputRedactor) {
         this(outputRedactor, RuntimeCommandPolicy.platformDefault(),
@@ -108,10 +119,18 @@ public final class RuntimeEventDecoder {
                     && root != null && "error".equals(root.path("subtype").asText())
                     ? RuntimeEventType.DIAGNOSTIC : RuntimeEventType.OUTPUT;
             String assistantText = claudeAssistantText(root);
+            List<RuntimeSemanticEvent> semanticEvents = claudeSemantics(
+                    executionId, root, capabilities);
+            if ("result".equals(type)) {
+                claudeToolNamesByExecution.remove(executionId);
+                claudeToolInputsByExecution.remove(executionId);
+                claudeToolIdsByBlockExecution.remove(executionId);
+                claudeToolInputFragmentsByExecution.remove(executionId);
+            }
             return new DecodedEvent(new RuntimeEvent(
                     executionId, sequence, eventType,
-                    type.isEmpty() ? "cli output" : type,
-                    assistantText), type, eventType == RuntimeEventType.DIAGNOSTIC, false);
+                    type.isEmpty() ? "cli output" : type, assistantText,
+                    semanticEvents), type, eventType == RuntimeEventType.DIAGNOSTIC, false);
         }
         JsonNode root = parseObject(providerLine);
         String providerEventType = providerEventType(root);
@@ -168,8 +187,243 @@ public final class RuntimeEventDecoder {
         return null;
     }
 
+    private List<RuntimeSemanticEvent> claudeSemantics(
+            String executionId, JsonNode root,
+            RuntimeCapabilityMaterialization capabilities) {
+        if (root == null) {
+            return Collections.emptyList();
+        }
+        if ("stream_event".equals(root.path("type").asText())) {
+            JsonNode event = root.path("event");
+            if ("content_block_start".equals(event.path("type").asText())
+                    && "tool_use".equals(event.path("content_block").path("type").asText())) {
+                rememberClaudeToolBlock(executionId, event);
+                return claudeToolStarted(executionId, event.path("content_block"), capabilities);
+            }
+            if ("content_block_delta".equals(event.path("type").asText())
+                    && "input_json_delta".equals(event.path("delta").path("type").asText())) {
+                return claudeToolInputDelta(executionId, event, capabilities);
+            }
+            if (!"content_block_start".equals(event.path("type").asText())
+                    || !"tool_use".equals(event.path("content_block").path("type").asText())) {
+                return Collections.emptyList();
+            }
+        }
+        if ("assistant".equals(root.path("type").asText())) {
+            return claudeAssistantToolStarts(executionId, root.path("message").path("content"),
+                    capabilities);
+        }
+        if (!"user".equals(root.path("type").asText())
+                || !root.path("message").path("content").isArray()) {
+            return Collections.emptyList();
+        }
+        List<RuntimeSemanticEvent> events = new ArrayList<RuntimeSemanticEvent>();
+        for (JsonNode block : root.path("message").path("content")) {
+            if (!"tool_result".equals(block.path("type").asText())) {
+                continue;
+            }
+            String callId = identifier(block.get("tool_use_id"));
+            if (callId == null) {
+                continue;
+            }
+            String tool = claudeToolName(executionId, callId);
+            JsonNode content = block.get("content");
+            if ((content == null || content.isNull())
+                    && root.path("tool_use_result").isTextual()) {
+                content = root.path("tool_use_result");
+            }
+            String output = safeClaudeResult(content, capabilities);
+            String status = block.path("is_error").asBoolean(false)
+                    ? "FAILED" : "SUCCEEDED";
+            events.add(RuntimeSemanticEvent.toolFinished(
+                    tool, callId, status, output));
+        }
+        return events;
+    }
+
+    private List<RuntimeSemanticEvent> claudeAssistantToolStarts(
+            String executionId, JsonNode content,
+            RuntimeCapabilityMaterialization capabilities) {
+        if (!content.isArray()) {
+            return Collections.emptyList();
+        }
+        List<RuntimeSemanticEvent> events = new ArrayList<RuntimeSemanticEvent>();
+        for (JsonNode block : content) {
+            if ("tool_use".equals(block.path("type").asText())) {
+                RuntimeSemanticEvent started = claudeToolStarted(
+                        executionId, block, capabilities).stream().findFirst().orElse(null);
+                if (started != null) {
+                    events.add(started);
+                }
+            }
+        }
+        return events;
+    }
+
+    private List<RuntimeSemanticEvent> claudeToolStarted(
+            String executionId, JsonNode block,
+            RuntimeCapabilityMaterialization capabilities) {
+        String callId = identifier(block.get("id"));
+        String tool = identifier(block.get("name"));
+        if (callId == null || tool == null) {
+            return Collections.emptyList();
+        }
+        Map<String, String> names = claudeToolNamesByExecution.computeIfAbsent(
+                executionId, ignored -> new ConcurrentHashMap<String, String>());
+        boolean firstObservation = names.putIfAbsent(callId, tool) == null;
+        String input = safeClaudeInput(tool, block.get("input"), capabilities);
+        if (!firstObservation && input == null) {
+            return Collections.emptyList();
+        }
+        if (input != null) {
+            if (!markClaudeInputProjected(executionId, callId)) {
+                return Collections.emptyList();
+            }
+        }
+        RuntimeSemanticEvent event = input == null
+                ? RuntimeSemanticEvent.toolStarted(tool, callId, "RUNNING")
+                : RuntimeSemanticEvent.toolStarted(tool, callId, "RUNNING", input);
+        return Collections.singletonList(event);
+    }
+
+    private List<RuntimeSemanticEvent> claudeToolInputDelta(
+            String executionId, JsonNode event,
+            RuntimeCapabilityMaterialization capabilities) {
+        JsonNode delta = event.path("delta");
+        String callId = identifier(delta.get("tool_use_id"));
+        Integer blockIndex = integer(event.get("index"));
+        if (callId == null && blockIndex != null) {
+            Map<Integer, String> calls = claudeToolIdsByBlockExecution.get(executionId);
+            callId = calls == null ? null : calls.get(blockIndex);
+        }
+        if (callId == null) {
+            return Collections.emptyList();
+        }
+        Map<String, String> names = claudeToolNamesByExecution.get(executionId);
+        String tool = names == null ? null : names.get(callId);
+        String partial = textual(delta.get("partial_json"));
+        if (tool == null || partial == null || partial.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Map<String, StringBuilder> fragments = claudeToolInputFragmentsByExecution.computeIfAbsent(
+                executionId, ignored -> new ConcurrentHashMap<String, StringBuilder>());
+        StringBuilder accumulated = fragments.computeIfAbsent(
+                callId, ignored -> new StringBuilder());
+        if (partial.length() > RuntimeEvent.MAX_SAFE_PAYLOAD_LENGTH
+                || accumulated.length()
+                > RuntimeEvent.MAX_SAFE_PAYLOAD_LENGTH - partial.length()) {
+            fragments.remove(callId);
+            return Collections.emptyList();
+        }
+        accumulated.append(partial);
+        JsonNode input = parseObject(accumulated.toString());
+        if (input == null || !input.isObject()) {
+            return Collections.emptyList();
+        }
+        fragments.remove(callId);
+        String command = safeClaudeInput(tool, input, capabilities);
+        if (command == null || !markClaudeInputProjected(executionId, callId)) {
+            return Collections.emptyList();
+        }
+        return Collections.singletonList(RuntimeSemanticEvent.toolStarted(
+                tool, callId, "RUNNING", command));
+    }
+
+    private boolean markClaudeInputProjected(String executionId, String callId) {
+        Set<String> projectedInputs = claudeToolInputsByExecution.computeIfAbsent(
+                executionId, ignored -> ConcurrentHashMap.newKeySet());
+        return projectedInputs.add(callId);
+    }
+
+    private void rememberClaudeToolBlock(String executionId, JsonNode event) {
+        Integer index = integer(event.get("index"));
+        String callId = identifier(event.path("content_block").get("id"));
+        if (index == null || callId == null) {
+            return;
+        }
+        Map<Integer, String> calls = claudeToolIdsByBlockExecution.computeIfAbsent(
+                executionId, ignored -> new ConcurrentHashMap<Integer, String>());
+        calls.put(index, callId);
+    }
+
+    private String claudeToolName(String executionId, String callId) {
+        Map<String, String> names = claudeToolNamesByExecution.get(executionId);
+        if (names == null) {
+            return "claude_tool";
+        }
+        String tool = names.remove(callId);
+        if (names.isEmpty()) {
+            claudeToolNamesByExecution.remove(executionId, names);
+        }
+        Set<String> projectedInputs = claudeToolInputsByExecution.get(executionId);
+        if (projectedInputs != null) {
+            projectedInputs.remove(callId);
+            if (projectedInputs.isEmpty()) {
+                claudeToolInputsByExecution.remove(executionId, projectedInputs);
+            }
+        }
+        return tool == null ? "claude_tool" : tool;
+    }
+
+    private String safeClaudeInput(
+            String tool, JsonNode input,
+            RuntimeCapabilityMaterialization capabilities) {
+        if (input == null || input.isNull() || input.isEmpty()) {
+            return null;
+        }
+        JsonNode command = input.path("command");
+        String value = "Bash".equalsIgnoreCase(tool) && command.isTextual()
+                ? command.asText()
+                : input.isTextual() ? input.asText() : input.toString();
+        return safeClaudeText(value,
+                capabilities, RuntimeEvent.MAX_SAFE_PAYLOAD_LENGTH);
+    }
+
+    private String safeClaudeResult(
+            JsonNode content, RuntimeCapabilityMaterialization capabilities) {
+        if (content == null || content.isNull()) {
+            return "";
+        }
+        StringBuilder result = new StringBuilder();
+        if (content.isArray()) {
+            for (JsonNode block : content) {
+                if (block.isTextual()) {
+                    result.append(block.asText());
+                } else if (block.path("text").isTextual()) {
+                    result.append(block.path("text").asText());
+                } else {
+                    result.append(block);
+                }
+            }
+        } else if (content.isTextual()) {
+            result.append(content.asText());
+        } else {
+            result.append(content);
+        }
+        return safeClaudeText(result.toString(), capabilities,
+                RuntimeEvent.MAX_SAFE_PAYLOAD_LENGTH);
+    }
+
+    private String safeClaudeText(
+            String value, RuntimeCapabilityMaterialization capabilities,
+            int maxLength) {
+        String redacted = capabilities == null
+                ? value : capabilities.redact(value, outputRedactor);
+        return outputRedactor.boundEvidenceLine(
+                outputRedactor.sanitizeDisplayText(redacted), maxLength);
+    }
+
     public String providerEventType(String providerLine) {
         return providerEventType(parseObject(providerLine));
+    }
+
+    void clearExecution(String executionId) {
+        if (executionId != null) {
+            claudeToolNamesByExecution.remove(executionId);
+            claudeToolInputsByExecution.remove(executionId);
+            claudeToolIdsByBlockExecution.remove(executionId);
+            claudeToolInputFragmentsByExecution.remove(executionId);
+        }
     }
 
     private boolean isWorkbenchSpecificEvent(

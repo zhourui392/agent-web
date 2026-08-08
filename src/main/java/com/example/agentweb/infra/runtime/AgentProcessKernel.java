@@ -561,6 +561,7 @@ public final class AgentProcessKernel implements AutoCloseable {
                           RuntimeTerminationReason reason) {
         context.closeWatchdog();
         context.releaseTiming();
+        eventDecoder.clearExecution(context.getHandle().getExecutionId());
         context.getCapabilities().close();
         RuntimeCleanup.CleanupResult cleanupResult = cleanup.cleanup(
                 context.getWorkspace().getExecutionRoot());
