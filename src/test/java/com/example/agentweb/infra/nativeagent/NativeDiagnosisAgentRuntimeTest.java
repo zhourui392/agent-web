@@ -16,8 +16,12 @@ import com.example.agentweb.app.runtime.port.AgentExecutionPlan;
 import com.example.agentweb.app.runtime.port.ExecutionIdentity;
 import com.example.agentweb.app.runtime.port.PromptPayload;
 import com.example.agentweb.app.runtime.port.RuntimeEventSink;
+import com.example.agentweb.app.runtime.port.RuntimeHandle;
+import com.example.agentweb.app.runtime.port.RuntimeObservation;
 import com.example.agentweb.app.runtime.port.RuntimeLimits;
 import com.example.agentweb.app.runtime.port.RuntimeSelection;
+import com.example.agentweb.app.runtime.port.RuntimeState;
+import com.example.agentweb.app.runtime.port.RuntimeTerminationReason;
 import com.example.agentweb.app.runtime.port.RuntimeVersionPolicy;
 import com.example.agentweb.app.runtime.port.SandboxMode;
 import com.example.agentweb.app.runtime.port.WorkspaceLayout;
@@ -40,6 +44,9 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
@@ -273,6 +280,62 @@ class NativeDiagnosisAgentRuntimeTest {
         verify(overrideEngine).run(any(RunRequest.class), any(), any());
         org.mockito.Mockito.verifyNoInteractions(profileEngine);
         org.mockito.Mockito.verifyNoInteractions(testEngine);
+    }
+
+    @Test
+    void nativeExecution_shouldNeverExposeStopRequestedAfterConcurrentTermination()
+            throws Exception {
+        Class<?> executionType = Class.forName(
+                "com.example.agentweb.infra.nativeagent.NativeDiagnosisAgentRuntime$NativeExecution");
+        java.lang.reflect.Constructor<?> constructor = executionType
+                .getDeclaredConstructor(RuntimeHandle.class, DiagnoseEngine.class,
+                        RuntimeEventSink.class);
+        constructor.setAccessible(true);
+        java.lang.reflect.Method requestStop = executionType
+                .getDeclaredMethod("requestStop");
+        java.lang.reflect.Method terminate = executionType.getDeclaredMethod(
+                "terminate", int.class, RuntimeTerminationReason.class);
+        java.lang.reflect.Method observe = executionType.getDeclaredMethod("observe");
+        requestStop.setAccessible(true);
+        terminate.setAccessible(true);
+        observe.setAccessible(true);
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            for (int attempt = 0; attempt < 2_000; attempt++) {
+                // Given
+                RuntimeHandle handle = new RuntimeHandle("race-" + attempt,
+                        "native-race-" + attempt);
+                Object execution = constructor.newInstance(handle, engine,
+                        (RuntimeEventSink) event -> { });
+                CyclicBarrier barrier = new CyclicBarrier(3);
+
+                // When
+                executor.submit(() -> invokeAtBarrier(requestStop, execution, barrier));
+                executor.submit(() -> invokeAtBarrier(terminate, execution, barrier,
+                        -1, RuntimeTerminationReason.COMPLETED));
+                barrier.await(5L, TimeUnit.SECONDS);
+                barrier.await(5L, TimeUnit.SECONDS);
+
+                // Then
+                RuntimeObservation observation = (RuntimeObservation) observe.invoke(execution);
+                assertEquals(RuntimeState.TERMINATED, observation.getState(),
+                        "terminal execution must not regress to STOP_REQUESTED");
+            }
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    private void invokeAtBarrier(java.lang.reflect.Method method, Object target,
+                                 CyclicBarrier barrier, Object... arguments) {
+        try {
+            barrier.await(5L, TimeUnit.SECONDS);
+            method.invoke(target, arguments);
+            barrier.await(5L, TimeUnit.SECONDS);
+        } catch (Exception failure) {
+            throw new AssertionError(failure);
+        }
     }
 
     @Test

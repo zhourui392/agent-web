@@ -111,6 +111,16 @@ public final class RuntimeProcessRegistry {
         return Collections.unmodifiableList(handles);
     }
 
+    /** Returns the active handle for a compatibility caller keyed by execution id. */
+    Optional<RuntimeHandle> activeHandle(String executionId) {
+        if (executionId == null || executionId.trim().isEmpty()) {
+            return Optional.empty();
+        }
+        Entry entry = byExecutionId.get(executionId);
+        return entry != null && entry.isActive()
+                ? Optional.of(entry.getHandle()) : Optional.<RuntimeHandle>empty();
+    }
+
     private Entry entry(RuntimeHandle handle) {
         if (handle == null) {
             return null;

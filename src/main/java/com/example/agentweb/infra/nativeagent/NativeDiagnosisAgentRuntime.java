@@ -32,6 +32,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 /**
@@ -462,11 +463,10 @@ public final class NativeDiagnosisAgentRuntime
         private final RuntimeHandle handle;
         private final DiagnoseEngine engine;
         private final RuntimeEventSink sink;
-        private final AtomicBoolean stopRequested = new AtomicBoolean();
-        private final AtomicBoolean terminated = new AtomicBoolean();
+        private final AtomicReference<RuntimeState> state =
+                new AtomicReference<RuntimeState>(RuntimeState.RUNNING);
         private final java.util.concurrent.atomic.AtomicLong sequence =
                 new java.util.concurrent.atomic.AtomicLong();
-        private volatile RuntimeState state = RuntimeState.RUNNING;
         private volatile RuntimeTerminationReason terminationReason;
         private volatile int exitCode = -1;
         private volatile long outputBytes;
@@ -486,17 +486,13 @@ public final class NativeDiagnosisAgentRuntime
             return engine;
         }
 
-        private boolean requestStop() {
-            if (terminated.get()) {
-                return false;
-            }
-            stopRequested.set(true);
-            state = RuntimeState.STOP_REQUESTED;
-            return true;
+        private synchronized boolean requestStop() {
+            return state.compareAndSet(RuntimeState.RUNNING,
+                    RuntimeState.STOP_REQUESTED);
         }
 
         private boolean isStopRequested() {
-            return stopRequested.get();
+            return state.get() == RuntimeState.STOP_REQUESTED;
         }
 
         private synchronized void emit(RuntimeEventType type, String payload) {
@@ -514,21 +510,22 @@ public final class NativeDiagnosisAgentRuntime
             }
         }
 
-        private void terminate(int exitCode, RuntimeTerminationReason reason) {
-            if (!terminated.compareAndSet(false, true)) {
+        private synchronized void terminate(int exitCode, RuntimeTerminationReason reason) {
+            if (state.get() == RuntimeState.TERMINATED) {
                 return;
             }
             this.exitCode = exitCode;
             this.terminationReason = reason;
-            this.state = RuntimeState.TERMINATED;
+            state.set(RuntimeState.TERMINATED);
             emit(RuntimeEventType.TERMINATED, "native runtime terminated: " + reason.name().toLowerCase());
         }
 
-        private RuntimeObservation observe() {
-            if (state == RuntimeState.RUNNING) {
+        private synchronized RuntimeObservation observe() {
+            RuntimeState current = state.get();
+            if (current == RuntimeState.RUNNING) {
                 return RuntimeObservation.running(handle, outputBytes);
             }
-            if (state == RuntimeState.STOP_REQUESTED) {
+            if (current == RuntimeState.STOP_REQUESTED) {
                 return RuntimeObservation.stopRequested(handle, outputBytes);
             }
             return RuntimeObservation.terminated(handle, exitCode, terminationReason, outputBytes);
