@@ -14,7 +14,7 @@ import { loginAdminUI } from './_admin';
  */
 // 实际存在的 admin 页面 (frontend/admin/*.html)。新增页面时补进来。
 const ADMIN_PAGES = [
-  'dashboard', 'conversations', 'workflows', 'recall',
+  'dashboard', 'conversations', 'recall',
   'refinery', 'chat', 'settings', 'users',
 ];
 

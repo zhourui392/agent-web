@@ -10,7 +10,6 @@ public enum RunForm {
     CHAT,
     // 诊断子系统已摘除，DIAGNOSE 为历史枚举，无活跃生产者，保留以兼容既有召回策略与测试夹具。
     DIAGNOSE,
-    WORKFLOW_STEP,
     SCHEDULED,
     CUSTOM
 }

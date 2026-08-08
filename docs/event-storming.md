@@ -8,10 +8,8 @@
 flowchart LR
     Browser[浏览器] --> Auth[Auth]
     Browser --> Chat[Chat]
-    Browser --> Workflow[Workflow]
     Browser --> Schedule[Schedule]
     Chat --> AgentRun[AgentRun]
-    Workflow --> AgentRun
     Schedule --> AgentRun
     AgentRun --> CLI[Claude / Codex CLI]
     Chat --> Refinery[Refinery]
@@ -20,7 +18,6 @@ flowchart LR
     ChatRun --> Runtime[Runtime / Capability]
     Refinery --> Embedding[Embedding API]
     Chat --> Git[Git Config]
-    Workflow --> Git
 ```
 
 ## Chat Context
@@ -49,16 +46,6 @@ flowchart LR
 **Aggregates**：`UserAccount`、`ManualSession`。
 
 **Policies**：密码只保存 BCrypt 哈希；会话令牌随机生成且持久化哈希；登录失败按来源和用户名限流；管理接口在普通会话认证后追加角色校验。
-
-## Workflow Context
-
-**Commands**：CreateWorkflow · UpdateWorkflow · DeleteWorkflow · RunWorkflow · QueryExecution。
-
-**Events / Outcomes**：WorkflowSaved · ExecutionStarted · StepStarted · StepSucceeded · StepFailed · ExecutionSucceeded · ExecutionFailed。
-
-**Aggregates**：`Workflow`、`WorkflowExecution`。
-
-**Policy**：步骤按顺序执行；任一步失败即停止余下步骤并结束本次 execution。每一步通过 AgentRun 组装 prompt 后驱动 CLI。
 
 ## Schedule Context
 
@@ -100,7 +87,7 @@ issue-log 写侧当前没有在线命令或 Controller，但保留 `IssueLogEntr
 
 ## 跨上下文协作
 
-- Chat / Workflow / Schedule → AgentRun：统一 prompt 组装与 CLI 调用。
+- Chat / Schedule → AgentRun：统一 prompt 组装与 CLI 调用。
 - Chat → Refinery：静默会话进入异步评分和向量化；召回结果在发送消息前贡献上下文。
 - Auth → 所有 Web 上下文：过滤器绑定 `LoginUser`，领域策略和查询服务按用户隔离数据。
 - Git → CLI Infrastructure：当前用户的 identity 和可选凭据注入子进程环境。

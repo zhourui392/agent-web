@@ -7,13 +7,13 @@
 ```text
 src/main/java/com/example/agentweb/
 ├── interfaces/   REST Controller + DTO（Chat / Fs / Auth / Share / Worktree / ScheduledTask /
-│                 AdminWorkflow / GitConfig / Metrics / RecallMetrics / Refinery* / Workbench / Admin*）
-├── app/          应用编排（无业务逻辑）：agentrun、chat、scheduled-task、workflow、git、metrics、
+│                 GitConfig / Metrics / RecallMetrics / Refinery* / Workbench / Admin*）
+├── app/          应用编排（无业务逻辑）：agentrun、chat、scheduled-task、git、metrics、
 │                 refinery、workbench、runtime；外部能力端口位于相应子域的 port 或边界包
-├── domain/       聚合根、值对象、领域服务和写侧仓储端口：chat、workflow、git、refinery、
+├── domain/       聚合根、值对象、领域服务和写侧仓储端口：chat、git、refinery、
 │                 issuelog、auth、schedule、slashcommand、worktree、workbench、workspace、
 │                 capability、runtime、shared
-├── infra/        CLI 方言与进程、SQLite、auth、workflow、git、schedule、log、metrics、refinery、
+├── infra/        CLI 方言与进程、SQLite、auth、git、schedule、log、metrics、refinery、
 │                 issuelog、workbench、workspace、capability、runtime、setting 等外部适配
 └── config/       Web MVC、Spring 装配和配置 Properties（含 capability、runtime、workbench）
 
@@ -91,7 +91,6 @@ Playwright 必须在 `tests/` 目录运行，或者从仓库根显式传入 `-c 
 - `WorktreeControllerTest` / `BranchNameValidatorTest`：Worktree 与分支名校验。
 - `cli/Claude|CodexCliDialectTest` / `cli/*EventNormalizer*Test`：CLI 方言与事件归一化。
 - `infra/AgentCliGatewayTest` / `infra/AgentTypeResolverTest`：网关与类型兜底。
-- `app/workflow/*` / `domain/workflow/*` / `infra/workflow/*`：多步工作流编排与持久化。
 - `domain/refinery/*` / `app/refinery/*` / `infra/refinery/*`：知识精炼评分、召回重排、embedding 和向量库。
 - `domain/workbench/*` / `app/workbench/*` / `infra/workbench/*` / `interfaces/workbench/*`：Workbench 不变量、编排、SQLite/文件适配和 API。
 - `ArchitectureTest`：分层约束和 Spring AOP 代理类不得 `final` 等架构守卫。

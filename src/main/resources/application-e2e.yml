@@ -20,8 +20,6 @@ agent:
     protected-prefixes:
       - /api/metrics
       - /api/admin-users
-      - /api/admin-workflows
-      - /api/admin-workflow-executions
       - /api/admin-settings
       - /api/refinery
   # 斜杠命令固定指向仓库内 fixtures, 让 e2e 命令补全确定可复现, 不受开发机 ~/.claude 影响。

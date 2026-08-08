@@ -73,8 +73,6 @@ public class AdminAuthFilterTest {
     @ValueSource(strings = {
             "/api/metrics/overview",
             "/api/admin-users",
-            "/api/admin-workflows",
-            "/api/admin-workflow-executions/exec-1",
             "/api/admin-settings",
             "/api/admin/workbenches/workbench-1/runs/run-1/stop",
             "/api/refinery/rebuild-recent",
@@ -91,8 +89,6 @@ public class AdminAuthFilterTest {
     @ValueSource(strings = {
             "/api/metrics/overview",
             "/api/admin-users",
-            "/api/admin-workflows",
-            "/api/admin-workflow-executions/exec-1",
             "/api/admin-settings",
             "/api/admin/workbenches/workbench-1/runs/run-1/reconcile",
             "/api/refinery/rebuild-recent",
@@ -111,8 +107,6 @@ public class AdminAuthFilterTest {
     @ValueSource(strings = {
             "/api/metrics/overview",
             "/api/admin-users",
-            "/api/admin-workflows",
-            "/api/admin-workflow-executions/exec-1",
             "/api/admin-settings",
             "/api/admin/workbenches/workbench-1",
             "/api/refinery/rebuild-recent",

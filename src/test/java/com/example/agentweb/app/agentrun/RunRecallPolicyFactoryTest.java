@@ -2,7 +2,11 @@ package com.example.agentweb.app.agentrun;
 
 import com.example.agentweb.domain.refinery.SourceType;
 import com.example.agentweb.config.AgentRunProperties;
+import com.example.agentweb.app.runtime.port.AgentRuntimeSurface;
+import com.example.agentweb.domain.agentrun.AgentSurface;
 import org.junit.jupiter.api.Test;
+
+import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -56,5 +60,15 @@ public class RunRecallPolicyFactoryTest {
         assertFalse(context.getRecallPolicy().isWorkspaceContextEnabled());
         assertFalse(context.getRecallPolicy().isWorkspaceKnowledgeEnabled());
         assertFalse(context.getRecallPolicy().isHistoricalRagEnabled());
+    }
+
+    @Test
+    public void workflowSurface_shouldNoLongerBeExposed() {
+        assertFalse(Arrays.stream(AgentSurface.values())
+                .anyMatch(surface -> "WORKFLOW".equals(surface.name())));
+        assertFalse(Arrays.stream(AgentRuntimeSurface.values())
+                .anyMatch(surface -> "WORKFLOW".equals(surface.name())));
+        assertFalse(Arrays.stream(RunForm.values())
+                .anyMatch(form -> "WORKFLOW_STEP".equals(form.name())));
     }
 }

@@ -21,7 +21,6 @@ export default [
       'js/admin/pages/Conversations.vue',
       'js/admin/pages/ToolInvocationAnalytics.vue',
       'js/admin/pages/Refinery.vue',
-      'js/admin/pages/Workflows.vue',
       'js/admin/pages/Recall.vue',
       'js/admin/pages/Workbenches.vue',
       'js/admin/pages/Capabilities.vue',

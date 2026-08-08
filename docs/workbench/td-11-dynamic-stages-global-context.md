@@ -63,7 +63,7 @@ Stage Run ──提出文档候选──> Owner 确认 ──> Workbench Global 
 
 ## 3. 适用范围与取代关系
 
-本设计是当前 Workbench 实现合同，在冲突范围内取代固定工作单元、阶段交接、专属评审和阶段能力覆盖设计。其他通用 Chat、Workflow 或 Runtime 中出现的 review、handoff 概念不在本设计范围内。
+本设计是当前 Workbench 实现合同，在冲突范围内取代固定工作单元、阶段交接、专属评审和阶段能力覆盖设计。其他通用 Chat 或 Runtime 中出现的 review、handoff 概念不在本设计范围内。
 
 继续保留的公共能力包括：
 

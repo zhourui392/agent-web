@@ -10,7 +10,6 @@ public enum AgentSurface {
     CHAT,
     DEFAULT,
     SCHEDULE,
-    WORKFLOW,
     WORKBENCH,
     REFINERY
 }

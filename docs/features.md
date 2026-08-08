@@ -39,6 +39,5 @@ Knowledge Refinery 默认关闭：
 
 ## 平台运维
 
-- **管理台** — `/admin` 使用数据库 `ADMIN` 角色鉴权，提供使用概览、对话浏览、用户账号创建、工作流管理、RAG 语料维护、运行时设置，以及 Workbench 查询、Stop 和 Reconcile 运维。
-- **工作流编排** — 定义可复用的多步 workflow，每步使用独立 prompt 模板，并按步记录执行结果。
+- **管理台** — `/admin` 使用数据库 `ADMIN` 角色鉴权，提供使用概览、对话浏览、用户账号创建、RAG 语料维护、运行时设置，以及 Workbench 查询、Stop 和 Reconcile 运维。
 - **每用户 Git 身份** — 各用户配置自己的 Git identity 与 SCM 凭据；密码加密存储且不回显，用于交付提交归属与解析凭据链。

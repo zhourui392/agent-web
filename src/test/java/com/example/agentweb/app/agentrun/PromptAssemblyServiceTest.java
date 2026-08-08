@@ -182,8 +182,8 @@ public class PromptAssemblyServiceTest {
         Path root = Files.createDirectory(tempDir.resolve("repo"));
         PromptAssemblyService service = service(new EnvProperties(), root);
         AgentRunContext context = AgentRunContext.builder()
-                .originalInput("普通工作流问题")
-                .runForm(RunForm.WORKFLOW_STEP)
+                .originalInput("普通问题")
+                .runForm(RunForm.CUSTOM)
                 .sourceDomain(SourceType.GENERAL)
                 .agentType(AgentType.CODEX)
                 .workingDir(root.toString())

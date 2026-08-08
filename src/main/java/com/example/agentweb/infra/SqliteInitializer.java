@@ -165,7 +165,6 @@ public class SqliteInitializer {
             }
         }
         migrateChatRecallObservation();
-        migrateWorkflowTables();
         createToolInvocationStatisticsIndexes();
         migrateWorkbenchWorktree();
     }
@@ -323,52 +322,6 @@ public class SqliteInitializer {
                 + "created_at, updated_at, last_run_at, last_session_id FROM scheduled_task");
         jdbc.execute("DROP TABLE scheduled_task");
         jdbc.execute("ALTER TABLE scheduled_task_new RENAME TO scheduled_task");
-    }
-
-    private void migrateWorkflowTables() {
-        try {
-            jdbc.execute("CREATE TABLE IF NOT EXISTS workflow_definition ("
-                    + "id TEXT PRIMARY KEY, "
-                    + "name TEXT NOT NULL, "
-                    + "description TEXT, "
-                    + "agent_type TEXT NOT NULL, "
-                    + "working_dir TEXT NOT NULL, "
-                    + "steps_json TEXT NOT NULL, "
-                    + "enabled INTEGER NOT NULL DEFAULT 1, "
-                    + "created_by TEXT, "
-                    + "created_at INTEGER NOT NULL, "
-                    + "updated_at INTEGER NOT NULL)");
-            jdbc.execute("CREATE INDEX IF NOT EXISTS idx_workflow_definition_created "
-                    + "ON workflow_definition(created_at)");
-            jdbc.execute("CREATE TABLE IF NOT EXISTS workflow_execution ("
-                    + "id TEXT PRIMARY KEY, "
-                    + "workflow_id TEXT NOT NULL, "
-                    + "status TEXT NOT NULL, "
-                    + "inputs_json TEXT, "
-                    + "started_at INTEGER NOT NULL, "
-                    + "finished_at INTEGER, "
-                    + "error_message TEXT, "
-                    + "created_by TEXT)");
-            jdbc.execute("CREATE INDEX IF NOT EXISTS idx_workflow_execution_workflow "
-                    + "ON workflow_execution(workflow_id, started_at)");
-            jdbc.execute("CREATE INDEX IF NOT EXISTS idx_workflow_execution_status "
-                    + "ON workflow_execution(status)");
-            jdbc.execute("CREATE TABLE IF NOT EXISTS workflow_step_execution ("
-                    + "id TEXT PRIMARY KEY, "
-                    + "execution_id TEXT NOT NULL, "
-                    + "step_index INTEGER NOT NULL, "
-                    + "step_name TEXT NOT NULL, "
-                    + "status TEXT NOT NULL, "
-                    + "prompt TEXT NOT NULL, "
-                    + "output TEXT, "
-                    + "error_message TEXT, "
-                    + "started_at INTEGER NOT NULL, "
-                    + "finished_at INTEGER)");
-            jdbc.execute("CREATE INDEX IF NOT EXISTS idx_workflow_step_execution_execution "
-                    + "ON workflow_step_execution(execution_id, step_index)");
-        } catch (Exception ignored) {
-            // 建表迁移失败交给后续仓储访问暴露真实错误,避免启动因老库单点脏状态直接中断。
-        }
     }
 
 }

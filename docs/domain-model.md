@@ -8,7 +8,6 @@
 | --- | --- | --- | --- |
 | chat | 核心域 | 会话、消息、反馈、恢复、回退与分享 | `ChatSession`、`ChatMessage` |
 | auth | 支撑域 | 用户名密码认证、数据库会话、角色与用户隔离 | `UserAccount`、`ManualSession` |
-| workflow | 支撑域 | 管理台可配置的多步 Agent 工作流 | `Workflow`、`WorkflowExecution` |
 | refinery | 核心域 | 会话评分、向量化、召回、归档与观测 | `RagChunk`、`RecallCandidate` |
 | git | 支撑域 | 每用户 Git 身份及加密凭据 | `UserGitConfig`、`GitIdentity` |
 | schedule | 支撑域 | Cron Agent 任务生命周期 | `ScheduledTask` |
@@ -19,7 +18,7 @@
 | issuelog | 诊断预留 | 后续诊断使用的 issue-log 文件生成、去重、合并与锁 | `IssueLogEntry` |
 | metrics | 读模型 | 管理台指标和召回观测 | DTO / Query Service |
 
-`AgentType` 位于 `domain/shared`，供聊天、工作流、定时任务和 CLI 适配共同引用。Chat 的 `AgentGateway` 位于 `app/agentrun/port`，Workbench 使用 `app/runtime/port` 的执行端口；两者均由 Infrastructure 适配器实现。
+`AgentType` 位于 `domain/shared`，供聊天、定时任务和 CLI 适配共同引用。Chat 的 `AgentGateway` 位于 `app/agentrun/port`，Workbench 使用 `app/runtime/port` 的执行端口；两者均由 Infrastructure 适配器实现。
 
 ## 分层边界
 
@@ -71,12 +70,6 @@ infra       -> SQLite、文件系统、CLI 子进程、HTTP 客户端、认证�
 
 单个 contributor 失败时降级为空，不阻断 run。当前用户输入只由 `UserInputContributor` 注入，避免重复。组装结果包含 prompt parts 和 SHA-256 hash，供日志观测。
 
-## Workflow
-
-`Workflow` 是可编辑的多步定义，包含名称、Agent 类型、工作目录和有序步骤。`WorkflowExecution` 与 `WorkflowStepExecution` 记录一次运行及各步骤的输入、输出和终态。
-
-`WorkflowRunner` 顺序执行步骤，并通过 AgentRun 管线组装 prompt；某一步失败后停止后续步骤并把整体运行标记为 `FAILED`。管理台接口只负责编排与 DTO 转换。
-
 ## Refinery
 
 Refinery 默认关闭。启用后，`ChatRefineryTrigger` 找到静默会话，`ConversationRefinery` 评分并结构化摘要，Embedding 客户端生成向量，`RagChunkRepository` 持久化 chunk。
@@ -96,6 +89,6 @@ Refinery 默认关闭。启用后，`ChatRefineryTrigger` 找到静默会话，`
 
 ## 存储
 
-SQLite 保存用户、登录会话、聊天会话、消息、反馈、定时任务、工作流、RAG chunk、召回观测、Git 配置、运行时设置和 ChatRun 事件。上传文件、图片与 issue-log 使用文件系统；活跃聊天会话使用有界内存缓存。
+SQLite 保存用户、登录会话、聊天会话、消息、反馈、定时任务、RAG chunk、召回观测、Git 配置、运行时设置和 ChatRun 事件。上传文件、图片与 issue-log 使用文件系统；活跃聊天会话使用有界内存缓存。
 
 新安装数据库以 `schema.sql` 为准，兼容性列和表由 `SqliteInitializer` 做幂等迁移。

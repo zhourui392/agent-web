@@ -7,7 +7,7 @@ import com.example.agentweb.domain.shared.AgentType;
  * "一次性请求-响应"场景而设;不创建 ChatSession / DiagnoseTask,
  * 阻塞直到子进程退出或超时。
  *
- * <p>该端口专供 Workflow、Refinery 等需要独立同步 CLI 调用的应用用例；
+ * <p>该端口专供 Refinery 等需要独立同步 CLI 调用的应用用例；
  * 普通聊天统一使用可恢复的 ChatRun 流式链路。</p>
  * <ul>
  *   <li>显式 {@code timeoutSeconds} 参数,不复用 agent 全局超时</li>

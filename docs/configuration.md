@@ -56,7 +56,7 @@ agent:
     enabled: false
   runtime:
     workbench-enabled: <见 application.yml>
-    chat-enabled: false
+    chat-enabled: <见 application.yml>
   workbench:
     enabled: <见 application.yml>
     create-enabled: <见 application.yml>

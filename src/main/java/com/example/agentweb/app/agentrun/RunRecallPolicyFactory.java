@@ -24,7 +24,7 @@ public class RunRecallPolicyFactory {
 
     /** workspace 知识预召回默认放行的 run 形态。 */
     private static final Set<RunForm> WORKSPACE_KNOWLEDGE_FORMS = EnumSet.of(
-            RunForm.DIAGNOSE, RunForm.WORKFLOW_STEP, RunForm.SCHEDULED);
+            RunForm.DIAGNOSE, RunForm.SCHEDULED);
 
     public RunRecallPolicy forRun(RunForm runForm, SourceType sourceDomain) {
         boolean defaultWorkspaceKnowledge = WORKSPACE_KNOWLEDGE_FORMS.contains(runForm);

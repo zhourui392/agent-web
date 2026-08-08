@@ -28,7 +28,6 @@ type="primary" size="large" style="width:100%; margin-top:16px;"
             <el-menu-item index="capabilities"><span>阶段能力配置</span></el-menu-item>
             <el-menu-item index="tool-invocation-analytics"><span>工具分析</span></el-menu-item>
             <el-menu-item index="users"><span>用户管理</span></el-menu-item>
-            <el-menu-item index="workflows"><span>工作流</span></el-menu-item>
             <el-menu-item index="recall"><span>召回观测</span></el-menu-item>
             <el-menu-item v-if="ragEnabled" index="refinery"><span>召回历史</span></el-menu-item>
             <el-menu-item index="chat"><span>对话</span></el-menu-item>

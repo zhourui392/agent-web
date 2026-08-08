@@ -225,8 +225,6 @@ agent:
     protected-prefixes:
       - /api/metrics
       - /api/admin-users
-      - /api/admin-workflows
-      - /api/admin-workflow-executions
       - /api/admin-settings
       - /api/admin/workbenches
       - /api/refinery
@@ -243,7 +241,7 @@ agent:
   runtime:
     # Workbench 与普通 Chat 独立迁移；开启 Workbench 不得改变 Claude/recall/resume Chat 路径。
     workbench-enabled: ${AGENT_COMMON_RUNTIME_WORKBENCH_ENABLED:${AGENT_COMMON_RUNTIME_ENABLED:true}}
-    chat-enabled: ${AGENT_COMMON_RUNTIME_CHAT_ENABLED:false}
+    chat-enabled: ${AGENT_COMMON_RUNTIME_CHAT_ENABLED:true}
     codex-command: ${CODEX_CMD:codex}
     sandbox-bypass: ${CODEX_SANDBOX_BYPASS:true}
     temp-root: ${AGENT_COMMON_RUNTIME_TEMP_ROOT:data/runtime}

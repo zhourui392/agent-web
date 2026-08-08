@@ -12,7 +12,6 @@ const MENU_SLUG: Record<string, string> = {
   '大盘': 'dashboard',
   '对话记录': 'conversations',
   '工具分析': 'tool-invocation-analytics',
-  '工作流': 'workflows',
   '召回观测': 'recall',
   '召回历史': 'refinery',
   '对话': 'chat',

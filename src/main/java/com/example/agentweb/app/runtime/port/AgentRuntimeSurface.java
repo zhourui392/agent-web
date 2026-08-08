@@ -10,6 +10,5 @@ public enum AgentRuntimeSurface {
     CHAT,
     WORKBENCH,
     SCHEDULE,
-    WORKFLOW,
     REFINERY
 }
