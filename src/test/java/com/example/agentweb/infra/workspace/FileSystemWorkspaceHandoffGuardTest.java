@@ -38,6 +38,7 @@ class FileSystemWorkspaceHandoffGuardTest {
         assertTrue(Files.isRegularFile(gitignore));
         String content = Files.readString(gitignore, StandardCharsets.UTF_8);
         assertTrue(content.contains(".workbench/handoff/"));
+        assertTrue(content.contains(".worktrees/"));
     }
 
     @Test
@@ -54,13 +55,15 @@ class FileSystemWorkspaceHandoffGuardTest {
         assertTrue(content.contains("target/"));
         assertTrue(content.contains("*.class"));
         assertTrue(content.contains(".workbench/handoff/"));
+        assertTrue(content.contains(".worktrees/"));
     }
 
     @Test
     void shouldBeIdempotentWhenEntryAlreadyPresent() throws IOException {
         Path repo = newGitRepo("service-a");
         Files.writeString(repo.resolve(".gitignore"),
-                "target/\n.workbench/handoff/\n", StandardCharsets.UTF_8);
+                "target/\n.workbench/handoff/\n.worktrees/\n",
+                StandardCharsets.UTF_8);
         RepositoryScope scope = scope("service-a", repo);
 
         new FileSystemWorkspaceHandoffGuard().ensureHandoffIgnored(scope);
@@ -71,6 +74,29 @@ class FileSystemWorkspaceHandoffGuardTest {
                 .filter(line -> line.contains(".workbench/handoff/"))
                 .count();
         assertEquals(1, count, "entry should not be duplicated");
+        long worktreeCount = content.lines()
+                .filter(line -> line.contains(".worktrees/"))
+                .count();
+        assertEquals(1, worktreeCount, "worktree entry should not be duplicated");
+    }
+
+    @Test
+    void shouldAddWorktreeEntryWhenHandoffEntryAlreadyPresent() throws IOException {
+        Path repo = newGitRepo("service-a");
+        Files.writeString(repo.resolve(".gitignore"),
+                ".workbench/handoff/\n", StandardCharsets.UTF_8);
+        RepositoryScope scope = scope("service-a", repo);
+
+        new FileSystemWorkspaceHandoffGuard().ensureHandoffIgnored(scope);
+
+        String content = Files.readString(
+                repo.resolve(".gitignore"), StandardCharsets.UTF_8);
+        assertEquals(1, content.lines()
+                .filter(line -> line.contains(".workbench/handoff/"))
+                .count());
+        assertEquals(1, content.lines()
+                .filter(line -> line.contains(".worktrees/"))
+                .count());
     }
 
     @Test

@@ -14,7 +14,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 
 /**
- * 在主仓库 .gitignore 中追加 .workbench/handoff/ 条目，best-effort 不阻断创建。
+ * 在主仓库 .gitignore 中追加 Workbench 自有产物条目，best-effort 不阻断创建。
  *
  * @author alex
  * @since 2026-08-06
@@ -26,10 +26,10 @@ public class FileSystemWorkspaceHandoffGuard implements WorkspaceHandoffGuard {
             FileSystemWorkspaceHandoffGuard.class);
 
     private static final String HANDOFF_IGNORE_ENTRY = ".workbench/handoff/";
+    private static final String WORKTREE_IGNORE_ENTRY = ".worktrees/";
     private static final String GITIGNORE_FILE = ".gitignore";
-    private static final String APPEND_CONTENT =
-            "\n# agent-web workbench handoff artifacts\n"
-                    + HANDOFF_IGNORE_ENTRY + "\n";
+    private static final String APPEND_HEADER =
+            "\n# agent-web workbench artifacts\n";
 
     @Override
     public void ensureHandoffIgnored(RepositoryScope scope) {
@@ -43,21 +43,27 @@ public class FileSystemWorkspaceHandoffGuard implements WorkspaceHandoffGuard {
         Path repoRoot = Path.of(primary.getRepositoryRoot());
         Path gitignore = repoRoot.resolve(GITIGNORE_FILE);
         try {
-            ensureEntry(gitignore);
+            ensureEntries(gitignore);
         } catch (IOException failure) {
             log.warn("workbench-handoff-gitignore-failed repoRoot={} reason={}",
                     repoRoot, failure.getMessage());
         }
     }
 
-    private void ensureEntry(Path gitignore) throws IOException {
+    private void ensureEntries(Path gitignore) throws IOException {
         String content = readExisting(gitignore);
-        if (content.contains(HANDOFF_IGNORE_ENTRY)) {
+        StringBuilder additions = new StringBuilder();
+        if (!content.contains(HANDOFF_IGNORE_ENTRY)) {
+            additions.append(HANDOFF_IGNORE_ENTRY).append('\n');
+        }
+        if (!content.contains(WORKTREE_IGNORE_ENTRY)) {
+            additions.append(WORKTREE_IGNORE_ENTRY).append('\n');
+        }
+        if (additions.length() == 0) {
             return;
         }
-        String appended = content.isEmpty()
-                ? APPEND_CONTENT.stripLeading()
-                : content + APPEND_CONTENT;
+        String prefix = content.isEmpty() ? APPEND_HEADER.stripLeading() : APPEND_HEADER;
+        String appended = content + prefix + additions;
         Files.writeString(gitignore, appended, StandardCharsets.UTF_8,
                 StandardOpenOption.CREATE, StandardOpenOption.WRITE,
                 StandardOpenOption.TRUNCATE_EXISTING);

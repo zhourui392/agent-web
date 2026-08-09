@@ -76,6 +76,8 @@ out/
 
 # agent-web workbench handoff artifacts
 .workbench/handoff/
+# agent-web worktree artifacts
+.worktrees/
 
 # CommandCode 本地配置/缓存
 .commandcode/

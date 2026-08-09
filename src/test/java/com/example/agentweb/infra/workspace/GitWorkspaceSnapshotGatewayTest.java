@@ -92,6 +92,29 @@ class GitWorkspaceSnapshotGatewayTest {
     }
 
     @Test
+    void captureShouldIgnoreWorkbenchLinkedWorktreeUnderPrimaryRepository()
+            throws Exception {
+        Path workspace = Files.createDirectories(
+                tempDir.resolve("nested-worktree-snapshot"));
+        Path primary = GitWorkspaceTestSupport.repository(
+                workspace, "main-repository");
+        RepositoryScope scope = scope(workspace, "main-repository");
+        new FileSystemWorkspaceHandoffGuard().ensureHandoffIgnored(scope);
+        GitWorkspaceTestSupport.git(primary, "branch", "workbench-branch");
+        Path linked = primary.resolve(".worktrees/wb/test");
+        GitWorkspaceTestSupport.git(primary, "worktree", "add",
+                linked.toString(), "workbench-branch");
+
+        WorkspaceSnapshot snapshot = gateway(processRunner()).capture(
+                "snapshot-nested-worktree", scope,
+                SnapshotPurpose.of("WORKBENCH_RUN_START"));
+
+        assertTrue(snapshot.requireRepository("main-repository").getFiles()
+                .stream()
+                .noneMatch(file -> file.getPath().startsWith(".worktrees/")));
+    }
+
+    @Test
     void captureShouldRetryWholeWorkspaceOnceAndRecordAnomalyWhenHeadChanges()
             throws Exception {
         Path workspace = Files.createDirectories(tempDir.resolve("retry-workspace"));
