@@ -523,9 +523,6 @@ public final class AgentProcessKernel implements AutoCloseable {
         if (decoded.getEvent() == null) {
             return ConsumeResult.output(false);
         }
-        if (decoded.isOperationBlocked()) {
-            return ConsumeResult.stop(RuntimeTerminationReason.SECURITY_POLICY);
-        }
         return ConsumeResult.output(decoded.isTurnFailed());
     }
 

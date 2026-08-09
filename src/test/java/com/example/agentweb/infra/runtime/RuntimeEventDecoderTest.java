@@ -32,7 +32,7 @@ class RuntimeEventDecoderTest {
 
     private final RuntimeEventDecoder decoder = new RuntimeEventDecoder(
             new RuntimeOutputRedactor(),
-            com.example.agentweb.domain.runtime.RuntimeCommandPolicy.platformDefault(),
+            com.example.agentweb.domain.runtime.RuntimeCommandPolicy.classify(),
             new CodexEventNormalizer());
 
     @Test
@@ -295,7 +295,7 @@ class RuntimeEventDecoderTest {
     }
 
     @Test
-    void rejectsOutOfScopeFilesAndSignalsBlockedHighImpactIntentWithoutRawCommand() {
+    void rejectsOutOfScopeFilesWithoutLeakingRawCommand() {
         WorkspaceLayout layout = workspaceLayout();
         RuntimeEventDecoder.DecodedEvent escaped = decoder.decode(
                 "exec-files", 30L,
@@ -305,21 +305,8 @@ class RuntimeEventDecoderTest {
                         + "{\"path\":\"/workspace/unselected/secret.txt\","
                         + "\"kind\":\"update\"}]}}",
                 null, layout);
-        RuntimeEventDecoder.DecodedEvent blocked = decoder.decode(
-                "exec-command", 31L,
-                "{\"type\":\"item.started\",\"item\":{"
-                        + "\"id\":\"item-31\",\"type\":\"command_execution\","
-                        + "\"command\":\"git push origin master\","
-                        + "\"status\":\"in_progress\"}}",
-                null, layout);
 
         assertTrue(escaped.getEvent().getSemanticEvents().isEmpty());
-        assertEquals(Collections.singletonList("operation_blocked"), eventTypes(blocked));
-        assertTrue(blocked.isOperationBlocked());
-        assertEquals("GIT_PUSH", blocked.getEvent().getSemanticEvents()
-                .get(0).getData().get("operationType"));
-        assertFalse(blocked.getEvent().getSafePayload().contains("git push"));
-        assertFalse(blocked.getEvent().getSemanticEvents().toString().contains("origin"));
     }
 
     private List<String> eventTypes(RuntimeEventDecoder.DecodedEvent decoded) {

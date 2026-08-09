@@ -202,18 +202,6 @@ public final class RuntimeSemanticEvent {
         return new RuntimeSemanticEvent("test_progress", data);
     }
 
-    public static RuntimeSemanticEvent operationBlocked(
-            String operationType, String reasonCode, String summary) {
-        Map<String, Object> data = data();
-        data.put("operationType", requireIdentifier(
-                operationType, "operation type", 80));
-        data.put("reasonCode", requireIdentifier(
-                reasonCode, "operation block reason", 160));
-        data.put("summary", requireText(
-                summary, "operation block summary", 4000));
-        return new RuntimeSemanticEvent("operation_blocked", data);
-    }
-
     private static Map<String, Object> data() {
         return new LinkedHashMap<String, Object>();
     }

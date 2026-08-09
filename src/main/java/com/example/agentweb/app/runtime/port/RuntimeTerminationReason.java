@@ -11,7 +11,6 @@ public enum RuntimeTerminationReason {
     REQUESTED_STOP,
     TIMEOUT,
     OUTPUT_LIMIT,
-    SECURITY_POLICY,
     START_FAILURE,
     PROCESS_FAILURE
 }

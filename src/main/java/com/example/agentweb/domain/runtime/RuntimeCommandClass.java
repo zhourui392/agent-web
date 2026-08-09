@@ -10,7 +10,5 @@ public enum RuntimeCommandClass {
     SHELL,
     GIT,
     TEST,
-    BUILD,
-    DEPLOY,
-    PRODUCTION_WRITE
+    BUILD
 }

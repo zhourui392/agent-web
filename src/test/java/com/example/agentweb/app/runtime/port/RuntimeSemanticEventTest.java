@@ -76,11 +76,6 @@ class RuntimeSemanticEventTest {
         assertThrows(IllegalArgumentException.class,
                 () -> RuntimeSemanticEvent.fileChanged(
                         "service-a", "../secret", "MODIFIED", "sha256:v1"));
-        RuntimeSemanticEvent blocked = RuntimeSemanticEvent.operationBlocked(
-                "GIT_PUSH", "HIGH_IMPACT_OPERATION_REQUIRES_AUTHORIZATION",
-                "高影响操作已被安全策略阻止");
-        assertFalse(blocked.getData().containsKey("command"));
-        assertFalse(blocked.getData().containsKey("stderr"));
     }
 
     @Test

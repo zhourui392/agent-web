@@ -3,10 +3,9 @@ package com.example.agentweb.domain.runtime;
 import lombok.Getter;
 
 import java.util.Objects;
-import java.util.Optional;
 
 /**
- * 原始命令经过领域安全策略后得到的最小分类结果。
+ * 原始命令经过分类后得到的最小分类结果。
  *
  * <p>本对象不保留原始命令，避免后续事件、日志或 API 误透传其中的路径和 Secret。</p>
  *
@@ -17,39 +16,19 @@ import java.util.Optional;
 public final class RuntimeCommandAssessment {
 
     private final RuntimeCommandClass commandClass;
-    private final RuntimeHighImpactOperation blockedOperation;
 
-    private RuntimeCommandAssessment(
-            RuntimeCommandClass commandClass,
-            RuntimeHighImpactOperation blockedOperation) {
+    private RuntimeCommandAssessment(RuntimeCommandClass commandClass) {
         this.commandClass = Objects.requireNonNull(
                 commandClass, "commandClass");
-        this.blockedOperation = blockedOperation;
     }
 
-    public static RuntimeCommandAssessment allowed(
+    public static RuntimeCommandAssessment of(
             RuntimeCommandClass commandClass) {
-        return new RuntimeCommandAssessment(commandClass, null);
-    }
-
-    public static RuntimeCommandAssessment blocked(
-            RuntimeCommandClass commandClass,
-            RuntimeHighImpactOperation operation) {
-        return new RuntimeCommandAssessment(commandClass,
-                Objects.requireNonNull(operation, "operation"));
-    }
-
-    public boolean isBlocked() {
-        return blockedOperation != null;
-    }
-
-    public Optional<RuntimeHighImpactOperation> blockedOperation() {
-        return Optional.ofNullable(blockedOperation);
+        return new RuntimeCommandAssessment(commandClass);
     }
 
     @Override
     public String toString() {
-        return "RuntimeCommandAssessment{commandClass=" + commandClass
-                + ", blockedOperation=" + blockedOperation + '}';
+        return "RuntimeCommandAssessment{commandClass=" + commandClass + '}';
     }
 }

@@ -191,7 +191,7 @@ Capability Source
 
 来源目录或当前 MCP 配置变化不会改写已发布 Revision；运行时 Artifact 丢失、内容 Hash 不匹配或 Runtime 不兼容时失败关闭。
 
-高影响命令由 Runtime Command Policy 直接拒绝。`MODIFY_WORKSPACE` 只授权冻结 Repository Scope 内的普通文件修改，不授权 commit、push、部署或生产写入。
+`MODIFY_WORKSPACE` 只授权冻结 Repository Scope 内的普通文件修改；commit、push、部署或生产写入由绑定的 Stage Rules 与 Skill 约束，不由 Runtime 层拦截。
 
 ## 9. Context
 

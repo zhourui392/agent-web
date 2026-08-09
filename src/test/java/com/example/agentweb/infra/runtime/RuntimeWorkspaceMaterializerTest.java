@@ -46,15 +46,6 @@ class RuntimeWorkspaceMaterializerTest {
 
         assertTrue(Files.isDirectory(workspace.getExecutionRoot()));
         assertTrue(Files.isDirectory(workspace.getIsolatedHome()));
-        Path policy = workspace.getIsolatedHome().resolve("rules/default.rules");
-        assertTrue(Files.isRegularFile(policy));
-        String policyText = new String(Files.readAllBytes(policy),
-                java.nio.charset.StandardCharsets.UTF_8);
-        assertTrue(policyText.contains(
-                "prefix_rule(pattern=[\"git\",\"commit\"],decision=\"forbidden\""));
-        assertTrue(policyText.contains(
-                "prefix_rule(pattern=[\"git\",\"push\"],decision=\"forbidden\""));
-        assertFalse(policyText.contains(primary.toString()));
         assertEquals(primary.toRealPath(), workspace.getPrimaryRepositoryRoot());
         assertEquals(Arrays.asList(primary.toRealPath(), extra.toRealPath()),
                 workspace.getReadableRoots());

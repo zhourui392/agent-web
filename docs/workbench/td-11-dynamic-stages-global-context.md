@@ -72,7 +72,7 @@ Stage Run ──提出文档候选──> Owner 确认 ──> Workbench Global 
 - 不可变 Capability Binding；
 - Document Browser 的安全路径边界；
 - Admin Workbench 查询、停止、对账和审计；
-- 公共 Runtime Command Policy。
+- 公共 Runtime 命令分类（TEST/BUILD 进度事件）。
 
 Workbench 当前不提供：
 
@@ -99,7 +99,7 @@ Workbench 当前不提供：
 | Capability | 发布时归档精确内容；Run 时按 Artifact 解析 |
 | Global Context | Workbench 级发布文档清单，变化只影响下一次 Run |
 | 当前 Context | 版本 0 的确定性空 Manifest |
-| 高影响操作 | 无业务审批 API；Runtime 在副作用前直接拒绝 |
+| 高影响操作 | 无业务审批 API；commit/push/部署/生产写入由 Stage Rules 与 Skill 约束，不由 Runtime 拦截 |
 
 ## 5. 架构决策
 
@@ -631,18 +631,6 @@ Workbench 投影或服务日志。
 
 `MODIFY_WORKSPACE` 只授权冻结 Repository Scope 内的普通文件修改。所有 Document 与 Attachment 路径必须规范化，并防御绝对路径、`..`、符号链接、链接竞争和边界外真实路径。
 
-### 17.3 高影响命令
-
-当前没有 Workbench 高影响操作审批模型。Runtime Command Policy 必须在产生外部副作用前拒绝：
-
-- commit；
-- push；
-- 本地部署；
-- 生产写入；
-- 通过绝对路径、Shell Wrapper、复合命令、别名或等价表达发起的同类命令。
-
-Stage Capability、Run Mode 或 `MODIFY_WORKSPACE` 均不能放宽此政策。
-
 ## 18. 并发与一致性
 
 必须覆盖以下冲突：
@@ -708,7 +696,7 @@ Telemetry 禁止使用高基数 Stage Instance Identifier 作为 Prometheus Labe
 
 - 使用真实 SQLite 验证 Stage-only Schema、Repository、Query、Run Submission Transaction；
 - 使用临时文件系统验证 Artifact Registry、Attachment 和安全路径；
-- 使用 Runtime 替身验证 Command Policy，不调用真实登录态命令行工具。
+- 使用 Runtime 替身验证命令分类（TEST/BUILD 进度事件），不调用真实登录态命令行工具。
 
 ### 20.4 接口层
 
@@ -733,7 +721,7 @@ TD-11 完成要求同时满足：
 2. Catalog 发布与不可变 Artifact 闭环通过；
 3. Workbench 创建、Conversation、Attachment、Run、History、SSE、Stop、Admin 与恢复门禁通过；
 4. Owner-first 授权及错 Origin 安全投影有回归测试；
-5. Runtime Compatibility、Run Mode、Repository Scope、高影响命令政策有边界测试；
+5. Runtime Compatibility、Run Mode、Repository Scope 有边界测试；
 6. 完整 Global Context 聚合、Owner API、Candidate、Repository、Document Gateway 授权和前端 Drawer 已实现；
 7. 后端、`frontend/`、`tests/` 与真实浏览器门禁全部通过；
 8. 文档与发布状态反映当前验证证据。

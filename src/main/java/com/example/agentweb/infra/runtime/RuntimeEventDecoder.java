@@ -42,10 +42,6 @@ public final class RuntimeEventDecoder {
     private static final String ITEM_COMPLETED = "item.completed";
     private static final String MCP_TOOL_CALL = "mcp_tool_call";
     private static final String FILE_CHANGE = "file_change";
-    private static final String BLOCK_REASON =
-            "HIGH_IMPACT_OPERATION_REQUIRES_AUTHORIZATION";
-    private static final String BLOCK_SUMMARY =
-            "高影响操作未获得类型化授权，Runtime 已阻止执行";
     private static final Pattern SAFE_EVENT_TYPE =
             Pattern.compile("[A-Za-z0-9_.-]{1,80}");
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -65,7 +61,7 @@ public final class RuntimeEventDecoder {
             ConcurrentHashMap.newKeySet();
 
     public RuntimeEventDecoder(RuntimeOutputRedactor outputRedactor) {
-        this(outputRedactor, RuntimeCommandPolicy.platformDefault(),
+        this(outputRedactor, RuntimeCommandPolicy.classify(),
                 new CodexEventNormalizer());
     }
 
@@ -133,7 +129,7 @@ public final class RuntimeEventDecoder {
             return new DecodedEvent(new RuntimeEvent(
                     executionId, sequence, eventType,
                     type.isEmpty() ? "cli output" : type, assistantText,
-                    semanticEvents), type, eventType == RuntimeEventType.DIAGNOSTIC, false);
+                    semanticEvents), type, eventType == RuntimeEventType.DIAGNOSTIC);
         }
         JsonNode root = parseObject(providerLine);
         String providerEventType = providerEventType(root);
@@ -161,8 +157,7 @@ public final class RuntimeEventDecoder {
         return new DecodedEvent(new RuntimeEvent(
                 executionId, sequence, eventType, safePayload,
                 assistantText, projection.getEvents()),
-                providerEventType, turnFailed,
-                projection.isOperationBlocked());
+                providerEventType, turnFailed);
     }
 
     private String claudeAssistantText(String executionId, JsonNode root) {
@@ -535,13 +530,6 @@ public final class RuntimeEventDecoder {
         }
         RuntimeCommandAssessment assessment = commandPolicy.assess(
                 commandNode.asText());
-        if (assessment.isBlocked()) {
-            RuntimeSemanticEvent blocked = RuntimeSemanticEvent.operationBlocked(
-                    assessment.blockedOperation().get().name(),
-                    BLOCK_REASON, BLOCK_SUMMARY);
-            return SemanticProjection.blocked(
-                    Collections.singletonList(blocked));
-        }
         if (workspaceLayout == null) {
             return SemanticProjection.empty();
         }
@@ -735,21 +723,19 @@ public final class RuntimeEventDecoder {
         private final RuntimeEvent event;
         private final String providerEventType;
         private final boolean turnFailed;
-        private final boolean operationBlocked;
 
         private DecodedEvent(RuntimeEvent event, String providerEventType,
-                             boolean turnFailed, boolean operationBlocked) {
+                             boolean turnFailed) {
             this.event = event;
             this.providerEventType = providerEventType;
             this.turnFailed = turnFailed;
-            this.operationBlocked = operationBlocked;
         }
 
         /**
          * 未识别事件：不产生 RuntimeEvent，不发送到 sink。
          */
         public static DecodedEvent skipped() {
-            return new DecodedEvent(null, "", false, false);
+            return new DecodedEvent(null, "", false);
         }
     }
 
@@ -757,29 +743,20 @@ public final class RuntimeEventDecoder {
     private static final class SemanticProjection {
 
         private final List<RuntimeSemanticEvent> events;
-        private final boolean operationBlocked;
 
-        private SemanticProjection(
-                List<RuntimeSemanticEvent> events,
-                boolean operationBlocked) {
+        private SemanticProjection(List<RuntimeSemanticEvent> events) {
             this.events = Collections.unmodifiableList(
                     new ArrayList<RuntimeSemanticEvent>(events));
-            this.operationBlocked = operationBlocked;
         }
 
         private static SemanticProjection empty() {
             return new SemanticProjection(
-                    Collections.<RuntimeSemanticEvent>emptyList(), false);
+                    Collections.<RuntimeSemanticEvent>emptyList());
         }
 
         private static SemanticProjection of(
                 List<RuntimeSemanticEvent> events) {
-            return new SemanticProjection(events, false);
-        }
-
-        private static SemanticProjection blocked(
-                List<RuntimeSemanticEvent> events) {
-            return new SemanticProjection(events, true);
+            return new SemanticProjection(events);
         }
     }
 }

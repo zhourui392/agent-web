@@ -24,7 +24,7 @@
 - **可审计能力绑定** — 每个 Run 使用不可变 Snapshot 冻结 Command、Skill、MCP、Runtime、Repository Scope、Prompt 与 Capability Binding；来源目录或 MCP 配置变化不会改写已发布 Revision。
 - **文档与附件上下文** — 只读文档 Pane 支持折叠、最大化、布局记忆和 stale/manual refresh；仓内文档引用可与浏览器上传附件联合提交，附件正文只进入 Git 忽略的受控存储。
 - **后台运行与恢复** — Run 与浏览器连接解耦，支持事件续传、显式 Stop、刷新恢复和服务重启后的状态恢复或对账。
-- **高影响命令拒绝** — Runtime Command Policy 直接拒绝 commit、push、部署或生产写入等高影响命令；`MODIFY_WORKSPACE` 只授权冻结 Repository Scope 内的普通文件修改。
+- **命令分类与进度跟踪** — Runtime 把 `mvn test`/`pytest`/`vitest` 归类为 TEST、`mvn package`/`npm run build` 归类为 BUILD 并产出进度事件；`MODIFY_WORKSPACE` 只授权冻结 Repository Scope 内的普通文件修改，commit、push、部署或生产写入由 Stage Rules 与 Skill 约束。
 - **Admin 安全投影** — `/admin/workbenches.html` 只提供安全裁剪后的查询、Stop 和单 Run Reconcile；管理员不能代 Owner 对话或修改 Owner 业务状态。
 
 Workbench 的页面、创建、写 Run 和公共 Runtime 通过独立开关分级发布，实际默认值以当前 [`application.yml`](../src/main/resources/application.yml) 为准。自动化和 Runtime Stub 结果不能替代真实用户、真实 Codex/Claude CLI 试点；当前模型与验收边界见 [Workbench 技术设计总览](workbench/README.md)。

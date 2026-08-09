@@ -4,7 +4,6 @@ import com.example.agentweb.app.runtime.port.AgentExecutionPlan;
 import com.example.agentweb.app.runtime.port.RuntimeAttachmentExpectation;
 import com.example.agentweb.app.workbench.attachment.port.UploadedConversationAttachmentStorage;
 import com.example.agentweb.domain.shared.CanonicalHashing;
-import com.example.agentweb.domain.runtime.RuntimeCommandPolicy;
 import lombok.Getter;
 
 import java.io.IOException;
@@ -33,37 +32,17 @@ public final class RuntimeWorkspaceMaterializer {
             PosixFilePermissions.fromString("r-x------");
 
     private final Path temporaryRoot;
-    private final RuntimeExecPolicyMaterializer execPolicyMaterializer;
     private final UploadedConversationAttachmentStorage attachmentStorage;
 
     public RuntimeWorkspaceMaterializer(Path temporaryRoot) {
-        this(temporaryRoot, new RuntimeExecPolicyMaterializer(
-                RuntimeCommandPolicy.platformDefault()), null);
+        this(temporaryRoot, null);
     }
 
     public RuntimeWorkspaceMaterializer(
             Path temporaryRoot,
             UploadedConversationAttachmentStorage attachmentStorage) {
-        this(temporaryRoot, new RuntimeExecPolicyMaterializer(
-                        RuntimeCommandPolicy.platformDefault()),
-                Objects.requireNonNull(
-                        attachmentStorage, "attachmentStorage"));
-    }
-
-    RuntimeWorkspaceMaterializer(
-            Path temporaryRoot,
-            RuntimeExecPolicyMaterializer execPolicyMaterializer) {
-        this(temporaryRoot, execPolicyMaterializer, null);
-    }
-
-    RuntimeWorkspaceMaterializer(
-            Path temporaryRoot,
-            RuntimeExecPolicyMaterializer execPolicyMaterializer,
-            UploadedConversationAttachmentStorage attachmentStorage) {
         this.temporaryRoot = Objects.requireNonNull(temporaryRoot, "temporaryRoot")
                 .toAbsolutePath().normalize();
-        this.execPolicyMaterializer = Objects.requireNonNull(
-                execPolicyMaterializer, "execPolicyMaterializer");
         this.attachmentStorage = attachmentStorage;
     }
 
@@ -99,7 +78,6 @@ public final class RuntimeWorkspaceMaterializer {
             secureDirectory(isolatedHome);
             Files.createDirectory(attachmentRoot);
             secureDirectory(attachmentRoot);
-            execPolicyMaterializer.materialize(isolatedHome);
             copyUploadedAttachments(plan, attachmentRoot);
             secureAttachmentDirectory(attachmentRoot);
             return new MaterializedWorkspace(

@@ -32,7 +32,7 @@ mvn spring-boot:run
 
 Run 与浏览器连接解耦。关闭页面不会取消后台 Run；页面支持 SSE 续传、显式 Stop、刷新恢复以及服务重启后的状态恢复或对账。已经启动的 Run 使用不可变 Snapshot，后续 Capability Source 变化不会改变它的 Repository Scope、Command、Skill、MCP、Runtime 或 Prompt。
 
-Runtime Command Policy 直接拒绝 commit、push、部署或生产写入等高影响命令；`MODIFY_WORKSPACE` 只授权冻结 Repository Scope 内的普通文件修改。
+`MODIFY_WORKSPACE` 只授权冻结 Repository Scope 内的普通文件修改；commit、push、部署或生产写入由绑定的 Stage Rules 与 Skill 约束。
 
 ADMIN 可以在 `/admin/workbenches.html` 查询安全投影、停止 Run 或对单个 Run 执行 Reconcile，但不能代 Owner 对话或修改 Owner 业务状态。
 

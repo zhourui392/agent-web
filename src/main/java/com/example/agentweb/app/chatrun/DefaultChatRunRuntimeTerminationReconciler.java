@@ -52,12 +52,6 @@ public final class DefaultChatRunRuntimeTerminationReconciler
                 lifecycleService.fail(runId, "OUTPUT_LIMIT",
                         "输出超过上限，任务已停止", exitCode);
                 return;
-            case SECURITY_POLICY:
-                lifecycleService.fail(runId,
-                        "HIGH_IMPACT_OPERATION_BLOCKED",
-                        "高影响操作未获得类型化授权，任务已停止",
-                        exitCode);
-                return;
             case START_FAILURE:
                 lifecycleService.fail(runId, "RUNTIME_START_FAILED",
                         "Runtime 启动失败，请稍后重试", exitCode);

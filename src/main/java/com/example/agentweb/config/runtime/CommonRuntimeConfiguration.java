@@ -142,7 +142,7 @@ public class CommonRuntimeConfiguration {
             RuntimeOutputRedactor outputRedactor) {
         return new RuntimeEventDecoder(
                 outputRedactor,
-                com.example.agentweb.domain.runtime.RuntimeCommandPolicy.platformDefault(),
+                com.example.agentweb.domain.runtime.RuntimeCommandPolicy.classify(),
                 new com.example.agentweb.infra.cli.CodexEventNormalizer());
     }
 

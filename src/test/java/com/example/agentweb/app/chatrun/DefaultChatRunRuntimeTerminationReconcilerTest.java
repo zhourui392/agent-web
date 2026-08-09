@@ -83,8 +83,6 @@ class DefaultChatRunRuntimeTerminationReconcilerTest {
                 1, RuntimeTerminationReason.START_FAILURE));
         reconciler.reconcile(RUN_ID, HANDLE, termination(
                 2, RuntimeTerminationReason.PROCESS_FAILURE));
-        reconciler.reconcile(RUN_ID, HANDLE, termination(
-                143, RuntimeTerminationReason.SECURITY_POLICY));
 
         verify(lifecycleService).fail(
                 RUN_ID, "RUNTIME_TIMEOUT",
@@ -98,9 +96,6 @@ class DefaultChatRunRuntimeTerminationReconcilerTest {
         verify(lifecycleService).fail(
                 RUN_ID, "RUNTIME_PROCESS_FAILED",
                 "Agent 执行失败，请稍后重试", 2);
-        verify(lifecycleService).fail(
-                RUN_ID, "HIGH_IMPACT_OPERATION_BLOCKED",
-                "高影响操作未获得类型化授权，任务已停止", 143);
         verifyNoInteractions(outputQuery);
     }
 

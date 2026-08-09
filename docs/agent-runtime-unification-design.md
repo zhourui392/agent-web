@@ -311,7 +311,7 @@ RoutingAgentGateway.start(plan, sink)
 | `AgentProcessKernel` | 去掉公共 Gateway Bean 身份，接收方言；保留 materialize/process/cleanup | 中高；Stop、超时、事件顺序必须回归 |
 | `AgentCliGateway` | Phase 3 已删除 façade；兼容执行由 `CliAgentRuntime` 的显式 `AgentGateway` 端口承载 | 已完成；后续只需完成旧消费者迁移和回滚窗口验收 |
 | `CliDialect/BuildContext` | 增加 endpoint、reasoning、workspace/capability 和 Runtime 事件解析；新增 `credentialEnvironmentVariable()`，两个方言分别返回 `OPENAI_API_KEY`/`ANTHROPIC_API_KEY` | 中；Codex/Claude 命令兼容 |
-| `RuntimeEventDecoder` | 保留 CODEX `CodexEventNormalizer` 和 Claude 方言归一化，统一做脱敏、限长、命令安全与 Workbench 语义投影 | 中；Workbench 语义事件不能回退 |
+| `RuntimeEventDecoder` | 保留 CODEX `CodexEventNormalizer` 和 Claude 方言归一化，统一做脱敏、限长、命令分类与 Workbench 语义投影 | 中；Workbench 语义事件不能回退 |
 | Profile 配置加载/索引 | 启动时读取 `data/secrets.properties`，校验权限和 Profile 唯一性；要求显式 API Key 的 Profile 再校验 Key 存在性，允许 CLI 本机登录态的 Profile 不配置 Key；按 `profileId` 提供内存查询 | 中；不得把 Key 投影到 Run 或日志 |
 | `RoutingAgentGateway` | 增加新 `AgentExecutionGateway` 路由和 RuntimeHandle 所属 Runtime 映射 | 中；不得持有进程和 Workspace 细节 |
 
@@ -334,9 +334,9 @@ Stage(agentType, runMode, surface=WORKBENCH)
         → AgentExecutionPlan
 ```
 
-若 HTTP 请求显式传 `profileId`，仍由 Runtime 层完成一致性校验；Workbench 只负责自己的仓库、沙箱、附件和高影响命令策略。`AgentOfferPolicy.supportsSurface` 是 AgentType 级产品开关，不能被 Profile 选择绕过。NATIVE 继续 Chat-only。
+若 HTTP 请求显式传 `profileId`，仍由 Runtime 层完成一致性校验；Workbench 只负责自己的仓库、沙箱和附件。`AgentOfferPolicy.supportsSurface` 是 AgentType 级产品开关，不能被 Profile 选择绕过。NATIVE 继续 Chat-only。
 
-Claude 首次进入 Workbench Write Run 前必须验证：workspace scope、sandbox、MCP/工具清单、附件读取权限和高影响命令确认。这个验证属于 Workbench 计划 Provider/Capability policy，不下沉到 `AgentRuntime`。
+Claude 首次进入 Workbench Write Run 前必须验证：workspace scope、sandbox、MCP/工具清单和附件读取权限。这个验证属于 Workbench 计划 Provider/Capability policy，不下沉到 `AgentRuntime`。
 
 ## 7. 幂等、失败与恢复
 

@@ -320,42 +320,6 @@ class AgentProcessKernelTest {
         assertFalse(failure.toString().contains("tampered"));
     }
 
-    @Test
-    void blockedHighImpactIntentStopsProcessBeforeFollowingSideEffectAndEmitsSafeEvent()
-            throws Exception {
-        Path primary = Files.createDirectory(tempDir.resolve("primary-blocked"));
-        Path forbiddenEffect = tempDir.resolve("forbidden-effect");
-        Path script = script("blocked.sh", "#!/bin/sh\n"
-                + "cat >/dev/null\n"
-                + "printf '%s\\n' '{\"type\":\"item.started\",\"item\":{"
-                + "\"id\":\"command-1\",\"type\":\"command_execution\","
-                + "\"command\":\"git push origin master\","
-                + "\"status\":\"in_progress\"}}'\n"
-                + "sleep 2\n"
-                + "touch '" + forbiddenEffect + "'\n");
-        RuntimeProcessRegistry registry = new RuntimeProcessRegistry();
-        AgentProcessKernel kernel = kernel(script, "runtime-blocked", registry);
-        AgentExecutionPlan plan = RuntimePlanFixtures.plan(
-                "exec-blocked", primary, Collections.singletonList(primary),
-                Collections.singletonList(primary), SandboxMode.WORKSPACE_WRITE,
-                Duration.ofSeconds(5L), 1024L * 1024L);
-        Events events = new Events();
-
-        RuntimeHandle handle = kernel.start(plan, events);
-
-        events.awaitTerminal();
-        assertEquals(RuntimeTerminationReason.SECURITY_POLICY,
-                kernel.observe(handle).termination()
-                        .orElseThrow(AssertionError::new).getReason());
-        assertFalse(Files.exists(forbiddenEffect));
-        assertTrue(events.events.stream().flatMap(event ->
-                        event.getSemanticEvents().stream())
-                .anyMatch(event -> "operation_blocked".equals(
-                        event.getEventType())));
-        assertTrue(events.events.stream().noneMatch(event ->
-                event.getSafePayload().contains("git push")));
-    }
-
     private AgentProcessKernel kernel(Path command, String runtimeDirectory,
                                       RuntimeProcessRegistry registry) {
         return kernel(command, runtimeDirectory, registry,
