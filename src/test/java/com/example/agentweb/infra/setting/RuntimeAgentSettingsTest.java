@@ -1,7 +1,7 @@
 package com.example.agentweb.infra.setting;
 
 import com.example.agentweb.domain.shared.AgentType;
-import com.example.agentweb.infra.AgentDefaultProperties;
+import com.example.agentweb.config.chat.AgentDefaultProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

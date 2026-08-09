@@ -4,7 +4,7 @@ import com.example.agentweb.app.runtime.port.RuntimeSelection;
 import com.example.agentweb.app.runtime.port.RuntimeVersionPolicy;
 import com.example.agentweb.domain.chatrun.ChatRunId;
 import com.example.agentweb.domain.shared.AgentType;
-import com.example.agentweb.infra.SqliteInitializer;
+import com.example.agentweb.infra.database.SqliteInitializer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;

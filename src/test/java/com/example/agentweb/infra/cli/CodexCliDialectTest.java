@@ -1,7 +1,7 @@
 package com.example.agentweb.infra.cli;
 
 import com.example.agentweb.domain.shared.AgentType;
-import com.example.agentweb.infra.AgentCliProperties;
+import com.example.agentweb.config.cli.AgentCliProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

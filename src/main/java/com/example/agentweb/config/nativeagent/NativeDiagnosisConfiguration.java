@@ -25,7 +25,7 @@ import com.anthropic.agentkit.interfaces.engine.DiagnoseEngineBuilder;
 import com.anthropic.agentkit.interfaces.engine.DiagnosisMode;
 import com.anthropic.agentkit.interfaces.engine.ReadinessPolicy;
 import com.example.agentweb.config.EnvProperties;
-import com.example.agentweb.app.StreamOutputExtractor;
+import com.example.agentweb.app.agentrun.StreamOutputExtractor;
 import com.example.agentweb.domain.diagnosis.DiagnosisCheckpointRepository;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.infra.nativeagent.NativeDiagnosisAgentRuntime;

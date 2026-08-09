@@ -1,7 +1,7 @@
 package com.example.agentweb;
 
-import com.example.agentweb.app.ChatAppService;
-import com.example.agentweb.app.TruncateResult;
+import com.example.agentweb.app.chat.ChatAppService;
+import com.example.agentweb.app.chat.TruncateResult;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.chat.ChatMessage;
 import com.example.agentweb.domain.chat.ChatSession;
@@ -48,9 +48,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * <p>原 {@code @SpringBootTest} 中覆盖的其他场景已迁移：</p>
  * <ul>
  *   <li>App 层 {@code truncateFrom} 编排 / {@code streamMessage} 历史前缀注入 →
- *       {@link com.example.agentweb.app.RewindAppServiceTest}</li>
+   *       {@link com.example.agentweb.app.chat.ChatAppServiceImplBranchesTest}</li>
  *   <li>Repository 持久化（消息 id 自增、truncate 行为）→
- *       {@link com.example.agentweb.infra.SqliteSessionRepoTest}</li>
+ *       {@link com.example.agentweb.infra.chat.SqliteSessionRepoTest}</li>
  * </ul>
  *
  * @author zhourui(V33215020)
@@ -66,7 +66,7 @@ public class RewindFeatureTest {
     private ChatAppService appService;
 
     @MockBean
-    private com.example.agentweb.app.ChatSessionQueryService sessionQueryService;
+    private com.example.agentweb.app.chat.ChatSessionQueryService sessionQueryService;
 
     @MockBean
     private EnvProperties envProperties;
@@ -118,7 +118,7 @@ public class RewindFeatureTest {
     public void messages_api_should_return_id() throws Exception {
         String sessionId = "sess-msg-id";
         when(sessionQueryService.findMessageViews(sessionId)).thenReturn(java.util.Collections.singletonList(
-                new com.example.agentweb.app.ChatMessageView(7L, "user", "msg-with-id",
+                new com.example.agentweb.app.chat.ChatMessageView(7L, "user", "msg-with-id",
                         Instant.now().toString(), null)));
 
         mvc.perform(get("/api/chat/session/" + sessionId + "/messages"))

@@ -1,16 +1,16 @@
 package com.example.agentweb.interfaces;
 
-import com.example.agentweb.app.ChatAppService;
-import com.example.agentweb.app.ChatMessageView;
-import com.example.agentweb.app.ChatSessionQueryService;
-import com.example.agentweb.app.ChatSessionSummary;
-import com.example.agentweb.app.StartSessionCommand;
-import com.example.agentweb.app.TruncateResult;
+import com.example.agentweb.app.chat.ChatAppService;
+import com.example.agentweb.app.chat.ChatMessageView;
+import com.example.agentweb.app.chat.ChatSessionQueryService;
+import com.example.agentweb.app.chat.ChatSessionSummary;
+import com.example.agentweb.app.chat.StartSessionCommand;
+import com.example.agentweb.app.chat.TruncateResult;
 import com.example.agentweb.app.agentrun.AgentCatalogService;
 import com.example.agentweb.domain.chat.ChatSession;
 import com.example.agentweb.domain.chat.Feedback;
 import com.example.agentweb.domain.slashcommand.SlashCommand;
-import com.example.agentweb.infra.ClientIpResolver;
+import com.example.agentweb.infra.http.ClientIpResolver;
 import com.example.agentweb.config.EnvProperties;
 import com.example.agentweb.infra.setting.RuntimeAgentSettings;
 import com.example.agentweb.infra.log.MdcContext;

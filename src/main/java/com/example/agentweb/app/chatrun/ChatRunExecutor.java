@@ -6,7 +6,7 @@ import com.example.agentweb.app.agentrun.port.AgentHistoryMessage;
 import com.example.agentweb.app.agentrun.port.AgentRunInvocation;
 import com.example.agentweb.app.agentrun.port.AgentStreamResult;
 import com.example.agentweb.app.agentrun.port.HistoryDeliveryMode;
-import com.example.agentweb.app.StreamChunkHandler;
+import com.example.agentweb.app.chat.StreamChunkHandler;
 import com.example.agentweb.app.refinery.RecallObservationRecorder;
 import com.example.agentweb.app.refinery.RecallObservationStart;
 import com.example.agentweb.app.refinery.RecallOutcome;

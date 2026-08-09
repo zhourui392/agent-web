@@ -1,6 +1,6 @@
 package com.example.agentweb.app.refinery;
 
-import com.example.agentweb.app.StreamOutputExtractor;
+import com.example.agentweb.app.agentrun.StreamOutputExtractor;
 import com.example.agentweb.app.agentrun.LlmJsonExtractor;
 import com.example.agentweb.config.PromptTemplateLoader;
 import com.example.agentweb.config.refinery.RefineryProperties;

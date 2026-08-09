@@ -1,7 +1,7 @@
 package com.example.agentweb.infra.cli;
 
 import com.example.agentweb.domain.shared.AgentType;
-import com.example.agentweb.infra.AgentCliProperties;
+import com.example.agentweb.config.cli.AgentCliProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;

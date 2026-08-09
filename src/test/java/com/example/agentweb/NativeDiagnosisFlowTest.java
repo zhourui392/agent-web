@@ -7,7 +7,7 @@ import com.anthropic.agentkit.interfaces.engine.RunRequest;
 import com.anthropic.agentkit.interfaces.engine.RunSummary;
 import com.anthropic.agentkit.interfaces.engine.TurnMessage;
 import com.anthropic.agentkit.interfaces.engine.UserTurn;
-import com.example.agentweb.app.StreamOutputExtractor;
+import com.example.agentweb.app.agentrun.StreamOutputExtractor;
 import com.example.agentweb.app.chatrun.ChatRunEvent;
 import com.example.agentweb.app.chatrun.ChatRunStreamSink;
 import com.example.agentweb.app.chatrun.ChatRunSubscriptionService;

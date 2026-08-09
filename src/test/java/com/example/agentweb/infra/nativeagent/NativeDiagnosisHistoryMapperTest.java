@@ -4,7 +4,7 @@ import com.anthropic.agentkit.interfaces.engine.AssistantTurn;
 import com.anthropic.agentkit.interfaces.engine.ToolResultTurn;
 import com.anthropic.agentkit.interfaces.engine.TurnMessage;
 import com.anthropic.agentkit.interfaces.engine.UserTurn;
-import com.example.agentweb.app.StreamOutputExtractor;
+import com.example.agentweb.app.agentrun.StreamOutputExtractor;
 import com.example.agentweb.app.agentrun.port.AgentHistoryMessage;
 import org.junit.jupiter.api.Test;
 

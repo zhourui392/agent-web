@@ -211,6 +211,23 @@ public class ArchitectureTest {
                 () -> "Spring proxied classes must not be final: " + violations);
     }
 
+    @Test
+    void applicationAndInfrastructureRootPackagesShouldStayEmpty() {
+        JavaClasses mainClasses = new ClassFileImporter()
+                .withImportOption(new ImportOption.DoNotIncludeTests())
+                .importPackages("com.example.agentweb");
+        List<String> flatClasses = new ArrayList<String>();
+        for (JavaClass javaClass : mainClasses) {
+            String packageName = javaClass.getPackageName();
+            if ("com.example.agentweb.app".equals(packageName)
+                    || "com.example.agentweb.infra".equals(packageName)) {
+                flatClasses.add(javaClass.getName());
+            }
+        }
+        assertTrue(flatClasses.isEmpty(),
+                () -> "Layer root packages must not contain concrete classes: " + flatClasses);
+    }
+
     private static void assertRejects(ArchRule rule, Class<?> violatingClass) {
         JavaClasses fixture = new ClassFileImporter().importClasses(violatingClass);
         EvaluationResult result = rule.evaluate(fixture);

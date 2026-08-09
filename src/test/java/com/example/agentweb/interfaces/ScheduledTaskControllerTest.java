@@ -1,6 +1,6 @@
 package com.example.agentweb.interfaces;
 
-import com.example.agentweb.app.ScheduledTaskService;
+import com.example.agentweb.app.schedule.ScheduledTaskService;
 import com.example.agentweb.domain.schedule.CronExpression;
 import com.example.agentweb.domain.schedule.ScheduledTask;
 import com.example.agentweb.infra.auth.AuthProperties;

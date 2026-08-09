@@ -1,8 +1,8 @@
 package com.example.agentweb.interfaces;
 
-import com.example.agentweb.app.ChatMessageView;
-import com.example.agentweb.app.ChatSessionQueryService;
-import com.example.agentweb.app.SharedSessionView;
+import com.example.agentweb.app.chat.ChatMessageView;
+import com.example.agentweb.app.chat.ChatSessionQueryService;
+import com.example.agentweb.app.chat.SharedSessionView;
 import com.example.agentweb.domain.worktree.WorkspacePathPolicy;
 import com.example.agentweb.infra.auth.AuthProperties;
 import org.junit.jupiter.api.Test;
@@ -49,7 +49,7 @@ class ShareControllerTest {
     private ChatSessionQueryService sessionQueryService;
 
     @MockBean
-    private com.example.agentweb.app.ChatAppService chatAppService;
+    private com.example.agentweb.app.chat.ChatAppService chatAppService;
 
     @MockBean
     private AuthProperties authProperties;

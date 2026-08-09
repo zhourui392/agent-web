@@ -1,8 +1,8 @@
 package com.example.agentweb.interfaces;
 
-import com.example.agentweb.app.ChatAppService;
-import com.example.agentweb.app.ChatSessionQueryService;
-import com.example.agentweb.app.SharedSessionView;
+import com.example.agentweb.app.chat.ChatAppService;
+import com.example.agentweb.app.chat.ChatSessionQueryService;
+import com.example.agentweb.app.chat.SharedSessionView;
 import com.example.agentweb.domain.worktree.WorkspacePathPolicy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.FileSystemResource;

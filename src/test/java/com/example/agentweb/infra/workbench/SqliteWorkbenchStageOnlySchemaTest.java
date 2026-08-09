@@ -1,6 +1,6 @@
 package com.example.agentweb.infra.workbench;
 
-import com.example.agentweb.infra.SqliteInitializer;
+import com.example.agentweb.infra.database.SqliteInitializer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;

@@ -12,7 +12,7 @@ import com.example.agentweb.domain.chatrun.ChatRunId;
 import com.example.agentweb.domain.chatrun.ChatRunStatus;
 import com.example.agentweb.domain.diagnosis.DiagnosisCheckpoint;
 import com.example.agentweb.domain.diagnosis.DiagnosisCheckpointRepository;
-import com.example.agentweb.infra.SqliteSessionRepo;
+import com.example.agentweb.infra.chat.SqliteSessionRepo;
 import com.example.agentweb.infra.chatrun.SqliteChatRunEventStore;
 import com.example.agentweb.infra.chatrun.SqliteChatRunRepository;
 import org.junit.jupiter.api.BeforeEach;

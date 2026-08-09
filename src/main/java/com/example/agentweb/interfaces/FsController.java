@@ -1,7 +1,7 @@
 package com.example.agentweb.interfaces;
 
-import com.example.agentweb.app.UploadFileStorage;
-import com.example.agentweb.app.UploadPicStorage;
+import com.example.agentweb.app.files.UploadFileStorage;
+import com.example.agentweb.app.files.UploadPicStorage;
 import com.example.agentweb.app.setting.WorkspaceSettingsQueryService;
 import com.example.agentweb.domain.worktree.WorkspacePathPolicy;
 import com.example.agentweb.interfaces.dto.SuccessResponse;

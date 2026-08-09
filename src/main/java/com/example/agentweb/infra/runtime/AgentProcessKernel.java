@@ -19,8 +19,8 @@ import com.example.agentweb.app.runtime.port.SandboxMode;
 import com.example.agentweb.app.runtime.port.WorkspaceLayout;
 import com.example.agentweb.domain.capability.ResolvedCapabilityBinding;
 import com.example.agentweb.domain.shared.CanonicalHashing;
-import com.example.agentweb.infra.AgentCliProperties;
-import com.example.agentweb.infra.StreamProcessWatchdog;
+import com.example.agentweb.config.cli.AgentCliProperties;
+import com.example.agentweb.infra.runtime.StreamProcessWatchdog;
 import com.example.agentweb.infra.cli.BuildContext;
 import com.example.agentweb.infra.cli.CliDialect;
 

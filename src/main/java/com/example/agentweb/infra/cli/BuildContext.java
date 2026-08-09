@@ -1,6 +1,6 @@
 package com.example.agentweb.infra.cli;
 
-import com.example.agentweb.infra.AgentCliProperties;
+import com.example.agentweb.config.cli.AgentCliProperties;
 
 /**
  * 拼装 CLI 命令所需的上下文。预留 {@code workingDir} / {@code model} 字段以便后续 Codex 实现使用。

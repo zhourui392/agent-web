@@ -3,7 +3,7 @@ package com.example.agentweb.infra.chatrun;
 import com.example.agentweb.domain.chatrun.ChatRun;
 import com.example.agentweb.domain.chatrun.ChatRunId;
 import com.example.agentweb.domain.chatrun.RunOrigin;
-import com.example.agentweb.infra.SqliteInitializer;
+import com.example.agentweb.infra.database.SqliteInitializer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;

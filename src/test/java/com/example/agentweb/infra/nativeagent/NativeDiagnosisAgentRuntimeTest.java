@@ -7,7 +7,7 @@ import com.anthropic.agentkit.interfaces.engine.DiagnosisReadiness;
 import com.anthropic.agentkit.interfaces.engine.DiagnosisMode;
 import com.anthropic.agentkit.interfaces.engine.UserTurn;
 import com.anthropic.agentkit.domain.diagnosis.ReadinessStatus;
-import com.example.agentweb.app.StreamOutputExtractor;
+import com.example.agentweb.app.agentrun.StreamOutputExtractor;
 import com.example.agentweb.app.agentrun.port.AgentHistoryMessage;
 import com.example.agentweb.app.runtime.port.AgentExecutionPlan;
 import com.example.agentweb.app.runtime.port.ExecutionIdentity;

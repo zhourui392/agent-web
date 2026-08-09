@@ -1,6 +1,6 @@
 package com.example.agentweb.app.chatrun;
 
-import com.example.agentweb.app.StreamOutputExtractor;
+import com.example.agentweb.app.agentrun.StreamOutputExtractor;
 import com.example.agentweb.app.agentrun.port.HistoryDeliveryMode;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.slashcommand.SlashCommandExpander;

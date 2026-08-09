@@ -1,6 +1,6 @@
 package com.example.agentweb.app.worktree;
 
-import com.example.agentweb.infra.RealPathWorkspacePolicy;
+import com.example.agentweb.infra.workspace.RealPathWorkspacePolicy;
 import com.example.agentweb.infra.git.LocalWorktreeFileGateway;
 import com.example.agentweb.infra.git.ProcessGitWorktreeGateway;
 import org.junit.jupiter.api.BeforeEach;

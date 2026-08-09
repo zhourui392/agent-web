@@ -4,8 +4,8 @@ import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.chat.ChatMessage;
 import com.example.agentweb.domain.chat.ChatSession;
 import com.example.agentweb.domain.chat.SessionRepository;
-import com.example.agentweb.infra.InMemorySessionRepo;
-import com.example.agentweb.infra.SqliteSessionRepo;
+import com.example.agentweb.infra.chat.InMemorySessionRepo;
+import com.example.agentweb.infra.chat.SqliteSessionRepo;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -60,7 +60,7 @@ public class ResumeSessionTest {
     private SessionRepository sessionRepository;
 
     @Autowired
-    private com.example.agentweb.app.ChatSessionQueryService sessionQueryService;
+    private com.example.agentweb.app.chat.ChatSessionQueryService sessionQueryService;
 
     @Autowired
     private InMemorySessionRepo inMemoryRepo;
@@ -95,7 +95,7 @@ public class ResumeSessionTest {
         sessionRepository.saveSession(s);
         sessionRepository.updateResumeId(s.getId(), "cli-resume-456");
 
-        com.example.agentweb.app.ChatSessionSummary found = sessionQueryService.findSummaryPaged(0, 100).stream()
+        com.example.agentweb.app.chat.ChatSessionSummary found = sessionQueryService.findSummaryPaged(0, 100).stream()
                 .filter(m -> s.getId().equals(m.getSessionId()))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Session not found in summaries"));

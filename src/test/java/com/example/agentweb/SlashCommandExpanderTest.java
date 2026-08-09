@@ -3,7 +3,7 @@ package com.example.agentweb;
 import com.example.agentweb.domain.slashcommand.SlashCommand;
 import com.example.agentweb.domain.slashcommand.SlashCommandExpander;
 import com.example.agentweb.domain.slashcommand.SlashCommandScanner;
-import com.example.agentweb.infra.FileSlashCommandScanner;
+import com.example.agentweb.infra.slashcommand.FileSlashCommandScanner;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

@@ -15,7 +15,7 @@ import com.example.agentweb.domain.workbench.stage.StageCatalogEditor;
 import com.example.agentweb.domain.workbench.stage.WorkbenchStageCatalog;
 import com.example.agentweb.domain.workbench.stage.WorkbenchStageDraftContent;
 import com.example.agentweb.domain.workbench.stage.WorkbenchStageSnapshot;
-import com.example.agentweb.infra.SqliteInitializer;
+import com.example.agentweb.infra.database.SqliteInitializer;
 import com.example.agentweb.infra.workbench.WorkbenchStageSnapshotJsonMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;

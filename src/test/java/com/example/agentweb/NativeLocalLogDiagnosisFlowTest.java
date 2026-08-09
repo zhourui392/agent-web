@@ -22,7 +22,7 @@ import com.anthropic.agentkit.interfaces.engine.DiagnoseEngine;
 import com.anthropic.agentkit.interfaces.engine.DiagnoseEngineBuilder;
 import com.anthropic.agentkit.interfaces.engine.DiagnosisMode;
 import com.anthropic.agentkit.interfaces.engine.ReadinessPolicy;
-import com.example.agentweb.app.StreamOutputExtractor;
+import com.example.agentweb.app.agentrun.StreamOutputExtractor;
 import com.example.agentweb.app.chatrun.ChatRunEvent;
 import com.example.agentweb.app.chatrun.ChatRunStreamSink;
 import com.example.agentweb.app.chatrun.ChatRunSubscriptionService;

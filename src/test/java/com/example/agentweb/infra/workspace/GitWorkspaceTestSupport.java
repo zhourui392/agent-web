@@ -3,7 +3,7 @@ package com.example.agentweb.infra.workspace;
 import com.example.agentweb.app.setting.WorkspaceSettingsQueryService;
 import com.example.agentweb.domain.setting.WorkspaceSettings;
 import com.example.agentweb.domain.worktree.WorkspacePathPolicy;
-import com.example.agentweb.infra.RealPathWorkspacePolicy;
+import com.example.agentweb.infra.workspace.RealPathWorkspacePolicy;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;

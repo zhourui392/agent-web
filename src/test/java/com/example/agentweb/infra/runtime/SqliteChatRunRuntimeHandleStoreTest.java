@@ -3,7 +3,7 @@ package com.example.agentweb.infra.runtime;
 import com.example.agentweb.app.runtime.port.ChatRunRuntimeHandleStore;
 import com.example.agentweb.app.runtime.port.RuntimeHandle;
 import com.example.agentweb.domain.chatrun.ChatRunId;
-import com.example.agentweb.infra.SqliteInitializer;
+import com.example.agentweb.infra.database.SqliteInitializer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;

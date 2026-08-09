@@ -7,7 +7,7 @@ import com.example.agentweb.domain.workspace.SnapshotPurpose;
 import com.example.agentweb.domain.workspace.WorkspaceAnomalyEvidence;
 import com.example.agentweb.domain.workspace.WorkspaceSnapshot;
 import com.example.agentweb.domain.workspace.WorkspaceTopology;
-import com.example.agentweb.infra.SqliteInitializer;
+import com.example.agentweb.infra.database.SqliteInitializer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;

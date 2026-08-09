@@ -25,7 +25,7 @@ import com.example.agentweb.domain.workspace.ResolvedRepository;
 import com.example.agentweb.domain.workspace.SnapshotPurpose;
 import com.example.agentweb.domain.workspace.WorkspaceSnapshot;
 import com.example.agentweb.domain.workspace.WorkspaceTopology;
-import com.example.agentweb.infra.SqliteInitializer;
+import com.example.agentweb.infra.database.SqliteInitializer;
 import com.example.agentweb.infra.workspace.SqliteWorkspaceSnapshotRepository;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.sqlite.SQLiteConfig;

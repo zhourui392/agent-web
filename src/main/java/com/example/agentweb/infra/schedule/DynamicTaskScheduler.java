@@ -1,7 +1,7 @@
 package com.example.agentweb.infra.schedule;
 
-import com.example.agentweb.app.ScheduledTaskRegistrar;
-import com.example.agentweb.app.ScheduledTaskServiceImpl;
+import com.example.agentweb.app.schedule.ScheduledTaskRegistrar;
+import com.example.agentweb.app.schedule.ScheduledTaskServiceImpl;
 import com.example.agentweb.domain.schedule.ScheduledTask;
 import com.example.agentweb.domain.schedule.ScheduledTaskRepository;
 import lombok.extern.slf4j.Slf4j;

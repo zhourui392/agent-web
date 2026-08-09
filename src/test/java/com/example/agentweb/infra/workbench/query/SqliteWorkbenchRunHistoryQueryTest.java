@@ -22,7 +22,7 @@ import com.example.agentweb.domain.workbench.stage.WorkbenchStageCatalog;
 import com.example.agentweb.domain.workbench.stage.WorkbenchStageDraftContent;
 import com.example.agentweb.domain.workbench.stage.WorkbenchStageSnapshot;
 import com.example.agentweb.domain.workbench.stage.WorkbenchStageState;
-import com.example.agentweb.infra.SqliteSessionRepo;
+import com.example.agentweb.infra.chat.SqliteSessionRepo;
 import com.example.agentweb.infra.chatrun.SqliteChatRunRepository;
 import com.example.agentweb.infra.workbench.query.SqliteWorkbenchRunHistoryQuery;
 import org.junit.jupiter.api.BeforeEach;

@@ -1,9 +1,9 @@
 package com.example.agentweb.infra.cli;
 
-import com.example.agentweb.app.StreamOutputExtractor;
+import com.example.agentweb.app.agentrun.StreamOutputExtractor;
 import com.example.agentweb.app.agentrun.port.CliInvokeException;
 import com.example.agentweb.domain.shared.AgentType;
-import com.example.agentweb.infra.AgentCliProperties;
+import com.example.agentweb.config.cli.AgentCliProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;

@@ -18,7 +18,7 @@ import com.example.agentweb.domain.capability.McpServerDefinition;
 import com.example.agentweb.domain.capability.ResolvedCapabilityBinding;
 import com.example.agentweb.domain.capability.ResolvedMcpServerBinding;
 import com.example.agentweb.domain.shared.CanonicalHashing;
-import com.example.agentweb.infra.AgentCliProperties;
+import com.example.agentweb.config.cli.AgentCliProperties;
 import com.example.agentweb.infra.cli.CodexCliDialect;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;

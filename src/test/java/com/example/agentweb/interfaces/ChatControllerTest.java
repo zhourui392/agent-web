@@ -1,10 +1,10 @@
 package com.example.agentweb.interfaces;
 
-import com.example.agentweb.app.ChatAppService;
-import com.example.agentweb.app.ChatMessageView;
-import com.example.agentweb.app.ChatSessionQueryService;
-import com.example.agentweb.app.StartSessionCommand;
-import com.example.agentweb.app.TruncateResult;
+import com.example.agentweb.app.chat.ChatAppService;
+import com.example.agentweb.app.chat.ChatMessageView;
+import com.example.agentweb.app.chat.ChatSessionQueryService;
+import com.example.agentweb.app.chat.StartSessionCommand;
+import com.example.agentweb.app.chat.TruncateResult;
 import com.example.agentweb.app.agentrun.AgentCatalogService;
 import com.example.agentweb.domain.agentrun.AgentCatalog;
 import com.example.agentweb.domain.agentrun.AgentRuntimeAvailability;

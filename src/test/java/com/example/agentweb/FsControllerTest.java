@@ -2,9 +2,9 @@ package com.example.agentweb;
 
 import com.example.agentweb.infra.auth.AuthProperties;
 import com.example.agentweb.app.setting.WorkspaceSettingsQueryService;
-import com.example.agentweb.app.UploadFileStorage;
-import com.example.agentweb.app.UploadPicStorage;
-import com.example.agentweb.infra.RealPathWorkspacePolicy;
+import com.example.agentweb.app.files.UploadFileStorage;
+import com.example.agentweb.app.files.UploadPicStorage;
+import com.example.agentweb.infra.workspace.RealPathWorkspacePolicy;
 import com.example.agentweb.interfaces.FsController;
 import com.example.agentweb.interfaces.GlobalExceptionHandler;
 import com.example.agentweb.domain.setting.WorkspaceSettings;

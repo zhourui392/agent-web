@@ -2,7 +2,7 @@ package com.example.agentweb.infra.auth;
 
 import com.example.agentweb.domain.auth.UserAccount;
 import com.example.agentweb.domain.auth.UserRole;
-import com.example.agentweb.infra.SqliteInitializer;
+import com.example.agentweb.infra.database.SqliteInitializer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.jdbc.core.JdbcTemplate;

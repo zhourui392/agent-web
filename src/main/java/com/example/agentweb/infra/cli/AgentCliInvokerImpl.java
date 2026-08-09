@@ -1,10 +1,10 @@
 package com.example.agentweb.infra.cli;
 
-import com.example.agentweb.app.StreamOutputExtractor;
+import com.example.agentweb.app.agentrun.StreamOutputExtractor;
 import com.example.agentweb.app.agentrun.port.AgentCliInvoker;
 import com.example.agentweb.app.agentrun.port.CliInvokeException;
 import com.example.agentweb.domain.shared.AgentType;
-import com.example.agentweb.infra.AgentCliProperties;
+import com.example.agentweb.config.cli.AgentCliProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 

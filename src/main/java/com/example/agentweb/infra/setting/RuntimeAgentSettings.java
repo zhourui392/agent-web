@@ -1,9 +1,9 @@
 package com.example.agentweb.infra.setting;
 
-import com.example.agentweb.app.ChatAgentDefaults;
+import com.example.agentweb.app.chat.ChatAgentDefaults;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.agentrun.AgentOfferPolicy;
-import com.example.agentweb.infra.AgentDefaultProperties;
+import com.example.agentweb.config.chat.AgentDefaultProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 

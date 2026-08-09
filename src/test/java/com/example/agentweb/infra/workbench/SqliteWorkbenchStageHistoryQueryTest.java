@@ -19,7 +19,7 @@ import com.example.agentweb.domain.workbench.stage.WorkbenchStageDefinitionRevis
 import com.example.agentweb.domain.workbench.stage.WorkbenchStageDraftContent;
 import com.example.agentweb.domain.workbench.stage.WorkbenchStageSnapshot;
 import com.example.agentweb.domain.workbench.stage.WorkbenchStageState;
-import com.example.agentweb.infra.SqliteSessionRepo;
+import com.example.agentweb.infra.chat.SqliteSessionRepo;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;

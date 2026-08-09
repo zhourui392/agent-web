@@ -60,7 +60,7 @@ public class ConversationRefineryTest {
         props = new RefineryProperties();
         props.getRefine().setTimeoutSeconds(60);
         refinery = new ConversationRefinery(invoker, props,
-                new com.example.agentweb.app.StreamOutputExtractor());
+                new com.example.agentweb.app.agentrun.StreamOutputExtractor());
     }
 
     @Test
@@ -274,7 +274,7 @@ public class ConversationRefineryTest {
         ConversationView view = newView("q", "a");
         java.util.List<Long> sleeps = new java.util.ArrayList<>();
         ConversationRefinery r = new ConversationRefinery(invoker, props,
-                new com.example.agentweb.app.StreamOutputExtractor(), sleeps::add);
+                new com.example.agentweb.app.agentrun.StreamOutputExtractor(), sleeps::add);
         when(invoker.invokeSync(any(), anyString(), anyString(), anyLong()))
                 .thenThrow(transient503())
                 .thenThrow(transient503())
@@ -293,7 +293,7 @@ public class ConversationRefineryTest {
         ConversationView view = newView("q", "a");
         java.util.List<Long> sleeps = new java.util.ArrayList<>();
         ConversationRefinery r = new ConversationRefinery(invoker, props,
-                new com.example.agentweb.app.StreamOutputExtractor(), sleeps::add);
+                new com.example.agentweb.app.agentrun.StreamOutputExtractor(), sleeps::add);
         when(invoker.invokeSync(any(), anyString(), anyString(), anyLong()))
                 .thenThrow(transient503());
 
@@ -310,7 +310,7 @@ public class ConversationRefineryTest {
         ConversationView view = newView("q", "a");
         java.util.List<Long> sleeps = new java.util.ArrayList<>();
         ConversationRefinery r = new ConversationRefinery(invoker, props,
-                new com.example.agentweb.app.StreamOutputExtractor(), sleeps::add);
+                new com.example.agentweb.app.agentrun.StreamOutputExtractor(), sleeps::add);
         // NON_ZERO_EXIT 但错误是鉴权失败 (401), 非瞬态 → 不重试
         when(invoker.invokeSync(any(), anyString(), anyString(), anyLong()))
                 .thenThrow(new CliInvokeException(CliInvokeException.Reason.NON_ZERO_EXIT,
@@ -328,7 +328,7 @@ public class ConversationRefineryTest {
         ConversationView view = newView("q", "a");
         java.util.List<Long> sleeps = new java.util.ArrayList<>();
         ConversationRefinery r = new ConversationRefinery(invoker, props,
-                new com.example.agentweb.app.StreamOutputExtractor(), sleeps::add);
+                new com.example.agentweb.app.agentrun.StreamOutputExtractor(), sleeps::add);
         when(invoker.invokeSync(any(), anyString(), anyString(), anyLong()))
                 .thenThrow(new CliInvokeException(CliInvokeException.Reason.TIMEOUT,
                         "CLI process timed out after 180s"));
@@ -349,7 +349,7 @@ public class ConversationRefineryTest {
         props.getRefine().getRetry().setMaxBackoffMs(3000L);
         java.util.List<Long> sleeps = new java.util.ArrayList<>();
         ConversationRefinery r = new ConversationRefinery(invoker, props,
-                new com.example.agentweb.app.StreamOutputExtractor(), sleeps::add);
+                new com.example.agentweb.app.agentrun.StreamOutputExtractor(), sleeps::add);
         when(invoker.invokeSync(any(), anyString(), anyString(), anyLong()))
                 .thenThrow(transient503());
 
@@ -365,7 +365,7 @@ public class ConversationRefineryTest {
         props.getRefine().getRetry().setMaxAttempts(1);
         java.util.List<Long> sleeps = new java.util.ArrayList<>();
         ConversationRefinery r = new ConversationRefinery(invoker, props,
-                new com.example.agentweb.app.StreamOutputExtractor(), sleeps::add);
+                new com.example.agentweb.app.agentrun.StreamOutputExtractor(), sleeps::add);
         when(invoker.invokeSync(any(), anyString(), anyString(), anyLong()))
                 .thenThrow(transient503());
 

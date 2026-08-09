@@ -6,7 +6,7 @@ import com.example.agentweb.domain.schedule.CronExpression;
 import com.example.agentweb.domain.schedule.ScheduledTask;
 import com.example.agentweb.domain.schedule.ScheduledTaskRepository;
 import com.example.agentweb.domain.chat.SessionRepository;
-import com.example.agentweb.infra.InMemorySessionRepo;
+import com.example.agentweb.infra.chat.InMemorySessionRepo;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -66,7 +66,7 @@ public class ScheduledTaskTest {
     private SessionRepository sessionRepository;
 
     @Autowired
-    private com.example.agentweb.app.ChatSessionQueryService sessionQueryService;
+    private com.example.agentweb.app.chat.ChatSessionQueryService sessionQueryService;
 
     @Autowired
     private InMemorySessionRepo inMemoryRepo;
@@ -209,7 +209,7 @@ public class ScheduledTaskTest {
         ChatSession session = ChatSession.forTask("my-task", AgentType.CODEX, "/tmp");
         sessionRepository.saveSession(session);
 
-        com.example.agentweb.app.ChatSessionSummary found = sessionQueryService.findSummaryPaged(0, 200).stream()
+        com.example.agentweb.app.chat.ChatSessionSummary found = sessionQueryService.findSummaryPaged(0, 200).stream()
                 .filter(m -> session.getId().equals(m.getSessionId()))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Task session not found in summaries"));
@@ -224,7 +224,7 @@ public class ScheduledTaskTest {
         sessionRepository.addMessage(session.getId(),
                 new com.example.agentweb.domain.chat.ChatMessage("user", "这是首条消息"));
 
-        com.example.agentweb.app.ChatSessionSummary found = sessionQueryService.findSummaryPaged(0, 200).stream()
+        com.example.agentweb.app.chat.ChatSessionSummary found = sessionQueryService.findSummaryPaged(0, 200).stream()
                 .filter(m -> session.getId().equals(m.getSessionId()))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("Session not found"));
