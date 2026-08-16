@@ -1,7 +1,10 @@
 {
   "extends": "../frontend/tsconfig.json",
   "compilerOptions": {
-    "types": ["node", "vitest/globals"]
+    "types": ["node", "vitest/globals"],
+    "paths": {
+      "vue": ["../frontend/node_modules/vue"]
+    }
   },
   "include": [
     "unit/**/*.ts",

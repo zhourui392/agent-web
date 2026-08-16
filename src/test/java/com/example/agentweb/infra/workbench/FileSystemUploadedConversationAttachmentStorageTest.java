@@ -5,7 +5,7 @@ import com.example.agentweb.app.workbench.attachment.port.StoredUploadedAttachme
 import com.example.agentweb.app.workbench.attachment.port.UploadedAttachmentStorageRequest;
 import com.example.agentweb.domain.workbench.UploadedAttachmentContentSignature;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
+import com.example.agentweb.support.RealTempDir;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
@@ -26,7 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
  */
 class FileSystemUploadedConversationAttachmentStorageTest {
 
-    @TempDir
+    @RealTempDir
     Path tempDir;
 
     @Test

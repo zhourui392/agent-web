@@ -7,7 +7,7 @@ import com.example.agentweb.app.workbench.attachment.port.UploadedAttachmentStor
 import com.example.agentweb.app.workbench.attachment.port.UploadedConversationAttachmentStorage;
 import com.example.agentweb.domain.shared.CanonicalHashing;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
+import com.example.agentweb.support.RealTempDir;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -26,7 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
  */
 class RuntimeAttachmentVerifierTest {
 
-    @TempDir
+    @RealTempDir
     Path tempDir;
 
     @Test

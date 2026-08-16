@@ -24,7 +24,7 @@ import com.example.agentweb.domain.capability.SkillTrustSource;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.shared.CanonicalHashing;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
+import com.example.agentweb.support.RealTempDir;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -51,7 +51,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class RuntimeCapabilityMaterializerTest {
 
-    @TempDir
+    @RealTempDir
     Path tempDir;
 
     @Test

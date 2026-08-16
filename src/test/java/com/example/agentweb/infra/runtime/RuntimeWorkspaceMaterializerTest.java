@@ -7,7 +7,7 @@ import com.example.agentweb.app.workbench.attachment.port.StoredUploadedAttachme
 import com.example.agentweb.app.workbench.attachment.port.UploadedAttachmentStorageRequest;
 import com.example.agentweb.infra.workbench.FileSystemUploadedConversationAttachmentStorage;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
+import com.example.agentweb.support.RealTempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -29,7 +29,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class RuntimeWorkspaceMaterializerTest {
 
-    @TempDir
+    @RealTempDir
     Path tempDir;
 
     @Test

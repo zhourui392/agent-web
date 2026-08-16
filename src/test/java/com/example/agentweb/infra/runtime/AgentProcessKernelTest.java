@@ -22,7 +22,7 @@ import com.example.agentweb.config.cli.AgentCliProperties;
 import com.example.agentweb.infra.cli.CodexCliDialect;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
+import com.example.agentweb.support.RealTempDir;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -56,7 +56,7 @@ class AgentProcessKernelTest {
 
     private static final String SECRET = "kernel-provider-secret";
 
-    @TempDir
+    @RealTempDir
     Path tempDir;
 
     private final List<AgentProcessKernel> kernels = new ArrayList<AgentProcessKernel>();

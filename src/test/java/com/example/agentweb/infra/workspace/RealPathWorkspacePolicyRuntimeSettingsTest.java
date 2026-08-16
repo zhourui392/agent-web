@@ -3,7 +3,7 @@ package com.example.agentweb.infra.workspace;
 import com.example.agentweb.app.setting.WorkspaceSettingsQueryService;
 import com.example.agentweb.domain.setting.WorkspaceSettings;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
+import com.example.agentweb.support.RealTempDir;
 
 import java.nio.file.Path;
 import java.util.Collections;
@@ -20,10 +20,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
  */
 class RealPathWorkspacePolicyRuntimeSettingsTest {
 
-    @TempDir
+    @RealTempDir
     Path firstRoot;
 
-    @TempDir
+    @RealTempDir
     Path secondRoot;
 
     @Test

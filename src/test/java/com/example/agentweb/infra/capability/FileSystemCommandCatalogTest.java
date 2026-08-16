@@ -4,7 +4,7 @@ import com.example.agentweb.domain.capability.CapabilityCatalogException;
 import com.example.agentweb.domain.capability.CommandCatalogDirectory;
 import com.example.agentweb.domain.capability.CommandDefinition;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
+import com.example.agentweb.support.RealTempDir;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -29,7 +29,7 @@ class FileSystemCommandCatalogTest {
 
     private static final Instant NOW = Instant.parse("2026-08-05T08:00:00Z");
 
-    @TempDir
+    @RealTempDir
     Path tempDir;
 
     @Test

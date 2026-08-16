@@ -3,7 +3,7 @@ package com.example.agentweb.infra.runtime;
 import com.example.agentweb.app.runtime.port.AgentExecutionPlan;
 import com.example.agentweb.app.runtime.port.SandboxMode;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
+import com.example.agentweb.support.RealTempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -25,7 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class RuntimeCommandFactoryTest {
 
-    @TempDir
+    @RealTempDir
     Path tempDir;
 
     @Test
