@@ -16,6 +16,7 @@
 import { ref, nextTick, type Ref } from 'vue';
 import { ElMessage } from 'element-plus';
 import { createStore, selectActiveRun } from '../lib/chat-run-state.js';
+import { resolveRecallFlag } from '../lib/recall-submit.js';
 import { open as openResumableSse } from '../lib/resumable-sse-client.js';
 import {
   parseStreamJson,
@@ -49,6 +50,7 @@ interface ResumableRunParams {
   resumeId: Ref<string>;
   chatContainer: Ref<HTMLElement | null>;
   ragRecall: Ref<boolean>;
+  ragEnabled: Ref<boolean>;
   pendingImages: Ref<PendingImage[]>;
   pendingFile: Ref<PendingFile | null>;
   workingDir: Ref<string>;
@@ -382,7 +384,7 @@ export function useResumableRun(p: ResumableRunParams): {
       const response = await submitResumableRun(idempotencyKey, {
         message: message,
         resumeId: p.resumeId.value || null,
-        recall: !!p.ragRecall.value,
+        recall: resolveRecallFlag(p.ragEnabled.value, p.ragRecall.value),
       });
       if (!response.ok) {
         let error: { message?: string; code?: string } = {};

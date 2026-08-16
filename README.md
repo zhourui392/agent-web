@@ -33,9 +33,11 @@ README 只保留项目入口信息。功能、配置、使用、开发和运维�
 Linux：
 
 ```bash
-./scripts/service.sh start
-./scripts/service.sh status
+./scripts/service-local.sh start
+./scripts/service-local.sh status
 ```
+
+（本机开发用 `service-local.sh`；公网部署用 `service-public.sh`；`service.sh` 为不预设模式的兼容入口。）
 
 Windows PowerShell：
 

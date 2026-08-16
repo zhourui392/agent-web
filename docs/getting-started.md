@@ -8,14 +8,20 @@
 
 ## 使用服务脚本
 
+服务脚本按运行模式分为两个入口，共用逻辑在 `scripts/service-common.sh`：
+
+- `./scripts/service-local.sh`：本机 HTTP 开发（明文直连 `127.0.0.1:18092`，不经 Caddy）。已内置关闭公网门禁、关闭 Secure Cookie 等本机必需覆盖，可直接使用。
+- `./scripts/service-public.sh`：公网部署（同机 Caddy 上游）。保持公网启动门禁与 Secure Cookie；数据库仍是种子密码时必须先导出 `AGENT_BOOTSTRAP_ADMIN_PASSWORD`。
+- `./scripts/service.sh`：兼容入口，不预设模式，行为完全由环境变量和默认值决定。
+
 Linux：
 
 ```bash
-# 自动查找 JDK 21+，编译成功后在后台启动
-./scripts/service.sh start
+# 自动查找 JDK 21+，编译成功后在后台启动（本机开发）
+./scripts/service-local.sh start
 
 # 可用子命令：build、stop、restart、status、logs
-./scripts/service.sh status
+./scripts/service-local.sh status
 ```
 
 Windows PowerShell：
@@ -86,7 +92,7 @@ mvn spring-boot:run
 
 ## 本机 HTTP 开发
 
-本机开发不经过 HTTPS 反向代理时，需要显式关闭公网门禁和 Secure Cookie，同时保持 loopback 监听：
+本机开发不经过 HTTPS 反向代理时，需要显式关闭公网门禁和 Secure Cookie，同时保持 loopback 监听。`./scripts/service-local.sh` 已内置下列四项覆盖，直接用它启动即可；手工前台启动时的等价写法：
 
 ```bash
 SERVER_ADDRESS=127.0.0.1 \

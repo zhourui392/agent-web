@@ -16,6 +16,9 @@ import java.util.Set;
  * 启动时从 data/secrets.properties 加载的 Runtime Profile。
  * API Key 只保留在进程内 Profile 索引和一次子进程环境物化中。
  *
+ * <p>endpoint 与 apiKey 均可选：缺省时子进程不注入对应环境变量，直接继承 CLI
+ * 本机默认 endpoint 与登录态；显式配置时 endpoint 必须命中受信任地址策略。</p>
+ *
  * @author alex
  * @since 2026-08-07
  */
@@ -47,7 +50,7 @@ public final class AgentRuntimeProfile {
         if (agentType == null) {
             throw new IllegalArgumentException("runtime profile agent type is required");
         }
-        this.endpoint = requireEndpoint(endpoint);
+        this.endpoint = normalizeEndpoint(endpoint);
         this.apiKey = apiKey == null || apiKey.trim().isEmpty() ? null : apiKey.trim();
         this.defaultModel = DomainText.require(defaultModel, "runtime profile default model", 256);
         this.allowedModels = immutableStrings(allowedModels, this.defaultModel, "allowed models");
@@ -116,7 +119,10 @@ public final class AgentRuntimeProfile {
         return Collections.unmodifiableSet(EnumSet.copyOf(values));
     }
 
-    private static String requireEndpoint(String value) {
+    private static String normalizeEndpoint(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
         String normalized = DomainText.require(value, "runtime profile endpoint", 2048);
         URI uri;
         try {

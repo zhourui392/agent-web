@@ -63,7 +63,8 @@ public final class AgentRuntimeProfileFileLoader {
     private static AgentRuntimeProfile profile(Properties properties, String id) {
         String prefix = PREFIX + id + ".";
         AgentType agentType = AgentType.parseKnown(required(properties, prefix + "agent-type"));
-        String endpoint = required(properties, prefix + "endpoint");
+        // endpoint 可选：缺省时 Runtime 继承 CLI 本机默认 endpoint 与登录态
+        String endpoint = properties.getProperty(prefix + "endpoint");
         String model = required(properties, prefix + "default-model");
         String reasoning = required(properties, prefix + "default-reasoning-effort");
         String surfaces = properties.getProperty(prefix + "supported-surfaces",

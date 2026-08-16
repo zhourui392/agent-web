@@ -48,4 +48,29 @@ class AgentRuntimeProfileFileLoaderTest {
         assertEquals("claude", profile.getDefaultModel());
         assertNull(profile.getApiKey());
     }
+
+    @Test
+    void shouldLoadProfileWithoutEndpointAndInheritCliDefault() throws Exception {
+        Path file = tempDir.resolve("secrets.properties");
+        Files.writeString(file, "agent.runtime.profiles.codex.agent-type=CODEX\n"
+                + "agent.runtime.profiles.codex.default-model=gpt-5.6-sol\n"
+                + "agent.runtime.profiles.codex.default-reasoning-effort=high\n"
+                + "agent.runtime.profiles.codex.supported-surfaces=CHAT\n"
+                + "agent.runtime.profiles.codex.supported-run-modes=DISCUSS_READ_ONLY\n");
+        try {
+            Files.setPosixFilePermissions(file,
+                    Set.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE));
+        } catch (UnsupportedOperationException ignored) {
+            // Windows has no POSIX permission model.
+        }
+
+        AgentRuntimeProfile profile = AgentRuntimeProfileFileLoader.load(file)
+                .select(AgentType.CODEX, AgentRuntimeSurface.CHAT,
+                        RunMode.DISCUSS_READ_ONLY, null, null, null);
+
+        assertNull(profile.getEndpoint());
+        assertNull(profile.getApiKey());
+        assertEquals("gpt-5.6-sol", profile.getDefaultModel());
+        assertEquals("high", profile.getDefaultReasoningEffort());
+    }
 }

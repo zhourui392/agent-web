@@ -94,8 +94,8 @@ Chat 的 Start/Stop 端口缺口也已在 Phase 0/3 修复：`ChatRunRuntimeLaun
 AgentRuntimeProfile
 ├── profileId
 ├── agentType                 # CODEX / CLAUDE / NATIVE
-├── endpoint                  # 允许的 Provider 地址
-├── apiKey                    # 只存在 data 文件和内存 Profile，不进入 Run
+├── endpoint                  # 可选；允许的 Provider 地址，缺省继承 CLI 本机默认
+├── apiKey                    # 可选；只存在 data 文件和内存 Profile，不进入 Run
 ├── defaultModel
 ├── allowedModels
 ├── defaultReasoningEffort
@@ -183,7 +183,7 @@ Persisted RuntimeSelection (owned by Run)
 
 | 对象 | 首期字段 | 来源/用途 |
 | --- | --- | --- |
-| `AgentRuntimeProfile` | `profileId`、`agentType`、`endpoint`、`apiKey`、默认/允许的 `model`、默认/允许的 `reasoningEffort`、`runtimeEnvironment`（可选）、`supportedSurfaces`、`supportedRunModes`、`enabled` | 从 `data/secrets.properties` 加载；Key 只留在内存 Profile，不进入 Run |
+| `AgentRuntimeProfile` | `profileId`、`agentType`、`endpoint`（可选，缺省继承 CLI 本机默认 endpoint）、`apiKey`（可选，缺省继承 CLI 本机登录态）、默认/允许的 `model`、默认/允许的 `reasoningEffort`、`runtimeEnvironment`（可选）、`supportedSurfaces`、`supportedRunModes`、`enabled` | 从 `data/secrets.properties` 加载；Key 只留在内存 Profile，不进入 Run |
 | Run 持久化的 `RuntimeSelection` | `profileId`、`agentType`、`endpoint`、已解析 `model`、已解析 `reasoningEffort`、`runtimeEnvironment`、现有 `runtimeVersionPolicy` | Run 提交时冻结非秘密选择；恢复时原样反序列化，不创建独立 Snapshot 类型 |
 | 现有 `RuntimeSelection` | 与上行 Run 持久化字段相同 | 应用层从 Run 执行投影组装 `AgentExecutionPlan` 时携带的执行选择 |
 | 现有 `AgentExecutionPlan` | `ExecutionIdentity`、`RuntimeSelection`、`PromptPayload`、`resumeId`、Workspace、Capability、Limits、Attachment 等 | 一次执行的完整事实；不再增加 Profile 查询或默认值推断 |
@@ -382,7 +382,7 @@ Chat 当前已有按 `sessionId + idempotencyKey` 查重；Workbench 已有 requ
 安全约束：
 
 1. 普通调用方只能选择已发布 Profile 和允许列表中的模型/思考强度。
-2. endpoint 必须命中受信任地址策略（至少禁止本地回环、链接本地和任意内网探测，具体由部署环境配置）。
+2. 显式配置的 endpoint 必须命中受信任地址策略（至少禁止本地回环、链接本地和任意内网探测，具体由部署环境配置）。
 3. 显式配置的 API Key 只从 `data/secrets.properties` 读取，日志只能记录 Profile ID 和“是否存在”，禁止打印 Key 值；未配置 Key 的 CLI Profile 继续使用 CLI 本机默认登录态。
 4. Run 上持久化的 `RuntimeSelection`、事件、SSE 和异常消息不得包含 Key。
 5. Profile 禁用只影响新 Run；已持久化 `RuntimeSelection` 的 Run 继续使用原选择，但进程启动仍需通过当前安全开关和额度检查。

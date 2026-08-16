@@ -97,11 +97,12 @@ config/       Spring 装配与配置属性
 
 ## 构建与测试
 
+- 服务脚本入口：`scripts/service-local.sh`（本机 HTTP 开发，内置关闭公网门禁/Secure Cookie）与 `scripts/service-public.sh`（公网 Caddy 上游，保持门禁）；共用逻辑在 `scripts/service-common.sh`，`scripts/service.sh` 是不预设模式的兼容入口。修改启停、构建逻辑只改共用库；本机验证一律走 `service-local.sh`，不要裸跑 `service.sh`（默认公网门禁会拒绝启动）。
 - 完整命令见 `docs/development.md#测试`；默认只运行覆盖改动的最小测试，不因工作区存在其他变更扩大验证范围。
 - 命令行工具测试必须使用 `TestCliStub`、运行时替身或端到端测试夹具；只有明确标记的 `live` 测试可以调用真实命令行工具或登录态。
 - Linux 直接运行 Maven 时使用实际存在且经 `javac -version` 验证的 JDK 21；不要假定 `/usr/local/jdk-21` 存在，只在路径验证成功后设置 `JAVA_HOME`。
 - 显式运行默认排除的慢分组时必须覆盖 `test.excludedGroups`，具体分组以 `pom.xml` 为准。
-- 不主动执行 `git commit`、`git push`、`mvn package`、`./scripts/service.sh restart`、部署或生产写操作，除非用户明确要求相应操作。
+- 不主动执行 `git commit`、`git push`、`mvn package`、`./scripts/service*.sh restart`、部署或生产写操作，除非用户明确要求相应操作。
 - 向 `master` 推送前必须完成 `docs/development.md#发布前门禁` 所列的后端、`frontend/`、`tests/` 三组持续集成门禁；后两个工程的 `typecheck` 都必须运行。
 
 ## 风险触发的完成检查

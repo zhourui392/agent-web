@@ -377,7 +377,10 @@ spring:
     throw-exception-if-no-handler-found: true
   web:
     resources:
-      add-mappings: false
+      # 单机 JAR 模式由后端直接服务 frontend/dist 静态资源（登录页等公开壳见 PublicPaths）。
+      # 公网 Caddy file_server 在同源拦截静态请求，不会到达后端；如需公网侧严格关闭，
+      # 用 SPRING_WEB_RESOURCES_ADDMAPPINGS=false 覆盖。
+      add-mappings: ${SPRING_WEB_RESOURCES_ADDMAPPINGS:true}
   servlet:
     multipart:
       max-file-size: 11MB

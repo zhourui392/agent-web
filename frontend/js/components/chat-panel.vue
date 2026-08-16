@@ -283,6 +283,7 @@ const ChatPanel = {
         restoreActiveRun, sendMessageStream, resetRunState
       } = useResumableRun({
         messages, userInput, sending, sessionId, resumeId, chatContainer, ragRecall,
+        ragEnabled: computed(() => props.ragEnabled),
         pendingImages, pendingFile, workingDir: workingDirRef,
         runtimeAvailable: computed(() => props.runtimeAvailable),
         ensureSession, addMessage, userMessageEntry, reloadMessages, loadFeedback, emit

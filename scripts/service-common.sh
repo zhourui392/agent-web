@@ -1,0 +1,417 @@
+#!/usr/bin/env bash
+# agent-web 服务脚本共用库：JDK 探测、前端/Maven 构建、进程启停。
+# 不直接执行；由 service.sh / service-local.sh / service-public.sh source 后调用 service_main。
+#
+# @author zhourui(V33215020)
+
+set -euo pipefail
+
+readonly REQUIRED_JAVA_MAJOR=21
+
+java_major_version() {
+    local java_bin="$1"
+    local version_line
+
+    version_line=$("$java_bin" -version 2>&1 | head -n 1) || return 1
+    if [[ "$version_line" =~ \"([0-9]+)(\.[^\"]*)?\" ]]; then
+        printf '%s\n' "${BASH_REMATCH[1]}"
+        return 0
+    fi
+    return 1
+}
+
+resolve_java_bin() {
+    local candidate="$1"
+
+    if [[ "$candidate" == */* ]]; then
+        [[ -x "$candidate" ]] || return 1
+        readlink -f "$candidate"
+        return 0
+    fi
+    command -v "$candidate" 2>/dev/null
+}
+
+jdk_home_for_java() {
+    local candidate="$1"
+    local java_bin
+    local jdk_home
+
+    java_bin=$(resolve_java_bin "$candidate") || return 1
+    jdk_home=$(cd "$(dirname "$java_bin")/.." && pwd -P)
+    [[ -x "$jdk_home/bin/javac" ]] || return 1
+    printf '%s\n' "$jdk_home"
+}
+
+find_jdk() {
+    local candidate
+    local jdk_home
+    local major
+    local fallback_home=""
+    local fallback_major=""
+    local -a candidates=()
+    local visited=$'\n'
+
+    if [[ -n "${JAVA_BIN:-}" ]]; then
+        jdk_home=$(jdk_home_for_java "$JAVA_BIN") || {
+            printf 'JAVA_BIN does not point to a complete JDK: %s\n' "$JAVA_BIN" >&2
+            return 1
+        }
+        major=$(java_major_version "$jdk_home/bin/java") || {
+            printf 'Unable to determine Java version: %s\n' "$jdk_home/bin/java" >&2
+            return 1
+        }
+        if (( major < REQUIRED_JAVA_MAJOR )); then
+            printf 'JAVA_BIN requires JDK %d or later, but found JDK %d: %s\n' \
+                "$REQUIRED_JAVA_MAJOR" "$major" "$jdk_home" >&2
+            return 1
+        fi
+        printf '%s\n' "$jdk_home"
+        return 0
+    fi
+
+    [[ -n "${JAVA_HOME:-}" ]] && candidates+=("$JAVA_HOME/bin/java")
+    if command -v java >/dev/null 2>&1; then
+        candidates+=("$(command -v java)")
+    fi
+
+    candidates+=(
+        "/usr/local/jdk-${REQUIRED_JAVA_MAJOR}/bin/java"
+        "$HOME/.sdkman/candidates/java/current/bin/java"
+    )
+
+    shopt -s nullglob
+    candidates+=(
+        /usr/local/jdk-*/bin/java
+        /usr/local/java/*/bin/java
+        /usr/lib/jvm/*/bin/java
+        /usr/java/*/bin/java
+        /opt/jdk*/bin/java
+        /opt/jdks/*/bin/java
+        /opt/java/*/bin/java
+        "$HOME"/jdk/*/bin/java
+        "$HOME"/jdk/*/Contents/Home/bin/java
+        "$HOME"/.jdks/*/bin/java
+        "$HOME"/.local/share/jdks/*/bin/java
+        "$HOME"/.sdkman/candidates/java/*/bin/java
+    )
+    shopt -u nullglob
+
+    for candidate in "${candidates[@]}"; do
+        [[ -n "$candidate" ]] || continue
+        jdk_home=$(jdk_home_for_java "$candidate" 2>/dev/null) || continue
+        [[ "$visited" != *$'\n'"$jdk_home"$'\n'* ]] || continue
+        visited+="$jdk_home"$'\n'
+        major=$(java_major_version "$jdk_home/bin/java" 2>/dev/null) || continue
+        if (( major == REQUIRED_JAVA_MAJOR )); then
+            printf '%s\n' "$jdk_home"
+            return 0
+        fi
+        if (( major > REQUIRED_JAVA_MAJOR )) && [[ -z "$fallback_home" ]]; then
+            fallback_home="$jdk_home"
+            fallback_major="$major"
+        fi
+    done
+
+    if [[ -n "$fallback_home" ]]; then
+        printf 'JDK %d was not found; using compatible JDK %s at %s\n' \
+            "$REQUIRED_JAVA_MAJOR" "$fallback_major" "$fallback_home" >&2
+        printf '%s\n' "$fallback_home"
+        return 0
+    fi
+
+    printf 'No complete JDK %d or later was found. Install JDK %d, or set JAVA_BIN to its java executable.\n' \
+        "$REQUIRED_JAVA_MAJOR" "$REQUIRED_JAVA_MAJOR" >&2
+    return 1
+}
+
+configure_jdk() {
+    printf '[1/4] Locating an installed JDK %d or later...\n' "$REQUIRED_JAVA_MAJOR"
+    JAVA_HOME=$(find_jdk)
+    export JAVA_HOME
+    export PATH="$JAVA_HOME/bin:$PATH"
+    printf 'Using JAVA_HOME=%s\n' "$JAVA_HOME"
+}
+
+readonly SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+readonly PROJECT_DIR=$(cd "$SCRIPT_DIR/.." && pwd -P)
+readonly APP_DIR="$PROJECT_DIR/app"
+readonly RUNTIME_JAR="$APP_DIR/agent-web.jar"
+readonly PID_FILE="$APP_DIR/agent-web.pid"
+readonly LOG_DIR="$PROJECT_DIR/logs"
+readonly SERVICE_LOG="$LOG_DIR/service.log"
+# server.port 在 application.yml 固定为 18092；就绪探测允许 SERVER_PORT 覆盖以应对未来可配置化。
+readonly APP_PORT="${SERVER_PORT:-18092}"
+readonly STARTUP_TIMEOUT="${STARTUP_TIMEOUT:-30}"
+
+find_maven() {
+    if [[ -x "$PROJECT_DIR/mvnw" ]]; then
+        printf '%s\n' "$PROJECT_DIR/mvnw"
+        return 0
+    fi
+    command -v mvn 2>/dev/null || {
+        printf 'Maven was not found. Install Maven 3.6 or later and add mvn to PATH.\n' >&2
+        return 1
+    }
+}
+
+build_frontend() {
+    local npm_bin
+
+    npm_bin=$(command -v npm 2>/dev/null) || {
+        printf 'npm was not found. Install Node.js/npm before building agent-web.\n' >&2
+        return 1
+    }
+    printf '[2/4] Building the frontend with Vite...\n'
+    (cd "$PROJECT_DIR/frontend" && "$npm_bin" run build)
+}
+
+build_app() {
+    local maven_bin
+    local -a artifacts
+    local -a maven_goals=(clean package)
+
+    maven_bin=$(find_maven)
+    build_frontend
+    printf '[3/4] Building the application with Maven...\n'
+    if [[ -n "${SKIP_TESTS:-}" ]]; then
+        maven_goals+=(-DskipTests)
+        printf 'SKIP_TESTS is set; skipping the test phase.\n'
+    fi
+    (cd "$PROJECT_DIR" && "$maven_bin" "${maven_goals[@]}")
+
+    shopt -s nullglob
+    artifacts=("$PROJECT_DIR"/target/agent-web-*.jar)
+    shopt -u nullglob
+    if (( ${#artifacts[@]} != 1 )); then
+        printf 'Expected one application JAR in target/, but found %d.\n' "${#artifacts[@]}" >&2
+        return 1
+    fi
+
+    mkdir -p "$APP_DIR"
+    cp -f "${artifacts[0]}" "$RUNTIME_JAR"
+    printf 'Build complete: %s\n' "$RUNTIME_JAR"
+}
+
+read_pid() {
+    [[ -f "$PID_FILE" ]] || return 1
+    local pid
+    pid=$(<"$PID_FILE")
+    [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+    printf '%s\n' "$pid"
+}
+
+is_service_process() {
+    local pid="$1"
+    local command_line
+
+    kill -0 "$pid" 2>/dev/null || return 1
+    [[ -r "/proc/$pid/cmdline" ]] || return 0
+    command_line=$(tr '\0' ' ' < "/proc/$pid/cmdline")
+    [[ "$command_line" == *"$RUNTIME_JAR"* ]]
+}
+
+running_pid() {
+    local pid
+
+    pid=$(read_pid 2>/dev/null) || return 1
+    if is_service_process "$pid"; then
+        printf '%s\n' "$pid"
+        return 0
+    fi
+    rm -f "$PID_FILE"
+    return 1
+}
+
+port_ready() {
+    if command -v curl >/dev/null 2>&1; then
+        curl -s -o /dev/null --max-time 2 "http://127.0.0.1:${APP_PORT}/" 2>/dev/null
+    else
+        (exec 3<>"/dev/tcp/127.0.0.1/${APP_PORT}") 2>/dev/null
+    fi
+}
+
+# 等待启动结果：进程死亡 → 返回 1；端口就绪 → 返回 0；超时但进程仍活着 → 返回 2。
+# 修复旧版只 sleep 2 的竞态：公网门禁等失败发生在 Spring 上下文初始化阶段(数秒后)，
+# 旧逻辑会误报 started。
+wait_startup() {
+    local pid="$1"
+    local deadline=$(( SECONDS + STARTUP_TIMEOUT ))
+
+    while (( SECONDS < deadline )); do
+        if ! kill -0 "$pid" 2>/dev/null; then
+            return 1
+        fi
+        if port_ready; then
+            return 0
+        fi
+        sleep 1
+    done
+    return 2
+}
+
+launch_app() {
+    local pid
+    local -a java_options=()
+    local -a app_arguments=("$@")
+
+    if pid=$(running_pid); then
+        printf 'agent-web is already running (PID %s).\n' "$pid"
+        return 0
+    fi
+
+    if [[ -n "${JAVA_OPTS:-}" ]]; then
+        read -r -a java_options <<< "$JAVA_OPTS"
+    fi
+
+    mkdir -p "$APP_DIR" "$LOG_DIR" "$PROJECT_DIR/data"
+    touch "$SERVICE_LOG"
+    chmod 600 "$SERVICE_LOG"
+    printf '[4/4] Starting agent-web...\n'
+    # 固定进程工作目录，确保 Spring 始终从仓库根 ./data/secrets.properties 读取本地敏感配置。
+    cd "$PROJECT_DIR"
+    local -a session_wrapper=()
+    command -v setsid >/dev/null 2>&1 && session_wrapper=(setsid)
+    nohup "${session_wrapper[@]+"${session_wrapper[@]}"}" "$JAVA_HOME/bin/java" "${java_options[@]+"${java_options[@]}"}" -jar "$RUNTIME_JAR" \
+        "${app_arguments[@]+"${app_arguments[@]}"}" >> "$SERVICE_LOG" 2>&1 &
+    pid=$!
+    printf '%s\n' "$pid" > "$PID_FILE"
+
+    local wait_result=0
+    wait_startup "$pid" || wait_result=$?
+    case "$wait_result" in
+        0)
+            printf 'agent-web started (PID %s). Log: %s\n' "$pid" "$SERVICE_LOG"
+            ;;
+        1)
+            rm -f "$PID_FILE"
+            printf 'agent-web exited during startup. Last errors:\n' >&2
+            grep -E ' ERROR |Exception|启动失败' "$SERVICE_LOG" | tail -n 5 >&2
+            printf '%s\n' '--- log tail ---' >&2
+            tail -n 10 "$SERVICE_LOG" >&2
+            printf 'Full log: %s\n' "$SERVICE_LOG" >&2
+            return 1
+            ;;
+        2)
+            printf 'agent-web (PID %s) is still starting after %ss; port %s not ready yet. Check %s\n' \
+                "$pid" "$STARTUP_TIMEOUT" "$APP_PORT" "$SERVICE_LOG" >&2
+            ;;
+    esac
+}
+
+start_service() {
+    local pid
+
+    if pid=$(running_pid); then
+        printf 'agent-web is already running (PID %s).\n' "$pid"
+        return 0
+    fi
+    build_app
+    launch_app "$@"
+}
+
+stop_service() {
+    local pid
+    local attempt
+
+    if ! pid=$(running_pid); then
+        printf 'agent-web is not running.\n'
+        return 0
+    fi
+
+    printf 'Stopping agent-web (PID %s)...\n' "$pid"
+    kill "$pid"
+    for ((attempt = 0; attempt < 30; attempt++)); do
+        if ! kill -0 "$pid" 2>/dev/null; then
+            rm -f "$PID_FILE"
+            printf 'agent-web stopped.\n'
+            return 0
+        fi
+        sleep 1
+    done
+
+    printf 'Graceful shutdown timed out; forcing PID %s to stop.\n' "$pid" >&2
+    kill -KILL "$pid" 2>/dev/null || true
+    rm -f "$PID_FILE"
+}
+
+show_status() {
+    local pid
+
+    if pid=$(running_pid); then
+        printf 'agent-web is running (PID %s).\n' "$pid"
+        return 0
+    fi
+    printf 'agent-web is not running.\n'
+    return 1
+}
+
+show_logs() {
+    mkdir -p "$LOG_DIR"
+    touch "$SERVICE_LOG"
+    tail -n 200 -f "$SERVICE_LOG"
+}
+
+show_usage() {
+    cat <<EOF
+Usage: ${SERVICE_ENTRY:-./scripts/service.sh} {build|start|stop|restart|status|logs} [application arguments]
+
+Commands:
+  build     Locate JDK 21+, build frontend with Vite, then run Maven clean package.
+  start     Build, then start agent-web in the background.
+  stop      Stop the background agent-web process.
+  restart   Stop, rebuild, and start agent-web.
+  status    Show whether the managed process is running.
+  logs      Follow logs/service.log.
+
+Entry points (shared logic lives in scripts/service-common.sh):
+  service-local.sh    本机 HTTP 开发：关闭公网门禁与 Secure Cookie，监听 loopback。
+  service-public.sh   公网部署：保持公网门禁与 Secure Cookie，作为同机 Caddy 上游。
+  service.sh          兼容入口：不预设模式，完全由环境变量/默认值决定。
+
+Environment:
+  JAVA_BIN        Explicit java executable used to locate the JDK.
+  JAVA_OPTS       JVM options, for example: -Xms512m -Xmx2g
+  SKIP_TESTS      When set (any value), skip the Maven test phase during build.
+  STARTUP_TIMEOUT Seconds to wait for the port to become ready at startup (default 30).
+EOF
+}
+
+service_main() {
+    local command_name="${1:-start}"
+    if (( $# > 0 )); then
+        shift
+    fi
+
+    case "$command_name" in
+        build)
+            configure_jdk
+            build_app
+            ;;
+        start)
+            configure_jdk
+            start_service "$@"
+            ;;
+        stop)
+            stop_service
+            ;;
+        restart)
+            configure_jdk
+            stop_service
+            build_app
+            launch_app "$@"
+            ;;
+        status)
+            show_status
+            ;;
+        logs)
+            show_logs
+            ;;
+        help|-h|--help)
+            show_usage
+            ;;
+        *)
+            show_usage >&2
+            exit 2
+            ;;
+    esac
+}

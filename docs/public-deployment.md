@@ -73,7 +73,7 @@ sudo systemctl reload caddy
 
 ## 3. 启动与首次登录
 
-按项目既有方式启动 JAR 或 Maven 进程。Linux 直接运行 Maven 时确保使用 JDK 21：
+按项目既有方式启动 JAR 或 Maven 进程；服务脚本请使用公网入口 `./scripts/service-public.sh start`（保持公网门禁与 Secure Cookie，监听 loopback 作为 Caddy 上游）。Linux 直接运行 Maven 时确保使用 JDK 21：
 
 ```bash
 JAVA_HOME=/usr/local/jdk-21 PATH=/usr/local/jdk-21/bin:$PATH \
