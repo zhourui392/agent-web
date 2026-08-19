@@ -21,6 +21,7 @@ import com.example.agentweb.domain.chatrun.ChatRunId;
 import com.example.agentweb.domain.chatrun.ChatRunRepository;
 import com.example.agentweb.domain.chatrun.ExecutionContextReference;
 import com.example.agentweb.domain.chatrun.RunOrigin;
+import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.workbench.OwnerReference;
 import com.example.agentweb.domain.workbench.UploadedAttachmentPolicy;
 import com.example.agentweb.domain.workbench.VerifiedWorkbenchStageUploadedConversationAttachment;
@@ -251,7 +252,7 @@ public class WorkbenchStageRunSubmissionCommitter {
                                           WorkbenchStageRunSnapshot candidate,
                                           ChatRunId runId) {
         if (profileSelector == null || selectionStore == null
-                || !profileSelector.hasProfiles()) {
+                || !shouldSelectRuntimeProfile(session.getAgentType(), command.getProfileId())) {
             return;
         }
         RuntimeSelection selected = profileSelector.selection(
@@ -347,6 +348,13 @@ public class WorkbenchStageRunSubmissionCommitter {
         if (runQueryService.countActiveRuns() >= capacity) {
             throw new RunCapacityExceededException(capacity);
         }
+    }
+
+    private boolean shouldSelectRuntimeProfile(AgentType agentType, String profileId) {
+        if (profileId != null && !profileId.isBlank()) {
+            return true;
+        }
+        return profileSelector.hasProfiles(agentType);
     }
 
     private <T> T obscureOwner(DomainAction<T> action) {

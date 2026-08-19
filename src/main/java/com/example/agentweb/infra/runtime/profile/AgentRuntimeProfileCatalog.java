@@ -108,4 +108,17 @@ public final class AgentRuntimeProfileCatalog implements RuntimeProfileSelector 
     public boolean hasProfiles() {
         return !profiles.isEmpty();
     }
+
+    @Override
+    public boolean hasProfiles(AgentType agentType) {
+        if (agentType == null) {
+            return false;
+        }
+        for (AgentRuntimeProfile profile : profiles) {
+            if (profile.getAgentType() == agentType && profile.isEnabled()) {
+                return true;
+            }
+        }
+        return false;
+    }
 }

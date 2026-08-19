@@ -16,6 +16,8 @@ import com.example.agentweb.domain.chatrun.ExecutionContextReference;
 import com.example.agentweb.domain.chatrun.RunOrigin;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.shared.CanonicalHashing;
+import com.example.agentweb.app.runtime.port.AgentRuntimeSurface;
+import com.example.agentweb.infra.runtime.profile.AgentRuntimeProfile;
 import com.example.agentweb.infra.runtime.profile.AgentRuntimeProfileCatalog;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -23,7 +25,9 @@ import org.junit.jupiter.api.Test;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -129,6 +133,27 @@ class ChatExecutionPlanProviderTest {
     }
 
     @Test
+    void should_KeepClaudeCliCompatibility_When_OnlyCodexProfileExists() {
+        provider = new ChatExecutionPlanProvider(
+                queryService, promptBuilder, capabilityBinding, runtimeLimits,
+                new AgentRuntimeProfileCatalog(List.of(codexProfile())), null);
+        ChatRun run = chatRun(false);
+        ChatRunExecutionContext context = context(
+                AgentType.CLAUDE, null, false);
+        when(queryService.findExecutionContext("chat-run-1"))
+                .thenReturn(Optional.of(context));
+        when(promptBuilder.prepareDetailed(context, "question"))
+                .thenReturn(new PreparedChatRunPrompt("assembled prompt", null));
+
+        AgentExecutionPlan plan = provider.prepare(run);
+
+        assertEquals(AgentType.CLAUDE, plan.getRuntimeSelection().getAgentType());
+        assertEquals(null, plan.getRuntimeSelection().getProfileId());
+        assertEquals(RuntimeVersionPolicy.Mode.CONFIGURED,
+                plan.getRuntimeSelection().getRuntimeVersionPolicy().getMode());
+    }
+
+    @Test
     void missingPersistedContextShouldFailClosed() {
         ChatRun run = chatRun(false);
         when(queryService.findExecutionContext("chat-run-1"))
@@ -145,7 +170,7 @@ class ChatExecutionPlanProviderTest {
         ChatRun run = chatRun(false);
         when(queryService.findExecutionContext("chat-run-1"))
                 .thenReturn(Optional.of(context(
-                        AgentType.CLAUDE, null, false)));
+                        AgentType.NATIVE, null, false)));
         assertThrows(IllegalStateException.class,
                 () -> provider.prepare(run));
 
@@ -203,6 +228,15 @@ class ChatExecutionPlanProviderTest {
                 "chat-run-1", "session-1", 11L, agentType,
                 "/workspace/agent-web", resumeId, "local", "user-1",
                 "question", recallEnabled, Collections.emptyList());
+    }
+
+    private AgentRuntimeProfile codexProfile() {
+        return new AgentRuntimeProfile("codex-local", AgentType.CODEX, null, null,
+                "gpt-5.6-sol", Set.of("gpt-5.6-sol"), "high", Set.of("high"),
+                null, Set.of(AgentRuntimeSurface.CHAT, AgentRuntimeSurface.WORKBENCH),
+                Set.of(com.example.agentweb.domain.workbench.RunMode.DISCUSS_READ_ONLY,
+                        com.example.agentweb.domain.workbench.RunMode.MODIFY_WORKSPACE),
+                true);
     }
 
     private ResolvedCapabilityBinding binding() {

@@ -11,6 +11,7 @@ import com.example.agentweb.app.chatrun.EventCursorExpiredException;
 import com.example.agentweb.domain.chatrun.ChatRun;
 import com.example.agentweb.domain.chatrun.ChatRunId;
 import com.example.agentweb.domain.chatrun.ChatRunStatus;
+import com.example.agentweb.app.runtime.RuntimeProfileSelectionException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -71,6 +72,19 @@ class ChatRunControllerTest {
                 .andExpect(jsonPath("$.runId").value("run-1"))
                 .andExpect(jsonPath("$.status").value("PENDING"))
                 .andExpect(jsonPath("$.duplicated").value(false));
+    }
+
+    @Test
+    void submit_should_map_profile_selection_failure_to_runtime_profile_not_found() throws Exception {
+        when(appService.submit(any())).thenThrow(new RuntimeProfileSelectionException(
+                "runtime profile is unavailable or ambiguous for CLAUDE"));
+
+        mvc.perform(post("/api/chat/session/session-1/runs")
+                        .header("Idempotency-Key", "key-1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"hi\"}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("RUNTIME_PROFILE_NOT_FOUND"));
     }
 
     @Test

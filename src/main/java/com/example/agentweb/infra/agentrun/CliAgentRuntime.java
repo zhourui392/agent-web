@@ -119,15 +119,16 @@ public class CliAgentRuntime implements AgentRuntime, AgentGateway {
             throw new IllegalStateException("common CLI Runtime is not configured");
         }
         AgentType type = plan.getRuntimeSelection().getAgentType();
-        AgentRuntimeProfile profile = profiles.byId(
-                plan.getRuntimeSelection().getProfileId());
-        if (profile == null || profile.getAgentType() != type || !profile.isEnabled()) {
-            throw new IllegalStateException("runtime profile is unavailable: "
-                    + plan.getRuntimeSelection().getProfileId());
+        String profileId = plan.getRuntimeSelection().getProfileId();
+        AgentRuntimeProfile profile = profiles.byId(profileId);
+        if (profileId != null && !profileId.isBlank()
+                && (profile == null || profile.getAgentType() != type || !profile.isEnabled())) {
+            throw new IllegalStateException("runtime profile is unavailable: " + profileId);
         }
         CliDialect dialect = resolveDialect(type);
         AgentCliProperties.Client client = resolveClient(type);
-        return kernel.start(plan, sink, dialect, client, profile.getApiKey());
+        return kernel.start(plan, sink, dialect, client,
+                profile == null ? null : profile.getApiKey());
     }
 
     @Override

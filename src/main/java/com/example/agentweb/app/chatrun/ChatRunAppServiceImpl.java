@@ -21,6 +21,7 @@ import com.example.agentweb.domain.chatrun.ChatRunId;
 import com.example.agentweb.domain.chatrun.ChatRunNotFoundException;
 import com.example.agentweb.domain.chatrun.ChatRunRepository;
 import com.example.agentweb.domain.chatrun.RunSessionOriginPolicy;
+import com.example.agentweb.domain.shared.AgentType;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
@@ -199,8 +200,7 @@ public class ChatRunAppServiceImpl implements ChatRunAppService {
         final ChatRun run = ChatRun.submit(idGenerator.nextId(), command.getSessionId(), userMessageId,
                 command.getIdempotencyKey(), command.isRecallEnabled(), now);
         RuntimeSelection pendingSelection = null;
-        if (profileSelector != null && profileSelector.hasProfiles()
-                && selectionStore != null) {
+        if (shouldSelectRuntimeProfile(session.getAgentType(), command.getProfileId())) {
             RuntimeSelection selection = profileSelector.selection(
                     session.getAgentType(), AgentRuntimeSurface.CHAT,
                     RunMode.DISCUSS_READ_ONLY, command.getProfileId(),
@@ -290,6 +290,16 @@ public class ChatRunAppServiceImpl implements ChatRunAppService {
             throw new ChatSessionNotFoundException(sessionId);
         }
         return session;
+    }
+
+    private boolean shouldSelectRuntimeProfile(AgentType agentType, String profileId) {
+        if (profileSelector == null || selectionStore == null) {
+            return false;
+        }
+        if (profileId != null && !profileId.isBlank()) {
+            return true;
+        }
+        return profileSelector.hasProfiles(agentType);
     }
 
     private String statusPayload(ChatRun run) {

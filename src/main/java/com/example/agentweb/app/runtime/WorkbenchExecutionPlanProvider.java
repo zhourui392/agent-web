@@ -113,10 +113,11 @@ public final class WorkbenchExecutionPlanProvider
         RuntimeEnforcementSnapshot runtime = snapshot.getRuntimeEnforcement();
         AgentType agentType = AgentType.parseKnown(runtime.getRuntime());
         boolean profilesConfigured = profileSelector != null
-                && profileSelector.hasProfiles();
-        if (!profilesConfigured && agentType != AgentType.CODEX) {
+                && profileSelector.hasProfiles(agentType);
+        if (!profilesConfigured && agentType != AgentType.CODEX
+                && agentType != AgentType.CLAUDE) {
             throw new IllegalStateException(
-                    "common Workbench Runtime currently supports Codex only");
+                    "common Workbench Runtime currently supports Codex and Claude CLI");
         }
         SandboxMode sandboxMode = SANDBOX_MODES.get(runtime.getRunMode());
         if (sandboxMode == null) {

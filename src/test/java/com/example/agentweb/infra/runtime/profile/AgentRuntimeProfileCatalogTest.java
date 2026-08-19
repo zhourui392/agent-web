@@ -9,7 +9,9 @@ import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AgentRuntimeProfileCatalogTest {
 
@@ -25,6 +27,16 @@ class AgentRuntimeProfileCatalogTest {
 
         assertEquals("codex-a", selected.getProfileId());
         assertEquals("https://one.example", selected.getEndpoint());
+    }
+
+    @Test
+    void should_ReportProfilesOnlyForMatchingAgentType() {
+        AgentRuntimeProfileCatalog catalog = new AgentRuntimeProfileCatalog(
+                List.of(profile("codex-a", "https://one.example", "m1")));
+
+        assertTrue(catalog.hasProfiles(AgentType.CODEX));
+        assertFalse(catalog.hasProfiles(AgentType.CLAUDE));
+        assertFalse(catalog.hasProfiles(AgentType.NATIVE));
     }
 
     @Test

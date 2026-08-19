@@ -13,6 +13,8 @@ public interface RuntimeProfileSelector {
 
     boolean hasProfiles();
 
+    boolean hasProfiles(AgentType agentType);
+
     RuntimeSelection selection(AgentType agentType, AgentRuntimeSurface surface,
                                RunMode runMode, String profileId,
                                String model, String reasoningEffort);

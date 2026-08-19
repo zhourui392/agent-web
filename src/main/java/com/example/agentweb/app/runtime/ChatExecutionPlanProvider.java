@@ -128,10 +128,11 @@ public final class ChatExecutionPlanProvider implements ExecutionPlanProvider {
 
     private void requireSupportedContext(
             ChatRun run, ChatRunExecutionContext context) {
-        boolean profilesConfigured = profilesConfigured();
-        if (!profilesConfigured && context.getAgentType() != AgentType.CODEX) {
+        boolean profilesConfigured = profilesConfigured(context.getAgentType());
+        if (!profilesConfigured && context.getAgentType() != AgentType.CODEX
+                && context.getAgentType() != AgentType.CLAUDE) {
             throw new IllegalStateException(
-                    "common Chat Runtime currently supports Codex only");
+                    "common Chat Runtime currently supports Codex and Claude CLI");
         }
         if (!profilesConfigured && run.isRecallEnabled()) {
             throw new IllegalStateException(
@@ -152,7 +153,7 @@ public final class ChatExecutionPlanProvider implements ExecutionPlanProvider {
                 return persisted.get();
             }
         }
-        if (!profilesConfigured()) {
+        if (!profilesConfigured(context.getAgentType())) {
             return new RuntimeSelection(context.getAgentType(), RuntimeVersionPolicy.configured());
         }
         RuntimeSelection selected = profileSelector.selection(context.getAgentType(),
@@ -166,7 +167,7 @@ public final class ChatExecutionPlanProvider implements ExecutionPlanProvider {
                 context.getEnv(), selected.getRuntimeVersionPolicy());
     }
 
-    private boolean profilesConfigured() {
-        return profileSelector != null && profileSelector.hasProfiles();
+    private boolean profilesConfigured(AgentType agentType) {
+        return profileSelector != null && profileSelector.hasProfiles(agentType);
     }
 }

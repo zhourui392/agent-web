@@ -21,6 +21,8 @@ import com.example.agentweb.domain.chatrun.ExecutionContextReference;
 import com.example.agentweb.domain.chatrun.RunOrigin;
 import com.example.agentweb.domain.shared.AgentType;
 import com.example.agentweb.domain.agentrun.AgentRuntimeUnavailableException;
+import com.example.agentweb.app.runtime.port.AgentRuntimeSurface;
+import com.example.agentweb.infra.runtime.profile.AgentRuntimeProfile;
 import com.example.agentweb.infra.runtime.profile.AgentRuntimeProfileCatalog;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,6 +35,7 @@ import java.time.ZoneOffset;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -160,6 +163,37 @@ class ChatRunAppServiceImplTest {
                         "{\"status\":\"PENDING\"}", 20, NOW)));
         ChatRunSubmission result = runtimeAwareService.submit(new SubmitChatRunCommand(
                 "session-1", "question", null, true, "key-profileless"));
+
+        assertEquals("run-1", result.getRunId());
+        verifyNoInteractions(selectionStore);
+    }
+
+    @Test
+    void submit_should_keep_cli_login_when_session_agent_has_no_profile() {
+        ChatRunRuntimeSelectionStore selectionStore = mock(ChatRunRuntimeSelectionStore.class);
+        ChatRunIdGenerator idGenerator = mock(ChatRunIdGenerator.class);
+        when(idGenerator.nextId()).thenReturn(ChatRunId.of("run-1"));
+        ChatRunAppServiceImpl runtimeAwareService = new ChatRunAppServiceImpl(
+                sessionRepository, runRepository, eventStore,
+                new ChatRunEventAppender(runRepository, eventStore, eventHub,
+                        new AfterCommitExecutor()),
+                launcher, queryService, idGenerator,
+                Clock.fixed(NOW, ZoneOffset.UTC), settings, activityGuard,
+                action -> action.get(), agentCatalogService, terminalFinalizer,
+                mock(AgentExecutionGateway.class), mock(ChatRunRuntimeHandleStore.class),
+                new AgentRuntimeProfileCatalog(List.of(codexProfile())), selectionStore);
+        when(sessionRepository.findById("session-1"))
+                .thenReturn(session("session-1", AgentType.CLAUDE, "local"));
+        when(runRepository.findBySessionAndIdempotencyKey("session-1", "key-claude"))
+                .thenReturn(Optional.<ChatRun>empty());
+        when(sessionRepository.addMessageReturningId(eq("session-1"), any())).thenReturn(11L);
+        when(eventStore.appendAssigned(eq(ChatRunId.of("run-1")), any(), anyList(), eq(NOW)))
+                .thenReturn(Collections.singletonList(new ChatRunEvent(
+                        ChatRunId.of("run-1"), 1L, "run_status",
+                        "{\"status\":\"PENDING\"}", 20, NOW)));
+
+        ChatRunSubmission result = runtimeAwareService.submit(new SubmitChatRunCommand(
+                "session-1", "hi", null, false, "key-claude"));
 
         assertEquals("run-1", result.getRunId());
         verifyNoInteractions(selectionStore);
@@ -398,6 +432,15 @@ class ChatRunAppServiceImplTest {
         assertEquals(ChatRunStatus.RUNNING, run.getStatus());
         verify(runRepository, never()).update(any(ChatRun.class));
         verifyNoInteractions(eventStore, gateway);
+    }
+
+    private AgentRuntimeProfile codexProfile() {
+        return new AgentRuntimeProfile("codex-local", AgentType.CODEX, null, null,
+                "gpt-5.6-sol", Set.of("gpt-5.6-sol"), "high", Set.of("high"),
+                null, Set.of(AgentRuntimeSurface.CHAT, AgentRuntimeSurface.WORKBENCH),
+                Set.of(com.example.agentweb.domain.workbench.RunMode.DISCUSS_READ_ONLY,
+                        com.example.agentweb.domain.workbench.RunMode.MODIFY_WORKSPACE),
+                true);
     }
 
     private ChatSession session(String id) {

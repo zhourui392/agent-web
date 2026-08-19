@@ -39,6 +39,8 @@ import com.example.agentweb.domain.workspace.RepositorySelection;
 import com.example.agentweb.domain.workspace.ResolvedRepository;
 import com.example.agentweb.domain.workspace.WorkspaceSnapshotReference;
 import com.example.agentweb.domain.workspace.WorkspaceTopology;
+import com.example.agentweb.app.runtime.port.AgentRuntimeSurface;
+import com.example.agentweb.infra.runtime.profile.AgentRuntimeProfile;
 import com.example.agentweb.infra.runtime.profile.AgentRuntimeProfileCatalog;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -46,6 +48,7 @@ import org.junit.jupiter.api.Test;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -177,6 +180,48 @@ class WorkbenchExecutionPlanProviderTest {
                 plan.getRuntimeSelection().getRuntimeVersionPolicy().getMode());
         assertEquals("0.145.0", plan.getRuntimeSelection()
                 .getRuntimeVersionPolicy().exactVersion().orElseThrow());
+    }
+
+    @Test
+    void should_KeepClaudeCliCompatibility_When_OnlyCodexProfileExists() {
+        provider = new WorkbenchExecutionPlanProvider(
+                snapshotRepository, promptRepository, workbenchRepository,
+                new AgentRuntimeProfileCatalog(List.of(codexProfile())), null);
+        workbench = Workbench.create(
+                WORKBENCH_ID, OwnerReference.of("owner-1", "Alex"),
+                "Workbench", "Implement the approved solution",
+                AgentType.CLAUDE, "local", scope, snapshotReference(),
+                Collections.singletonList(WorkbenchStageState.initial(
+                        STAGE_IDENTIFIER, stageSnapshot())), NOW);
+        workbench.bindStageConversation(
+                STAGE_IDENTIFIER, "stage-session-1",
+                OwnerReference.of("owner-1", "Alex"),
+                0L, NOW.plusSeconds(1));
+        workbench.prepareStageRun(
+                STAGE_IDENTIFIER, RUN_ID, RunMode.MODIFY_WORKSPACE,
+                OwnerReference.of("owner-1", "Alex"),
+                1L, NOW.plusSeconds(2));
+        snapshot = WorkbenchStageRunSnapshot.create(
+                RUN_ID, WORKBENCH_ID, STAGE_IDENTIFIER, stageSnapshot(),
+                "stage-submit-1", repeat('1'),
+                RunMode.MODIFY_WORKSPACE, scope, snapshotReference(),
+                binding(stageSnapshot()), null, 0L, repeat('2'),
+                Collections.emptyList(),
+                Collections.singletonList(PromptPartSnapshot.of(
+                        "USER_INPUT", "owner", repeat('3'), 23)),
+                promptPayload.getPromptHash(),
+                RuntimeEnforcementSnapshot.modify(
+                        "CLAUDE", "0.145.0", scope.getScopeHash(),
+                        "service-a", Arrays.asList("service-a", "service-b"),
+                        1800L, 8_388_608L),
+                Collections.emptyList(), Collections.emptyList(),
+                NOW.plusSeconds(2));
+        persistAll();
+
+        AgentExecutionPlan plan = provider.prepare(run);
+
+        assertEquals(AgentType.CLAUDE, plan.getRuntimeSelection().getAgentType());
+        assertEquals(null, plan.getRuntimeSelection().getProfileId());
     }
 
     @Test
@@ -377,6 +422,14 @@ class WorkbenchExecutionPlanProviderTest {
                         1800L, 8_388_608L),
                 repositoryAttachments, uploadedAttachments,
                 NOW.plusSeconds(2));
+    }
+
+    private AgentRuntimeProfile codexProfile() {
+        return new AgentRuntimeProfile("codex-local", AgentType.CODEX, null, null,
+                "gpt-5.6-sol", Set.of("gpt-5.6-sol"), "high", Set.of("high"),
+                null, Set.of(AgentRuntimeSurface.CHAT, AgentRuntimeSurface.WORKBENCH),
+                Set.of(RunMode.DISCUSS_READ_ONLY, RunMode.MODIFY_WORKSPACE),
+                true);
     }
 
     private void persistAll() {

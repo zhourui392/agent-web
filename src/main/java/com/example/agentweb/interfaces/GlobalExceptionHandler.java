@@ -11,6 +11,7 @@ import com.example.agentweb.domain.capability.CapabilityResolutionException;
 import com.example.agentweb.domain.chat.ChatSessionNotFoundException;
 import com.example.agentweb.domain.chat.SessionDeletionForbiddenException;
 import com.example.agentweb.domain.chatrun.ActiveChatRunExistsException;
+import com.example.agentweb.app.runtime.RuntimeProfileSelectionException;
 import com.example.agentweb.domain.chatrun.ChatRunNotFoundException;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
@@ -80,6 +81,15 @@ public class GlobalExceptionHandler {
         body.put("code", "CHAT_RUN_NOT_FOUND");
         body.put("message", ex.getMessage());
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(body);
+    }
+
+    @ExceptionHandler(RuntimeProfileSelectionException.class)
+    public ResponseEntity<Map<String, Object>> handleRuntimeProfileSelection(
+            RuntimeProfileSelectionException ex) {
+        Map<String, Object> body = new HashMap<String, Object>();
+        body.put("code", "RUNTIME_PROFILE_NOT_FOUND");
+        body.put("message", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(body);
     }
 
     @ExceptionHandler(CapabilityResolutionException.class)
