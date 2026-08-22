@@ -43,7 +43,7 @@ class SqliteChatRunMetricsQueryServiceTest {
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl("jdbc:sqlite:" + tempDir.resolve("chat-run-metrics.db").toAbsolutePath());
         jdbc = new JdbcTemplate(dataSource);
-        jdbc.execute("CREATE TABLE chat_session (id TEXT PRIMARY KEY, agent_type TEXT NOT NULL)");
+        jdbc.execute("CREATE TABLE chat_session (id TEXT PRIMARY KEY, agent_type TEXT NOT NULL,mode_id TEXT,mode_snapshot TEXT,switched_from_session_id TEXT,handoff_document_id TEXT)");
         SqliteChatRunRepositoryTest.createSchema(jdbc);
 
         ResumableChatStreamProperties properties = new ResumableChatStreamProperties();

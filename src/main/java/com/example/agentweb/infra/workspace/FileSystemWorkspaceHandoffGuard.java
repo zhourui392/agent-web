@@ -40,13 +40,23 @@ public class FileSystemWorkspaceHandoffGuard implements WorkspaceHandoffGuard {
         if (primary == null) {
             return;
         }
-        Path repoRoot = Path.of(primary.getRepositoryRoot());
-        Path gitignore = repoRoot.resolve(GITIGNORE_FILE);
+        ensureHandoffIgnored(Path.of(primary.getRepositoryRoot()));
+    }
+
+    /**
+     * 按目录直接保障（统一入口的 Chat 会话无 RepositoryScope，直接传工作目录）。
+     * best-effort：失败仅告警，不阻断交接导出。
+     */
+    public void ensureHandoffIgnored(Path workingDir) {
+        if (workingDir == null) {
+            return;
+        }
+        Path gitignore = workingDir.resolve(GITIGNORE_FILE);
         try {
             ensureEntries(gitignore);
         } catch (IOException failure) {
             log.warn("workbench-handoff-gitignore-failed repoRoot={} reason={}",
-                    repoRoot, failure.getMessage());
+                    workingDir, failure.getMessage());
         }
     }
 

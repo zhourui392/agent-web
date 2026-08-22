@@ -222,7 +222,9 @@ public class CommonRuntimeConfiguration {
             ChatRunPromptBuilder promptBuilder,
             CommonRuntimeProperties properties,
             AgentRuntimeProfileCatalog profileCatalog,
-            ChatRunRuntimeSelectionStore selectionStore) {
+            ChatRunRuntimeSelectionStore selectionStore,
+            com.example.agentweb.domain.mode.ChatModeCapabilityResolver modeCapabilityResolver,
+            com.example.agentweb.app.mode.HandoffFilePort handoffFilePort) {
         ResolvedCapabilityBinding binding =
                 ResolvedCapabilityBinding.resolve(
                         "common-runtime-policy@1", "chat-default", "1",
@@ -234,7 +236,16 @@ public class CommonRuntimeConfiguration {
                 Duration.ofSeconds(properties.getChatTimeoutSeconds()),
                 properties.getChatMaxOutputBytes());
         return new ChatExecutionPlanProvider(
-                queryService, promptBuilder, binding, limits, profileCatalog, selectionStore);
+                queryService, promptBuilder, binding, limits, profileCatalog, selectionStore,
+                modeCapabilityResolver, handoffFilePort,
+                properties.getCompatibilityMatrixVersion());
+    }
+
+    @Bean
+    public com.example.agentweb.domain.mode.ChatModeCapabilityResolver chatModeCapabilityResolver(
+            com.example.agentweb.domain.capability.CapabilityArtifactRegistry artifactRegistry) {
+        return new com.example.agentweb.domain.mode.ChatModeCapabilityResolver(
+                artifactRegistry);
     }
 
     @Bean

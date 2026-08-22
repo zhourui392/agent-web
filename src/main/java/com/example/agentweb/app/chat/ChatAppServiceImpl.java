@@ -136,12 +136,25 @@ public class ChatAppServiceImpl implements ChatAppService {
         this.chatRunActivityGuard = chatRunActivityGuard;
     }
 
+    private com.example.agentweb.domain.mode.ChatModeRepository modeRepository;
+
+    /**
+     * 生产装配注入模式仓储；历史独立单测未注入时保持"无模式"兼容。
+     */
+    @Autowired(required = false)
+    void configureChatModeRepository(
+            com.example.agentweb.domain.mode.ChatModeRepository modeRepository) {
+        this.modeRepository = modeRepository;
+    }
+
     @Override
     public ChatSession startSession(StartSessionCommand command, String clientIp) {
         Assert.notNull(command, "command is null");
         AgentType type = agentCatalogService.resolveChatSelection(command.agentType(),
                 chatAgentDefaults.getChatDefaultAgent(), command.env());
         String workingDir = workspacePathPolicy.requireExistingDirectory(command.workingDir());
+        com.example.agentweb.domain.mode.ModeSnapshot modeSnapshot =
+                resolveModeSnapshot(command.modeId(), type);
         ChatSession s = new ChatSession(type, workingDir);
         // 持久化创建时选定的环境, 用于后续恢复时回填; null/空串均按 "无环境" 处理
         String reqEnv = command.env();
@@ -156,11 +169,36 @@ public class ChatAppServiceImpl implements ChatAppService {
         s.setUserId(currentUserProvider.currentUserId());
         // 创建者姓名仅作审计记录(前端不展示); null 表示拿不到
         s.setUserName(currentUserProvider.currentUserName());
+        if (modeSnapshot != null) {
+            s.bindMode(modeSnapshot);
+        }
         sessionCache.save(s);
         sessionRepository.saveSession(s);
         log.debug("chat-session-persisted sessionId={} agentType={} workingDir={} env={} clientIp={} userId={} userName={}",
                 s.getId(), type, s.getWorkingDir(), s.getEnv(), s.getClientIp(), s.getUserId(), s.getUserName());
         return s;
+    }
+
+    /**
+     * 会话绑定模式：校验归属 + Claude-only（模式能力下发只有 Claude 方言），
+     * 返回冻结快照；modeId 为空返回 null（默认模式）。
+     */
+    private com.example.agentweb.domain.mode.ModeSnapshot resolveModeSnapshot(
+            String modeId, AgentType type) {
+        if (modeId == null || modeId.trim().isEmpty()) {
+            return null;
+        }
+        if (modeRepository == null) {
+            throw new IllegalStateException("chat mode repository is not configured");
+        }
+        com.example.agentweb.domain.mode.ChatMode mode = modeRepository.find(modeId.trim())
+                .orElseThrow(() -> new com.example.agentweb.domain.mode.ModeNotFoundException(modeId));
+        mode.requireOwnedBy(currentUserProvider.currentUserId());
+        if (type != AgentType.CLAUDE) {
+            throw new IllegalArgumentException(
+                    "chat modes currently require the Claude runtime");
+        }
+        return mode.snapshot();
     }
 
     @Override

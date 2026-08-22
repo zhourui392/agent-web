@@ -22,6 +22,8 @@ interface HistoryItem {
   userId?: string;
   agentType?: string;
   resumeId?: string;
+  modeId?: string;
+  modeDisplayName?: string;
   running?: boolean;
   [key: string]: unknown;
 }
@@ -32,6 +34,7 @@ interface HostState {
   activeResumeId: Ref<string>;
   activeSessionId: Ref<string>;
   activeEnvironment: Ref<string>;
+  effectiveModeId: Ref<string>;
 }
 
 export function useHistory(host: HostState): {
@@ -163,6 +166,8 @@ export function useHistory(host: HostState): {
     if (session.agentType) host.agentType.value = session.agentType;
     host.activeEnvironment.value = typeof session.env === 'string' ? session.env : '';
     host.activeResumeId.value = session.resumeId || '';
+    // 回填顶栏模式指示,避免恢复后下拉谎报"默认模式"
+    host.effectiveModeId.value = typeof session.modeId === 'string' ? session.modeId : '';
     host.activeSessionId.value = session.sessionId;
   };
 

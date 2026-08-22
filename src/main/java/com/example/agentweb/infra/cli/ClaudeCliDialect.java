@@ -31,6 +31,13 @@ public class ClaudeCliDialect implements CliDialect {
     private static final String RESUME_FLAG = "--resume";
     private static final String MODEL_FLAG = "--model";
     private static final String EFFORT_FLAG = "--effort";
+    /** 无模式/无覆盖时的 CLI 缺省（自 application.yml 模板移入代码，避免与 per-run 覆盖重复下发）。 */
+    private static final String DEFAULT_PERMISSION_MODE = "acceptEdits";
+    private static final String PERMISSION_MODE_FLAG = "--permission-mode";
+    private static final String APPEND_SYSTEM_PROMPT_FLAG = "--append-system-prompt";
+    private static final String MCP_CONFIG_FLAG = "--mcp-config";
+    private static final String STRICT_MCP_CONFIG_FLAG = "--strict-mcp-config";
+    private static final String PLUGIN_DIR_FLAG = "--plugin-dir";
     private static final String SESSION_ID_FIELD = "session_id";
     private static final String TYPE_FIELD = "type";
     private static final String RESULT_EVENT_TYPE = "result";
@@ -57,8 +64,12 @@ public class ClaudeCliDialect implements CliDialect {
         // 1. 参数验证
         validateExec(cfg);
 
-        // 2. 渲染基础命令
+        // 2. 渲染基础命令（若模板自带 --permission-mode 且本次有 per-run 覆盖，剥除避免重复 flag）
         List<String> cmd = renderTemplate(cfg, ctx.getUserMessage());
+        String permissionMode = ctx.getPermissionMode() == null
+                || ctx.getPermissionMode().trim().isEmpty()
+                ? DEFAULT_PERMISSION_MODE : ctx.getPermissionMode().trim();
+        stripExistingPermissionMode(cmd);
 
         // 3. 按需追加 resume flag
         appendResumeFlagIfPresent(cmd, ctx.getResumeId());
@@ -66,7 +77,21 @@ public class ClaudeCliDialect implements CliDialect {
         // 4. 按需追加 --model (仅当本次调用显式指定, 如 refinery 评分走廉价模型); 空则用 CLI 默认
         appendModelFlagIfPresent(cmd, ctx.getModel());
         appendEffortFlagIfPresent(cmd, ctx.getReasoningEffort());
-        log.debug("claude-command-built resumeId={} argCount={}", ctx.getResumeId(), cmd.size());
+
+        // 5. 模式能力下发（全部来源于会话模式快照，无模式 = 零行为变化）
+        cmd.add(PERMISSION_MODE_FLAG);
+        cmd.add(permissionMode);
+        appendValueFlagIfPresent(cmd, APPEND_SYSTEM_PROMPT_FLAG, ctx.getAppendSystemPrompt());
+        if (ctx.getMcpConfigPath() != null && !ctx.getMcpConfigPath().trim().isEmpty()) {
+            // 隔离用户本机已配 MCP server，能力清单只来自模式快照
+            cmd.add(STRICT_MCP_CONFIG_FLAG);
+            cmd.add(MCP_CONFIG_FLAG);
+            cmd.add(ctx.getMcpConfigPath().trim());
+        }
+        appendValueFlagIfPresent(cmd, PLUGIN_DIR_FLAG, ctx.getCapabilityDir());
+        log.debug("claude-command-built resumeId={} permissionMode={} mcpConfig={} pluginDir={} argCount={}",
+                ctx.getResumeId(), permissionMode, ctx.getMcpConfigPath() != null,
+                ctx.getCapabilityDir() != null, cmd.size());
         return cmd;
     }
 
@@ -148,5 +173,28 @@ public class ClaudeCliDialect implements CliDialect {
         }
         cmd.add(EFFORT_FLAG);
         cmd.add(effort.trim());
+    }
+
+    private void appendValueFlagIfPresent(List<String> cmd, String flag, String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return;
+        }
+        cmd.add(flag);
+        cmd.add(value.trim());
+    }
+
+    /** 剥除模板参数中已有的 --permission-mode 对，保证 per-run 覆盖不产生重复 flag。 */
+    private void stripExistingPermissionMode(List<String> cmd) {
+        java.util.Iterator<String> iterator = cmd.iterator();
+        while (iterator.hasNext()) {
+            if (PERMISSION_MODE_FLAG.equals(iterator.next())) {
+                iterator.remove();
+                if (iterator.hasNext()) {
+                    iterator.next();
+                    iterator.remove();
+                }
+                return;
+            }
+        }
     }
 }

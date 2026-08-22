@@ -27,6 +27,7 @@ import type {
   WorkbenchRunMode,
 } from '../lib/workbench-run-state.js';
 import type { WorkbenchStageStatus } from '../lib/workbench-state.js';
+import { WORKBENCH_READ_ONLY } from '../lib/workbench-readonly.js';
 
 export interface UseWorkbenchConversationOptions {
   ownerId: Ref<string>;
@@ -129,7 +130,8 @@ export function useWorkbenchConversation(options: UseWorkbenchConversationOption
   let messageRequestToken = 0;
   let lastTerminalKey = '';
 
-  const conversationReadOnly = computed(() => options.archived?.value ?? false);
+  const conversationReadOnly = computed(() =>
+    WORKBENCH_READ_ONLY || (options.archived?.value ?? false));
   const identityReady = computed(() => conversationIdentity.value != null);
   const currentRunId = computed(() =>
     options.activeRunId.value || localRunId.value || stream.state.value?.context.runId || null);

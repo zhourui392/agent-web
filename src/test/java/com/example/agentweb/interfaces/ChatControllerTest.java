@@ -67,6 +67,9 @@ class ChatControllerTest {
     private ChatAppService appService;
 
     @MockBean
+    private com.example.agentweb.app.mode.ModeSwitchAppService modeSwitchAppService;
+
+    @MockBean
     private ChatSessionQueryService sessionQueryService;
 
     @MockBean

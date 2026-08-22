@@ -38,6 +38,18 @@ public class ChatRunPromptBuilder {
 
     public PreparedChatRunPrompt prepareDetailed(ChatRunExecutionContext context, String input,
                                                  HistoryDeliveryMode historyMode) {
+        return prepareDetailed(context, input, historyMode, ChatRunPromptExtras.none());
+    }
+
+    /**
+     * 完整组装：模式会话的 HANDOFF / SELECTED_CAPABILITIES part 前置注入，
+     * 无额外 part 时输出与既有路径一致。
+     */
+    public PreparedChatRunPrompt prepareDetailed(ChatRunExecutionContext context, String input,
+                                                 HistoryDeliveryMode historyMode,
+                                                 ChatRunPromptExtras extras) {
+        ChatRunPromptExtras safeExtras = extras == null
+                ? ChatRunPromptExtras.none() : extras;
         SlashExpansionResult expansion = input.equals(context.getMessage())
                 ? commandExpander.expand(context.getWorkingDir(), input)
                 : new SlashExpansionResult(input, false, false, null, "");
@@ -50,10 +62,33 @@ public class ChatRunPromptBuilder {
         if (shouldInjectHistory(context, historyMode)) {
             prompt = historyPrefix(context, prompt);
         }
+        prompt = appendExtras(safeExtras, prompt);
         PreparedChatRunPrompt.ExplicitSkillInvocation skill = expansion.isMatched() && expansion.isSkill()
                 ? new PreparedChatRunPrompt.ExplicitSkillInvocation(
-                        expansion.getCommandName(), expansion.getArguments()) : null;
+                expansion.getCommandName(), expansion.getArguments()) : null;
         return new PreparedChatRunPrompt(appendFinalAnswerInstruction(prompt), skill);
+    }
+
+    private String appendExtras(ChatRunPromptExtras extras, String prompt) {
+        if (extras.isEmpty()) {
+            return prompt;
+        }
+        StringBuilder result = new StringBuilder();
+        if (extras.getHandoffContent() != null && !extras.getHandoffContent().isBlank()) {
+            result.append("<session_handoff>\n")
+                    .append("本会话由上一个会话切换而来。交接文件路径: ")
+                    .append(extras.getHandoffFilePath())
+                    .append("\n请先完整阅读以下交接内容，再继续处理新的用户消息。\n\n")
+                    .append(extras.getHandoffContent().trim())
+                    .append("\n</session_handoff>\n\n");
+        }
+        if (extras.getModeCapabilityAnnouncement() != null
+                && !extras.getModeCapabilityAnnouncement().isBlank()) {
+            result.append("<selected_capabilities>\n")
+                    .append(extras.getModeCapabilityAnnouncement().trim())
+                    .append("\n</selected_capabilities>\n\n");
+        }
+        return result + prompt;
     }
 
     private boolean shouldInjectHistory(ChatRunExecutionContext context,

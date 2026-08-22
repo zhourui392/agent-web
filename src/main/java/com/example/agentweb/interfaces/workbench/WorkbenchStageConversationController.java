@@ -1,6 +1,7 @@
 package com.example.agentweb.interfaces.workbench;
 
 import com.example.agentweb.app.workbench.WorkbenchNotFoundException;
+import com.example.agentweb.app.workbench.WorkbenchWriteGate;
 import com.example.agentweb.app.workbench.conversation.RestartWorkbenchStageConversationCommand;
 import com.example.agentweb.app.workbench.conversation.WorkbenchStageConversationAppService;
 import com.example.agentweb.app.workbench.conversation.WorkbenchStageConversationResult;
@@ -39,14 +40,17 @@ public class WorkbenchStageConversationController {
     private final WorkbenchStageConversationAppService appService;
     private final WorkbenchQueryService queryService;
     private final CurrentUserProvider currentUserProvider;
+    private final WorkbenchWriteGate writeGate;
 
     public WorkbenchStageConversationController(
             WorkbenchStageConversationAppService appService,
             WorkbenchQueryService queryService,
-            CurrentUserProvider currentUserProvider) {
+            CurrentUserProvider currentUserProvider,
+            WorkbenchWriteGate writeGate) {
         this.appService = appService;
         this.queryService = queryService;
         this.currentUserProvider = currentUserProvider;
+        this.writeGate = writeGate;
     }
 
     @GetMapping("/messages")
@@ -74,6 +78,7 @@ public class WorkbenchStageConversationController {
             @PathVariable("stageInstanceIdentifier")
                     String stageInstanceIdentifier,
             @RequestHeader("If-Match") long expectedVersion) {
+        writeGate.requireWritable();
         WorkbenchStageConversationResult result =
                 appService.ensureConversation(
                         currentOwner(), WorkbenchId.of(workbenchId),
@@ -88,6 +93,7 @@ public class WorkbenchStageConversationController {
                     String stageInstanceIdentifier,
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestHeader("If-Match") long expectedVersion) {
+        writeGate.requireWritable();
         RestartWorkbenchStageConversationCommand command =
                 new RestartWorkbenchStageConversationCommand(
                         WorkbenchId.of(workbenchId), stageInstanceIdentifier,

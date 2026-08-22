@@ -6,6 +6,7 @@ import com.example.agentweb.app.workbench.WorkbenchCreationResult;
 import com.example.agentweb.app.workbench.WorkbenchLifecycleAppService;
 import com.example.agentweb.app.workbench.WorkbenchLifecycleResult;
 import com.example.agentweb.app.workbench.WorkbenchNotFoundException;
+import com.example.agentweb.app.workbench.WorkbenchWriteGate;
 import com.example.agentweb.app.workbench.WorkbenchStageLifecycleResult;
 import com.example.agentweb.app.workbench.query.WorkbenchDetailView;
 import com.example.agentweb.app.workbench.query.WorkbenchListCursor;
@@ -52,21 +53,25 @@ public class WorkbenchController {
     private final WorkbenchQueryService queryService;
     private final WorkbenchLifecycleAppService lifecycleAppService;
     private final CurrentUserProvider currentUserProvider;
+    private final WorkbenchWriteGate writeGate;
 
     public WorkbenchController(WorkbenchCreationAppService appService,
                                WorkbenchQueryService queryService,
                                WorkbenchLifecycleAppService lifecycleAppService,
-                               CurrentUserProvider currentUserProvider) {
+                               CurrentUserProvider currentUserProvider,
+                               WorkbenchWriteGate writeGate) {
         this.appService = appService;
         this.queryService = queryService;
         this.lifecycleAppService = lifecycleAppService;
         this.currentUserProvider = currentUserProvider;
+        this.writeGate = writeGate;
     }
 
     @PostMapping
     public ResponseEntity<WorkbenchCreationResponse> create(
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @Valid @RequestBody CreateWorkbenchRequest request) {
+        writeGate.requireWritable();
         OwnerReference actor = OwnerReference.of(
                 currentUserProvider.currentUserId(),
                 currentUserProvider.currentUserName());
@@ -110,6 +115,7 @@ public class WorkbenchController {
     public WorkbenchLifecycleResponse archive(
             @PathVariable("workbenchId") String workbenchId,
             @RequestHeader("If-Match") long expectedVersion) {
+        writeGate.requireWritable();
         WorkbenchLifecycleResult result = lifecycleAppService.archive(
                 currentOwner(), WorkbenchId.of(workbenchId), expectedVersion);
         return WorkbenchLifecycleResponse.from(result);
@@ -121,6 +127,7 @@ public class WorkbenchController {
             @PathVariable("stageInstanceIdentifier")
                     String stageInstanceIdentifier,
             @RequestHeader("If-Match") long expectedVersion) {
+        writeGate.requireWritable();
         WorkbenchStageLifecycleResult result = lifecycleAppService.completeStage(
                 currentOwner(), WorkbenchId.of(workbenchId),
                 stageInstanceIdentifier, expectedVersion);
@@ -133,6 +140,7 @@ public class WorkbenchController {
             @PathVariable("stageInstanceIdentifier")
                     String stageInstanceIdentifier,
             @RequestHeader("If-Match") long expectedVersion) {
+        writeGate.requireWritable();
         WorkbenchStageLifecycleResult result = lifecycleAppService.reopenStage(
                 currentOwner(), WorkbenchId.of(workbenchId),
                 stageInstanceIdentifier, expectedVersion);

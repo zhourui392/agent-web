@@ -146,6 +146,16 @@ class CommonRuntimeConfigurationTest {
         }
 
         @Bean
+        com.example.agentweb.domain.capability.CapabilityArtifactRegistry capabilityArtifactRegistry() {
+            return mock(com.example.agentweb.domain.capability.CapabilityArtifactRegistry.class);
+        }
+
+        @Bean
+        com.example.agentweb.app.mode.HandoffFilePort handoffFilePort() {
+            return mock(com.example.agentweb.app.mode.HandoffFilePort.class);
+        }
+
+        @Bean
         ChatRunLifecycleService chatRunLifecycleService() {
             return mock(ChatRunLifecycleService.class);
         }

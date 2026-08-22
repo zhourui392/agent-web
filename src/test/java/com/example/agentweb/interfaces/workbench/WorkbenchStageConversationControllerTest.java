@@ -62,6 +62,9 @@ class WorkbenchStageConversationControllerTest {
     private MockMvc mvc;
 
     @MockBean
+    private com.example.agentweb.app.workbench.WorkbenchWriteGate workbenchWriteGate;
+
+    @MockBean
     private WorkbenchStageConversationAppService appService;
 
     @MockBean

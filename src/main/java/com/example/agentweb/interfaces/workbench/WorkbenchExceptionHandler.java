@@ -2,6 +2,7 @@ package com.example.agentweb.interfaces.workbench;
 
 import com.example.agentweb.app.runtime.port.RuntimePreflightException;
 import com.example.agentweb.app.workbench.WorkbenchNotFoundException;
+import com.example.agentweb.app.workbench.WorkbenchWriteGate;
 import com.example.agentweb.app.workbench.WorkspaceFailureCode;
 import com.example.agentweb.app.workbench.WorkspaceOperationException;
 import com.example.agentweb.app.workbench.query.WorkbenchStageConversationMessageTooLargeException;
@@ -51,6 +52,15 @@ public class WorkbenchExceptionHandler {
             new CapabilityErrorContract(
                     HttpStatus.SERVICE_UNAVAILABLE,
                     "WORKBENCH_PROFILE_UNAVAILABLE");
+
+    @ExceptionHandler(WorkbenchWriteGate.WorkbenchReadOnlyException.class)
+    public ResponseEntity<Map<String, Object>> handleWorkbenchReadOnly(
+            WorkbenchWriteGate.WorkbenchReadOnlyException exception) {
+        Map<String, Object> body = new HashMap<String, Object>(2);
+        body.put("code", "WORKBENCH_READ_ONLY");
+        body.put("message", exception.getMessage());
+        return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED).body(body);
+    }
 
     @ExceptionHandler(WorkspaceOperationException.class)
     public ResponseEntity<Map<String, Object>> handleWorkspaceOperation(

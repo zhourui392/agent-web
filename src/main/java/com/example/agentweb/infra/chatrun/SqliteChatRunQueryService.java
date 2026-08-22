@@ -68,9 +68,11 @@ public class SqliteChatRunQueryService implements ChatRunQueryService {
     public Optional<ChatRunExecutionContext> findExecutionContext(String runId) {
         boolean filter = currentUserProvider.shouldFilter();
         String sql = "SELECT r.id AS run_id, r.session_id, r.user_message_id, r.recall_enabled, "
-                + "s.agent_type, s.working_dir, s.resume_id, s.env, s.user_id, m.content AS message "
+                + "s.agent_type, s.working_dir, s.resume_id, s.env, s.user_id, m.content AS message, "
+                + "s.mode_snapshot, h.file_path AS handoff_file_path "
                 + "FROM chat_run r JOIN chat_session s ON s.id=r.session_id "
                 + "JOIN chat_message m ON m.id=r.user_message_id AND m.session_id=r.session_id "
+                + "LEFT JOIN handoff_document h ON h.id=s.handoff_document_id "
                 + "WHERE r.id=? AND r.run_origin='CHAT' AND s.session_kind='CHAT'"
                 + (filter ? " AND (s.user_id IS NULL OR s.user_id=?)" : "");
         List<ChatRunExecutionContext> found = filter
@@ -95,7 +97,22 @@ public class SqliteChatRunQueryService implements ChatRunQueryService {
                 AgentType.valueOf(rs.getString("agent_type")), rs.getString("working_dir"),
                 rs.getString("resume_id"), rs.getString("env"), rs.getString("user_id"),
                 rs.getString("message"), rs.getInt("recall_enabled") != 0,
-                loadHistory(sessionId, messageId));
+                loadHistory(sessionId, messageId),
+                readModeSnapshot(rs.getString("mode_snapshot")),
+                rs.getString("handoff_file_path"));
+    }
+
+    /** mode_snapshot JSON → ModeSnapshot；空或损坏按无模式处理（老数据兼容）。 */
+    private static com.example.agentweb.domain.mode.ModeSnapshot readModeSnapshot(String json) {
+        if (json == null || json.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            return new com.fasterxml.jackson.databind.ObjectMapper()
+                    .readValue(json, com.example.agentweb.domain.mode.ModeSnapshot.class);
+        } catch (java.io.IOException ex) {
+            return null;
+        }
     }
 
     private List<ChatRunHistoryMessageView> loadHistory(String sessionId, long beforeMessageId) {

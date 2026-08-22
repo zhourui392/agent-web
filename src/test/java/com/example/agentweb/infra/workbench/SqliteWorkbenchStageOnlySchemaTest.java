@@ -80,6 +80,8 @@ class SqliteWorkbenchStageOnlySchemaTest {
                 + "working_dir TEXT NOT NULL, created_at TEXT NOT NULL, "
                 + "session_kind TEXT NOT NULL DEFAULT 'CHAT', "
                 + "context_id TEXT, retired_at TEXT, "
+                + "mode_id TEXT, mode_snapshot TEXT, "
+                + "switched_from_session_id TEXT, handoff_document_id TEXT, "
                 + "CHECK (session_kind IN ('CHAT', 'WORKBENCH_PHASE'))) ");
 
         // When

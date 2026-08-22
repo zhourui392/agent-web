@@ -30,6 +30,7 @@ public final class AgentExecutionPlan {
     private final RuntimeLimits runtimeLimits;
     private final List<RuntimeAttachmentExpectation> attachmentExpectations;
     private final String resumeId;
+    private final ModeRuntimeDelivery modeRuntimeDelivery;
 
     public AgentExecutionPlan(ExecutionIdentity executionIdentity,
                               RuntimeSelection runtimeSelection,
@@ -63,6 +64,20 @@ public final class AgentExecutionPlan {
             RuntimeLimits runtimeLimits,
             List<RuntimeAttachmentExpectation> attachmentExpectations,
             String resumeId) {
+        this(executionIdentity, runtimeSelection, promptPayload, workspaceLayout,
+                capabilityBinding, runtimeLimits, attachmentExpectations, resumeId, null);
+    }
+
+    public AgentExecutionPlan(
+            ExecutionIdentity executionIdentity,
+            RuntimeSelection runtimeSelection,
+            PromptPayload promptPayload,
+            WorkspaceLayout workspaceLayout,
+            ResolvedCapabilityBinding capabilityBinding,
+            RuntimeLimits runtimeLimits,
+            List<RuntimeAttachmentExpectation> attachmentExpectations,
+            String resumeId,
+            ModeRuntimeDelivery modeRuntimeDelivery) {
         this.executionIdentity = Objects.requireNonNull(
                 executionIdentity, "executionIdentity");
         this.runtimeSelection = Objects.requireNonNull(runtimeSelection, "runtimeSelection");
@@ -75,6 +90,7 @@ public final class AgentExecutionPlan {
                 attachmentExpectations, workspaceLayout);
         this.resumeId = resumeId == null || resumeId.trim().isEmpty()
                 ? null : resumeId.trim();
+        this.modeRuntimeDelivery = modeRuntimeDelivery;
     }
 
     private static List<RuntimeAttachmentExpectation> immutableAttachments(

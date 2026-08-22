@@ -48,7 +48,10 @@ class SqliteChatRunQueryServiceTest {
         jdbc = new JdbcTemplate(dataSource);
         jdbc.execute("CREATE TABLE chat_session (id TEXT PRIMARY KEY, agent_type TEXT NOT NULL, "
                 + "working_dir TEXT NOT NULL, resume_id TEXT, env TEXT, user_id TEXT, "
-                + "session_kind TEXT NOT NULL DEFAULT 'CHAT')");
+                + "session_kind TEXT NOT NULL DEFAULT 'CHAT',mode_id TEXT,mode_snapshot TEXT,switched_from_session_id TEXT,handoff_document_id TEXT)");
+        jdbc.execute(
+                "CREATE TABLE handoff_document (id TEXT PRIMARY KEY,from_session_id TEXT NOT NULL,to_session_id TEXT NOT NULL,from_mode_id TEXT,to_mode_id TEXT,file_path TEXT NOT NULL,idempotency_key TEXT NOT NULL,created_at TEXT NOT NULL)"
+        );
         jdbc.execute("CREATE TABLE chat_message (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, "
                 + "role TEXT NOT NULL, content TEXT NOT NULL, timestamp TEXT NOT NULL)");
         SqliteChatRunRepositoryTest.createSchema(jdbc);

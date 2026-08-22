@@ -65,12 +65,14 @@ public class SqliteChatSessionQueryServiceTest {
                 + "created_at TEXT NOT NULL, resume_id TEXT, share_token TEXT, env TEXT, title TEXT, "
                 + "feedback_rating TEXT, feedback_comment TEXT, feedback_at TEXT, "
                 + "last_message_at INTEGER, client_ip TEXT, user_id TEXT, user_name TEXT, "
-                + "session_kind TEXT NOT NULL DEFAULT 'CHAT', context_id TEXT, retired_at TEXT)");
+                + "session_kind TEXT NOT NULL DEFAULT 'CHAT', context_id TEXT, retired_at TEXT,mode_id TEXT,mode_snapshot TEXT,switched_from_session_id TEXT,handoff_document_id TEXT)");
         jdbc.execute("CREATE TABLE chat_message ("
                 + "id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, "
                 + "role TEXT NOT NULL, content TEXT NOT NULL, timestamp TEXT NOT NULL)");
         jdbc.execute("CREATE TABLE chat_message_recall ("
                 + "message_id INTEGER PRIMARY KEY, payload_json TEXT NOT NULL)");
+        jdbc.execute("CREATE TABLE chat_mode (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, "
+                + "identifier TEXT NOT NULL, display_name TEXT NOT NULL)");
         userContext = new StubUserContext();
         CurrentUserProvider provider = new CurrentUserProvider(userContext);
         repo = new SqliteSessionRepo(jdbc, provider);
@@ -244,6 +246,30 @@ public class SqliteChatSessionQueryServiceTest {
 
         assertFalse(query.isSharedImageReferenced("tok-stage-active", imagePath));
         assertFalse(query.isSharedImageReferenced("tok-stage-retired", imagePath));
+    }
+
+    @Test
+    public void findSummaryPaged_should_project_bound_mode_info() {
+        jdbc.update("INSERT INTO chat_mode (id, user_id, identifier, display_name) "
+                + "VALUES ('m1', 'alice', 'reviewer', '评审模式')");
+        ChatSession bound = newSession("sess-bound", Instant.parse("2026-05-25T10:00:00Z"));
+        bound.setUserId("alice");
+        repo.saveSession(bound);
+        jdbc.update("UPDATE chat_session SET mode_id = 'm1' WHERE id = 'sess-bound'");
+        repo.saveSession(newSession("sess-plain", Instant.parse("2026-05-25T11:00:00Z")));
+
+        List<ChatSessionSummary> summaries = query.findSummaryPaged(0, 10);
+
+        ChatSessionSummary withMode = summaries.stream()
+                .filter(s -> "sess-bound".equals(s.getSessionId()))
+                .findFirst().orElseThrow();
+        assertEquals("m1", withMode.getModeId());
+        assertEquals("评审模式", withMode.getModeDisplayName());
+        ChatSessionSummary plain = summaries.stream()
+                .filter(s -> "sess-plain".equals(s.getSessionId()))
+                .findFirst().orElseThrow();
+        assertNull(plain.getModeId());
+        assertNull(plain.getModeDisplayName());
     }
 
     private void persistWorkbenchSession(String id, boolean retired) {

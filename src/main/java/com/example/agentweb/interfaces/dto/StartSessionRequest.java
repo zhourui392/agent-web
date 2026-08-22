@@ -23,4 +23,10 @@ public class StartSessionRequest {
      * 可为空: 对应 EnvProperties 的 key (如 test/prod), 为空表示无环境约束.
      */
     private String env;
+
+    /**
+     * 可为空: 绑定的模式 id, 为空表示默认模式（原纯 Chat 行为）。
+     * 绑定模式要求 agentType 解析为 CLAUDE（模式能力仅 Claude 方言支持）。
+     */
+    private String modeId;
 }

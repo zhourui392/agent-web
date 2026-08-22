@@ -63,6 +63,12 @@ public class RewindFeatureTest {
     private MockMvc mvc;
 
     @MockBean
+    private com.example.agentweb.app.mode.ModeSwitchAppService modeSwitchAppService;
+
+    @MockBean
+    private com.example.agentweb.app.workbench.WorkbenchWriteGate workbenchWriteGate;
+
+    @MockBean
     private ChatAppService appService;
 
     @MockBean

@@ -131,7 +131,7 @@ class ChatRunLifecycleTransactionTest {
         jdbc.execute("CREATE TABLE chat_session (id TEXT PRIMARY KEY, agent_type TEXT NOT NULL, "
                 + "working_dir TEXT NOT NULL, created_at TEXT NOT NULL, resume_id TEXT, "
                 + "last_message_at INTEGER, session_kind TEXT NOT NULL DEFAULT 'CHAT', "
-                + "context_id TEXT, retired_at TEXT)");
+                + "context_id TEXT, retired_at TEXT,mode_id TEXT,mode_snapshot TEXT,switched_from_session_id TEXT,handoff_document_id TEXT)");
         jdbc.execute("CREATE TABLE chat_message (id INTEGER PRIMARY KEY AUTOINCREMENT, "
                 + "session_id TEXT NOT NULL, role TEXT NOT NULL, content TEXT NOT NULL, "
                 + "timestamp TEXT NOT NULL)");

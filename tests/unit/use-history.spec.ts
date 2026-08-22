@@ -31,6 +31,7 @@ describe('useHistory', () => {
       activeResumeId: ref(''),
       activeSessionId: ref(''),
       activeEnvironment: ref(''),
+      effectiveModeId: ref(''),
     });
     const oldItem = { sessionId: 'old', createdAt: '2026-08-08T00:00:00Z' };
     history.historyList.value = [oldItem];

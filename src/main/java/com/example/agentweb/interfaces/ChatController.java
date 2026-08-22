@@ -48,32 +48,73 @@ public class ChatController {
     private final com.example.agentweb.domain.slashcommand.SlashCommandExpander commandExpander;
     private final RuntimeAgentSettings runtimeAgentSettings;
     private final AgentCatalogService agentCatalogService;
+    private final com.example.agentweb.app.mode.ModeSwitchAppService modeSwitchAppService;
 
     public ChatController(ChatAppService appService, ChatSessionQueryService sessionQueryService,
                           EnvProperties envProperties,
                           com.example.agentweb.domain.slashcommand.SlashCommandExpander commandExpander,
                           RuntimeAgentSettings runtimeAgentSettings,
-                          AgentCatalogService agentCatalogService) {
+                          AgentCatalogService agentCatalogService,
+                          com.example.agentweb.app.mode.ModeSwitchAppService modeSwitchAppService) {
         this.appService = appService;
         this.sessionQueryService = sessionQueryService;
         this.envProperties = envProperties;
         this.commandExpander = commandExpander;
         this.runtimeAgentSettings = runtimeAgentSettings;
         this.agentCatalogService = agentCatalogService;
+        this.modeSwitchAppService = modeSwitchAppService;
     }
 
     @PostMapping("/session")
     public StartSessionResponse start(@Valid @RequestBody StartSessionRequest req, HttpServletRequest httpRequest) {
         String clientIp = ClientIpResolver.resolve(httpRequest);
-        log.info("chat-session-create-request agentType={} workingDir={} env={} clientIp={}",
-                req.getAgentType(), req.getWorkingDir(), req.getEnv(), clientIp);
+        log.info("chat-session-create-request agentType={} workingDir={} env={} modeId={} clientIp={}",
+                req.getAgentType(), req.getWorkingDir(), req.getEnv(), req.getModeId(), clientIp);
         StartSessionCommand command = new StartSessionCommand(
-                req.getAgentType(), req.getWorkingDir(), req.getEnv());
+                req.getAgentType(), req.getWorkingDir(), req.getEnv(), req.getModeId());
         ChatSession s = appService.startSession(command, clientIp);
         MdcContext.putSessionId(s.getId());
-        log.info("chat-session-created sessionId={} agentType={} workingDir={} env={} clientIp={}",
-                s.getId(), s.getAgentType(), s.getWorkingDir(), s.getEnv(), s.getClientIp());
+        log.info("chat-session-created sessionId={} agentType={} workingDir={} env={} modeId={} clientIp={}",
+                s.getId(), s.getAgentType(), s.getWorkingDir(), s.getEnv(), s.getModeId(), s.getClientIp());
         return new StartSessionResponse(s.getId(), s.getAgentType().name(), s.getWorkingDir(), s.getEnv());
+    }
+
+    /**
+     * 单步同步模式切换：导出旧会话转录 + 创建绑定新模式的新会话。
+     * 有活跃 run 时 409；Idempotency-Key 防重复提交。
+     */
+    @org.springframework.web.bind.annotation.PostMapping("/session/{id}/mode-switch")
+    public java.util.Map<String, String> switchMode(
+            @org.springframework.web.bind.annotation.PathVariable("id") String id,
+            @org.springframework.web.bind.annotation.RequestBody ModeSwitchRequest req,
+            @org.springframework.web.bind.annotation.RequestHeader("Idempotency-Key") String idempotencyKey) {
+        if (idempotencyKey == null || idempotencyKey.trim().isEmpty()
+                || idempotencyKey.length() > 128) {
+            throw new IllegalArgumentException("Idempotency-Key header is required (1-128 chars)");
+        }
+        String targetModeId = req == null ? null : req.getTargetModeId();
+        com.example.agentweb.app.mode.ModeSwitchAppService.ModeSwitchResult result =
+                modeSwitchAppService.switchMode(id, targetModeId, idempotencyKey.trim());
+        MdcContext.putSessionId(result.newSessionId());
+        log.info("chat-mode-switched fromSession={} newSession={} handoffId={}",
+                id, result.newSessionId(), result.handoffDocumentId());
+        return java.util.Map.of(
+                "newSessionId", result.newSessionId(),
+                "handoffDocumentId", result.handoffDocumentId());
+    }
+
+    /** 模式切换请求体；targetModeId 为空表示切回默认模式。 */
+    public static final class ModeSwitchRequest {
+        @com.fasterxml.jackson.annotation.JsonProperty("targetModeId")
+        private String targetModeId;
+
+        public String getTargetModeId() {
+            return targetModeId;
+        }
+
+        public void setTargetModeId(String targetModeId) {
+            this.targetModeId = targetModeId;
+        }
     }
 
     @GetMapping("/session/{id}/commands")

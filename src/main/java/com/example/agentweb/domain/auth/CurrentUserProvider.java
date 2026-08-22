@@ -56,4 +56,12 @@ public class CurrentUserProvider {
     public boolean shouldFilter() {
         return isolationEnabled && currentUserId() != null;
     }
+
+    /**
+     * 当前登录用户是否管理员；拿不到当前用户或无上下文时返回 false。
+     */
+    public boolean isAdministrator() {
+        return userContext != null
+                && userContext.currentUser().map(LoginUser::isAdmin).orElse(false);
+    }
 }

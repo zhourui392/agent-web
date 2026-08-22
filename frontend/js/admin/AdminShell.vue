@@ -24,8 +24,9 @@ type="primary" size="large" style="width:100%; margin-top:16px;"
           <el-menu :default-active="active" @select="onMenuSelect">
             <el-menu-item index="dashboard"><span>大盘</span></el-menu-item>
             <el-menu-item index="conversations"><span>对话记录</span></el-menu-item>
+            <el-menu-item index="modes"><span>模式管理</span></el-menu-item>
             <el-menu-item index="workbenches"><span>Workbench 运维</span></el-menu-item>
-            <el-menu-item index="capabilities"><span>阶段能力配置</span></el-menu-item>
+            <el-menu-item index="capabilities"><span>能力配置</span></el-menu-item>
             <el-menu-item index="tool-invocation-analytics"><span>工具分析</span></el-menu-item>
             <el-menu-item index="users"><span>用户管理</span></el-menu-item>
             <el-menu-item index="recall"><span>召回观测</span></el-menu-item>

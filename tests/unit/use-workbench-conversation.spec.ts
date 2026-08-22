@@ -9,6 +9,10 @@ import * as frontendVueRuntime from '../../frontend/node_modules/vue/index.mjs';
 import { describe, expect, it, vi } from 'vitest';
 import type { WorkbenchRunApiClient } from '../../frontend/js/api/workbench-run.js';
 import { useWorkbenchConversation } from '../../frontend/js/composables/useWorkbenchConversation.js';
+// 全局只读开关 mock 为可写：本组用例验证的是提交流程底层逻辑（生产由 WORKBENCH_READ_ONLY 挡 UI）
+vi.mock('../../frontend/js/lib/workbench-readonly.js', () => ({
+  WORKBENCH_READ_ONLY: false,
+}));
 import type { UseWorkbenchRunStream } from '../../frontend/js/composables/useWorkbenchRunStream.js';
 
 const { ref, shallowRef } = frontendVueRuntime as typeof import('vue');

@@ -7,6 +7,7 @@ import com.example.agentweb.app.workbench.attachment.WorkbenchStageUploadedConve
 import com.example.agentweb.domain.auth.CurrentUserProvider;
 import com.example.agentweb.domain.workbench.OwnerReference;
 import com.example.agentweb.domain.workbench.WorkbenchId;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -40,12 +41,24 @@ public class WorkbenchStageAttachmentController {
     private final WorkbenchStageUploadedConversationAttachmentAppService
             appService;
     private final CurrentUserProvider currentUserProvider;
+    private final com.example.agentweb.app.workbench.WorkbenchWriteGate writeGate;
 
+    @Autowired
+    public WorkbenchStageAttachmentController(
+            WorkbenchStageUploadedConversationAttachmentAppService appService,
+            CurrentUserProvider currentUserProvider,
+            com.example.agentweb.app.workbench.WorkbenchWriteGate writeGate) {
+        this.appService = appService;
+        this.currentUserProvider = currentUserProvider;
+        this.writeGate = writeGate;
+    }
+
+    /** 独立单测兼容构造：门禁默认放行，验证既有写路径行为。 */
     public WorkbenchStageAttachmentController(
             WorkbenchStageUploadedConversationAttachmentAppService appService,
             CurrentUserProvider currentUserProvider) {
-        this.appService = appService;
-        this.currentUserProvider = currentUserProvider;
+        this(appService, currentUserProvider,
+                new com.example.agentweb.app.workbench.WorkbenchWriteGate(true));
     }
 
     @PostMapping(path = "/attachments",
@@ -61,6 +74,7 @@ public class WorkbenchStageAttachmentController {
             throw new IllegalArgumentException(
                     "Stage uploaded attachment request is invalid");
         }
+        writeGate.requireWritable();
         WorkbenchId identifier = WorkbenchId.of(workbenchId);
         try (InputStream input = file.getInputStream()) {
             WorkbenchStageUploadedConversationAttachmentView result =
@@ -94,6 +108,7 @@ public class WorkbenchStageAttachmentController {
             throw new IllegalArgumentException(
                     "Stage uploaded attachment request is invalid");
         }
+        writeGate.requireWritable();
         appService.cancel(
                 currentOwner(), WorkbenchId.of(workbenchId),
                 stageInstanceIdentifier, generation, attachmentId);

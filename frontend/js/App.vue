@@ -23,6 +23,17 @@
         </el-radio-group>
         <div class="divider hidden-mobile"></div>
 
+        <!-- ②.6 模式切换器 -->
+        <mode-switcher
+          :groups="modeGroups"
+          :model-value="effectiveModeId"
+          :current-label="currentModeLabel"
+          :disabled="modeSwitching"
+          @update:model-value="onModeChange"
+          @manage="onModeManage">
+        </mode-switcher>
+        <div class="divider hidden-mobile"></div>
+
         <!-- ③ 工作目录选择器 -->
         <div class="workspace-selector" @click="openWorkspaceDialog">
           <el-icon><folder-opened /></el-icon>
@@ -195,6 +206,7 @@ v-for="b in savedBranches" :key="b" closable size="small"
               <div style="flex: 1; min-width: 0;" @click="viewHistory(h.sessionId)">
                 <div class="history-title">
                   {{ h.title || '新对话' }}
+                  <el-tag v-if="h.modeDisplayName" size="small" effect="plain">{{ h.modeDisplayName }}</el-tag>
                   <el-tag v-if="h.running" size="small" type="warning" effect="plain">运行中</el-tag>
                 </div>
                 <div class="history-meta">
@@ -252,6 +264,7 @@ v-for="b in savedBranches" :key="b" closable size="small"
                 <div style="flex: 1; min-width: 0;" @click="viewHistory(h.sessionId); sidebarVisible = false;">
                   <div class="history-title">
                     {{ h.title || '新对话' }}
+                    <el-tag v-if="h.modeDisplayName" size="small" effect="plain">{{ h.modeDisplayName }}</el-tag>
                     <el-tag v-if="h.running" size="small" type="warning" effect="plain">运行中</el-tag>
                   </div>
                   <div class="history-meta">
@@ -292,6 +305,7 @@ v-for="b in savedBranches" :key="b" closable size="small"
           :initial-session-id="activeSessionId"
           :initial-resume-id="activeResumeId"
           :rag-enabled="chatRagEnabled"
+          :mode-id="effectiveModeId"
           @session-created="onSessionCreated"
           @refresh-history="onRefreshHistory"></chat-panel>
       </el-main>
@@ -480,8 +494,8 @@ v-for="item in folderList" :key="item.path" class="fs-item"
         </div>
       </template>
       <div v-for="(msg, i) in historyMessages" :key="i" class="history-msg">
-        <div class="history-msg-role" :style="{ color: msg.role === 'user' ? '#409eff' : '#67c23a' }">
-          {{ msg.role === 'user' ? '用户' : '助手' }}
+        <div class="history-msg-role" :style="{ color: msg.role === 'user' ? '#409eff' : msg.role === 'system' ? '#909399' : '#67c23a' }">
+          {{ msg.role === 'user' ? '用户' : msg.role === 'system' ? '系统' : '助手' }}
           <span style="font-weight: normal; color: #c0c4cc; margin-left: 8px;">{{ formatTime(msg.timestamp) }}</span>
         </div>
         <!-- /recall 召回卡片 -->
@@ -579,8 +593,17 @@ import { useFileSystem } from './composables/useFileSystem.js';
 import { useWorktree } from './composables/useWorktree.js';
 import { useHistory } from './composables/useHistory.js';
 import { useScheduledTask } from './composables/useScheduledTask.js';
+import ModeSwitcher from './components/ModeSwitcher.vue';
+import {
+  listMyModes, listModeTemplates, forkMode, switchSessionMode,
+} from './api/mode.js';
+import {
+  buildModeOptionGroups, modeLabel, newIdempotencyKey,
+  isTemplateOption, templateDefinitionIdentifier, templateRevisionId,
+} from './lib/mode-switch.js';
 
 export default {
+  components: { ModeSwitcher },
   setup() {
     // auth + file-system 从 composable 引入(FE-R3.2 拆出,原内联状态/方法删除)
     const {
@@ -643,6 +666,14 @@ export default {
       return options;
     });
     const starting = ref(false);
+    // ========== 模式切换状态(须先于 useHistory 声明:恢复历史会话需回填 effectiveModeId) ==========
+    // 顶栏 ModeSwitcher 数据源:平铺单组(默认 + 我的 + 未 fork 内置模板),loadModes 拉取。
+    const myModes = ref([]);
+    const modeTemplates = ref([]);
+    const modeSwitching = ref(false);
+    // 当前生效模式 id('' = 默认模式):新建态作为创建会话入参;会话内切换由后端
+    // fork 新会话,回填 activeSessionId 后更新此值;恢复历史会话时由 resumeHistory 回填。
+    const effectiveModeId = ref('');
     // 历史 + 定时任务 从 composable 引入(FE-R3.4 拆出,原内联状态/方法删除)
     const {
       historyList, historyPage, historyHasMore, historyLoading,
@@ -651,6 +682,7 @@ export default {
       deleteHistory, viewHistory, resumeHistory, shareSessionFor
     } = useHistory({
       currentUserId, agentType, activeResumeId, activeSessionId, activeEnvironment,
+      effectiveModeId,
     });
     const {
       taskList, taskDialogVisible, taskEditing, taskForm, taskLoading, taskManagerVisible,
@@ -750,8 +782,63 @@ export default {
       });
     };
 
-    // ========== ChatPanel 宿主回调 ==========
-    // 组件新建会话:回填 active* 锁定顶栏 Agent。历史列表在任务提交后统一刷新，
+    // ========== 模式切换逻辑 ==========
+
+    const modeGroups = computed(() =>
+      buildModeOptionGroups(myModes.value, modeTemplates.value));
+    const currentModeLabel = computed(() =>
+      modeLabel(modeGroups.value, effectiveModeId.value));
+
+    // 拉取我的模式与模板库;接口不可用时降级为仅默认模式,不阻塞主流程。
+    const loadModes = async () => {
+      try {
+        const [mine, templates] = await Promise.all([
+          listMyModes(), listModeTemplates(),
+        ]);
+        myModes.value = mine;
+        modeTemplates.value = templates;
+      } catch (e) {
+        console.warn('load modes failed', e);
+      }
+    };
+
+    // 切换模式:模板项先 fork 为我的模式;有活跃会话时走单步同步切换,
+    // 后端生成新会话与交接文档,宿主回填 active* 触发组件重载。
+    const onModeChange = async (value) => {
+      if (modeSwitching.value || value === effectiveModeId.value) return;
+      modeSwitching.value = true;
+      try {
+        let targetModeId = value;
+        if (isTemplateOption(value)) {
+          const forked = await forkMode(
+            templateDefinitionIdentifier(value), templateRevisionId(value));
+          myModes.value = [...myModes.value, forked];
+          targetModeId = forked.id;
+        }
+        if (activeSessionId.value) {
+          const result = await switchSessionMode(
+            activeSessionId.value, targetModeId, newIdempotencyKey());
+          activeSessionId.value = result.newSessionId;
+          activeResumeId.value = '';
+        }
+        effectiveModeId.value = targetModeId;
+        ElMessage.info({
+          message: '已切换到 ' + modeLabel(modeGroups.value, targetModeId),
+          duration: 2000,
+        });
+      } catch (e) {
+        ElMessage.error('模式切换失败，请重试');
+      } finally {
+        modeSwitching.value = false;
+      }
+    };
+
+    // 模式管理入口:跳转管理后台 /admin/modes.html(仅管理员;全量模式维护 + 能力目录)。
+    const onModeManage = () => {
+      window.location.href = '/admin/modes.html';
+    };
+
+    // ========== ChatPanel 宿主回调 ==========    // 组件新建会话:回填 active* 锁定顶栏 Agent。历史列表在任务提交后统一刷新，
     // 避免创建会话与提交任务之间连续清空/重绘侧栏。
     const onSessionCreated = (payload) => {
       activeSessionId.value = payload.sessionId;
@@ -767,9 +854,11 @@ export default {
     // ========== 生命周期 ==========
     onMounted(async () => {
       await init();
+      await loadModes();
       await loadHistory(true);
       await loadTasks();
     });
+
 
     // 切工作目录:置空 active*,ChatPanel 经 workingDir / initialSession 自行清空并重载命令
     watch(currentPath, () => {
@@ -790,6 +879,8 @@ export default {
     );
 
     return {
+      modeGroups, currentModeLabel, effectiveModeId, modeSwitching,
+      onModeChange, onModeManage,
       roots,
       selectedRoot,
       workspaceCandidatePath,

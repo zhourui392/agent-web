@@ -1,6 +1,13 @@
 <template>
   <div class="workbench-shell">
     <el-alert
+      type="warning"
+      :closable="false"
+      show-icon
+      title="Workbench 已并入统一对话入口：此处仅保留历史只读查看，新模式能力请回首页使用「模式切换器」。"
+    />
+
+    <el-alert
       v-if="errorMessage"
       class="workbench-global-error"
       type="error"
@@ -15,7 +22,7 @@
         <div class="workbench-sidebar-actions">
           <template v-if="!sidebarCollapsed">
             <el-button text @click="goHome">← 返回对话</el-button>
-            <el-button type="primary" @click="openCreateDialog">
+            <el-button v-if="!workbenchReadOnly" type="primary" @click="openCreateDialog">
               <el-icon><plus /></el-icon>
               新建
             </el-button>
@@ -64,7 +71,7 @@
           <div class="workbench-welcome-mark">W</div>
           <h1>按自定义阶段推进工作</h1>
           <p>选择左侧 Workbench，或先检查本地 Workspace 并创建新的工作台。</p>
-          <el-button type="primary" size="large" @click="openCreateDialog">
+          <el-button v-if="!workbenchReadOnly" type="primary" size="large" @click="openCreateDialog">
             创建第一个 Workbench
           </el-button>
         </section>
@@ -481,6 +488,7 @@ import { useWorkbenchShell } from '../composables/useWorkbenchShell.js';
 import { useWorkbenchRunHistory } from '../composables/useWorkbenchRunHistory.js';
 import { useWorkbenchUploadedAttachments } from '../composables/useWorkbenchUploadedAttachments.js';
 import { stageStatusLabel } from '../lib/workbench-state.js';
+import { WORKBENCH_READ_ONLY } from '../lib/workbench-readonly.js';
 
 function repositoryRelativePathLabel(relativePath) {
   const normalized = typeof relativePath === 'string'
@@ -532,6 +540,7 @@ export default {
     WorkbenchRunHistoryDrawer,
   },
   setup() {
+    const workbenchReadOnly = WORKBENCH_READ_ONLY;
     const shell = useWorkbenchShell();
     const workbenchId = computed(() => shell.detail.value?.id || null);
     const archived = computed(() => shell.detail.value?.status === 'ARCHIVED');
@@ -816,6 +825,7 @@ export default {
       ...shell,
       ...documentPane,
       ...conversation,
+      workbenchReadOnly,
       workbenchUploadItems: uploadedAttachments.items,
       workbenchUploadNotice: uploadedAttachments.notice,
       workbenchId,

@@ -181,8 +181,8 @@ agent:
         - stream-json
         - --verbose
         - --include-partial-messages
-        - --permission-mode
-        - acceptEdits
+        # --permission-mode 由 ClaudeCliDialect 按 BuildContext.permissionMode 统一下发
+        # (无模式默认 acceptEdits; 模式快照可 per-run 覆盖)。勿在模板里重复配置，避免重复 flag。
         # 不传 --model: 走 Claude CLI 自身默认模型(含 settings/环境配置)。
         # 注意: 续聊(--resume)时 CLI 可能回退到基础版(非 1M); 若要钉死模型再加回:
         #   - --model

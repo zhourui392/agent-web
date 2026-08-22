@@ -62,7 +62,7 @@ public class SqliteSessionRepoTest {
                         + "user_name TEXT,"
                         + "session_kind TEXT NOT NULL DEFAULT 'CHAT',"
                         + "context_id TEXT,"
-                        + "retired_at TEXT)"
+                        + "retired_at TEXT,mode_id TEXT,mode_snapshot TEXT,switched_from_session_id TEXT,handoff_document_id TEXT)"
         );
         jdbc.execute(
                 "CREATE TABLE chat_message ("

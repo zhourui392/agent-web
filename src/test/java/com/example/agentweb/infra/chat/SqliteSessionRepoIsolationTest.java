@@ -68,10 +68,12 @@ public class SqliteSessionRepoIsolationTest {
                 + "created_at TEXT NOT NULL, resume_id TEXT, share_token TEXT, env TEXT, title TEXT, "
                 + "feedback_rating TEXT, feedback_comment TEXT, feedback_at TEXT, "
                 + "last_message_at INTEGER, client_ip TEXT, user_id TEXT, user_name TEXT, "
-                + "session_kind TEXT NOT NULL DEFAULT 'CHAT', context_id TEXT, retired_at TEXT)");
+                + "session_kind TEXT NOT NULL DEFAULT 'CHAT', context_id TEXT, retired_at TEXT,mode_id TEXT,mode_snapshot TEXT,switched_from_session_id TEXT,handoff_document_id TEXT)");
         jdbc.execute("CREATE TABLE chat_message ("
                 + "id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, "
                 + "role TEXT NOT NULL, content TEXT NOT NULL, timestamp TEXT NOT NULL)");
+        jdbc.execute("CREATE TABLE chat_mode (id TEXT PRIMARY KEY, user_id TEXT NOT NULL, "
+                + "identifier TEXT NOT NULL, display_name TEXT NOT NULL)");
         userContext = new StubUserContext();
         provider = new CurrentUserProvider(userContext);
         repo = new SqliteSessionRepo(jdbc, provider);

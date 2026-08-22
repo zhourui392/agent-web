@@ -127,7 +127,7 @@ public class SqliteConversationQueryServiceTest {
         jdbc.execute("CREATE TABLE chat_session ("
                 + "id TEXT PRIMARY KEY, agent_type TEXT, working_dir TEXT, created_at TEXT, "
                 + "resume_id TEXT, title TEXT, env TEXT, feedback_rating TEXT, feedback_comment TEXT, "
-                + "feedback_at TEXT, last_message_at INTEGER, client_ip TEXT, user_id TEXT, user_name TEXT)");
+                + "feedback_at TEXT, last_message_at INTEGER, client_ip TEXT, user_id TEXT, user_name TEXT,mode_id TEXT,mode_snapshot TEXT,switched_from_session_id TEXT,handoff_document_id TEXT)");
         jdbc.execute("CREATE TABLE chat_message ("
                 + "id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT, role TEXT, content TEXT, timestamp TEXT)");
     }

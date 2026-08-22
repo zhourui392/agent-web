@@ -26,4 +26,10 @@ public class ChatSessionSummary {
 
     /** 列表标题：session.title 或首条用户消息，超 50 字截断。 */
     String title;
+
+    /** 会话绑定的模式 id；为空表示默认模式（老数据/未绑定）。 */
+    String modeId;
+
+    /** 绑定模式的显示名（chat_mode.display_name）；模式被删后为空，前端据此隐藏徽标。 */
+    String modeDisplayName;
 }

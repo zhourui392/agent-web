@@ -46,6 +46,9 @@ public final class ChatExecutionPlanProvider implements ExecutionPlanProvider {
     private final RuntimeLimits runtimeLimits;
     private final RuntimeProfileSelector profileSelector;
     private final ChatRunRuntimeSelectionStore selectionStore;
+    private final com.example.agentweb.domain.mode.ChatModeCapabilityResolver modeCapabilityResolver;
+    private final com.example.agentweb.app.mode.HandoffFilePort handoffFilePort;
+    private final String runtimeCompatibility;
 
     public ChatExecutionPlanProvider(
             ChatRunQueryService queryService,
@@ -72,6 +75,20 @@ public final class ChatExecutionPlanProvider implements ExecutionPlanProvider {
             RuntimeLimits runtimeLimits,
             RuntimeProfileSelector profileSelector,
             ChatRunRuntimeSelectionStore selectionStore) {
+        this(queryService, promptBuilder, capabilityBinding, runtimeLimits,
+                profileSelector, selectionStore, null, null, null);
+    }
+
+    public ChatExecutionPlanProvider(
+            ChatRunQueryService queryService,
+            ChatRunPromptBuilder promptBuilder,
+            ResolvedCapabilityBinding capabilityBinding,
+            RuntimeLimits runtimeLimits,
+            RuntimeProfileSelector profileSelector,
+            ChatRunRuntimeSelectionStore selectionStore,
+            com.example.agentweb.domain.mode.ChatModeCapabilityResolver modeCapabilityResolver,
+            com.example.agentweb.app.mode.HandoffFilePort handoffFilePort,
+            String runtimeCompatibility) {
         this.queryService = Objects.requireNonNull(queryService, "queryService");
         this.promptBuilder = Objects.requireNonNull(promptBuilder, "promptBuilder");
         this.capabilityBinding = Objects.requireNonNull(
@@ -79,6 +96,9 @@ public final class ChatExecutionPlanProvider implements ExecutionPlanProvider {
         this.runtimeLimits = Objects.requireNonNull(runtimeLimits, "runtimeLimits");
         this.profileSelector = profileSelector;
         this.selectionStore = selectionStore;
+        this.modeCapabilityResolver = modeCapabilityResolver;
+        this.handoffFilePort = handoffFilePort;
+        this.runtimeCompatibility = runtimeCompatibility;
     }
 
     @Override
@@ -99,12 +119,56 @@ public final class ChatExecutionPlanProvider implements ExecutionPlanProvider {
                 context.getUserMessageId(), context.isRecallEnabled());
         requireSupportedContext(requiredRun, context);
 
+        // 模式会话：按冻结快照解析能力绑定与 Claude 下发事实；无模式走默认空绑定（零行为变化）
+        com.example.agentweb.domain.mode.ModeSnapshot modeSnapshot = context.getModeSnapshot();
+        ResolvedCapabilityBinding binding = this.capabilityBinding;
+        com.example.agentweb.app.runtime.port.ModeRuntimeDelivery modeDelivery = null;
+        com.example.agentweb.app.chatrun.ChatRunPromptExtras extras =
+                com.example.agentweb.app.chatrun.ChatRunPromptExtras.none();
+        if (modeSnapshot != null) {
+            if (modeCapabilityResolver == null || runtimeCompatibility == null) {
+                throw new IllegalStateException(
+                        "chat mode runtime delivery is not configured");
+            }
+            com.example.agentweb.domain.mode.ResolvedModeCapabilities resolved =
+                    modeCapabilityResolver.resolve(
+                            modeSnapshot, context.getAgentType(), runtimeCompatibility);
+            binding = resolved.getBinding();
+            modeDelivery = new com.example.agentweb.app.runtime.port.ModeRuntimeDelivery(
+                    modeSnapshot.getDefaultPrompt(), modeSnapshot.getPermissionMode(),
+                    resolved.getCommands().stream()
+                            .map(command -> new com.example.agentweb.app.runtime.port
+                                    .ModeRuntimeDelivery.CommandPayload(
+                                    command.getIdentifier(), command.getPromptTemplate()))
+                            .collect(Collectors.toList()));
+            extras = new com.example.agentweb.app.chatrun.ChatRunPromptExtras(
+                    context.getHandoffFilePath(),
+                    readHandoffContent(context),
+                    capabilityAnnouncement(modeSnapshot, resolved));
+        }
+
         PreparedChatRunPrompt prepared = Objects.requireNonNull(
-                promptBuilder.prepareDetailed(context, context.getMessage()),
+                extras.isEmpty()
+                        ? promptBuilder.prepareDetailed(context, context.getMessage())
+                        : promptBuilder.prepareDetailed(context, context.getMessage(),
+                        com.example.agentweb.app.agentrun.port.HistoryDeliveryMode.PROMPT_PREFIX,
+                        extras),
                 "prepared Chat Runtime prompt");
         String prompt = prepared.getPrompt();
         String workspaceRoot = context.getWorkingDir();
         RuntimeSelection runtimeSelection = runtimeSelection(requiredRun, context);
+        if (modeSnapshot != null) {
+            // 模式覆盖运行时 profile 的 model/effort 默认（其余 profile 绑定保持）
+            runtimeSelection = new RuntimeSelection(
+                    runtimeSelection.getProfileId(), runtimeSelection.getAgentType(),
+                    runtimeSelection.getEndpoint(),
+                    modeSnapshot.getModel() != null ? modeSnapshot.getModel()
+                            : runtimeSelection.getModel(),
+                    modeSnapshot.getEffort() != null ? modeSnapshot.getEffort()
+                            : runtimeSelection.getReasoningEffort(),
+                    runtimeSelection.getRuntimeEnvironment(),
+                    runtimeSelection.getRuntimeVersionPolicy());
+        }
         boolean nativeRuntime = context.getAgentType() == AgentType.NATIVE;
         PromptPayload payload = nativeRuntime
                 ? new PromptPayload(context.getMessage(),
@@ -123,7 +187,45 @@ public final class ChatExecutionPlanProvider implements ExecutionPlanProvider {
                         workspaceRoot, Collections.singletonList(workspaceRoot),
                         Collections.singletonList(workspaceRoot),
                         SandboxMode.WORKSPACE_WRITE),
-                capabilityBinding, runtimeLimits, Collections.emptyList(), context.getResumeId());
+                binding, runtimeLimits, Collections.emptyList(), context.getResumeId(),
+                modeDelivery);
+    }
+
+    private String readHandoffContent(ChatRunExecutionContext context) {
+        if (handoffFilePort == null || context.getHandoffFilePath() == null) {
+            return null;
+        }
+        return handoffFilePort.readContent(
+                context.getWorkingDir(), context.getHandoffFilePath());
+    }
+
+    /** SELECTED_CAPABILITIES part：宣告模式能力及其 plugin 命名空间用法。 */
+    private String capabilityAnnouncement(
+            com.example.agentweb.domain.mode.ModeSnapshot snapshot,
+            com.example.agentweb.domain.mode.ResolvedModeCapabilities resolved) {
+        StringBuilder announcement = new StringBuilder();
+        announcement.append("当前会话绑定了模式「")
+                .append(snapshot.getDisplayName()).append("」。\n");
+        if (!resolved.getCommands().isEmpty()) {
+            announcement.append("可用斜杠命令（以 agent-mode 命名空间注册，直接调用即可）:\n");
+            for (com.example.agentweb.domain.capability.CommandDefinition command
+                    : resolved.getCommands()) {
+                announcement.append("- /agent-mode:").append(command.getIdentifier())
+                        .append(": ").append(command.getDescription()).append('\n');
+            }
+        }
+        if (!snapshot.getSkills().isEmpty()) {
+            announcement.append("可用 Skills（agent-mode 插件已加载）: ");
+            announcement.append(snapshot.getSkills().stream()
+                    .map(com.example.agentweb.domain.mode.ModeCapabilities.SkillRef::getIdentifier)
+                    .collect(Collectors.joining(", "))).append('\n');
+        }
+        if (!snapshot.getMcpServers().isEmpty()) {
+            announcement.append("可用 MCP Servers: ").append(snapshot.getMcpServers().stream()
+                    .map(com.example.agentweb.domain.mode.ModeCapabilities.McpServerRef::getIdentifier)
+                    .collect(Collectors.joining(", "))).append('\n');
+        }
+        return announcement.toString();
     }
 
     private void requireSupportedContext(

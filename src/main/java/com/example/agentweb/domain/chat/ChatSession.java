@@ -54,6 +54,18 @@ public class ChatSession {
     /** 用户对该会话 AI 分析正确性的反馈; 从未评价过为 null */
     @Getter @Setter
     private Feedback feedback;
+    /** 绑定的模式；null = 默认模式（原纯 Chat 行为）。创建后不可变更。 */
+    @Getter
+    private String modeId;
+    /** 会话创建时冻结的模式能力快照；与 modeId 同刻写入，之后不可变更。 */
+    @Getter
+    private com.example.agentweb.domain.mode.ModeSnapshot modeSnapshot;
+    /** 切换血缘：本会话由哪个会话切换而来；非切换产生为 null。 */
+    @Getter
+    private String switchedFromSessionId;
+    /** 本会话启动时加载的交接文档 id；无交接为 null。 */
+    @Getter
+    private String handoffDocumentId;
 
     public ChatSession(AgentType agentType, String workingDir) {
         this(UUID.randomUUID().toString(), agentType, workingDir, Instant.now(), new ArrayList<ChatMessage>());
@@ -120,6 +132,66 @@ public class ChatSession {
         session.setUserId(resolvedOwnerId);
         session.setUserName(resolvedOwnerName);
         return session;
+    }
+
+    /**
+     * 创建期绑定模式快照；仅允许绑定一次，重复绑定视为破坏"会话内能力稳定"不变量。
+     */
+    public void bindMode(com.example.agentweb.domain.mode.ModeSnapshot snapshot) {
+        if (snapshot == null) {
+            throw new IllegalArgumentException("mode snapshot must not be null");
+        }
+        if (modeSnapshot != null || modeId != null) {
+            throw new IllegalStateException(
+                    "chat session mode snapshot is already frozen: " + id);
+        }
+        this.modeSnapshot = snapshot;
+        this.modeId = snapshot.getSourceModeId();
+    }
+
+    /**
+     * 由模式切换创建新会话：继承工作目录/环境/归属/标题与 agent 类型，
+     * 显式不继承 resumeId（模式间上下文只经交接文件传递），
+     * 并记录切换血缘与交接文档引用。新会话首轮由运行层注入 HANDOFF part。
+     */
+    public static ChatSession createSwitched(
+            ChatSession source, String newSessionId,
+            com.example.agentweb.domain.mode.ModeSnapshot targetMode,
+            String handoffDocumentId, Instant now) {
+        if (source == null || source.getSessionKind() != SessionKind.CHAT) {
+            throw new IllegalArgumentException(
+                    "mode switch source must be an ordinary chat session");
+        }
+        ChatSession target = new ChatSession(
+                DomainText.require(newSessionId, "session id", 128),
+                source.getAgentType(), source.getWorkingDir(), now, null,
+                SessionKind.CHAT, null, null);
+        target.setEnv(source.getEnv());
+        target.setClientIp(source.getClientIp());
+        target.setUserId(source.getUserId());
+        target.setUserName(source.getUserName());
+        target.setTitle(source.getTitle());
+        target.switchedFromSessionId = source.getId();
+        target.handoffDocumentId = DomainText.require(
+                handoffDocumentId, "handoff document id", 128);
+        if (targetMode != null) {
+            target.bindMode(targetMode);
+        }
+        return target;
+    }
+
+    /**
+     * 仓储装配专用：从持久化列恢复模式绑定与血缘事实，绕过 bindMode 的一次性守卫
+     * （恢复的是创建期已冻结的历史状态，不是新的绑定动作）。仅供 infra 装配调用。
+     */
+    public void restoreModeBinding(com.example.agentweb.domain.mode.ModeSnapshot snapshot,
+                                   String switchedFromSessionId, String handoffDocumentId) {
+        if (snapshot != null) {
+            this.modeSnapshot = snapshot;
+            this.modeId = snapshot.getSourceModeId();
+        }
+        this.switchedFromSessionId = switchedFromSessionId;
+        this.handoffDocumentId = handoffDocumentId;
     }
 
     /**

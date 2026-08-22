@@ -17,6 +17,10 @@ public final class BuildContext {
     private final String model;
     private final String endpoint;
     private final String reasoningEffort;
+    private final String appendSystemPrompt;
+    private final String permissionMode;
+    private final String mcpConfigPath;
+    private final String capabilityDir;
 
     private BuildContext(Builder builder) {
         this.config = builder.config;
@@ -26,6 +30,10 @@ public final class BuildContext {
         this.model = builder.model;
         this.endpoint = builder.endpoint;
         this.reasoningEffort = builder.reasoningEffort;
+        this.appendSystemPrompt = builder.appendSystemPrompt;
+        this.permissionMode = builder.permissionMode;
+        this.mcpConfigPath = builder.mcpConfigPath;
+        this.capabilityDir = builder.capabilityDir;
     }
 
     public AgentCliProperties.Client getConfig() {
@@ -56,6 +64,26 @@ public final class BuildContext {
         return reasoningEffort;
     }
 
+    /** 模式默认提示词，映射 {@code --append-system-prompt}；null 表示不追加。 */
+    public String getAppendSystemPrompt() {
+        return appendSystemPrompt;
+    }
+
+    /** per-run permission mode（CLI 原始值）；null 表示按方言缺省处理。 */
+    public String getPermissionMode() {
+        return permissionMode;
+    }
+
+    /** 已物化的 MCP 配置文件路径，映射 {@code --mcp-config}；null 表示无。 */
+    public String getMcpConfigPath() {
+        return mcpConfigPath;
+    }
+
+    /** 已物化的命令/skills plugin 目录，映射 {@code --plugin-dir}；null 表示无。 */
+    public String getCapabilityDir() {
+        return capabilityDir;
+    }
+
     public static Builder builder() {
         return new Builder();
     }
@@ -71,6 +99,10 @@ public final class BuildContext {
         private String model;
         private String endpoint;
         private String reasoningEffort;
+        private String appendSystemPrompt;
+        private String permissionMode;
+        private String mcpConfigPath;
+        private String capabilityDir;
 
         public Builder config(AgentCliProperties.Client value) {
             this.config = value;
@@ -104,6 +136,26 @@ public final class BuildContext {
 
         public Builder reasoningEffort(String value) {
             this.reasoningEffort = value;
+            return this;
+        }
+
+        public Builder appendSystemPrompt(String value) {
+            this.appendSystemPrompt = value;
+            return this;
+        }
+
+        public Builder permissionMode(String value) {
+            this.permissionMode = value;
+            return this;
+        }
+
+        public Builder mcpConfigPath(String value) {
+            this.mcpConfigPath = value;
+            return this;
+        }
+
+        public Builder capabilityDir(String value) {
+            this.capabilityDir = value;
             return this;
         }
 

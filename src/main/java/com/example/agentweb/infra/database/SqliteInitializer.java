@@ -167,6 +167,31 @@ public class SqliteInitializer {
         migrateChatRecallObservation();
         createToolInvocationStatisticsIndexes();
         migrateWorkbenchWorktree();
+        migrateChatModeUnification();
+    }
+
+    /**
+     * 统一 Chat/Workbench：chat_session 追加模式绑定与切换血缘列（全部可空，
+     * NULL = 原纯 Chat 行为）；chat_mode / handoff_document 系列表由 schema.sql
+     * 的 CREATE TABLE IF NOT EXISTS 兜底，此处只补存量库的列。
+     */
+    private void migrateChatModeUnification() {
+        for (String column : new String[]{
+                "mode_id TEXT",
+                "mode_snapshot TEXT",
+                "switched_from_session_id TEXT",
+                "handoff_document_id TEXT"}) {
+            try {
+                jdbc.execute("ALTER TABLE chat_session ADD COLUMN " + column);
+            } catch (Exception ignored) {
+                // column already exists
+            }
+        }
+        try {
+            jdbc.execute("CREATE INDEX IF NOT EXISTS idx_chat_session_switched_from "
+                    + "ON chat_session(switched_from_session_id)");
+        } catch (Exception ignored) {
+        }
     }
 
     private void migrateWorkbenchWorktree() {

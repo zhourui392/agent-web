@@ -1042,3 +1042,104 @@ CREATE TABLE IF NOT EXISTS workbench_stage_conversation_restart_receipt (
 CREATE INDEX IF NOT EXISTS idx_workbench_stage_conversation_restart_created
     ON workbench_stage_conversation_restart_receipt(
         workbench_id, stage_instance_identifier, created_at DESC);
+
+-- ============ 统一 Chat/Workbench：模式（ChatMode）与交接（HandoffDocument） ============
+
+-- chat_session 模式绑定与切换血缘（DDL 追加列见 SqliteInitializer；新列全部可空，NULL = 原纯 Chat 行为）
+-- mode_id / mode_snapshot / switched_from_session_id / handoff_document_id
+
+CREATE TABLE IF NOT EXISTS chat_mode (
+    id                 TEXT PRIMARY KEY,
+    user_id            TEXT    NOT NULL,
+    identifier         TEXT    NOT NULL,
+    display_name       TEXT    NOT NULL,
+    description        TEXT,
+    default_prompt     TEXT,
+    permission_mode    TEXT,
+    model              TEXT,
+    effort             TEXT,
+    source_revision_id INTEGER,
+    created_at         TEXT    NOT NULL,
+    updated_at         TEXT    NOT NULL,
+    version            INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (user_id, identifier),
+    CHECK (length(user_id) BETWEEN 1 AND 128),
+    CHECK (length(identifier) BETWEEN 1 AND 128),
+    CHECK (length(display_name) BETWEEN 1 AND 128),
+    CHECK (permission_mode IS NULL OR permission_mode IN (
+        'acceptEdits', 'auto', 'bypassPermissions', 'manual', 'dontAsk', 'plan')),
+    CHECK (effort IS NULL OR effort IN ('low', 'medium', 'high')),
+    CHECK (version >= 0)
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_mode_user ON chat_mode(user_id);
+
+CREATE TABLE IF NOT EXISTS chat_mode_command (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    mode_id              TEXT    NOT NULL,
+    capability_identifier TEXT   NOT NULL,
+    capability_version   TEXT    NOT NULL,
+    capability_hash      TEXT    NOT NULL,
+    sort_order           INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (mode_id) REFERENCES chat_mode(id) ON DELETE CASCADE,
+    UNIQUE (mode_id, capability_identifier),
+    CHECK (length(capability_identifier) BETWEEN 1 AND 128),
+    CHECK (length(capability_version) BETWEEN 1 AND 80),
+    CHECK (length(capability_hash) = 64 AND capability_hash GLOB '*[^0-9a-f]*' = 0),
+    CHECK (sort_order >= 0)
+);
+
+CREATE TABLE IF NOT EXISTS chat_mode_skill (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    mode_id              TEXT    NOT NULL,
+    capability_identifier TEXT   NOT NULL,
+    capability_version   TEXT    NOT NULL,
+    capability_hash      TEXT    NOT NULL,
+    sort_order           INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (mode_id) REFERENCES chat_mode(id) ON DELETE CASCADE,
+    UNIQUE (mode_id, capability_identifier),
+    CHECK (length(capability_identifier) BETWEEN 1 AND 128),
+    CHECK (length(capability_version) BETWEEN 1 AND 80),
+    CHECK (length(capability_hash) = 64 AND capability_hash GLOB '*[^0-9a-f]*' = 0),
+    CHECK (sort_order >= 0)
+);
+
+CREATE TABLE IF NOT EXISTS chat_mode_mcp_server (
+    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    mode_id              TEXT    NOT NULL,
+    capability_identifier TEXT   NOT NULL,
+    capability_version   TEXT    NOT NULL,
+    capability_hash      TEXT    NOT NULL,
+    maximum_access       TEXT    NOT NULL CHECK (maximum_access IN ('READ', 'WRITE')),
+    transport            TEXT    NOT NULL CHECK (transport IN ('STDIO', 'STREAMABLE_HTTP')),
+    sort_order           INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (mode_id) REFERENCES chat_mode(id) ON DELETE CASCADE,
+    UNIQUE (mode_id, capability_identifier),
+    CHECK (length(capability_identifier) BETWEEN 1 AND 128),
+    CHECK (length(capability_version) BETWEEN 1 AND 80),
+    CHECK (length(capability_hash) = 64 AND capability_hash GLOB '*[^0-9a-f]*' = 0),
+    CHECK (sort_order >= 0)
+);
+
+-- 模式切换交接记录：不可变、无状态机；(from_session_id, idempotency_key) 唯一兜底重复提交。
+-- to_session_id 不设外键：新会话与交接在同一事务内先插会话再插交接，避免环状 FK 依赖。
+CREATE TABLE IF NOT EXISTS handoff_document (
+    id               TEXT PRIMARY KEY,
+    from_session_id  TEXT    NOT NULL,
+    to_session_id    TEXT    NOT NULL,
+    from_mode_id     TEXT,
+    to_mode_id       TEXT,
+    file_path        TEXT    NOT NULL,
+    idempotency_key  TEXT    NOT NULL,
+    created_at       TEXT    NOT NULL,
+    FOREIGN KEY (from_session_id) REFERENCES chat_session(id) ON DELETE CASCADE,
+    UNIQUE (from_session_id, idempotency_key),
+    CHECK (length(from_session_id) BETWEEN 1 AND 128),
+    CHECK (length(to_session_id) BETWEEN 1 AND 128),
+    CHECK (length(file_path) BETWEEN 1 AND 1024),
+    CHECK (length(idempotency_key) BETWEEN 1 AND 128),
+    CHECK (from_session_id <> to_session_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_handoff_document_to_session
+    ON handoff_document(to_session_id);

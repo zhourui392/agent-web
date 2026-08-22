@@ -101,6 +101,7 @@ const ChatPanel = {
       initialSessionId: { type: String, default: '' },
       initialResumeId: { type: String, default: '' },
       ragEnabled: { type: Boolean, default: true },
+      modeId: { type: String, default: '' },
     },
     emits: ['session-created', 'refresh-history'],
     setup(props, { emit }) {
@@ -212,6 +213,8 @@ const ChatPanel = {
           workingDir: props.workingDir,
           agentType: props.agentType,
           env: props.environment || null,
+          // 无模式不带 modeId：保持后端"无模式 = 零行为变化"契约
+          ...(props.modeId ? { modeId: props.modeId } : {}),
         };
         const res = await fetch('/api/chat/session', {
           method: 'POST',
@@ -252,6 +255,9 @@ const ChatPanel = {
               let recall = null;
               if (msg.recall) { try { recall = JSON.parse(msg.recall); } catch (e) { recall = null; } }
               messages.value.push({ id: msg.id, role: 'agent', segments: segments, recall: recall, recallOpen: false });
+            } else if (msg.role === 'system') {
+              // 模式切换等系统提示：持久化行，刷新/恢复后仍可见
+              messages.value.push({ id: msg.id, role: 'system', text: msg.content });
             }
           });
           let agentIdx = 0;
@@ -389,6 +395,9 @@ const ChatPanel = {
               let recall = null;
               if (msg.recall) { try { recall = JSON.parse(msg.recall); } catch (e) { recall = null; } }
               messages.value.push({ id: msg.id, role: 'agent', segments: segments, recall: recall, recallOpen: false });
+            } else if (msg.role === 'system') {
+              // 模式切换等系统提示：持久化行，刷新/恢复后仍可见
+              messages.value.push({ id: msg.id, role: 'system', text: msg.content });
             }
           });
           loadFeedback(sid);

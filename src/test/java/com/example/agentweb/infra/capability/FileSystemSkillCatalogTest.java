@@ -246,6 +246,31 @@ class FileSystemSkillCatalogTest {
         assertEquals("CATALOG_TRUST_SOURCE_MISMATCH", trustError.getCode());
     }
 
+    @Test
+    void should_DiscoverCodexSkills_When_SkillDirectoryIsSymbolicLink() throws IOException {
+        // Given: 管理员配置根下的 skill 目录以符号链接组织(如 ~/.agents/skills/<name> → 真实目录)
+        Path realSkill = tempDir.resolve("real-skills/java-tdd");
+        writeCodexSkill(realSkill, "java-tdd",
+                "Develop Java changes with TDD", "references/workflow.md");
+        Path configuredRoot = tempDir.resolve("configured-root");
+        Files.createDirectories(configuredRoot);
+        Files.createSymbolicLink(configuredRoot.resolve("java-tdd"),
+                realSkill.toAbsolutePath());
+        FileSystemSkillCatalog catalog = new FileSystemSkillCatalog(
+                configuredRoot, SkillTrustSource.APPROVED_USER);
+
+        // When
+        List<SkillPackage> skills = catalog.discover();
+
+        // Then
+        assertEquals(1, skills.size());
+        assertEquals("java-tdd", skills.get(0).getManifest().getId());
+        assertEquals("Develop Java changes with TDD",
+                skills.get(0).getManifest().getDescription());
+        assertEquals("java-tdd resource", new String(skills.get(0).getResourceContents()
+                .get("references/workflow.md"), StandardCharsets.UTF_8));
+    }
+
     private Path writeSkill(Path root, String id, String resource) throws IOException {
         Path skillDir = Files.createDirectories(root.resolve(id).resolve("1.0.0"));
         Files.createDirectories(skillDir.resolve("references"));

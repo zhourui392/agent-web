@@ -3,8 +3,8 @@
     <div class="view-wrap admin-capability-view">
       <div class="page-heading">
         <div>
-          <h2>Workbench 动态阶段</h2>
-          <p>先配置可信能力来源，再为 Stage 创建、发布或停用不可变配置版本。</p>
+          <h2>能力来源与阶段目录</h2>
+          <p>维护命令 / Skills / MCP 的可信扫描来源，并管理阶段目录的定义、发布与停用；对话模式与工作台阶段均从这里发现能力。</p>
         </div>
       </div>
 
@@ -14,7 +14,7 @@
             @catalog-changed="capabilityCatalog = $event"
           />
         </el-tab-pane>
-        <el-tab-pane label="Stage Catalog" name="stages">
+        <el-tab-pane label="阶段目录" name="stages">
           <stage-catalog-settings :capability-catalog="capabilityCatalog" />
         </el-tab-pane>
       </el-tabs>

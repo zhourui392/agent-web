@@ -29,6 +29,7 @@ import com.example.agentweb.interfaces.workbench.dto.WorkbenchRunAttachmentReque
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -72,18 +73,33 @@ public class WorkbenchRunController {
     private final WorkbenchRunHistoryAppService historyAppService;
     private final CurrentUserProvider currentUserProvider;
     private final WorkbenchStageCommandQueryService stageCommandQueryService;
+    private final com.example.agentweb.app.workbench.WorkbenchWriteGate writeGate;
 
+    @Autowired
+    public WorkbenchRunController(
+            WorkbenchRunAppService appService,
+            WorkbenchStageRunAppService stageRunAppService,
+            WorkbenchRunHistoryAppService historyAppService,
+            CurrentUserProvider currentUserProvider,
+            WorkbenchStageCommandQueryService stageCommandQueryService,
+            com.example.agentweb.app.workbench.WorkbenchWriteGate writeGate) {
+        this.appService = appService;
+        this.stageRunAppService = stageRunAppService;
+        this.historyAppService = historyAppService;
+        this.currentUserProvider = currentUserProvider;
+        this.stageCommandQueryService = stageCommandQueryService;
+        this.writeGate = writeGate;
+    }
+
+    /** 独立单测兼容构造：门禁默认放行，验证既有写路径行为。 */
     public WorkbenchRunController(
             WorkbenchRunAppService appService,
             WorkbenchStageRunAppService stageRunAppService,
             WorkbenchRunHistoryAppService historyAppService,
             CurrentUserProvider currentUserProvider,
             WorkbenchStageCommandQueryService stageCommandQueryService) {
-        this.appService = appService;
-        this.stageRunAppService = stageRunAppService;
-        this.historyAppService = historyAppService;
-        this.currentUserProvider = currentUserProvider;
-        this.stageCommandQueryService = stageCommandQueryService;
+        this(appService, stageRunAppService, historyAppService, currentUserProvider,
+                stageCommandQueryService, new com.example.agentweb.app.workbench.WorkbenchWriteGate(true));
     }
 
     @GetMapping("/stages/{stageInstanceIdentifier}/commands")
@@ -110,6 +126,7 @@ public class WorkbenchRunController {
             @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestHeader("If-Match") long expectedVersion,
             @Valid @RequestBody SubmitWorkbenchRunRequest request) {
+        writeGate.requireWritable();
         WorkbenchId id = WorkbenchId.of(workbenchId);
         SubmitWorkbenchStageRunCommand command =
                 SubmitWorkbenchStageRunCommand.fromExternal(

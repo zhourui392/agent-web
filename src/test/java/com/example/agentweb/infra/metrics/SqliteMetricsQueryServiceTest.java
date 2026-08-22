@@ -73,14 +73,14 @@ public class SqliteMetricsQueryServiceTest {
 
     private void createTables() {
         jdbc.execute("CREATE TABLE chat_session ("
-                + "id TEXT PRIMARY KEY, agent_type TEXT, created_at TEXT, feedback_rating TEXT)");
+                + "id TEXT PRIMARY KEY, agent_type TEXT, created_at TEXT, feedback_rating TEXT,mode_id TEXT,mode_snapshot TEXT,switched_from_session_id TEXT,handoff_document_id TEXT)");
     }
 
     private void seedData() {
         String nowIso = Instant.now().toString();
 
-        jdbc.update("INSERT INTO chat_session VALUES (?,?,?,?)", "c1", "CLAUDE", nowIso, "CORRECT");
-        jdbc.update("INSERT INTO chat_session VALUES (?,?,?,?)", "c2", "CLAUDE", nowIso, "INCORRECT");
-        jdbc.update("INSERT INTO chat_session VALUES (?,?,?,?)", "c3", "CODEX", nowIso, null);
+        jdbc.update("INSERT INTO chat_session (id, agent_type, created_at, feedback_rating) VALUES (?,?,?,?)", "c1", "CLAUDE", nowIso, "CORRECT");
+        jdbc.update("INSERT INTO chat_session (id, agent_type, created_at, feedback_rating) VALUES (?,?,?,?)", "c2", "CLAUDE", nowIso, "INCORRECT");
+        jdbc.update("INSERT INTO chat_session (id, agent_type, created_at, feedback_rating) VALUES (?,?,?,?)", "c3", "CODEX", nowIso, null);
     }
 }

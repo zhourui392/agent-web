@@ -163,6 +163,26 @@ public final class AgentProcessKernel implements AutoCloseable {
     }
 
     /**
+     * 模式会话的 Claude 能力下发物化（mcp.json + plugin 目录）。
+     * 产物位于 capabilityRoot 内，随既有 executionRoot 清理路径回收。
+     */
+    private ClaudeBuildContextExtras materializeClaudeDelivery(
+            java.nio.file.Path capabilityRoot, RuntimeCapabilityMaterialization capabilities,
+            com.example.agentweb.app.runtime.port.ModeRuntimeDelivery delivery) {
+        try {
+            ClaudeCapabilityDeliveryWriter.ClaudeDelivery written =
+                    new ClaudeCapabilityDeliveryWriter(capabilityRoot)
+                            .write(capabilities, delivery);
+            return new ClaudeBuildContextExtras(
+                    delivery.getAppendSystemPrompt(), delivery.getPermissionMode(),
+                    written.mcpConfigPath(), written.pluginDirPath());
+        } catch (IOException | RuntimeException failure) {
+            throw new IllegalStateException(
+                    "claude capability delivery could not be materialized", failure);
+        }
+    }
+
+    /**
      * CLI Runtime 入口：由 CliAgentRuntime 选择方言和 Profile 后调用。
      * 旧的公共入口继续使用 RuntimeCommandFactory 以保持迁移期兼容。
      */
@@ -198,6 +218,14 @@ public final class AgentProcessKernel implements AutoCloseable {
         try {
             workspace = workspaceMaterializer.materialize(plan);
             capabilities = capabilityMaterializer.materialize(plan, workspace);
+            ClaudeBuildContextExtras claudeExtras =
+                    dialect == null || dialect.type()
+                            != com.example.agentweb.domain.shared.AgentType.CLAUDE
+                            || plan.getModeRuntimeDelivery() == null
+                            ? ClaudeBuildContextExtras.NONE
+                            : materializeClaudeDelivery(
+                                    workspace.getExecutionRoot().resolve("capabilities"),
+                                    capabilities, plan.getModeRuntimeDelivery());
             List<String> command = dialect == null
                     || (dialect.type() == com.example.agentweb.domain.shared.AgentType.CODEX
                     && legacyBridge == null)
@@ -210,8 +238,11 @@ public final class AgentProcessKernel implements AutoCloseable {
                     .model(plan.getRuntimeSelection().getModel())
                     .endpoint(plan.getRuntimeSelection().getEndpoint())
                     .reasoningEffort(plan.getRuntimeSelection().getReasoningEffort())
-                    .build());
-            ProcessBuilder builder = new ProcessBuilder(command);
+                    .appendSystemPrompt(claudeExtras.appendSystemPrompt())
+                    .permissionMode(claudeExtras.permissionMode())
+                    .mcpConfigPath(claudeExtras.mcpConfigPath())
+                    .capabilityDir(claudeExtras.pluginDir())
+                    .build());            ProcessBuilder builder = new ProcessBuilder(command);
             builder.directory(workspace.getPrimaryRepositoryRoot().toFile());
             builder.redirectErrorStream(true);
             processEnvironment = builder.environment();

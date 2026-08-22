@@ -277,7 +277,7 @@ async function load(keepIdentifier = ''): Promise<void> {
     if (selected) selectDefinition(selected);
     else startCreate();
   } catch (failure: unknown) {
-    error.value = messageOf(failure, '加载 Stage Catalog 失败');
+    error.value = messageOf(failure, '加载阶段目录失败');
   } finally {
     loading.value = false;
   }

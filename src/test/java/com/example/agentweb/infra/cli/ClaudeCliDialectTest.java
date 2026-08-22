@@ -53,7 +53,8 @@ class ClaudeCliDialectTest {
 
         List<String> cmd = dialect.buildCommand(ctx);
 
-        assertEquals(Arrays.asList("claude", "--print", "--output-format", "stream-json"), cmd);
+        assertEquals(Arrays.asList("claude", "--print", "--output-format", "stream-json",
+                "--permission-mode", "acceptEdits"), cmd);
     }
 
     @Test
@@ -66,7 +67,8 @@ class ClaudeCliDialectTest {
 
         List<String> cmd = dialect.buildCommand(ctx);
 
-        assertEquals(Arrays.asList("claude", "--prompt", "hi there"), cmd);
+        assertEquals(Arrays.asList("claude", "--prompt", "hi there",
+                "--permission-mode", "acceptEdits"), cmd);
     }
 
     @Test
@@ -80,7 +82,8 @@ class ClaudeCliDialectTest {
         List<String> cmd = dialect.buildCommand(ctx);
 
         assertEquals(
-                Arrays.asList("claude", "--print", "--output-format", "stream-json", "--resume", "abc-123"),
+                Arrays.asList("claude", "--print", "--output-format", "stream-json", "--resume", "abc-123",
+                        "--permission-mode", "acceptEdits"),
                 cmd);
     }
 
@@ -109,7 +112,8 @@ class ClaudeCliDialectTest {
 
         assertEquals(
                 Arrays.asList("claude", "--print", "--output-format", "stream-json",
-                        "--model", "claude-haiku-4-5-20251001"),
+                        "--model", "claude-haiku-4-5-20251001",
+                        "--permission-mode", "acceptEdits"),
                 cmd);
     }
 
@@ -139,7 +143,8 @@ class ClaudeCliDialectTest {
 
         assertEquals(
                 Arrays.asList("claude", "--print", "--output-format", "stream-json",
-                        "--resume", "abc-123", "--model", "haiku"),
+                        "--resume", "abc-123", "--model", "haiku",
+                        "--permission-mode", "acceptEdits"),
                 cmd);
     }
 

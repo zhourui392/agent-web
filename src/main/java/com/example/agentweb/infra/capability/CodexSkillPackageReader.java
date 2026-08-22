@@ -32,6 +32,8 @@ final class CodexSkillPackageReader {
 
     private static final String ENTRY_FILE = "SKILL.md";
     private static final String VERSION_PREFIX = "sha256-";
+    /** 目录扫描深度上限；同时以已访问真实路径集合防符号链接成环。 */
+    private static final int MAX_DIRECTORY_DEPTH = 8;
 
     private CodexSkillPackageReader() {
     }
@@ -42,30 +44,62 @@ final class CodexSkillPackageReader {
         for (Path entry : entries(realRoot)) {
             if (!Files.isRegularFile(
                     entry.resolveSibling("manifest.yml"), LinkOption.NOFOLLOW_LINKS)) {
-                packages.add(read(realRoot, entry, trustSource));
+                packages.add(read(entry, trustSource));
             }
         }
         return Collections.unmodifiableList(packages);
     }
 
+    /**
+     * 递归收集 {@code SKILL.md} 入口；目录符号链接按其指向的真实目录继续扫描
+     * （管理员配置根下以软链组织 skill 是常见布局），已访问真实路径集合防环。
+     */
     private static List<Path> entries(Path realRoot) {
-        try (Stream<Path> paths = Files.walk(realRoot)) {
-            List<Path> entries = new ArrayList<Path>();
-            paths.filter(path -> Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)
-                            && ENTRY_FILE.equals(path.getFileName().toString()))
-                    .forEach(entries::add);
-            entries.sort(java.util.Comparator.comparing(Path::toString));
-            return entries;
+        List<Path> entries = new ArrayList<Path>();
+        try {
+            Set<Path> visited = new LinkedHashSet<Path>();
+            visited.add(realRoot.toRealPath());
+            collectSkillEntries(realRoot, entries, visited, 0);
         } catch (IOException failure) {
             throw catalogFailure(
                     "CATALOG_READ_FAILED", "cannot scan Codex Skill root", failure);
         }
+        entries.sort(java.util.Comparator.comparing(Path::toString));
+        return entries;
+    }
+
+    private static void collectSkillEntries(Path directory, List<Path> entries,
+            Set<Path> visitedDirectories, int depth) throws IOException {
+        if (depth > MAX_DIRECTORY_DEPTH) {
+            return;
+        }
+        List<Path> children;
+        try (Stream<Path> paths = Files.list(directory)) {
+            children = paths.sorted().toList();
+        }
+        for (Path child : children) {
+            if (Files.isDirectory(child, LinkOption.NOFOLLOW_LINKS)) {
+                collectSkillEntries(child, entries, visitedDirectories, depth + 1);
+                continue;
+            }
+            if (Files.isRegularFile(child, LinkOption.NOFOLLOW_LINKS)
+                    && ENTRY_FILE.equals(child.getFileName().toString())) {
+                entries.add(child);
+                continue;
+            }
+            if (Files.isSymbolicLink(child) && Files.isDirectory(child)) {
+                Path real = child.toRealPath();
+                if (visitedDirectories.add(real)) {
+                    collectSkillEntries(real, entries, visitedDirectories, depth + 1);
+                }
+            }
+        }
     }
 
     private static SkillPackage read(
-            Path realRoot, Path entry, SkillTrustSource trustSource) {
-        List<CapabilityCatalogFiles.CatalogFile> files = packageFiles(
-                realRoot, entry.getParent());
+            Path entry, SkillTrustSource trustSource) {
+        List<CapabilityCatalogFiles.CatalogFile> files =
+                packageFiles(entry.getParent());
         CapabilityCatalogFiles.CatalogFile entryFile = requireEntry(files);
         CatalogYaml frontmatter = frontmatter(entryFile.getBytes(), entry.toString());
         String identifier = frontmatter.requiredString("name");
@@ -88,14 +122,13 @@ final class CodexSkillPackageReader {
     }
 
     private static List<CapabilityCatalogFiles.CatalogFile> packageFiles(
-            Path realRoot, Path packageDirectory) {
+            Path packageDirectory) {
         try (Stream<Path> paths = Files.walk(packageDirectory)) {
             List<CapabilityCatalogFiles.CatalogFile> files =
                     new ArrayList<CapabilityCatalogFiles.CatalogFile>();
             paths.filter(path -> Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS))
                     .filter(path -> !isNativeInstruction(packageDirectory.relativize(path)))
-                    .forEach(path -> files.add(readFile(
-                            realRoot, packageDirectory, path)));
+                    .forEach(path -> files.add(readFile(packageDirectory, path)));
             files.sort(java.util.Comparator.comparing(
                     CapabilityCatalogFiles.CatalogFile::getRelativePath));
             return files;
@@ -106,11 +139,11 @@ final class CodexSkillPackageReader {
     }
 
     private static CapabilityCatalogFiles.CatalogFile readFile(
-            Path realRoot, Path packageDirectory, Path path) {
+            Path packageDirectory, Path path) {
         try {
             Path real = path.toRealPath(LinkOption.NOFOLLOW_LINKS);
-            Path realPackage = packageDirectory.toRealPath(LinkOption.NOFOLLOW_LINKS);
-            if (!real.startsWith(realRoot) || !real.startsWith(realPackage)
+            Path realPackage = packageDirectory.toRealPath();
+            if (!real.startsWith(realPackage)
                     || !Files.isRegularFile(real, LinkOption.NOFOLLOW_LINKS)) {
                 throw catalogFailure(
                         "CATALOG_PATH_ESCAPE", "Codex Skill file escapes its package");

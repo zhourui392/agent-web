@@ -25,8 +25,8 @@ class SqliteToolInvocationStatisticsQueryServiceTest {
         SQLiteDataSource dataSource=new SQLiteDataSource(); dataSource.setUrl("jdbc:sqlite:"+tempDir.resolve("statistics.db"));
         jdbc=new JdbcTemplate(dataSource);
         jdbc.execute("CREATE TABLE chat_tool_invocation (id INTEGER PRIMARY KEY,session_id TEXT,run_id TEXT,provider TEXT,invocation_kind TEXT,tool_name TEXT,skill_name TEXT,trigger_source TEXT,input_json TEXT,status TEXT,input_truncated INTEGER,output_truncated INTEGER,started_at INTEGER,completed_at INTEGER,source TEXT)");
-        jdbc.execute("CREATE TABLE chat_session (id TEXT PRIMARY KEY,title TEXT,user_id TEXT,user_name TEXT,agent_type TEXT)");
-        jdbc.update("INSERT INTO chat_session VALUES ('s1','First','u1','User','CLAUDE'),('s2','Second',NULL,NULL,'CODEX')");
+        jdbc.execute("CREATE TABLE chat_session (id TEXT PRIMARY KEY,title TEXT,user_id TEXT,user_name TEXT,agent_type TEXT,mode_id TEXT,mode_snapshot TEXT,switched_from_session_id TEXT,handoff_document_id TEXT)");
+        jdbc.update("INSERT INTO chat_session (id, title, user_id, user_name, agent_type) VALUES ('s1','First','u1','User','CLAUDE'),('s2','Second',NULL,NULL,'CODEX')");
         insert(1,"s1","CLAUDE","TOOL_USE","Bash",null,"SUCCEEDED",1000L,1000L,"HISTORY_MIGRATION",0);
         insert(2,"s1","CLAUDE","TOOL_USE","Bash",null,"FAILED",2000L,2200L,"LIVE",1);
         insert(3,"s1","CLAUDE","SKILL","Skill","issue-log","INCOMPLETE",3000L,null,"HISTORY_MIGRATION",0);

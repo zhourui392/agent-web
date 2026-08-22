@@ -39,7 +39,9 @@ public class SqliteChatSessionQueryService implements ChatSessionQueryService {
                 rs.getString("env"),
                 rs.getInt("message_count"),
                 rs.getString("user_id"),
-                normalizedTitle);
+                normalizedTitle,
+                rs.getString("mode_id"),
+                rs.getString("mode_display_name"));
     };
 
     private static final RowMapper<ChatMessageView> MESSAGE_MAPPER = (rs, rowNum) -> new ChatMessageView(
@@ -65,8 +67,11 @@ public class SqliteChatSessionQueryService implements ChatSessionQueryService {
         String sql = "SELECT s.id, s.agent_type, s.working_dir, s.created_at, s.resume_id, s.env, s.user_id, "
                 + "  (SELECT COUNT(*) FROM chat_message m WHERE m.session_id = s.id) AS message_count, "
                 + "  COALESCE(s.title, (SELECT m.content FROM chat_message m WHERE m.session_id = s.id "
-                + "    AND m.role = 'user' ORDER BY m.id ASC LIMIT 1)) AS title "
-                + "FROM chat_session s" + where + " ORDER BY s.created_at DESC LIMIT ? OFFSET ?";
+                + "    AND m.role = 'user' ORDER BY m.id ASC LIMIT 1)) AS title, "
+                + "  s.mode_id AS mode_id, cm.display_name AS mode_display_name "
+                + "FROM chat_session s "
+                + "  LEFT JOIN chat_mode cm ON cm.id = s.mode_id"
+                + where + " ORDER BY s.created_at DESC LIMIT ? OFFSET ?";
         Object[] args = filter
                 ? new Object[]{currentUserProvider.currentUserId(), limit, offset}
                 : new Object[]{limit, offset};

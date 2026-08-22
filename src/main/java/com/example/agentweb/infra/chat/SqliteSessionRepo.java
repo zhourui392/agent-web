@@ -34,19 +34,22 @@ public class SqliteSessionRepo implements SessionRepository {
     private static final String SESSION_COLUMNS =
             "id, agent_type, working_dir, created_at, resume_id, title, env, "
                     + "feedback_rating, feedback_comment, feedback_at, client_ip, user_id, user_name, "
-                    + "session_kind, context_id, retired_at";
+                    + "session_kind, context_id, retired_at, "
+                    + "mode_id, mode_snapshot, switched_from_session_id, handoff_document_id";
 
     private static final String INSERT_SESSION =
             "INSERT INTO chat_session (id, agent_type, working_dir, created_at, "
                     + "resume_id, title, env, last_message_at, client_ip, user_id, user_name, "
-                    + "session_kind, context_id, retired_at) "
-                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                    + "session_kind, context_id, retired_at, "
+                    + "mode_id, mode_snapshot, switched_from_session_id, handoff_document_id) "
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
     private static final String INSERT_SESSION_IF_ABSENT =
             "INSERT OR IGNORE INTO chat_session (id, agent_type, working_dir, created_at, "
                     + "resume_id, title, env, last_message_at, client_ip, user_id, user_name, "
-                    + "session_kind, context_id, retired_at) "
-                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                    + "session_kind, context_id, retired_at, "
+                    + "mode_id, mode_snapshot, switched_from_session_id, handoff_document_id) "
+                    + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
     private final JdbcTemplate jdbc;
     private final CurrentUserProvider currentUserProvider;
@@ -99,8 +102,25 @@ public class SqliteSessionRepo implements SessionRepository {
                 session.getUserName(),
                 session.getSessionKind().name(),
                 session.getContextId(),
-                instantText(session.getRetiredAt())
+                instantText(session.getRetiredAt()),
+                session.getModeId(),
+                modeSnapshotText(session),
+                session.getSwitchedFromSessionId(),
+                session.getHandoffDocumentId()
         );
+    }
+
+    private static String modeSnapshotText(ChatSession session) {
+        if (session.getModeSnapshot() == null) {
+            return null;
+        }
+        try {
+            return com.fasterxml.jackson.databind.json.JsonMapper.builder().build()
+                    .writeValueAsString(session.getModeSnapshot());
+        } catch (com.fasterxml.jackson.core.JsonProcessingException ex) {
+            throw new IllegalStateException(
+                    "mode snapshot serialization failed for session " + session.getId(), ex);
+        }
     }
 
     private void persistRetirement(ChatSession session) {
@@ -326,7 +346,24 @@ public class SqliteSessionRepo implements SessionRepository {
         s.setUserId(rs.getString("user_id"));
         s.setUserName(rs.getString("user_name"));
         s.setFeedback(readFeedback(rs));
+        s.restoreModeBinding(readModeSnapshot(rs.getString("mode_snapshot")),
+                rs.getString("switched_from_session_id"),
+                rs.getString("handoff_document_id"));
         return s;
+    }
+
+    /** mode_snapshot JSON → ModeSnapshot；空或损坏按无模式处理并告警（老数据兼容）。 */
+    private static com.example.agentweb.domain.mode.ModeSnapshot readModeSnapshot(String json) {
+        if (json == null || json.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            return com.fasterxml.jackson.databind.json.JsonMapper.builder().build()
+                    .readValue(json, com.example.agentweb.domain.mode.ModeSnapshot.class);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException ex) {
+            log.warn("session-mode-snapshot-unreadable, fallback to default mode: {}", ex.getMessage());
+            return null;
+        }
     }
 
     private static String instantText(Instant value) {
